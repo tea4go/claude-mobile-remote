@@ -6,7 +6,7 @@
 
 > 产品定位：远程接力当前 Claude 会话，不做全量 Claude 历史管理器。
 >
-> 首期交付由阶段一、阶段二组成：先搭建工程骨架，再完成单会话通信闭环。
+> 首期交付对应里程碑 A，按 A1–A6 六个可独立验证的子阶段推进。
 
 ## 二、目标效果
 
@@ -17,7 +17,7 @@
 | 中期 | 多会话 | 一台电脑可同时管理多个由 Service 托管的会话 |
 | 后期 | 原生体验 | 支持扫码、语音输入、生命周期恢复和系统通知 |
 | 后期 | 三端覆盖 | iOS / Android 先行，HarmonyOS NEXT 独立开发 |
-| 后期 | 多机器与跨网 | 支持多 PC 切换；最后评估公网中转 |
+| 后期 | 多机器与独立公网访问 | 支持多 PC 切换；最后评估脱离 VPN 的公网中转 |
 
 ## 三、核心流程
 
@@ -25,28 +25,38 @@
 flowchart LR
     A["CLI Service 启动 Claude"] --> B["获得 sessionId"]
     B --> C["显示会话二维码"]
-    C --> D["手机扫码连接"]
-    D --> E["同步当前状态"]
-    E <-->|"新消息与操作"| F["继续控制同一会话"]
+    C --> D["手机扫码并认证"]
+    D --> E["订阅 sessionId Channel"]
+    E --> F["同步当前状态"]
+    F <-->|"新消息与操作"| G["继续控制同一会话"]
 ```
 
-二维码包含局域网连接地址、`sessionId` 和临时配对凭证。手机不读取扫码前的完整对话，只接收当前任务状态、待处理事项和扫码后的新消息。
+二维码包含手机可通过 VPN 访问的 PC Service 地址、`sessionId` 和临时配对凭证。手机不读取扫码前的完整对话，只接收当前任务状态、待处理事项和扫码后的新消息。
 
 ## 四、总体方案
 
 ```mermaid
 flowchart LR
-    U["电脑终端"] <-->|"输入与输出"| C["CLI Service"]
-    C <-->|"生命周期事件"| S["claude-agent-sdk-go"]
-    S <-->|"进程与管道"| A["Claude"]
-    C <-->|"局域网 WebSocket"| M["手机端"]
+    T["电脑终端"] <-->|"输入与输出"| SC["Session Controller"]
+    SC <-->|"生命周期事件"| SDK["claude-agent-sdk-go"]
+    SDK <-->|"进程与 stdio"| A["Claude"]
+    SC -->|"发布事件"| CH["Session Channel<br/>sessionId"]
+    M["手机端"] <-->|"WebSocket"| W["Transport"]
+    W -->|"订阅 / 操作"| CH
+    CH -->|"会话事件"| W
+    CH -->|"转交操作"| SC
 ```
 
 - CLI Service 是 Claude 进程和会话状态的唯一管理者；
 - `github.com/tea4go/claude-agent-sdk-go` 负责启动 Claude、接收事件和执行控制；
+- Claude 的完整上下文和所有操作始终留在 PC；手机只展示 PC 推送的数据并回传操作；
 - 终端与手机的输入统一进入 Session Controller，避免并发写入；
-- 每个 `sessionId` 对应一个逻辑消息通道；WebSocket 是网络传输协议，不使用操作系统 Pipe 连接手机；
-- 首期采用局域网直连，公网中转和消息推送不阻塞核心闭环。
+- 每个 `sessionId` 对应一个 Session Channel；手机认证后显式订阅该 Channel；
+- Session Controller 向 Channel 发布事件，Channel 将手机操作转回 Controller；
+- Channel 只负责路由，不保存完整会话，也不运行 Claude；
+- WebSocket 是网络传输协议，不使用操作系统 Pipe 连接手机；
+- 手机默认先连接 VPN，再通过 WebSocket 直连 PC Service；
+- 首期不处理局域网发现、NAT 穿透和网络差异，公网中转与消息推送不阻塞核心闭环。
 
 ## 五、首期范围
 
@@ -78,12 +88,12 @@ flowchart LR
 
 | 模块 | 技术 | 优势 | 阶段 |
 | --- | --- | --- | :---: |
-| CLI Service | Go | 适合进程、并发和跨平台 CLI | 1 |
-| Claude 托管 | `claude-agent-sdk-go` | 已验证可覆盖生命周期、流式事件、权限与管道日志 | 1 |
-| 本地通信 | WebSocket + `sessionId` 通道 | 支持事件订阅和手机双向操作 | 1 |
-| 移动 Web | React + TypeScript + antd-mobile + Vite | 移动端组件成熟，浏览器调试方便 | 1 |
-| iOS / Android | Capacitor | 复用 Web UI，并接入扫码、语音和推送 | 3 |
-| HarmonyOS NEXT | ArkTS + ArkUI 独立开发 | 符合 HarmonyOS NEXT 原生体系 | 4 |
+| CLI Service | Go | 适合进程、并发和跨平台 CLI | A1–A3 |
+| Claude 托管 | `claude-agent-sdk-go` | 已验证可覆盖生命周期、流式事件、权限与管道日志 | A2 |
+| 远程通信 | VPN + WebSocket + Session Channel | 无需公网中转即可按 `sessionId` 订阅和双向操作 | A4 |
+| 移动 Web | React + TypeScript + antd-mobile + Vite | 移动端组件成熟，浏览器调试方便 | A5 |
+| iOS / Android | Capacitor | 复用 Web UI，并接入扫码、语音和推送 | C |
+| HarmonyOS NEXT | ArkTS + ArkUI 独立开发 | 符合 HarmonyOS NEXT 原生体系 | D |
 | 公网能力 | 后期独立设计中转服务 | 解决跨网络访问和后台通知 | 后期 |
 
 ## 七、App 研发范围
@@ -104,13 +114,14 @@ claude-mobile-remote/
 ├── internal/
 │   ├── claude/                # SDK 适配与 Claude 生命周期
 │   ├── session/               # 会话状态、输入串行化与事件发布
+│   ├── channel/               # sessionId 订阅与消息路由
 │   ├── transport/             # WebSocket、鉴权和协议
 │   └── pairing/               # 二维码与临时凭证
 ├── apps/
-│   ├── mobile-web/            # React + antd-mobile 共用 UI
-│   ├── ios/                   # Capacitor iOS 工程
-│   ├── android/               # Capacitor Android 工程
-│   └── harmony/               # ArkTS / ArkUI 独立工程
+│   ├── mobile/                # React + antd-mobile 共用 UI
+│   │   ├── ios/               # C1 创建的 Capacitor iOS 工程
+│   │   └── android/           # C1 创建的 Capacitor Android 工程
+│   └── harmony/               # D1 创建的 ArkTS / ArkUI 工程
 ├── docs/
 │   ├── specs/                 # 总体与分阶段设计
 │   ├── plans/                 # 实施计划
@@ -121,23 +132,39 @@ claude-mobile-remote/
 └── DECISIONS.md
 ```
 
-目录按阶段创建，首期不为空壳以外的后期模块编写业务代码。
+目录按阶段创建：A1 只创建 Go 与 React/Vite 公共骨架；C1 再在 `apps/mobile/` 下创建 Capacitor iOS / Android 工程；D1 创建 HarmonyOS NEXT 工程。
 
 ## 九、开发步骤
 
 ```mermaid
 flowchart LR
-    A["阶段一<br/>项目骨架与三端空壳"] --> B["阶段二<br/>单会话通信闭环"]
-    B --> C["阶段三<br/>iOS / Android 原生能力"]
-    C --> D["阶段四<br/>HarmonyOS NEXT"]
-    D --> E["阶段五<br/>测试与发布"]
+    A["里程碑 A<br/>单会话最小闭环"] --> B["里程碑 B<br/>完整会话控制"]
+    B --> C["里程碑 C<br/>iOS / Android"]
+    C --> D["里程碑 D<br/>HarmonyOS NEXT"]
+    D --> E["里程碑 E<br/>发布与后续能力"]
 ```
 
-- 阶段一：建立 Service、移动 Web、iOS / Android 和 HarmonyOS NEXT 工程骨架；
-- 阶段二：浏览器先完成 Claude、终端和手机的单会话双向通信；
-- 阶段三：完善会话渲染与控制，完成 iOS / Android 原生能力和生命周期；
-- 阶段四：依据统一协议和前两端研发记录，独立开发 HarmonyOS NEXT；
-- 阶段五：完成三端联调、认证、上架与发布。
+### 9.1 里程碑 A：单会话最小闭环
+
+| 子阶段 | 交付物 | 通过条件 |
+| --- | --- | --- |
+| A1 项目骨架 | Go CLI、React/Vite 与基础工程配置 | Go 与移动 Web 骨架可独立启动、构建和测试 |
+| A2 SDK 托管 | 简单 CLI、真实 Claude 事件和 `sessionId` | SDK 最小用例通过 |
+| A3 Session Core | Session/Turn 状态机、输入队列和 snapshot | 自动化测试通过 |
+| A4 Channel 通信 | 鉴权、订阅、发布和命令回传 | 测试客户端闭环通过 |
+| A5 Mobile Web | 连接、状态、文本展示和发送 | 本机浏览器通过 |
+| A6 VPN 联调 | 手机连接 VPN 后扫码控制真实 Claude | 首期验收用例通过 |
+
+### 9.2 后续里程碑
+
+| 里程碑 | 子阶段 |
+| --- | --- |
+| B 完整会话控制 | B1 消息渲染；B2 审批与任务控制；B3 多会话；B4 重连与状态恢复 |
+| C iOS / Android | C1 Capacitor 与扫码；C2 两端真机联调；C3 语音、通知与生命周期 |
+| D HarmonyOS NEXT | D1 工程与协议；D2 功能迁移；D3 真机、推送与发布验证 |
+| E 发布与后续能力 | E1 安全与兼容验收；E2 签名与上架；E3 多 PC 与公网中转 |
+
+每次只展开当前子阶段的实施计划；前一子阶段门禁未通过，不进入下一子阶段。
 
 公网中转、系统推送、多会话和多机器在核心闭环稳定后单独排期，不反向阻塞前期设计。
 
@@ -145,7 +172,7 @@ flowchart LR
 
 - CLI Service 可通过 SDK 启动并结束一个 Claude 会话；
 - 可获取真实 `sessionId` 并生成有效二维码；
-- 同一局域网手机浏览器可完成鉴权和连接；
+- 手机连接 VPN 后，浏览器可完成鉴权和连接；
 - Claude 新消息可实时显示在终端和手机；
 - 终端和手机均可发送消息，且不会重复或并发写乱；
 - 手机连接后不返回扫码前的完整历史；
@@ -157,7 +184,5 @@ flowchart LR
 | 风险 | 影响 | 控制方式 |
 | --- | --- | --- |
 | 双端输入并发 | 消息重复或顺序错误 | 所有输入由 Session Controller 串行处理 |
-| 手机接入时缺少上下文 | 无法理解当前任务 | 返回当前状态和待处理事项，不同步完整历史 |
-| 局域网环境差异 | 手机无法访问电脑 | 首期覆盖地址选择、防火墙和二维码诊断 |
 | iOS / Android 生命周期 | 后台连接中断 | 原生阶段补状态恢复和系统通知 |
 | HarmonyOS NEXT 成本 | 独立开发、调试和上架周期长 | 后置实施并复用统一协议与验收用例 |
