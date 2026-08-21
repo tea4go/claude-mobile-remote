@@ -1,12 +1,14 @@
-// claude-mobile-remote 在 PC 上托管本地 Claude 会话，并通过 WebSocket
-// 向连接 VPN 的手机提供会话接力（A1 仅提供骨架入口）。
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
+	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
 	"github.com/tea4go/claude-mobile-remote/internal/version"
 )
 
@@ -19,7 +21,8 @@ func main() {
 		return
 	}
 
-	fmt.Printf("claude-mobile-remote %s — A1 skeleton\n", version.Version)
-	fmt.Println("会话托管与手机接力将在后续子阶段实现（见 docs/plans/）。")
-	os.Exit(0)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	exitCode := run(ctx, os.Stdin, os.Stdout, os.Stderr, projectclaude.NewHost())
+	stop()
+	os.Exit(exitCode)
 }

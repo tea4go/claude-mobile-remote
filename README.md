@@ -14,7 +14,7 @@
 6. 阶段设计文档由 AI 起草后交工作人员检查；检查完成后，只有工作人员明确要求时 AI 才执行 Git 提交，否则由工作人员自行提交；
 7. 任务结束前，由 AI 按 `AGENTS.md` 更新交接、决策和必要的验证记录。
 
-如果文档之间不一致、已有结果无法复核或任务边界不清楚，应先停止并报告，不自行推断后继续。工作人员负责范围确认、决策、体验验收和 Git 操作授权；AI 负责开发、验证和文档维护，默认不主动执行 Git，仅在工作人员明确要求时按授权范围执行。
+如果文档之间不一致、已有结果无法复核或任务边界不清楚，应先停止并报告，不自行推断后继续。工作人员负责范围确认、决策、体验验收和 Git 写操作授权；AI 负责开发、验证和文档维护，可主动使用只读 `git diff` 检查改动，但暂存、提交、推送、恢复、分支、合并等操作仍需工作人员明确授权。
 
 ## 文档地图
 
@@ -46,7 +46,7 @@ go run ./cmd/claude-mobile-remote -version
 cd apps/mobile && npm install && npm run dev
 ```
 
-构建与测试：`go test ./...`、`gofmt -l .`（无输出即通过）、`cd apps/mobile && npm run test && npm run build`。依赖变更时：本地改 `go.mod`，确认后同步更新 `go.mod.base` 提交。
+构建与测试：`go test ./...`、`gofmt -l .`（无输出即通过）、`cd apps/mobile && npm run test && npm run build`。注意 `go vet` / `go build` 需加 `GOFLAGS=-buildvcs=false`（go.mod 不入库的副作用，见 D18）。依赖变更时：本地改 `go.mod`，确认后同步更新 `go.mod.base` 提交。
 
 ## 仓库
 

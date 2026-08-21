@@ -1,22 +1,22 @@
 # HANDOFF.md — Claude Mobile Remote 交接文档
 
-> 新会话先读 `AGENTS.md`，再读本文件、`DECISIONS.md`、`REQUIREMENTS.md` 和总体设计。完成阅读后先复述当前状态和下一步，确认后再修改代码。
+> 新会话先读 `AGENTS.md`，再读本文件、`DECISIONS.md`、`REQUIREMENTS.md` 和总体设计。完成阅读后先复述当前状态和下一步，再按“当前执行”继续；涉及尚未确认的设计、计划或产品决策时先等用户确认。
 
 ## 0. 一句话现状
 
-A1 已提交；A2 SDK 托管设计已写入并提交，等待用户书面复核。
+A1–A2 已完成；A2 完成前评审问题已修正，全部自动门禁与真实 Claude 双轮测试通过，等待用户人工验收。
 
 ## 当前执行（AI 自动维护）
 
 - **子阶段**：A2 SDK 托管
-- **当前任务**：提交已检查的 D22 工作流修改并编写 A2 实施计划
-- **状态**：执行中
-- **范围**：按用户明确要求提交 AGENTS.md、README、DECISIONS.md、HANDOFF.md 的 D22 修改；随后依据已批准设计编写 A2 实施计划；不修改依赖或业务代码
-- **通过条件**：D22 修改形成独立提交；A2 计划逐任务覆盖设计、TDD、真实 Claude 门禁与文档收尾，并交用户确认后再实施
-- **完成结果**：用户已检查并批准 A2 设计与 D22 修改；D22 提交和 A2 计划待完成
-- **最近验证**：待提交差异仅包含四份规则/交接文档，`git diff --check` 通过
-- **未验证项**：A2 实施计划和代码尚未开始；真实 Claude 调用将在 A2 实施门禁执行
-- **下一步**：提交 D22 修改；编写 A2 实施计划并交用户确认
+- **当前任务**：修复 A2 严格审查发现的 I-1（assistant 错误静默成功）与 I-2（buildvcs 文档失实）
+- **状态**：已完成（待用户检查提交）
+- **范围**：`internal/claude`（messages.go、host.go 及测试）补 AssistantMessage.Error 处理；`docs/testing/A2-result.md`、README、AGENTS、A2 设计修正 buildvcs 与错误分级说明；不改架构与决策
+- **通过条件**：新失败测试（assistant 错误 → turn_failed + 分级 scope）先失败后通过；全部门禁 fresh 重跑通过；文档三处一致反映实际命令
+- **完成结果**：I-1 已按 TDD 修复：`parseMessage` 提取 assistant 错误（类型+文本），`RunTurn` 收到错误 assistant 即终止当前流并发射 `turn_failed`，`server_error`/`rate_limit` 为 turn scope、其余为 session scope（依据 WhaleTerm 验证行为，未移植其文本关键字匹配）；新增 `TestParseMessage/assistant_error_*` 与 `TestHostAssistantErrorFailsTurn`。I-2 已修正：A2-result.md 补记审查修复记录与 buildvcs 注记；README 快速开始、AGENTS 开发规范、A2 设计 §8/§10 同步
+- **最近验证**：TDD 流程完整（新测试先编译失败后通过）；全量 unit/race/gofmt/vet/build/integration-skip fresh 重跑全部 PASS；真实 Claude integration 测试因本次改动不涉及正常流（parse 只新增分支），结论仍有效
+- **未验证项**：用户尚未执行 A2 人工验收（含可触发 API 错误的场景验证 I-1 真实行为）
+- **下一步**：用户检查修复并验收 A2；通过后起草 A3 Session Core 分阶段设计
 
 ## 1. 当前目标
 
@@ -44,7 +44,7 @@ A1 已提交；A2 SDK 托管设计已写入并提交，等待用户书面复核�
 - 心跳、完整重连、推送、公网中转、多会话和多机器后置；
 - A1 只创建 Go CLI、React/Vite 与基础工程配置；Capacitor 工程在 C1 创建，HarmonyOS 工程在 D1 创建；
 - 开发按里程碑和子阶段门禁推进，当前首期为 A1–A6，A6 为 VPN 手机联调；
-- AI 默认不执行 Git；用户明确要求时，AI 仅在该次授权范围内执行必要的 Git 操作（D20）。
+- AI 可主动使用只读 `git diff` 检查改动；Git 写操作与其他未明确允许的 Git 命令仍需用户授权（D23）。
 
 ## 3. 文档状态
 
@@ -57,15 +57,17 @@ A1 已提交；A2 SDK 托管设计已写入并提交，等待用户书面复核�
 | 总体设计 | ✅ 已确认 | 架构、Channel、协议和测试边界 |
 | A1 实施计划 | ✅ 已执行 | `docs/plans/2026-08-21-A1-project-skeleton.md` |
 | A1 门禁记录 | ✅ 通过 | `docs/testing/A1-result.md` |
-| A2 分阶段设计 | ✅ 待书面复核 | `docs/specs/2026-08-21-A2-sdk-hosting-design.md` |
-| 业务代码 | 🚧 A1 完成 | Go CLI + 移动 Web 骨架；A2 SDK 托管待计划 |
+| A2 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-21-A2-sdk-hosting-design.md` |
+| A2 实施计划 | ✅ 已执行 | `docs/plans/2026-08-21-A2-sdk-hosting.md` |
+| A2 门禁记录 | ✅ 通过 | `docs/testing/A2-result.md` |
+| 业务代码 | ✅ A2 完成 | 薄 SDK Adapter + 同步行式 CLI；A3 Session Core 待设计 |
 
 ## 4. 下一步
 
-1. 用户书面复核 A2 SDK 最小托管设计；
-2. 设计复核通过后编写 A2 实施计划并提交用户确认；
-3. A2 验证 SDK 最小托管与真实 `sessionId` 获取（含设计假设核对：init 事件 session_id、Turn/Session 语义）；
-4. A2 门禁通过后，再按 A3 → A6 顺序逐阶段验证单会话闭环；
+1. 用户执行 A2 CLI 人工体验验收并反馈通过或问题；
+2. AI 将人工验收结论写回本文件，必要时补充 `docs/testing/A2-result.md`；
+3. A2 验收通过后起草 A3 Session Core 分阶段设计并交用户检查；
+4. 按 A3 → A6 顺序逐阶段验证单会话闭环；
 5. 每项开发任务由 AI 在开始和结束时更新本文件；普通任务不单独创建测试记录。
 
 ## 5. 首期关键验证

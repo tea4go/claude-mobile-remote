@@ -2,7 +2,7 @@
 
 - 日期：2026-08-21
 - 子阶段：A2 SDK 托管（里程碑 A）
-- 状态：已完成方案确认，待用户书面复核
+- 状态：已确认并完成实施
 - 依据：`REQUIREMENTS.md` §9.1、总体设计 §2–§4、D2、D15、D18
 
 ## 1. 目标
@@ -129,7 +129,7 @@ Host 不生成 session ID。捕获规则：
 
 ## 8. 消息转换
 
-- `AssistantMessage`：只处理顶层 Assistant 的 `TextBlock`；A2 不渲染 Thinking、Tool 或子代理消息；
+- `AssistantMessage`：只处理顶层 Assistant 的 `TextBlock`；带 `Error` 的消息终止当前流并按 §10 分级；A2 不渲染 Thinking、Tool 或子代理消息；
 - `SystemMessage(init)`：捕获 session ID，不输出完整 Data；
 - `ResultMessage`：校验 session ID、结束 Turn；若该 Turn 尚未输出 Assistant 文本且 `Result` 非空，可作为文本兜底，避免重复输出；
 - 其他消息：A2 忽略，但不得因此提前结束 iterator；
@@ -154,6 +154,7 @@ Host 不生成 session ID。捕获规则：
 | SDK Connect 失败 | 返回 session scope 错误，不进入输入循环，调用安全关闭 |
 | 空输入 | 忽略，不创建 Turn |
 | Query 失败 | 返回 session scope 错误，CLI 停止；不自动重试 |
+| Assistant 带错误 | 错误 assistant 终止当前流：发射 `turn_failed`；`server_error`/`rate_limit` 为 turn scope（可重试），认证/计费等为 session scope。错误信息含类型与文本 |
 | Result `IsError` | 发射 `turn_failed` 并返回包含 SDK result/errors 的 turn scope 错误；CLI 报告后继续读取下一行 |
 | Result 前流结束 | 返回 session scope 的“未收到 ResultMessage”错误 |
 | session ID 缺失 | 当前 Turn 结束时返回 session scope 的验证错误 |
