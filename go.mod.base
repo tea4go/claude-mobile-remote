@@ -1,0 +1,3 @@
+module github.com/tea4go/claude-mobile-remote
+
+go 1.25.3

@@ -196,10 +196,25 @@ snapshot 只用于保持手机界面与 PC 当前状态一致，不用于重建 
 
 ## 8. 扩展边界
 
+### 8.1 三端共用契约（强约束）
+
+iOS / Android 先行开发、HarmonyOS NEXT 独立开发，但以下四项是三端必须共用的契约。**任何一端（含 Web）不得引入使其他端无法实现的依赖**；协议与状态变更必须逐项核对三端可实现性，核对结论记入 `DECISIONS.md`：
+
+| 契约 | 内容 | 对各端的含义 |
+| --- | --- | --- |
+| 通信协议 | §5 的 JSON envelope 与消息类型 | 只依赖 WebSocket + JSON，任何端的标准网络栈可实现；不得引入浏览器特有语义（如依赖 `localStorage` 的会话语义、依赖 DOM 事件的重连逻辑） |
+| 状态模型 | §3 的 Session/Turn 状态机与 snapshot 字段 | 三端展示同一状态语义；snapshot 字段必须是纯数据（无平台行为） |
+| 配对负载 | §6 的二维码内容（版本、地址、sessionId、pairToken） | 任何端扫码后按同一规则认证与订阅 |
+| 验收用例 | 各子阶段门禁的用例定义 | D 阶段用同一套用例验证 HarmonyOS NEXT 实现 |
+
+不在共用契约内的（UI 框架、路由方式、推送、生命周期管理）由各端自主选择，互不约束。
+
+### 8.2 后续扩展
+
 - **多会话**：把单个 Controller 扩展为以 `sessionId` 索引的 Registry；
 - **多手机**：Transport 已按订阅者广播，后续增加连接策略；
-- **Capacitor**：复用 Mobile Web、协议客户端和状态模型，只替换 NativeBridge；
-- **HarmonyOS NEXT**：复用协议、产品状态和验收用例，ArkTS/ArkUI 独立实现 UI；
+- **Capacitor**：复用 Mobile Web、协议客户端和状态模型，只替换 NativeBridge。移动 Web 的路由自 A5 起必须使用 hash 或内存路由，不使用依赖 History API 的路径路由——Capacitor WebView 以自定义 scheme（如 `capacitor://localhost`）加载资源，路径路由存在已知解析问题；
+- **HarmonyOS NEXT**：复用 §8.1 的共用契约，ArkTS/ArkUI 独立实现 UI；
 - **公网 relay**：保持 Client ↔ Transport 协议语义，新增出站连接与路由，不把 Claude 状态迁入云端；
 - **推送**：只携带提醒和定位信息，重新打开 App 后仍以 Service 状态为准。
 
