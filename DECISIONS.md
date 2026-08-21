@@ -161,3 +161,11 @@
 - **理由**：用户希望保留对 Git 操作时机和范围的控制，同时允许在明确委托时由 AI 完成具体 Git 工作。
 - **影响**：本决策替代 D11；AGENTS.md 硬约束 9、README 与 HANDOFF 的职责表述同步调整。当前用户已进一步明确本次授权全部 Git 操作；实际仍按任务目标只提交 A1，不因授权范围扩大而主动执行无必要的推送、合并、恢复或分支操作。
 - **状态**：已定
+
+## D21 · A2 使用薄 SDK Adapter 验证单 Client 多 Turn
+
+- **日期**：2026-08-21
+- **决策**：A2 在 `internal/claude` 建立薄 SDK Adapter，由其持有一个长生命周期 `claude-agent-sdk-go` Client，转换 A2 所需事件并验证真实 `sessionId` 与顺序多 Turn；CLI 不直接处理 SDK Message，A2 不提前实现 A3 Session Controller。
+- **理由**：隔离 SDK 生命周期和消息细节，保留可测试边界，同时避免把状态机、输入队列和网络协议提前混入 A2。
+- **影响**：SDK 类型限制在 `internal/claude`；A2 CLI 只做同步行输入；A3 在 Adapter 之上增加 Session/Turn 状态与串行队列。本决策不修改三端共用契约。
+- **状态**：已定
