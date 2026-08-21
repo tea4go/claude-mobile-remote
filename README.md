@@ -13,7 +13,7 @@
 5. 按当前子阶段的实施计划执行；尚无实施计划时，先编写计划并确认，不直接开始编码；
 6. 任务结束前，由 AI 按 `AGENTS.md` 更新交接、决策和必要的验证记录。
 
-如果文档之间不一致、已有结果无法复核或任务边界不清楚，应先停止并报告，不自行推断后继续。工作人员负责范围确认、决策、体验验收和 Git 操作；AI 负责开发、验证和文档维护。
+如果文档之间不一致、已有结果无法复核或任务边界不清楚，应先停止并报告，不自行推断后继续。工作人员负责范围确认、决策、体验验收和 Git 操作授权；AI 负责开发、验证和文档维护，默认不主动执行 Git，仅在工作人员明确要求时按授权范围执行。
 
 ## 文档地图
 
@@ -26,6 +26,26 @@
 5. `docs/specs/2026-08-21-claude-mobile-remote-design.md`：总体技术设计。
 
 `CLAUDE.md` 用于引导 Claude Code 读取同一套项目记忆，避免维护重复规则。
+
+## 快速开始
+
+前提：Go ≥ 1.25 与 Node ≥ 20。
+
+`go.mod`/`go.sum` 是本机状态（可能含指向本地 SDK 的 `replace`），不入库；仓库提交的是基准 `go.mod.base`。克隆后先恢复：
+
+```bash
+cp go.mod.base go.mod && go mod tidy
+```
+
+```bash
+# Go CLI（A1 骨架）
+go run ./cmd/claude-mobile-remote -version
+
+# 移动 Web（A1 骨架）
+cd apps/mobile && npm install && npm run dev
+```
+
+构建与测试：`go test ./...`、`gofmt -l .`（无输出即通过）、`cd apps/mobile && npm run test && npm run build`。依赖变更时：本地改 `go.mod`，确认后同步更新 `go.mod.base` 提交。
 
 ## 仓库
 

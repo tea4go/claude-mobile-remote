@@ -104,7 +104,7 @@ flowchart LR
     B --> C["后期<br/>语音、系统通知与生命周期"]
 ```
 
-iOS / Android 共用 React Web UI 和协议层，通过 Capacitor 接入系统能力。HarmonyOS NEXT 独立开发，但必须复用同一协议与产品定义，使后续 AI 可依据前两端文档实施。
+iOS / Android 共用 React Web UI 和协议层，通过 Capacitor 接入系统能力。HarmonyOS NEXT 独立开发，但必须复用同一套三端共用契约（通信协议、状态模型、配对负载、验收用例，见总体设计 §8.1）：所有规划在生效前已按「HarmonyOS NEXT 可独立实现」校验，协议与状态变更时必须重新核对三端可实现性，防止前两端收尾后才发现不兼容。
 
 ## 八、开发目录规划
 
@@ -186,3 +186,5 @@ flowchart LR
 | 双端输入并发 | 消息重复或顺序错误 | 所有输入由 Session Controller 串行处理 |
 | iOS / Android 生命周期 | 后台连接中断 | 原生阶段补状态恢复和系统通知 |
 | HarmonyOS NEXT 成本 | 独立开发、调试和上架周期长 | 后置实施并复用统一协议与验收用例 |
+| WebView 套壳兼容（C1） | 明文 WebSocket 被 iOS ATS / Android cleartext 策略拦截 | C1 增加平台配置：iOS Info.plist ATS 例外，Android Manifest `usesCleartextTraffic`；移动 Web 路由自 A5 起约束为 hash / 内存路由，规避自定义 scheme 路径解析问题 |
+| 共用契约被单端污染 | 前两端收尾后 HarmonyOS NEXT 无法实现，被迫换方案 | 协议与状态变更强制核对三端可实现性（硬约束 11 / 设计 §8.1），核对结论记入 DECISIONS |

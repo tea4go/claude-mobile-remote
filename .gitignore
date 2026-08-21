@@ -24,9 +24,27 @@ profile.cov
 go.work
 go.work.sum
 
+# go.mod/go.sum 为本地状态（含本地 replace），基准见 go.mod.base
+go.mod
+go.sum
+
 # env file
 .env
 
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Node / 前端（apps/mobile 及未来原生工程）
+node_modules/
+dist/
+*.local
+npm-debug.log*
+.DS_Store
+
+# 前端测试与缓存
+coverage/
+
+# 环境与密钥
+*.pem
+*.key
