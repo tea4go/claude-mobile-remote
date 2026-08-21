@@ -4,19 +4,19 @@
 
 ## 0. 一句话现状
 
-A1–A2 已完成；A2 完成前评审问题已修正，全部自动门禁与真实 Claude 双轮测试通过，等待用户人工验收。
+A1–A2 已完成并提交（A2 提交 `2ee56de`）；用户人工验收通过，下一步起草 A3 Session Core 分阶段设计。
 
 ## 当前执行（AI 自动维护）
 
 - **子阶段**：A2 SDK 托管
-- **当前任务**：修复 A2 严格审查发现的 I-1（assistant 错误静默成功）与 I-2（buildvcs 文档失实）
-- **状态**：已完成（待用户检查提交）
+- **当前任务**：A2 收口（审查修复 + 人工验收 + 提交）
+- **状态**：已完成并提交
 - **范围**：`internal/claude`（messages.go、host.go 及测试）补 AssistantMessage.Error 处理；`docs/testing/A2-result.md`、README、AGENTS、A2 设计修正 buildvcs 与错误分级说明；不改架构与决策
 - **通过条件**：新失败测试（assistant 错误 → turn_failed + 分级 scope）先失败后通过；全部门禁 fresh 重跑通过；文档三处一致反映实际命令
 - **完成结果**：I-1 已按 TDD 修复：`parseMessage` 提取 assistant 错误（类型+文本），`RunTurn` 收到错误 assistant 即终止当前流并发射 `turn_failed`，`server_error`/`rate_limit` 为 turn scope、其余为 session scope（依据 WhaleTerm 验证行为，未移植其文本关键字匹配）；新增 `TestParseMessage/assistant_error_*` 与 `TestHostAssistantErrorFailsTurn`。I-2 已修正：A2-result.md 补记审查修复记录与 buildvcs 注记；README 快速开始、AGENTS 开发规范、A2 设计 §8/§10 同步
 - **最近验证**：TDD 流程完整（新测试先编译失败后通过）；全量 unit/race/gofmt/vet/build/integration-skip fresh 重跑全部 PASS；真实 Claude integration 测试因本次改动不涉及正常流（parse 只新增分支），结论仍有效
-- **未验证项**：用户尚未执行 A2 人工验收（含可触发 API 错误的场景验证 I-1 真实行为）
-- **下一步**：用户检查修复并验收 A2；通过后起草 A3 Session Core 分阶段设计
+- **未验证项**：无。用户已验证并明确要求提交（D20 授权范围内仅执行本次提交）
+- **下一步**：起草 A3 Session Core 分阶段设计，交用户检查，不直接开始 A3 代码
 
 ## 1. 当前目标
 
