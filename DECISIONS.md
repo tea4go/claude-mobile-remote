@@ -185,3 +185,11 @@
 - **理由**：`git diff` 是开发与评审中的必要只读检查，不改变仓库状态；用户仍需掌握提交及其他状态变更边界。
 - **影响**：本决策替代 D20 中“AI 不得主动运行任何 Git 命令”的绝对限制，并同步修改 AGENTS.md 硬约束 9、README 与 HANDOFF；D22 的设计检查与提交规则不变。
 - **状态**：已定
+
+## D24 · A3 使用单 Actor Session Core 与纯数据 snapshot
+
+- **日期**：2026-08-24
+- **决策**：A3 的单 `SessionController` 使用一个 Actor 独占 Session/Turn 状态、容量为 32 的等待 FIFO、request ID 和事件 `seq`，由一个 Host Worker 串行调用 A2 Adapter。`Submit` 接受后立即返回服务端生成的 128-bit 随机 request ID，执行结果异步发布。Snapshot 细化为真实 `sessionId`、Session 状态、可空 Session 错误、`seq`、当前或最近 Turn（状态、request ID、来源、消息、可空错误和可空 `pendingAction`）及 `queueDepth`；主动停止可把运行中 Turn 置为 `cancelled`，独立 Turn 取消仍留在 B2。
+- **理由**：单写入者模型可以同时保证双端输入 FIFO、SDK Client 不被并发调用、状态快照一致和事件顺序；有界等待队列避免输入无限堆积；原子“订阅 + snapshot”边界可在不保存完整事件历史的前提下避免订阅建立时出现缺口。
+- **影响**：A3 新增 `internal/session` 并把 CLI 从同步直连 Host 迁移为异步提交与事件消费；最多同时存在 1 个运行中 Turn 和 32 个等待输入。A4 Channel 必须复用 Controller，并负责把纯数据领域事件映射为 JSON envelope 和组合连接状态。共用字段只使用 JSON 可表达的字符串、非负整数和可空对象，不包含 Go、浏览器或 Capacitor 专属语义；React/TypeScript、Capacitor iOS/Android 与 HarmonyOS ArkTS/ArkUI 均可实现相同状态和归并规则，三端可实现性核对通过。init 前无真实 session ID 的内部失败只供本地 CLI，不得序列化给移动端。
+- **状态**：已定
