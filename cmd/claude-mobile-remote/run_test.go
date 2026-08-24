@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -12,226 +13,995 @@ import (
 	"time"
 
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
+	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 )
 
-type fakeTurn struct {
-	events []projectclaude.Event
-	err    error
+type submitResult struct {
+	requestID string
+	err       error
 }
 
-type fakeHost struct {
-	connectErr   error
-	closeErr     error
-	turns        map[string]fakeTurn
-	prompts      []string
-	connectCalls int
-	closeCalls   int
-	connected    chan struct{}
+type fakeController struct {
+	mu sync.Mutex
+
+	startErr                 error
+	subscribeErr             error
+	stopErr                  error
+	waitIdleErr              error
+	snapshot                 projectsession.Snapshot
+	waitSnapshot             projectsession.Snapshot
+	events                   chan projectsession.Event
+	results                  []submitResult
+	startHook                func()
+	subscribeHook            func()
+	waitIdleHook             func()
+	stopWaitsForSubscription bool
+	stopRelease              chan struct{}
+
+	inputs            []projectsession.Input
+	calls             []string
+	startCalls        int
+	subscribeCalls    int
+	subscribeCapacity int
+	stopCalls         int
+	stopContextErr    error
+	waitIdleCalls     int
+	subscriptionDone  <-chan struct{}
+
+	started    chan struct{}
+	subscribed chan struct{}
+	stopped    chan struct{}
+	submitted  chan struct{}
+	startOnce  sync.Once
+	subOnce    sync.Once
+	stopOnce   sync.Once
 }
 
-func (f *fakeHost) Connect(context.Context) error {
-	f.connectCalls++
-	if f.connected != nil {
-		close(f.connected)
+func newFakeController(results ...submitResult) *fakeController {
+	return &fakeController{
+		events:       make(chan projectsession.Event, 128),
+		results:      results,
+		waitSnapshot: projectsession.Snapshot{SessionStatus: projectsession.SessionReady},
+		started:      make(chan struct{}),
+		subscribed:   make(chan struct{}),
+		stopped:      make(chan struct{}),
+		submitted:    make(chan struct{}, 128),
+		stopRelease:  make(chan struct{}),
 	}
-	return f.connectErr
 }
 
-func (f *fakeHost) RunTurn(_ context.Context, prompt string, emit func(projectclaude.Event)) error {
-	f.prompts = append(f.prompts, prompt)
-	turn := f.turns[prompt]
-	for _, event := range turn.events {
-		emit(event)
+func (f *fakeController) Start(context.Context) error {
+	f.mu.Lock()
+	f.startCalls++
+	f.calls = append(f.calls, "start")
+	err := f.startErr
+	hook := f.startHook
+	f.mu.Unlock()
+	f.startOnce.Do(func() { close(f.started) })
+	if hook != nil {
+		hook()
 	}
-	return turn.err
+	return err
 }
 
-func (f *fakeHost) SessionID() string { return "session-1" }
-
-func (f *fakeHost) Close() error {
-	f.closeCalls++
-	return f.closeErr
+func (f *fakeController) Submit(_ context.Context, input projectsession.Input) (string, error) {
+	f.mu.Lock()
+	call := len(f.inputs)
+	f.inputs = append(f.inputs, input)
+	f.calls = append(f.calls, "submit")
+	result := submitResult{requestID: fmt.Sprintf("request-%d", call+1)}
+	if call < len(f.results) {
+		result = f.results[call]
+	}
+	f.mu.Unlock()
+	f.submitted <- struct{}{}
+	return result.requestID, result.err
 }
 
-func TestRunProcessesLinesUntilQuit(t *testing.T) {
-	host := &fakeHost{turns: map[string]fakeTurn{
-		"first": {events: []projectclaude.Event{
-			{Kind: projectclaude.EventSessionStarted, SessionID: "session-1"},
-			{Kind: projectclaude.EventText, Text: "one"},
-		}},
-		"second": {events: []projectclaude.Event{{Kind: projectclaude.EventText, Text: "two"}}},
-	}}
+func (f *fakeController) Subscribe(ctx context.Context, capacity int) (projectsession.Snapshot, <-chan projectsession.Event, error) {
+	f.mu.Lock()
+	f.subscribeCalls++
+	f.calls = append(f.calls, "subscribe")
+	f.subscribeCapacity = capacity
+	f.subscriptionDone = ctx.Done()
+	snapshot := f.snapshot
+	events := f.events
+	err := f.subscribeErr
+	hook := f.subscribeHook
+	f.mu.Unlock()
+	f.subOnce.Do(func() { close(f.subscribed) })
+	if hook != nil {
+		hook()
+	}
+	if err != nil {
+		return projectsession.Snapshot{}, nil, err
+	}
+	return snapshot, events, nil
+}
+
+func (f *fakeController) WaitIdle(context.Context) (projectsession.Snapshot, error) {
+	f.mu.Lock()
+	f.waitIdleCalls++
+	f.calls = append(f.calls, "wait_idle")
+	snapshot := f.waitSnapshot
+	err := f.waitIdleErr
+	hook := f.waitIdleHook
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return snapshot, err
+}
+
+func (f *fakeController) Stop(ctx context.Context) error {
+	f.mu.Lock()
+	f.stopCalls++
+	f.calls = append(f.calls, "stop")
+	f.stopContextErr = ctx.Err()
+	err := f.stopErr
+	waitForSubscription := f.stopWaitsForSubscription
+	subscriptionDone := f.subscriptionDone
+	stopRelease := f.stopRelease
+	f.mu.Unlock()
+	f.stopOnce.Do(func() { close(f.stopped) })
+	if waitForSubscription {
+		select {
+		case <-subscriptionDone:
+		case <-stopRelease:
+		}
+	}
+	return err
+}
+
+func (f *fakeController) state() (inputs []projectsession.Input, calls []string, startCalls, subscribeCalls, subscribeCapacity, stopCalls int, stopContextErr error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]projectsession.Input(nil), f.inputs...), append([]string(nil), f.calls...), f.startCalls, f.subscribeCalls, f.subscribeCapacity, f.stopCalls, f.stopContextErr
+}
+
+func (f *fakeController) waitIdleCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.waitIdleCalls
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, description string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for %s", description)
+	}
+}
+
+func waitForRun(t *testing.T, done <-chan int) int {
+	t.Helper()
+	select {
+	case exitCode := <-done:
+		return exitCode
+	case <-time.After(time.Second):
+		t.Fatal("run did not return")
+		return -1
+	}
+}
+
+func waitForControllerQueueDepth(t *testing.T, controller *projectsession.Controller, want int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, err := controller.Snapshot(context.Background())
+		if err == nil && snapshot.QueueDepth == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for Controller queue depth %d", want)
+}
+
+func assertRunStillActive(t *testing.T, done <-chan int, duration time.Duration) {
+	t.Helper()
+	select {
+	case exitCode := <-done:
+		t.Fatalf("run returned early with exit code %d", exitCode)
+	case <-time.After(duration):
+	}
+}
+
+type runControlledTurn struct {
+	emit   func(projectclaude.Event)
+	result chan error
+}
+
+func (turn *runControlledTurn) emitEvent(event projectclaude.Event) {
+	turn.emit(event)
+}
+
+func (turn *runControlledTurn) finish(err error) {
+	turn.result <- err
+}
+
+type runControlledHost struct {
+	started chan *runControlledTurn
+
+	mu         sync.Mutex
+	closeCalls int
+}
+
+func newRunControlledHost() *runControlledHost {
+	return &runControlledHost{started: make(chan *runControlledTurn)}
+}
+
+func (host *runControlledHost) Connect(context.Context) error { return nil }
+
+func (host *runControlledHost) RunTurn(ctx context.Context, _ string, emit func(projectclaude.Event)) error {
+	turn := &runControlledTurn{emit: emit, result: make(chan error, 1)}
+	select {
+	case host.started <- turn:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case err := <-turn.result:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (host *runControlledHost) Close() error {
+	host.mu.Lock()
+	host.closeCalls++
+	host.mu.Unlock()
+	return nil
+}
+
+func receiveRunControlledTurn(t *testing.T, host *runControlledHost) *runControlledTurn {
+	t.Helper()
+	select {
+	case turn := <-host.started:
+		return turn
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for real Controller Host turn")
+		return nil
+	}
+}
+
+type runScopedError struct {
+	scope projectclaude.ErrorScope
+	err   error
+}
+
+func (err runScopedError) Error() string                   { return err.err.Error() }
+func (err runScopedError) Unwrap() error                   { return err.err }
+func (err runScopedError) Scope() projectclaude.ErrorScope { return err.scope }
+
+func TestRunSubmitsLinesWithoutWaitingForTurn(t *testing.T) {
+	controller := newFakeController(
+		submitResult{requestID: "request-1"},
+		submitResult{requestID: "request-2"},
+	)
+	reader, writer := io.Pipe()
+	defer reader.Close()
 	var stdout, stderr bytes.Buffer
-	exitCode := run(context.Background(), strings.NewReader("\nfirst\nsecond\n:quit\nignored\n"), &stdout, &stderr, host)
+	done := make(chan int, 1)
+	go func() {
+		done <- run(context.Background(), reader, &stdout, &stderr, controller)
+	}()
 
-	if exitCode != 0 || stderr.Len() != 0 {
+	if _, err := io.WriteString(writer, "  first  \nsecond\n"); err != nil {
+		t.Fatal(err)
+	}
+	waitForSignal(t, controller.submitted, "first Submit")
+	waitForSignal(t, controller.submitted, "second Submit before a terminal event")
+	inputs, calls, startCalls, subscribeCalls, subscribeCapacity, _, _ := controller.state()
+	if !reflect.DeepEqual(inputs, []projectsession.Input{
+		{Source: projectsession.InputTerminal, Text: "first"},
+		{Source: projectsession.InputTerminal, Text: "second"},
+	}) {
+		t.Fatalf("inputs = %#v", inputs)
+	}
+	if startCalls != 1 || subscribeCalls != 1 || subscribeCapacity != 64 || !reflect.DeepEqual(calls, []string{"start", "subscribe", "submit", "submit"}) {
+		t.Fatalf("calls = %#v, start/subscribe/capacity = %d/%d/%d", calls, startCalls, subscribeCalls, subscribeCapacity)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	controller.events <- projectsession.Event{Kind: projectsession.EventSessionStarted, SessionID: "session-1"}
+	controller.events <- projectsession.Event{Kind: projectsession.EventTextDelta, RequestID: "request-1", Text: "one"}
+	controller.events <- projectsession.Event{Kind: projectsession.EventTurnCompleted, RequestID: "request-1"}
+	assertRunStillActive(t, done, 20*time.Millisecond)
+	controller.events <- projectsession.Event{Kind: projectsession.EventTextDelta, RequestID: "request-2", Text: "two"}
+	controller.events <- projectsession.Event{Kind: projectsession.EventTurnCompleted, RequestID: "request-2"}
+
+	if exitCode := waitForRun(t, done); exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if !reflect.DeepEqual(host.prompts, []string{"first", "second"}) {
-		t.Fatalf("prompts = %#v", host.prompts)
+	if got := stdout.String(); got != "session: session-1\none\ntwo\n" {
+		t.Fatalf("stdout = %q", got)
 	}
-	if host.connectCalls != 1 || host.closeCalls != 1 {
-		t.Fatalf("connect/close calls = %d/%d", host.connectCalls, host.closeCalls)
+	_, _, _, _, _, stopCalls, stopContextErr := controller.state()
+	if stopCalls != 1 || stopContextErr != nil {
+		t.Fatalf("stopCalls = %d, stop context error = %v", stopCalls, stopContextErr)
 	}
-	if stdout.String() != "session: session-1\none\ntwo\n" {
+}
+
+func TestRunEOFWaitsForAcceptedRequests(t *testing.T) {
+	controller := newFakeController(submitResult{requestID: "request-1"})
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(context.Background(), strings.NewReader("first\n"), &stdout, &stderr, controller)
+	}()
+
+	waitForSignal(t, controller.submitted, "accepted request")
+	assertRunStillActive(t, done, 50*time.Millisecond)
+	controller.events <- projectsession.Event{Kind: projectsession.EventTurnCompleted, RequestID: "request-1"}
+
+	if exitCode := waitForRun(t, done); exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if stdout.String() != "\n" {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
+	_, _, _, _, _, stopCalls, _ := controller.state()
+	if stopCalls != 1 {
+		t.Fatalf("stopCalls = %d", stopCalls)
+	}
+	if waitIdleCalls := controller.waitIdleCallCount(); waitIdleCalls != 1 {
+		t.Fatalf("WaitIdle calls = %d, want 1", waitIdleCalls)
+	}
 }
 
-func TestRunContinuesAfterTurnError(t *testing.T) {
-	host := &fakeHost{turns: map[string]fakeTurn{
-		"first": {
-			events: []projectclaude.Event{{Kind: projectclaude.EventText, Text: "partial"}},
-			err:    errors.New("recoverable"),
+func TestRunEOFWaitsForControllerSettlement(t *testing.T) {
+	tests := []struct {
+		name         string
+		resultErr    error
+		wantExitCode int
+		wantStderr   string
+	}{
+		{
+			name:         "Session result reports only Session root cause",
+			resultErr:    runScopedError{scope: projectclaude.ScopeSession, err: errors.New("session transport failed")},
+			wantExitCode: 1,
+			wantStderr:   "Session 错误: session transport failed\n",
 		},
-		"second": {events: []projectclaude.Event{{Kind: projectclaude.EventText, Text: "ok"}}},
-	}}
-	firstTurn := host.turns["first"]
-	firstTurn.err = projectclaudeTestError(projectclaude.ScopeTurn, firstTurn.err)
-	host.turns["first"] = firstTurn
-	var stdout, stderr bytes.Buffer
-	exitCode := run(context.Background(), strings.NewReader("first\nsecond\n"), &stdout, &stderr, host)
+		{
+			name:         "recoverable Turn result reports Turn failure",
+			resultErr:    runScopedError{scope: projectclaude.ScopeTurn, err: errors.New("recoverable Worker failure")},
+			wantExitCode: 0,
+			wantStderr:   "Turn 错误: recoverable Adapter failure\n",
+		},
+	}
 
-	if exitCode != 0 || !strings.Contains(stderr.String(), "recoverable") {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			host := newRunControlledHost()
+			controller := projectsession.NewController(host)
+			var stdout, stderr bytes.Buffer
+			done := make(chan int, 1)
+			go func() {
+				done <- run(context.Background(), strings.NewReader("first\n"), &stdout, &stderr, controller)
+			}()
+
+			turn := receiveRunControlledTurn(t, host)
+			turn.emitEvent(projectclaude.Event{Kind: projectclaude.EventSessionStarted, SessionID: "session-1"})
+			turn.emitEvent(projectclaude.Event{Kind: projectclaude.EventTurnFailed, Text: "recoverable Adapter failure"})
+			assertRunStillActive(t, done, 50*time.Millisecond)
+			turn.finish(test.resultErr)
+
+			if exitCode := waitForRun(t, done); exitCode != test.wantExitCode {
+				t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+			}
+			if got := stderr.String(); got != test.wantStderr {
+				t.Fatalf("stderr = %q, want %q", got, test.wantStderr)
+			}
+			if got := stdout.String(); got != "session: session-1\n" {
+				t.Fatalf("stdout = %q, want Session announcement only", got)
+			}
+		})
+	}
+}
+
+func TestRunEOFSessionFailureTerminatesPartialLine(t *testing.T) {
+	host := newRunControlledHost()
+	controller := projectsession.NewController(host)
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(context.Background(), strings.NewReader("first\n"), &stdout, &stderr, controller)
+	}()
+
+	turn := receiveRunControlledTurn(t, host)
+	turn.emitEvent(projectclaude.Event{Kind: projectclaude.EventSessionStarted, SessionID: "session-1"})
+	turn.emitEvent(projectclaude.Event{Kind: projectclaude.EventText, Text: "partial"})
+	turn.emitEvent(projectclaude.Event{Kind: projectclaude.EventTurnFailed, Text: "Adapter failure"})
+	assertRunStillActive(t, done, 50*time.Millisecond)
+	turn.finish(runScopedError{scope: projectclaude.ScopeSession, err: errors.New("session transport failed")})
+
+	if exitCode := waitForRun(t, done); exitCode != 1 {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	if !reflect.DeepEqual(host.prompts, []string{"first", "second"}) {
-		t.Fatalf("prompts = %#v", host.prompts)
+	if got, want := stdout.String(), "session: session-1\npartial\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if got, want := stderr.String(), "Session 错误: session transport failed\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestRunEOFSessionFailureSuppressesTurnErrorWithQueuedRequest(t *testing.T) {
+	host := newRunControlledHost()
+	controller := projectsession.NewController(host)
+	var stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(context.Background(), strings.NewReader("first\nsecond\n"), io.Discard, &stderr, controller)
+	}()
+
+	turn := receiveRunControlledTurn(t, host)
+	waitForControllerQueueDepth(t, controller, 1)
+	turn.emitEvent(projectclaude.Event{Kind: projectclaude.EventSessionStarted, SessionID: "session-1"})
+	turn.emitEvent(projectclaude.Event{Kind: projectclaude.EventTurnFailed, Text: "Adapter failure"})
+	assertRunStillActive(t, done, 50*time.Millisecond)
+	turn.finish(runScopedError{scope: projectclaude.ScopeSession, err: errors.New("session transport failed")})
+
+	if exitCode := waitForRun(t, done); exitCode != 1 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if got, want := stderr.String(), "Session 错误: session transport failed\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+	select {
+	case <-host.started:
+		t.Fatal("queued Turn unexpectedly started")
+	default:
+	}
+}
+
+func TestRunSessionFailureSuppressesTurnErrorBeforeEOFIsObserved(t *testing.T) {
+	host := newRunControlledHost()
+	controller := projectsession.NewController(host)
+	reader, writer := io.Pipe()
+	t.Cleanup(func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+	var stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(context.Background(), reader, io.Discard, &stderr, controller)
+	}()
+
+	if _, err := io.WriteString(writer, "first\nsecond\n"); err != nil {
+		t.Fatal(err)
+	}
+	turn := receiveRunControlledTurn(t, host)
+	waitForControllerQueueDepth(t, controller, 1)
+	turn.emitEvent(projectclaude.Event{Kind: projectclaude.EventSessionStarted, SessionID: "session-1"})
+	turn.emitEvent(projectclaude.Event{Kind: projectclaude.EventTurnFailed, Text: "Adapter failure"})
+	turn.finish(runScopedError{scope: projectclaude.ScopeSession, err: errors.New("session transport failed")})
+
+	if exitCode := waitForRun(t, done); exitCode != 1 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if got, want := stderr.String(), "Session 错误: session transport failed\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestRunDirectSessionFailureTerminatesPartialLine(t *testing.T) {
+	controller := newFakeController(submitResult{requestID: "request-1"})
+	reader, writer := io.Pipe()
+	t.Cleanup(func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(context.Background(), reader, &stdout, &stderr, controller)
+	}()
+
+	if _, err := io.WriteString(writer, "first\n"); err != nil {
+		t.Fatal(err)
+	}
+	waitForSignal(t, controller.submitted, "accepted request")
+	controller.events <- projectsession.Event{Kind: projectsession.EventTextDelta, RequestID: "request-1", Text: "partial"}
+	controller.events <- projectsession.Event{
+		Kind:  projectsession.EventSessionFailed,
+		Error: &projectsession.ErrorInfo{Message: "session failed"},
+	}
+
+	if exitCode := waitForRun(t, done); exitCode != 1 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if got, want := stdout.String(), "partial\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestRunQuitStopsImmediately(t *testing.T) {
+	controller := newFakeController()
+	var stdout, stderr bytes.Buffer
+	exitCode := run(context.Background(), strings.NewReader(":quit\n"), &stdout, &stderr, controller)
+
+	inputs, _, _, _, _, stopCalls, _ := controller.state()
+	if exitCode != 0 || stderr.Len() != 0 || len(inputs) != 0 || stopCalls != 1 {
+		t.Fatalf("exitCode = %d, inputs = %#v, stopCalls = %d, stderr = %q", exitCode, inputs, stopCalls, stderr.String())
+	}
+}
+
+func TestRunCancelsSubscriptionBeforeStop(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        io.Reader
+		wantExitCode int
+	}{
+		{name: "quit", input: strings.NewReader(":quit\n"), wantExitCode: 0},
+		{name: "scanner error", input: failingReader{err: errors.New("read failed")}, wantExitCode: 1},
+		{name: "EOF", input: strings.NewReader(""), wantExitCode: 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			controller := newFakeController()
+			controller.stopWaitsForSubscription = true
+			t.Cleanup(func() { close(controller.stopRelease) })
+			done := make(chan int, 1)
+			go func() {
+				done <- run(context.Background(), test.input, io.Discard, io.Discard, controller)
+			}()
+
+			if exitCode := waitForRun(t, done); exitCode != test.wantExitCode {
+				t.Fatalf("exitCode = %d, want %d", exitCode, test.wantExitCode)
+			}
+			_, _, _, _, _, stopCalls, _ := controller.state()
+			if stopCalls != 1 {
+				t.Fatalf("stopCalls = %d, want 1", stopCalls)
+			}
+		})
+	}
+}
+
+func TestRunReportsSubmitRejectionAndContinues(t *testing.T) {
+	controller := newFakeController(
+		submitResult{err: fmt.Errorf("%w: queue at capacity", projectsession.ErrQueueFull)},
+		submitResult{requestID: "request-2"},
+	)
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(context.Background(), strings.NewReader("first\nsecond\n"), &stdout, &stderr, controller)
+	}()
+
+	waitForSignal(t, controller.submitted, "rejected Submit")
+	waitForSignal(t, controller.submitted, "Submit after rejection")
+	controller.events <- projectsession.Event{Kind: projectsession.EventTurnCompleted, RequestID: "request-2"}
+
+	if exitCode := waitForRun(t, done); exitCode != 0 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if got := stderr.String(); !strings.Contains(got, "输入拒绝:") || !strings.Contains(got, "queue at capacity") {
+		t.Fatalf("stderr = %q", got)
+	}
+	inputs, _, _, _, _, _, _ := controller.state()
+	if !reflect.DeepEqual(inputs, []projectsession.Input{
+		{Source: projectsession.InputTerminal, Text: "first"},
+		{Source: projectsession.InputTerminal, Text: "second"},
+	}) {
+		t.Fatalf("inputs = %#v", inputs)
+	}
+}
+
+func TestRunSessionUnavailableSubmitExitsOne(t *testing.T) {
+	controller := newFakeController(
+		submitResult{err: fmt.Errorf("%w: controller stopped", projectsession.ErrSessionUnavailable)},
+		submitResult{requestID: "request-2"},
+	)
+	var stderr bytes.Buffer
+	exitCode := run(context.Background(), strings.NewReader("first\nsecond\n"), io.Discard, &stderr, controller)
+
+	if exitCode != 1 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if got := stderr.String(); !strings.Contains(got, "输入拒绝:") || !strings.Contains(got, "controller stopped") {
+		t.Fatalf("stderr = %q", got)
+	}
+	inputs, _, _, _, _, stopCalls, _ := controller.state()
+	if len(inputs) != 1 || inputs[0].Text != "first" || stopCalls != 1 {
+		t.Fatalf("inputs = %#v, stopCalls = %d", inputs, stopCalls)
+	}
+}
+
+func TestRunTurnFailureContinues(t *testing.T) {
+	controller := newFakeController(
+		submitResult{requestID: "request-1"},
+		submitResult{requestID: "request-2"},
+	)
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(context.Background(), strings.NewReader("first\nsecond\n"), &stdout, &stderr, controller)
+	}()
+
+	waitForSignal(t, controller.submitted, "first Submit")
+	waitForSignal(t, controller.submitted, "second Submit")
+	controller.events <- projectsession.Event{Kind: projectsession.EventTextDelta, RequestID: "request-1", Text: "partial"}
+	controller.events <- projectsession.Event{
+		Kind:      projectsession.EventTurnFailed,
+		RequestID: "request-1",
+		Error:     &projectsession.ErrorInfo{Code: "turn_failed", Message: "recoverable"},
+	}
+	assertRunStillActive(t, done, 20*time.Millisecond)
+	controller.events <- projectsession.Event{Kind: projectsession.EventTextDelta, RequestID: "request-2", Text: "ok"}
+	controller.events <- projectsession.Event{Kind: projectsession.EventTurnCompleted, RequestID: "request-2"}
+
+	if exitCode := waitForRun(t, done); exitCode != 0 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 	if stdout.String() != "partial\nok\n" {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
+	if got := stderr.String(); !strings.Contains(got, "Turn 错误:") || !strings.Contains(got, "recoverable") {
+		t.Fatalf("stderr = %q", got)
+	}
 }
 
-func TestRunStopsOnConnectOrSessionError(t *testing.T) {
-	t.Run("connect", func(t *testing.T) {
-		host := &fakeHost{connectErr: errors.New("connect failed")}
-		var stdout, stderr bytes.Buffer
-		if got := run(context.Background(), strings.NewReader("ignored\n"), &stdout, &stderr, host); got != 1 {
-			t.Fatalf("exitCode = %d", got)
-		}
-		if len(host.prompts) != 0 || host.closeCalls != 1 || !strings.Contains(stderr.String(), "connect failed") {
-			t.Fatalf("host = %#v, stderr = %q", host, stderr.String())
-		}
-	})
+func TestRunSessionFailureExitsOne(t *testing.T) {
+	controller := newFakeController(submitResult{requestID: "request-1"})
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(context.Background(), strings.NewReader("first\n"), &stdout, &stderr, controller)
+	}()
 
-	t.Run("session", func(t *testing.T) {
-		host := &fakeHost{turns: map[string]fakeTurn{
-			"first":  {err: errors.New("stream failed")},
-			"second": {},
-		}}
-		var stdout, stderr bytes.Buffer
-		if got := run(context.Background(), strings.NewReader("first\nsecond\n"), &stdout, &stderr, host); got != 1 {
-			t.Fatalf("exitCode = %d", got)
-		}
-		if !reflect.DeepEqual(host.prompts, []string{"first"}) {
-			t.Fatalf("prompts = %#v", host.prompts)
-		}
-	})
+	waitForSignal(t, controller.submitted, "accepted request")
+	controller.events <- projectsession.Event{
+		Kind:  projectsession.EventSessionFailed,
+		Error: &projectsession.ErrorInfo{Code: "session_failed", Message: "stream unavailable"},
+	}
+
+	if exitCode := waitForRun(t, done); exitCode != 1 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if got := stderr.String(); !strings.Contains(got, "Session 错误:") || !strings.Contains(got, "stream unavailable") {
+		t.Fatalf("stderr = %q", got)
+	}
+}
+
+type blockingReadCloser struct {
+	closed       chan struct{}
+	readStarted  chan struct{}
+	readReturned chan struct{}
+	closeOnce    sync.Once
+	startOnce    sync.Once
+	readOnce     sync.Once
+}
+
+func newBlockingReadCloser() *blockingReadCloser {
+	return &blockingReadCloser{
+		closed:       make(chan struct{}),
+		readStarted:  make(chan struct{}),
+		readReturned: make(chan struct{}),
+	}
+}
+
+func (r *blockingReadCloser) Read([]byte) (int, error) {
+	r.startOnce.Do(func() { close(r.readStarted) })
+	<-r.closed
+	r.readOnce.Do(func() { close(r.readReturned) })
+	return 0, io.EOF
+}
+
+func (r *blockingReadCloser) Close() error {
+	r.closeOnce.Do(func() { close(r.closed) })
+	return nil
+}
+
+func TestRunCancellationClosesBlockingReader(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := newBlockingReadCloser()
+	controller := newFakeController()
+	done := make(chan int, 1)
+	go func() {
+		done <- run(ctx, reader, io.Discard, io.Discard, controller)
+	}()
+
+	waitForSignal(t, controller.subscribed, "subscription")
+	waitForSignal(t, reader.readStarted, "blocking scanner start")
+	cancel()
+	if exitCode := waitForRun(t, done); exitCode != 0 {
+		t.Fatalf("exitCode = %d", exitCode)
+	}
+	waitForSignal(t, reader.closed, "reader close")
+	waitForSignal(t, reader.readReturned, "blocking scanner return")
+	_, _, _, _, _, stopCalls, stopContextErr := controller.state()
+	if stopCalls != 1 || stopContextErr != nil {
+		t.Fatalf("stopCalls = %d, stop context error = %v", stopCalls, stopContextErr)
+	}
 }
 
 type failingReader struct{ err error }
 
 func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
 
-func TestRunReportsScannerAndCloseErrors(t *testing.T) {
-	t.Run("scanner", func(t *testing.T) {
-		host := &fakeHost{}
-		var stdout, stderr bytes.Buffer
-		exitCode := run(context.Background(), failingReader{err: errors.New("read failed")}, &stdout, &stderr, host)
-		if exitCode != 1 || !strings.Contains(stderr.String(), "读取输入") {
+type cancelingErrorReader struct {
+	cancel context.CancelFunc
+	err    error
+}
+
+func (r cancelingErrorReader) Read([]byte) (int, error) {
+	r.cancel()
+	return 0, r.err
+}
+
+func TestRunCancellationWinsErrorRaces(t *testing.T) {
+	t.Run("Start error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		controller := newFakeController()
+		controller.startErr = errors.New("start failed during cancellation")
+		controller.startHook = cancel
+		var stderr bytes.Buffer
+		if exitCode := run(ctx, strings.NewReader(""), io.Discard, &stderr, controller); exitCode != 0 || stderr.Len() != 0 {
 			t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 		}
 	})
 
-	t.Run("close after success", func(t *testing.T) {
-		host := &fakeHost{closeErr: errors.New("close failed")}
-		var stdout, stderr bytes.Buffer
-		exitCode := run(context.Background(), strings.NewReader(""), &stdout, &stderr, host)
-		if exitCode != 1 || !strings.Contains(stderr.String(), "close failed") {
+	t.Run("Subscribe error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		controller := newFakeController()
+		controller.subscribeErr = errors.New("subscribe failed during cancellation")
+		controller.subscribeHook = cancel
+		var stderr bytes.Buffer
+		if exitCode := run(ctx, strings.NewReader(""), io.Discard, &stderr, controller); exitCode != 0 || stderr.Len() != 0 {
 			t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 		}
 	})
 
-	t.Run("close after primary error", func(t *testing.T) {
-		host := &fakeHost{connectErr: errors.New("primary"), closeErr: errors.New("close failed")}
-		var stdout, stderr bytes.Buffer
-		exitCode := run(context.Background(), strings.NewReader(""), &stdout, &stderr, host)
-		if exitCode != 1 || !strings.Contains(stderr.String(), "primary") || !strings.Contains(stderr.String(), "close failed") {
+	t.Run("scanner error", func(t *testing.T) {
+		for attempt := 0; attempt < 25; attempt++ {
+			ctx, cancel := context.WithCancel(context.Background())
+			controller := newFakeController()
+			var stderr bytes.Buffer
+			exitCode := run(ctx, cancelingErrorReader{cancel: cancel, err: errors.New("read failed during cancellation")}, io.Discard, &stderr, controller)
+			if exitCode != 0 || stderr.Len() != 0 {
+				t.Fatalf("attempt %d: exitCode = %d, stderr = %q", attempt, exitCode, stderr.String())
+			}
+		}
+	})
+
+	t.Run("closed event stream with pending request", func(t *testing.T) {
+		for attempt := 0; attempt < 25; attempt++ {
+			ctx, cancel := context.WithCancel(context.Background())
+			controller := newFakeController(submitResult{requestID: "request-1"})
+			var stderr bytes.Buffer
+			done := make(chan int, 1)
+			go func() {
+				done <- run(ctx, strings.NewReader("first\n"), io.Discard, &stderr, controller)
+			}()
+			waitForSignal(t, controller.submitted, "pending request before cancellation")
+			cancel()
+			close(controller.events)
+			if exitCode := waitForRun(t, done); exitCode != 0 || stderr.Len() != 0 {
+				t.Fatalf("attempt %d: exitCode = %d, stderr = %q", attempt, exitCode, stderr.String())
+			}
+		}
+	})
+
+	t.Run("Session failure event", func(t *testing.T) {
+		for attempt := 0; attempt < 25; attempt++ {
+			ctx, cancel := context.WithCancel(context.Background())
+			controller := newFakeController(submitResult{requestID: "request-1"})
+			var stderr bytes.Buffer
+			done := make(chan int, 1)
+			go func() {
+				done <- run(ctx, strings.NewReader("first\n"), io.Discard, &stderr, controller)
+			}()
+			waitForSignal(t, controller.submitted, "pending request before Session failure")
+			cancel()
+			controller.events <- projectsession.Event{
+				Kind:  projectsession.EventSessionFailed,
+				Error: &projectsession.ErrorInfo{Message: "failure during cancellation"},
+			}
+			if exitCode := waitForRun(t, done); exitCode != 0 || stderr.Len() != 0 {
+				t.Fatalf("attempt %d: exitCode = %d, stderr = %q", attempt, exitCode, stderr.String())
+			}
+		}
+	})
+
+	t.Run("WaitIdle error", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		controller := newFakeController()
+		controller.waitIdleErr = errors.New("WaitIdle failed during cancellation")
+		controller.waitIdleHook = cancel
+		var stderr bytes.Buffer
+		if exitCode := run(ctx, strings.NewReader(""), io.Discard, &stderr, controller); exitCode != 0 || stderr.Len() != 0 {
 			t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 		}
 	})
 }
 
-func TestRunEOFAndEmptyLinesExitNormally(t *testing.T) {
-	host := &fakeHost{}
-	exitCode := run(context.Background(), strings.NewReader("\n  \n"), io.Discard, io.Discard, host)
-	if exitCode != 0 || len(host.prompts) != 0 {
-		t.Fatalf("exitCode = %d, prompts = %#v", exitCode, host.prompts)
+func TestRunReportsStartSubscribeScannerAndStopErrors(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          io.Reader
+		configure      func(*fakeController)
+		wantPrefixes   []string
+		wantStartCalls int
+		wantSubscribe  int
+		wantStopCalls  int
+	}{
+		{
+			name:  "start error",
+			input: strings.NewReader(""),
+			configure: func(controller *fakeController) {
+				controller.startErr = errors.New("start failed")
+			},
+			wantPrefixes:   []string{"启动错误: start failed"},
+			wantStartCalls: 1,
+			wantStopCalls:  1,
+		},
+		{
+			name:  "subscribe error",
+			input: strings.NewReader(""),
+			configure: func(controller *fakeController) {
+				controller.subscribeErr = errors.New("subscribe failed")
+			},
+			wantPrefixes:   []string{"订阅错误: subscribe failed"},
+			wantStartCalls: 1,
+			wantSubscribe:  1,
+			wantStopCalls:  1,
+		},
+		{
+			name:           "scanner error",
+			input:          failingReader{err: errors.New("read failed")},
+			configure:      func(*fakeController) {},
+			wantPrefixes:   []string{"读取输入错误: read failed"},
+			wantStartCalls: 1,
+			wantSubscribe:  1,
+			wantStopCalls:  1,
+		},
+		{
+			name:  "WaitIdle error",
+			input: strings.NewReader(""),
+			configure: func(controller *fakeController) {
+				controller.waitIdleErr = errors.New("settlement failed")
+			},
+			wantPrefixes:   []string{"结算错误: settlement failed"},
+			wantStartCalls: 1,
+			wantSubscribe:  1,
+			wantStopCalls:  1,
+		},
+		{
+			name:  "stop error after success",
+			input: strings.NewReader(""),
+			configure: func(controller *fakeController) {
+				controller.stopErr = errors.New("stop failed")
+			},
+			wantPrefixes:   []string{"关闭错误: stop failed"},
+			wantStartCalls: 1,
+			wantSubscribe:  1,
+			wantStopCalls:  1,
+		},
+		{
+			name:  "stop error after primary failure",
+			input: strings.NewReader(""),
+			configure: func(controller *fakeController) {
+				controller.startErr = errors.New("primary failure")
+				controller.stopErr = errors.New("stop failed")
+			},
+			wantPrefixes:   []string{"启动错误: primary failure", "关闭错误: stop failed"},
+			wantStartCalls: 1,
+			wantStopCalls:  1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			controller := newFakeController()
+			test.configure(controller)
+			var stdout, stderr bytes.Buffer
+			exitCode := run(context.Background(), test.input, &stdout, &stderr, controller)
+
+			if exitCode != 1 {
+				t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+			}
+			for _, want := range test.wantPrefixes {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("stderr = %q, want %q", stderr.String(), want)
+				}
+			}
+			_, _, startCalls, subscribeCalls, _, stopCalls, stopContextErr := controller.state()
+			if startCalls != test.wantStartCalls || subscribeCalls != test.wantSubscribe || stopCalls != test.wantStopCalls {
+				t.Fatalf("start/subscribe/stop calls = %d/%d/%d", startCalls, subscribeCalls, stopCalls)
+			}
+			if stopContextErr != nil {
+				t.Fatalf("stop context error = %v", stopContextErr)
+			}
+		})
 	}
 }
 
 func TestRunAcceptsPromptLargerThanScannerDefault(t *testing.T) {
-	prompt := strings.Repeat("x", 70*1024)
-	host := &fakeHost{}
-	exitCode := run(context.Background(), strings.NewReader(prompt+"\n:quit\n"), io.Discard, io.Discard, host)
-	if exitCode != 0 || !reflect.DeepEqual(host.prompts, []string{prompt}) {
-		t.Fatalf("exitCode = %d, prompt count = %d", exitCode, len(host.prompts))
+	t.Run("70 KiB is submitted", func(t *testing.T) {
+		prompt := strings.Repeat("x", 70*1024)
+		controller := newFakeController(submitResult{requestID: "request-1"})
+		done := make(chan int, 1)
+		go func() {
+			done <- run(context.Background(), strings.NewReader(prompt+"\n"), io.Discard, io.Discard, controller)
+		}()
+
+		waitForSignal(t, controller.submitted, "large prompt Submit")
+		inputs, _, _, _, _, _, _ := controller.state()
+		if len(inputs) != 1 || inputs[0].Text != prompt {
+			t.Fatalf("submitted prompt count/length = %d/%d", len(inputs), len(inputs[0].Text))
+		}
+		controller.events <- projectsession.Event{Kind: projectsession.EventTurnCompleted, RequestID: "request-1"}
+		if exitCode := waitForRun(t, done); exitCode != 0 {
+			t.Fatalf("exitCode = %d", exitCode)
+		}
+	})
+
+	for _, test := range []struct {
+		name       string
+		terminator string
+	}{
+		{name: "exactly 1 MiB with LF is submitted", terminator: "\n"},
+		{name: "exactly 1 MiB with CRLF is submitted", terminator: "\r\n"},
+		{name: "exactly 1 MiB without newline is submitted", terminator: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prompt := strings.Repeat("x", projectsession.MaxPromptBytes)
+			controller := newFakeController(submitResult{requestID: "request-1"})
+			var stderr bytes.Buffer
+			done := make(chan int, 1)
+			go func() {
+				done <- run(context.Background(), strings.NewReader(prompt+test.terminator), io.Discard, &stderr, controller)
+			}()
+
+			waitForSignal(t, controller.submitted, "1 MiB prompt Submit")
+			inputs, _, _, _, _, _, _ := controller.state()
+			if len(inputs) != 1 || inputs[0].Text != prompt {
+				t.Fatalf("submitted prompt count/length = %d/%d", len(inputs), len(inputs[0].Text))
+			}
+			controller.events <- projectsession.Event{Kind: projectsession.EventTurnCompleted, RequestID: "request-1"}
+			if exitCode := waitForRun(t, done); exitCode != 0 || stderr.Len() != 0 {
+				t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+			}
+		})
 	}
+
+	t.Run("over 1 MiB reports scanner error", func(t *testing.T) {
+		prompt := strings.Repeat("x", projectsession.MaxPromptBytes+1)
+		controller := newFakeController()
+		var stderr bytes.Buffer
+		exitCode := run(context.Background(), strings.NewReader(prompt+"\n"), io.Discard, &stderr, controller)
+
+		inputs, _, _, _, _, stopCalls, _ := controller.state()
+		if exitCode != 1 || len(inputs) != 0 || stopCalls != 1 {
+			t.Fatalf("exitCode = %d, inputs = %d, stopCalls = %d", exitCode, len(inputs), stopCalls)
+		}
+		if got := stderr.String(); !strings.Contains(got, "读取输入错误:") || len(got) > 1024 {
+			t.Fatalf("stderr length/content = %d/%q", len(got), got)
+		}
+	})
 }
 
-type blockingReadCloser struct {
-	closed chan struct{}
-	once   sync.Once
-}
-
-func newBlockingReadCloser() *blockingReadCloser {
-	return &blockingReadCloser{closed: make(chan struct{})}
-}
-
-func (r *blockingReadCloser) Read([]byte) (int, error) {
-	<-r.closed
-	return 0, io.EOF
-}
-
-func (r *blockingReadCloser) Close() error {
-	r.once.Do(func() { close(r.closed) })
-	return nil
-}
-
-func TestRunCancellationWhileIdleClosesHost(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	reader := newBlockingReadCloser()
-	connected := make(chan struct{})
-	host := &fakeHost{connected: connected}
+func TestRunReportsUnexpectedEventClosureWithPendingRequest(t *testing.T) {
+	controller := newFakeController(submitResult{requestID: "request-1"})
+	var stderr bytes.Buffer
 	done := make(chan int, 1)
 	go func() {
-		done <- run(ctx, reader, io.Discard, io.Discard, host)
+		done <- run(context.Background(), strings.NewReader("first\n"), io.Discard, &stderr, controller)
 	}()
 
-	<-connected
-	cancel()
-	select {
-	case exitCode := <-done:
-		if exitCode != 0 || host.closeCalls != 1 {
-			t.Fatalf("exitCode = %d, closeCalls = %d", exitCode, host.closeCalls)
-		}
-	case <-time.After(500 * time.Millisecond):
-		_ = reader.Close()
-		<-done
-		t.Fatal("run did not stop after context cancellation while idle")
+	waitForSignal(t, controller.submitted, "accepted request")
+	close(controller.events)
+	if exitCode := waitForRun(t, done); exitCode != 1 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-}
-
-type testScopedError struct {
-	scope projectclaude.ErrorScope
-	err   error
-}
-
-func (e testScopedError) Error() string                   { return e.err.Error() }
-func (e testScopedError) Unwrap() error                   { return e.err }
-func (e testScopedError) Scope() projectclaude.ErrorScope { return e.scope }
-
-func projectclaudeTestError(scope projectclaude.ErrorScope, err error) error {
-	return testScopedError{scope: scope, err: err}
+	if !strings.Contains(stderr.String(), "事件流") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
 }

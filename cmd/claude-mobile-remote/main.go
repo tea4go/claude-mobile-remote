@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
+	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 	"github.com/tea4go/claude-mobile-remote/internal/version"
 )
 
@@ -22,7 +23,8 @@ func main() {
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	exitCode := run(ctx, os.Stdin, os.Stdout, os.Stderr, projectclaude.NewHost())
+	controller := projectsession.NewController(projectclaude.NewHost())
+	exitCode := run(ctx, os.Stdin, os.Stdout, os.Stderr, controller)
 	stop()
 	os.Exit(exitCode)
 }

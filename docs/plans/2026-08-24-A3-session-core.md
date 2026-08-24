@@ -548,6 +548,7 @@ func NewController(host Host, options ...Option) *Controller
 func (c *Controller) Start(ctx context.Context) error
 func (c *Controller) Submit(ctx context.Context, input Input) (string, error)
 func (c *Controller) Snapshot(ctx context.Context) (Snapshot, error)
+func (c *Controller) WaitIdle(ctx context.Context) (Snapshot, error)
 func (c *Controller) Subscribe(ctx context.Context, capacity int) (Snapshot, <-chan Event, error)
 func (c *Controller) Stop(ctx context.Context) error
 ```
@@ -576,13 +577,13 @@ type queuedInput struct {
 }
 ```
 
-Actor command channel使用 `submitCommand`、`snapshotCommand`、`subscribeCommand`、`unsubscribeCommand` 和 `stopCommand`。每个公开方法只负责把命令送入 Actor 并等待对应 response；不得读取或写入 `actorState`。
+Actor command channel使用 `submitCommand`、`snapshotCommand`、`waitIdleCommand`、`subscribeCommand`、`unsubscribeCommand` 和 `stopCommand`。每个公开方法只负责把命令送入 Actor 并等待对应 response；不得读取或写入 `actorState`。
 
 `NewController` 初始化 Session=`starting`、Turn=`idle` 和全部内部 channel；`Start` 只允许成功调用一次，启动 Actor 与 Worker并等待 Connect 结果。Connect 失败时设置 Session=`failed` 和顶层 `SessionError`，缓存失败 snapshot，Worker 完成 Close；Start 使用的 service context 后续取消时必须向 Actor 发起与显式 Stop 相同的命令，不能直接结束 Actor goroutine。
 
 Task 3 同时实现基础 `Subscribe`：容量必须大于 0，Actor 在一个 command 内登记 buffered channel 并返回同一时点 snapshot，使 Task 4 可以观察事件。订阅 context 取消、最终 channel 关闭和并发 Stop 的完整收敛在 Task 5 加测试并固化。
 
-`submitCommand.response` 使用无缓冲 channel；`Submit` 一旦成功把 command 交给 Actor，就等待该 response 而不再因调用方 context 提前放弃。这样 `command.response <- ...` 与调用方接收形成握手，随后才调用 `startNext`，保证 request ID 已返回后才可能发布 `turn_started`。
+`submitCommand.response` 使用无缓冲 channel；`Submit` 一旦成功把 command 交给 Actor，就等待该 response 而不再因调用方 context 提前放弃。这样 `command.response <- ...` 与 `Submit` goroutine 接收形成内部握手，Actor 随后才调用 `startNext`。该机制只保证接受结果已交给 `Submit` goroutine，不承诺 Go 方法已返回或外部调用方已完成登记；A3 不增加可执行回调或二阶段确认。
 
 - [ ] **Step 3.5：实现 Submit 校验、接受握手与 startNext**
 
@@ -614,6 +615,8 @@ func (c *Controller) handleSubmit(state *actorState, command submitCommand) {
 	c.startNext(state)
 }
 ```
+
+A4 Channel 必须单独保证网络可观察顺序：移动命令的 `command_result` 进入该连接的有序输出队列后，才放行同一 request ID 的 `turn_started`；若 Controller 事件提前到达，则在 PC Service 内短暂缓冲，不要求 Web、Capacitor 或 HarmonyOS 客户端处理乱序。该要求不改变 Task 3 的 Controller API，并在 D25 记录三端可实现性。
 
 `startNext` 只能在 `current == nil`、队列非空且 Session 非终态时执行：取队首、更新 `QueueDepth`，把 Turn 设为 `running`，清空上一 Turn 的 message/error/pendingAction，创建独立 Turn context；真实 session ID 已存在时先发布 `turn_started`，随后把 `workerRequest` 发送给 Worker。首 Turn尚无 ID 时只更新内部状态，事件在 Task 4 延后发布。
 
@@ -772,6 +775,11 @@ git commit -m "feat: map Claude events into session state"
 - `TestControllerStopAfterFailurePreservesFailed`：Session 已 failed 后 Stop 只做资源收敛，snapshot 仍 failed，且不发布 session_stopped；
 - `TestControllerServiceContextCancellationUsesStopPath`：取消 Start 使用的 service context，与显式 Stop 得到相同 stopped/cancelled 结果。
 
+增加结算边界测试：
+
+- `TestControllerWaitIdleWaitsForWorkerResult`：Adapter 已发布 Turn 终态但 fake Host 尚未返回 Worker result 时，`WaitIdle` 不得提前返回；释放 result 后返回无当前 Turn、无队列的 Actor 一致 snapshot；
+- `TestControllerWaitIdleReturnsFailedAfterSessionResult`：Turn 终态后返回 Session scope 错误，`WaitIdle` 返回保留根因的最终 failed snapshot。
+
 - [ ] **Step 5.3：运行测试确认 RED**
 
 Run: `go test ./internal/session -run 'TestController(Subscribe|RejectsZero|Stop|ServiceContext)' -v`
@@ -803,6 +811,8 @@ set internal stopping flag
 ```
 
 使用 `sync.Once` 保护 Worker stop channel 和 Controller done channel；不要新增公开 `stopping` Session 枚举。`Stop` 在 command 已成功送入 Actor 后使用容量 1 的 response channel，因此调用方 context 超时不会阻塞 Actor 回写最终结果。Controller 已结束时，`Stop` 直接返回缓存的 Close 错误；`Snapshot` 返回缓存的最终深复制 snapshot。
+
+`WaitIdle` 使用 Actor command 登记容量 1 的 waiter。只有 `current == nil && len(queue) == 0` 或 Session 已终止时才以深复制 snapshot 回应；Adapter 的 Turn 终态事件本身不得唤醒 waiter，必须由 `handleWorkerResult` 完成状态结算后统一唤醒。Controller 已结束时直接返回缓存的最终 snapshot。该方法不发布事件、不修改 `seq`，也不进入任何网络接口。
 
 - [ ] **Step 5.6：确认订阅、停止和全包 race GREEN**
 
@@ -838,6 +848,7 @@ git commit -m "feat: add session subscriptions and shutdown"
 type sessionController interface {
 	Start(context.Context) error
 	Submit(context.Context, projectsession.Input) (string, error)
+	WaitIdle(context.Context) (projectsession.Snapshot, error)
 	Subscribe(context.Context, int) (projectsession.Snapshot, <-chan projectsession.Event, error)
 	Stop(context.Context) error
 }
@@ -859,6 +870,12 @@ type sessionController interface {
 8. `TestRunReportsStartSubscribeScannerAndStopErrors`：分别断言启动、订阅、扫描和关闭错误的退出码及主错误保留；
 9. `TestRunAcceptsPromptLargerThanScannerDefault`：70 KiB prompt 仍成功 Submit；1 MiB 加 1 byte 的单行输入由 scanner 报“读取输入错误”并以退出码 1 结束。
 
+质量回归补充：
+
+10. `TestRunEOFWaitsForControllerSettlement`：使用真实 Controller 与可控 Host，让 Turn 终态事件先于 Session scope Worker result 到达；断言 EOF 不提前成功退出，最终只按 failed snapshot 报 Session 错误并返回 1；Turn scope result 则正常返回 0；
+11. `TestRunCancelsSubscriptionBeforeStop`：fake Controller 的 Stop 等待 Subscribe context 取消，`:quit`、scanner error 和 EOF 返回路径均不得死锁；
+12. `TestRunContextCancellationWinsErrorRaces`：context 与 Start、Subscribe、scanner、事件 channel 关闭及 `session_failed` 竞态时均返回 0 且不输出伪失败。
+
 - [ ] **Step 6.3：运行 CLI 测试确认 RED**
 
 Run: `go test ./cmd/claude-mobile-remote -run TestRun -v`
@@ -877,13 +894,15 @@ func run(ctx context.Context, input io.Reader, output, errorOutput io.Writer, co
 
 1. defer 使用 `context.Background()` 调用幂等 `Stop`，Close 错误在原成功时把退出码改为 1，在已有主错误时追加输出；
 2. `Start(ctx)`；
-3. `Subscribe(ctx, 64)`；
+3. 创建独立 subscription context 并调用 `Subscribe(subscriptionCtx, 64)`；退出事件循环后先取消该订阅，再调用 `Stop`；
 4. 启动 scanner channel；
 5. 用一个 select 同时处理 `ctx.Done()`、扫描行和领域事件；
 6. Submit 成功后把 request ID 放入 `map[string]bool`；
 7. `text_delta` 直接输出并标记该 request 已输出文本；`turn_completed/turn_failed` 删除 pending，完成时换行，失败时输出 Error message；
-8. EOF 只把扫描 channel 设为 nil，pending 清空后才返回；`:quit` 立即返回并由 defer Stop；
+8. EOF 只把扫描 channel 设为 nil；pending 清空后调用 `WaitIdle(ctx)`，依据 Actor 已结算的最终 snapshot 决定成功或 Session failure，不能只凭 Turn 终态成功退出；Turn failure 后 pending 已空时同样调用 `WaitIdle` 区分可恢复 Turn 与 Session failure，仍有 pending 时暂存 Turn 诊断，直到下一条 `turn_started` 证明上一 Turn 可恢复，若先收到 `session_failed` 则只输出 Session 根因；`:quit` 立即返回并由 defer 先取消订阅、再 Stop；
 9. `session_failed` 返回 1；`session_stopped` 正常返回；事件 channel 意外关闭且仍有 pending 时返回 1。
+
+所有错误出口在诊断前先检查 `ctx.Err()`；若进程 context 已取消，Start、Subscribe、scanner、事件关闭、WaitIdle 或失败事件都按用户主动停止处理，不输出错误且返回 0。
 
 - [ ] **Step 6.5：切换 main.go 的真实 Controller 装配**
 
@@ -990,7 +1009,7 @@ Expected: 50 次全部 PASS，无超时、panic 或 race。
 
 任何命令失败时不得创建上述“通过”版本；改为创建结论“未通过”的记录，只列已执行命令及其真实 PASS/FAIL、首个失败摘要和复现命令，同时更新 `HANDOFF.md` 的阻塞与下一步，不得把 A3 标为完成。
 
-同时逐字段复核 D24：`sessionId`、request ID、状态、来源、`seq`、`queueDepth`、message、可空 error 和 `pendingAction` 仍是 JSON 可表达的纯数据，React/TypeScript、Capacitor iOS/Android 与 HarmonyOS ArkTS/ArkUI 无需平台特有语义。若实现改变任一共用字段，停止门禁，先更新设计并取得用户确认，再更新 `DECISIONS.md` 后继续。
+同时逐字段复核 D24：`sessionId`、request ID、状态、来源、`seq`、`queueDepth`、message、可空 error 和 `pendingAction` 仍是 JSON 可表达的纯数据，React/TypeScript、Capacitor iOS/Android 与 HarmonyOS ArkTS/ArkUI 无需平台特有语义；复核 D25：A3 未引入回调协议，A4 的服务端有序输出要求未被错误下放给客户端；复核 D26：`WaitIdle` 只存在于 PC 进程内 Controller/CLI 调用面，没有新增协议消息、状态或客户端依赖。若实现改变任一共用字段或顺序语义，停止门禁，先更新设计并取得用户确认，再更新 `DECISIONS.md` 后继续。
 
 - [ ] **Step 7.5：更新 HANDOFF 并执行只读差异检查**
 
