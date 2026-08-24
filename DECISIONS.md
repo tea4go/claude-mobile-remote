@@ -209,3 +209,19 @@
 - **理由**：Adapter Turn 终态事件先于 `Host.RunTurn` 的 Worker result 返回；只按终态事件清理 CLI pending 会在随后发生 Session scope 失败时提前成功退出。由 Actor 提供结算边界能复用 Session 真相，避免 CLI 猜测事件时序或新增移动端握手。
 - **影响**：改动仅限 PC Service 的 Go Controller 与 CLI 内部调用面，不新增协议消息、JSON 字段、状态枚举或客户端行为。React/TypeScript Web、Capacitor iOS/Android 与 HarmonyOS ArkTS/ArkUI 均无需实现 `WaitIdle` 或平台特有语义，三端共用契约保持不变，可实现性核对通过。
 - **状态**：已定
+
+## D27 · A4 使用每连接原子订阅与服务端有界顺序门控
+
+- **日期**：2026-08-24
+- **决策**：A4 的每个已订阅 WebSocket 连接各自持有一个 A3 Controller 原子订阅，先发送 `subscribed` 和 snapshot，再推送 seq 大于 snapshot 基准的事件。连接使用单 reader、单 writer 和有界输出队列；提交移动命令期间在该连接短暂缓存提前事件，必须先把同时含客户端 `commandId` 与 PC `requestId` 的 `command_result` 入队，再释放同一 request ID 的 `turn_started`。提前缓存上限为 32 个 envelope/256 KiB，普通输出队列上限为 64 个 envelope/1 MiB，任一溢出只关闭该连接。断线后重新订阅最新 snapshot，不实现事件 replay 或跨连接命令幂等。
+- **理由**：每连接复用 A3 的原子 snapshot/事件边界，避免 A4 重建 snapshot reducer 和订阅竞态；服务端顺序门控落实 D25，使所有客户端观察到相同正常顺序；有界连接队列把慢网络与 Controller 和其他客户端隔离。
+- **影响**：版本 1 envelope 固定包含 `version`、`type`、`sessionId`、`commandId`、`requestId`、`seq` 和对象 `payload`；A4 只实现 `send_text` 命令。React/TypeScript、Capacitor iOS/Android 与 HarmonyOS ArkTS/ArkUI 均只需标准 WebSocket、JSON 和相同状态归并，不需要浏览器 API、平台线程回调或客户端乱序缓存，三端可实现性核对通过。A4 闭环由自动化 WebSocket 集成测试和 Go CLI 协议测试客户端完成，移动页面留给 A5。
+- **状态**：已定
+
+## D28 · A4 使用短期可复用 Pair Token 与显式 VPN 地址
+
+- **日期**：2026-08-24
+- **决策**：A4 Pair Token 使用 256-bit 安全随机值和无填充 Base64URL 编码，与精确 `sessionId` 绑定，默认有效期 10 分钟。有效期内可供多个连接重复认证；自然过期只阻止新认证并触发配对信息轮换，不断开已认证连接；用户撤销或 Service 停止立即失效并关闭相关连接。配对负载为纯 JSON `{version, wsUrl, sessionId, pairToken, expiresAt}`；token 在 WebSocket 首条 `hello` 中提交，不放入 WebSocket URL，Web 配对链接使用 URL Fragment。Service 默认监听 `127.0.0.1`，VPN bind 地址和 `advertise-url` 由用户显式配置，不自动探测网卡。
+- **理由**：VPN 提供网络可达性但不证明客户端获得了当前 Session 的控制授权；短期 token 是不引入账号体系的最小应用层鉴权。显式地址避免错误选择网卡，Fragment 和日志过滤降低凭证经访问日志、Referer 或错误信息泄露的风险。
+- **影响**：认证前不返回 Session 数据；自然过期支持扫码、刷新和短暂重连，撤销保留立即止损能力。无 Origin 的原生客户端仍可认证，浏览器 Origin 必须匹配显式 allowlist。配对与鉴权只依赖 JSON、WebSocket、安全随机字符串和时间戳，React Web、Capacitor 与 HarmonyOS NEXT 均可实现；Web 的 Fragment 仅是承载方式，不改变其他端协议，三端可实现性核对通过。
+- **状态**：已定

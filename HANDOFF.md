@@ -4,19 +4,19 @@
 
 ## 0. 一句话现状
 
-A1–A2 已完成并提交（A2 提交 `2ee56de`）且人工验收通过；A3 Session Core 实现、自动门禁与最终代码审查已通过，正在当前 `main` 工作区等待用户统一 diff 检查和 Git 授权。
+A1–A3 已完成并提交且人工验收通过；A4 Channel 通信的分阶段设计已获用户逐节确认，设计文档与三端共用契约决策已在当前 `main` 工作区落盘并等待用户检查，尚未开始实现。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：A3 Session Core
-- **当前任务**：Task 7——A3 全量门禁、记录与交接
-- **状态**：已完成；自动门禁与最终整体审查通过，停在用户统一检查和最终 Git 授权点
-- **范围**：补两请求 EOF 下首 Turn 导致 Session scope failure 的真实 Controller 回归，确保只报告一次 Session 根因并正确结束已输出文本行；补齐 1 MiB LF/CRLF/无换行/+1 测试矩阵；随后执行 Task 7 focused/full race、gofmt、vet、build、重复并发、三端契约复核、门禁记录和最终整体审查，不改变 A4 协议、三端字段、状态枚举或依赖
-- **通过条件**：新增边界严格经历 RED/GREEN；Task 7 §7.1–§7.3 所有命令 fresh PASS；D24/D25/D26 复核通过；完成前审查无未关闭 Critical/Important；`docs/testing/A3-result.md` 与本文件记录真实证据
-- **完成结果**：A3 Session Core、唯一 Host Worker、Actor/FIFO、领域事件/snapshot、原子订阅/Stop 与异步 CLI 均已实现。Task 7 按 TDD 补齐 EOF/非 EOF 终态竞态下 Session failure 的单根因诊断、部分文本换行和 1 MiB LF/CRLF/无换行/+1 边界；新增 `docs/testing/A3-result.md` 记录门禁与 D24/D25/D26 复核结论；最终审查无 Critical、Important 或 Minor
-- **最近验证**：最终审查指出 EOF 观察调度仍可导致双错误；新增无 sleep、Reader 保持打开的回归后旧实现稳定 RED，改为按 Worker settlement/下一 Turn started 延迟诊断后相关 focused race `-count=20` PASS。取消测试同步修正后 race `-count=100` PASS；随后 fresh focused 两包 race、全仓四包 race、gofmt、vet、build 全 PASS，Controller 重点并发 race `-count=50` PASS（24.356s）。原审查代理复核确认 Critical/Important/Minor 均为零；tracked 与全部新增 A3 文件的 `git diff --check`/no-index check 无输出，差异范围无依赖、移动端、A4 或凭证文件，`-version` 精确输出 `0.1.0-dev`
-- **未验证项**：用户统一 diff 检查与 A3 最终 Git 写操作授权；未重复运行真实 Claude integration（A2 已完成真实双轮门禁，A3 按计划使用 controlled Host）
-- **下一步**：向用户提供 A3 变更摘要和检查清单；用户确认后，仅在该次明确授权范围内执行最终 `git add` / `git commit`，随后开始 A4 设计
+- **子阶段**：A4 Channel 通信
+- **当前任务**：编写 A4 Channel 通信实施计划
+- **状态**：A4 书面设计与实施计划已获用户确认，用户选择 Inline Execution；按用户要求先提交文档，Task 1 尚未开始，未修改实现代码
+- **范围**：基于已确认设计映射现有 A3 接口，给出 Pairing、Protocol、Channel、Transport、CLI 编排、Go CLI 协议测试客户端、文档与全量门禁的精确文件、测试和实施步骤；不新增依赖或实现功能
+- **通过条件**：实施计划覆盖设计全部章节；每个代码任务遵循 RED/GREEN、列出精确命令与预期结果；接口和字段前后一致；无占位步骤；用户检查计划后才开始代码
+- **完成结果**：新增 `docs/plans/2026-08-24-A4-channel-transport.md`，以 8 个 Task 拆分 Pairing、Protocol、Channel、Outbox/D25 顺序门控、WebSocket、CLI 编排、Go CLI 协议测试客户端和全量门禁；每项包含 RED/GREEN、精确文件与命令，并保持当前 main、统一检查和不自动提交约束
+- **最近验证**：逐节核对 A4 设计 15 节均有实施 Task；占位符扫描无命中；复核 Pairing/Channel/Transport/CLI 类型与停机顺序一致；`git diff --check` 及设计/计划新增文件的 no-index check 均无格式输出。当前仅为文档任务，未运行代码门禁
+- **未验证项**：`gorilla/websocket` 依赖、本地 module 变更和 A4 代码均未开始
+- **下一步**：完成本次获授权的 A4 文档提交；随后按 executing-plans 与 TDD 在当前 main 工作区开始 Task 1，代码完成前不再自行执行 Git 写操作
 - **复审记录（2026-08-24，独立 Claude 会话，已被最终审查修复替代）**：只读门禁均 PASS，并确认 A2 仅复用 WhaleTerm SDK 用法、A3 保持 Controller/唯一 Worker 分层；其记录的 Session failure 部分文本换行 Minor 已在 Task 7 最终审查修复中关闭。
 - **最终审查记录（2026-08-24）**：首次整体审查发现 EOF 观察调度可能造成同一 Session failure 的 Turn+Session 双诊断；按 TDD 改为基于 Worker settlement/下一 `turn_started` 延迟 Turn 诊断，并补直接 Session failure 换行。原审查代理复核后确认 Critical/Important/Minor 均为零，Ready for user diff review / final Git authorization。
 - **独立走查记录（2026-08-24，第二个独立会话）**：对 `docs/testing/A3-result.md` 及最终工作区做只读走查。全部声称证据 fresh 复现通过：focused 两包 race、全仓 race `-count=1`、gofmt/vet/build、Controller 重点并发 `-count=50`（23.9s）、CLI EOF/Session failure focused `-count=20`、取消用例 `-count=100`、`-version` 输出 `0.1.0-dev` 且不连接 Claude、`git diff --check` 干净、差异范围仅含 A3 相关文件。逐行核对 `run.go` 延迟 Turn 诊断（`deferredTurnFailures` 暂存→`turn_started`/`WaitIdle`/Session failure 三处收敛）、`scannerDone` EOF 提升竞态修复、`readStarted` 取消测试同步修正及 1 MiB LF/CRLF/无换行/+1 测试矩阵，均与 A3-result.md「Task 7 前回归收口」「最终审查修复记录」逐条对应；D24/D25/D26 复核结论与实现一致。未发现新问题；已知可接受行为：`session_stopped`/scanner error 急停路径会静默丢弃未 flush 的延迟 Turn 诊断（急停语义，符合规格）。
@@ -66,14 +66,16 @@ A1–A2 已完成并提交（A2 提交 `2ee56de`）且人工验收通过；A3 Se
 | A3 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-24-A3-session-core-design.md` |
 | A3 实施计划 | ✅ 已执行 | `docs/plans/2026-08-24-A3-session-core.md` |
 | A3 门禁记录 | ✅ 通过 | `docs/testing/A3-result.md` |
-| 业务代码 | ✅ A3 完成待提交 | 薄 SDK Adapter + Session Core + 异步行式 CLI |
+| A4 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-24-A4-channel-transport-design.md` |
+| A4 实施计划 | ✅ 已确认 | `docs/plans/2026-08-24-A4-channel-transport.md` |
+| 业务代码 | ✅ A3 已完成并由用户提交 | 薄 SDK Adapter + Session Core + 异步行式 CLI |
 
 ## 4. 下一步
 
-1. 按用户已选择的 Subagent-Driven 方式执行 A3 实施计划；
-2. 按 TDD 实现 Session/Turn 状态机、输入队列和 snapshot；
-3. 按 A3 → A6 顺序逐阶段验证单会话闭环；
-4. 每项开发任务由 AI 在开始和结束时更新本文件；普通任务不单独创建测试记录。
+1. 提交已确认的 A4 设计、决策、实施计划与交接文档；
+2. 按 Inline Execution 与 TDD 实现 Pairing、Protocol、Channel、Transport 和 Go CLI 协议测试客户端；
+3. 完成 A4 自动门禁与人工协议客户端验收；
+4. 按 A5 → A6 顺序继续验证移动浏览器与 VPN 真机闭环。
 
 ## 5. 首期关键验证
 
