@@ -4,19 +4,19 @@
 
 ## 0. 一句话现状
 
-A1–A2 已完成并提交（A2 提交 `2ee56de`）；用户人工验收通过，下一步起草 A3 Session Core 分阶段设计。
+A1–A2 已完成并提交（A2 提交 `2ee56de`）且人工验收通过；A3 Session Core 设计与实施计划已确认，用户已选择 Subagent-Driven 执行方式，先提交设计包再开始实施。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：A2 SDK 托管
-- **当前任务**：A2 SDK 托管最终收口
-- **状态**：已完成
-- **范围**：仅更新 `HANDOFF.md` 与 `docs/testing/A2-result.md` 的人工验收结论和下一步；不修改代码、设计或决策
-- **通过条件**：两份文档一致记录用户于 2026-08-24 确认通过，A2 无待验收项，下一步明确为起草 A3 分阶段设计
-- **完成结果**：I-1 已按 TDD 修复：`parseMessage` 提取 assistant 错误（类型+文本），`RunTurn` 收到错误 assistant 即终止当前流并发射 `turn_failed`，`server_error`/`rate_limit` 为 turn scope、其余为 session scope（依据 WhaleTerm 验证行为，未移植其文本关键字匹配）；新增 `TestParseMessage/assistant_error_*` 与 `TestHostAssistantErrorFailsTurn`。I-2 已修正：A2-result.md 补记审查修复记录与 buildvcs 注记；README 快速开始、AGENTS 开发规范、A2 设计 §8/§10 同步。用户于 2026-08-24 明确反馈人工验收通过，结论已写入 `docs/testing/A2-result.md`
-- **最近验证**：TDD 流程完整（新测试先编译失败后通过）；全量 unit/race/gofmt/vet/build/integration-skip fresh 重跑全部 PASS；真实 Claude integration 测试因本次改动不涉及正常流（parse 只新增分支），结论仍有效
-- **未验证项**：A2 无；A3 Session Core 尚未开始设计
-- **下一步**：起草 A3 Session Core 分阶段设计，交用户检查，不直接开始 A3 代码
+- **子阶段**：A3 Session Core
+- **当前任务**：起草 A3 Session Core 实施计划
+- **状态**：已完成（用户已选择 Subagent-Driven，先提交设计包）
+- **范围**：确认 A3 设计状态，新增 `docs/plans/2026-08-24-A3-session-core.md` 并更新本文件；不修改代码、依赖或配置
+- **通过条件**：计划按 TDD 拆成可独立执行的小步骤，给出精确文件、接口、测试、命令和预期结果，覆盖 A3 设计全部范围，并通过占位符、类型一致性和文档差异检查
+- **完成结果**：用户已确认 A3 书面设计，设计状态更新为“已确认，待实施”；新增 `docs/plans/2026-08-24-A3-session-core.md`，按 7 个 Task 拆分领域模型、Host Worker、Actor/FIFO、事件与错误、订阅与停止、CLI 迁移和全量门禁，每个 Task 均包含 RED/GREEN 命令及需重新授权的 Git 检查点；未修改代码、依赖或配置
+- **最近验证**：实施计划已按设计逐项核对 Actor/Worker、32 容量、request ID、状态/snapshot、事件、错误 scope、停止、CLI、门禁和三端兼容；占位符与类型别名扫描无遗留；tracked `git diff --check` 无输出且退出 0，新增计划的 no-index check 无空白诊断；本任务未运行代码测试或构建
+- **未验证项**：A3 代码尚未开始，计划中的 RED/GREEN 与门禁命令均待实施时执行
+- **下一步**：提交 A3 设计、计划、D24 与本交接记录；随后读取 Subagent-Driven、TDD 和 worktree 技能，更新本文件当前执行并开始 Task 1
 
 ## 1. 当前目标
 
@@ -60,12 +60,14 @@ A1–A2 已完成并提交（A2 提交 `2ee56de`）；用户人工验收通过�
 | A2 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-21-A2-sdk-hosting-design.md` |
 | A2 实施计划 | ✅ 已执行 | `docs/plans/2026-08-21-A2-sdk-hosting.md` |
 | A2 门禁记录 | ✅ 通过 | `docs/testing/A2-result.md` |
-| 业务代码 | ✅ A2 完成 | 薄 SDK Adapter + 同步行式 CLI；A3 Session Core 待设计 |
+| A3 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-24-A3-session-core-design.md` |
+| A3 实施计划 | ✅ 待执行 | `docs/plans/2026-08-24-A3-session-core.md` |
+| 业务代码 | ✅ A2 完成 | 薄 SDK Adapter + 同步行式 CLI；A3 Session Core 待实施 |
 
 ## 4. 下一步
 
-1. 起草 A3 Session Core 分阶段设计并交用户检查；
-2. 设计确认后编写 A3 实施计划，再按 TDD 实现 Session/Turn 状态机、输入队列和 snapshot；
+1. 按用户已选择的 Subagent-Driven 方式执行 A3 实施计划；
+2. 按 TDD 实现 Session/Turn 状态机、输入队列和 snapshot；
 3. 按 A3 → A6 顺序逐阶段验证单会话闭环；
 4. 每项开发任务由 AI 在开始和结束时更新本文件；普通任务不单独创建测试记录。
 
