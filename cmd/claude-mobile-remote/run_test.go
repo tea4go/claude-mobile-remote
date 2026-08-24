@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tea4go/claude-mobile-remote/internal/channel"
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
+	"github.com/tea4go/claude-mobile-remote/internal/pairing"
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 )
 
@@ -57,6 +59,98 @@ type fakeController struct {
 	stopOnce   sync.Once
 }
 
+type fakeRemoteService struct {
+	mu sync.Mutex
+
+	controller        *fakeController
+	pairings          chan pairing.Payload
+	activatePayload   pairing.Payload
+	calls             []string
+	activated         chan struct{}
+	activateOnce      sync.Once
+	beginSawStopCalls int
+	closeSawStopCalls int
+}
+
+type fakeTransportServer struct {
+	mu            sync.Mutex
+	startCalls    int
+	shutdownCalls int
+	closeCalls    int
+}
+
+func (f *fakeTransportServer) Start() error {
+	f.mu.Lock()
+	f.startCalls++
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakeTransportServer) BeginShutdown() {
+	f.mu.Lock()
+	f.shutdownCalls++
+	f.mu.Unlock()
+}
+
+func (f *fakeTransportServer) Close(context.Context) error {
+	f.mu.Lock()
+	f.closeCalls++
+	f.mu.Unlock()
+	return nil
+}
+
+func newFakeRemoteService(controller *fakeController) *fakeRemoteService {
+	return &fakeRemoteService{
+		controller: controller,
+		pairings:   make(chan pairing.Payload, 4),
+		activatePayload: pairing.Payload{
+			Version: 1, WSURL: "ws://pc/ws", SessionID: "session-1",
+			PairToken: "fixture-credential", ExpiresAt: time.Now().Add(time.Hour),
+		},
+		activated: make(chan struct{}),
+	}
+}
+
+func (f *fakeRemoteService) Start() error {
+	f.mu.Lock()
+	f.calls = append(f.calls, "start")
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakeRemoteService) Activate(sessionID string) (pairing.Payload, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, "activate:"+sessionID)
+	f.mu.Unlock()
+	f.activateOnce.Do(func() { close(f.activated) })
+	return f.activatePayload, nil
+}
+
+func (f *fakeRemoteService) Pairings() <-chan pairing.Payload { return f.pairings }
+
+func (f *fakeRemoteService) BeginShutdown() {
+	_, _, _, _, _, stopCalls, _ := f.controller.state()
+	f.mu.Lock()
+	f.calls = append(f.calls, "begin_shutdown")
+	f.beginSawStopCalls = stopCalls
+	f.mu.Unlock()
+}
+
+func (f *fakeRemoteService) Close(context.Context) error {
+	_, _, _, _, _, stopCalls, _ := f.controller.state()
+	f.mu.Lock()
+	f.calls = append(f.calls, "close")
+	f.closeSawStopCalls = stopCalls
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakeRemoteService) state() ([]string, int, int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...), f.beginSawStopCalls, f.closeSawStopCalls
+}
+
 func newFakeController(results ...submitResult) *fakeController {
 	return &fakeController{
 		events:       make(chan projectsession.Event, 128),
@@ -67,6 +161,141 @@ func newFakeController(results ...submitResult) *fakeController {
 		stopped:      make(chan struct{}),
 		submitted:    make(chan struct{}, 128),
 		stopRelease:  make(chan struct{}),
+	}
+}
+
+func TestRunWithRemoteActivatesAndStopsInOrder(t *testing.T) {
+	controller := newFakeController()
+	remote := newFakeRemoteService(controller)
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	var output bytes.Buffer
+	var errorOutput bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithRemote(context.Background(), reader, &output, &errorOutput, controller, remote)
+	}()
+	waitForSignal(t, controller.subscribed, "Controller subscription")
+	controller.events <- projectsession.Event{Kind: projectsession.EventSessionStarted, SessionID: "session-1"}
+	waitForSignal(t, remote.activated, "remote activation")
+	if _, err := io.WriteString(writer, ":quit\n"); err != nil {
+		t.Fatalf("WriteString() error = %v", err)
+	}
+	if exitCode := waitForRun(t, done); exitCode != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", exitCode, errorOutput.String())
+	}
+	_ = writer.Close()
+
+	calls, beginSawStopCalls, closeSawStopCalls := remote.state()
+	wantCalls := []string{"start", "activate:session-1", "begin_shutdown", "close"}
+	if !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("remote calls = %v, want %v", calls, wantCalls)
+	}
+	if beginSawStopCalls != 0 || closeSawStopCalls != 1 {
+		t.Fatalf("stop ordering: begin saw %d, close saw %d", beginSawStopCalls, closeSawStopCalls)
+	}
+	if !strings.Contains(output.String(), "pairing:") || !strings.Contains(output.String(), "session-1") {
+		t.Fatalf("output = %q", output.String())
+	}
+}
+
+func TestRemoteRuntimeRotatesAndRevokesCredentials(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	random := append(bytes.Repeat([]byte{0x61}, 32), bytes.Repeat([]byte{0x62}, 32)...)
+	manager, err := pairing.NewManager("ws://pc/ws", 10*time.Minute,
+		pairing.WithClock(func() time.Time { return now }),
+		pairing.WithRandom(bytes.NewReader(random)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := channel.NewRegistry()
+	server := &fakeTransportServer{}
+	controller := newFakeController()
+	ticks := make(chan time.Time, 1)
+	runtime := newRemoteRuntime(manager, registry, server, controller)
+	runtime.ticks = ticks
+	if err := runtime.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	first, err := runtime.Activate("session-1")
+	if err != nil {
+		t.Fatalf("Activate() error = %v", err)
+	}
+	if _, ok := registry.Get("session-1"); !ok {
+		t.Fatal("Activate() did not register Session Channel")
+	}
+	lease, err := manager.Authenticate("session-1", first.PairToken)
+	if err != nil {
+		t.Fatalf("Authenticate(first) error = %v", err)
+	}
+
+	now = now.Add(11 * time.Minute)
+	ticks <- now
+	var second pairing.Payload
+	select {
+	case second = <-runtime.Pairings():
+	case <-time.After(time.Second):
+		t.Fatal("runtime did not publish rotated pairing payload")
+	}
+	if second.PairToken == first.PairToken {
+		t.Fatal("runtime published the original credential after expiry")
+	}
+	runtime.BeginShutdown()
+	if _, err := manager.Authenticate("session-1", second.PairToken); !errors.Is(err, pairing.ErrUnauthorized) {
+		t.Fatalf("Authenticate(after BeginShutdown) error = %v", err)
+	}
+	select {
+	case <-lease.Done():
+		t.Fatal("BeginShutdown closed established lease before final flush")
+	default:
+	}
+	if err := runtime.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	select {
+	case <-lease.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Close() did not revoke established lease")
+	}
+}
+
+func TestRemoteRuntimeCloseForcesCleanupAfterContextCancellation(t *testing.T) {
+	manager, err := pairing.NewManager(
+		"ws://pc/ws",
+		time.Hour,
+		pairing.WithRandom(bytes.NewReader(bytes.Repeat([]byte{0x63}, 32))),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := manager.Issue("session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := manager.Authenticate("session-1", payload.PairToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &fakeTransportServer{}
+	runtime := newRemoteRuntime(manager, channel.NewRegistry(), server, newFakeController())
+	runtime.started = true // Simulate a started runtime whose rotation loop has not settled.
+
+	closeContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runtime.Close(closeContext); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Close() error = %v, want context.Canceled", err)
+	}
+	server.mu.Lock()
+	closeCalls := server.closeCalls
+	server.mu.Unlock()
+	if closeCalls != 1 {
+		t.Fatalf("transport Close() calls = %d, want 1", closeCalls)
+	}
+	select {
+	case <-lease.Done():
+	default:
+		t.Fatal("Close() did not revoke the established lease after cancellation")
 	}
 }
 

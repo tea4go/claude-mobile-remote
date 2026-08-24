@@ -3,11 +3,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
+	"github.com/tea4go/claude-mobile-remote/internal/pairing"
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 )
 
@@ -22,6 +25,14 @@ type sessionController interface {
 type scannedLine struct {
 	text string
 	err  error
+}
+
+type remoteService interface {
+	Start() error
+	Activate(sessionID string) (pairing.Payload, error)
+	Pairings() <-chan pairing.Payload
+	BeginShutdown()
+	Close(context.Context) error
 }
 
 func scanLines(ctx context.Context, input io.Reader) (<-chan scannedLine, <-chan struct{}) {
@@ -89,12 +100,29 @@ func snapshotErrorMessage(snapshot projectsession.Snapshot) string {
 	return "unknown error"
 }
 
-func run(ctx context.Context, input io.Reader, output, errorOutput io.Writer, controller sessionController) (exitCode int) {
+func run(ctx context.Context, input io.Reader, output, errorOutput io.Writer, controller sessionController) int {
+	return runWithRemote(ctx, input, output, errorOutput, controller, nil)
+}
+
+func runWithRemote(ctx context.Context, input io.Reader, output, errorOutput io.Writer, controller sessionController, remote remoteService) (exitCode int) {
 	defer func() {
+		if remote != nil {
+			remote.BeginShutdown()
+		}
 		if err := controller.Stop(context.Background()); err != nil {
 			fmt.Fprintf(errorOutput, "关闭错误: %v\n", err)
 			if exitCode == 0 {
 				exitCode = 1
+			}
+		}
+		if remote != nil {
+			closeContext, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := remote.Close(closeContext); err != nil {
+				fmt.Fprintf(errorOutput, "远程服务关闭错误: %v\n", err)
+				if exitCode == 0 {
+					exitCode = 1
+				}
 			}
 		}
 	}()
@@ -108,6 +136,14 @@ func run(ctx context.Context, input io.Reader, output, errorOutput io.Writer, co
 	}
 	if ctx.Err() != nil {
 		return 0
+	}
+	var pairings <-chan pairing.Payload
+	if remote != nil {
+		if err := remote.Start(); err != nil {
+			fmt.Fprintf(errorOutput, "远程服务启动错误: %v\n", err)
+			return 1
+		}
+		pairings = remote.Pairings()
 	}
 
 	subscriptionContext, cancelSubscription := context.WithCancel(ctx)
@@ -213,6 +249,15 @@ func run(ctx context.Context, input io.Reader, output, errorOutput io.Writer, co
 				continue
 			}
 			pending[requestID] = struct{}{}
+		case payload, ok := <-pairings:
+			if !ok {
+				pairings = nil
+				continue
+			}
+			if err := writePairingPayload(output, payload); err != nil {
+				fmt.Fprintln(errorOutput, "配对信息输出错误")
+				return 1
+			}
 		case event, ok := <-events:
 			if ctx.Err() != nil {
 				cancelScan()
@@ -245,6 +290,17 @@ func run(ctx context.Context, input io.Reader, output, errorOutput io.Writer, co
 			switch event.Kind {
 			case projectsession.EventSessionStarted:
 				fmt.Fprintf(output, "session: %s\n", event.SessionID)
+				if remote != nil {
+					payload, activateErr := remote.Activate(event.SessionID)
+					if activateErr != nil {
+						fmt.Fprintln(errorOutput, "远程配对激活错误")
+						return 1
+					}
+					if err := writePairingPayload(output, payload); err != nil {
+						fmt.Fprintln(errorOutput, "配对信息输出错误")
+						return 1
+					}
+				}
 			case projectsession.EventTurnStarted:
 				flushDeferredTurnFailures()
 			case projectsession.EventTextDelta:
@@ -316,4 +372,13 @@ func run(ctx context.Context, input io.Reader, output, errorOutput io.Writer, co
 			}
 		}
 	}
+}
+
+func writePairingPayload(output io.Writer, payload pairing.Payload) error {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(output, "pairing: %s\n", encoded)
+	return err
 }
