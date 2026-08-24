@@ -9,14 +9,14 @@ A1–A4 已完成、提交且人工验收通过（A4 提交 `669e23d`）；当�
 ## 当前执行（AI 自动维护）
 
 - **子阶段**：A5 Mobile Web
-- **当前任务**：A5 分阶段设计——探索现有前端骨架、澄清交互范围并确定本机浏览器闭环
-- **状态**：A4 Task 1–8、自动门禁和人工协议客户端验收均已通过，A4 已由用户提交；A5 尚未修改代码或依赖
-- **范围**：设计配对负载输入、WebSocket 连接状态、snapshot/event 状态归并、扫码后文本展示、文本发送、刷新重连和本机浏览器验收；不实现二维码摄像头扫码、Capacitor、HarmonyOS、VPN 真机、审批、取消或完整 Markdown
-- **通过条件**：A5 方案逐节获得用户确认；与 A4/D27/D28 共用契约一致且三端可实现；形成可执行设计文档并交用户检查，确认后再编写实施计划
-- **完成结果**：A4 已完成且用户确认验证通过；A4 实现提交为 `669e23d`，当前仅切换交接状态至 A5
-- **最近验证**：用户于 2026-08-24 明确反馈 A4 已验证并提交；A4 自动门禁证据见 `docs/testing/A4-result.md`
-- **未验证项**：A5 的现有 React/Vite 骨架、依赖版本、测试配置和浏览器交互方案仍待只读核对；A5 本机浏览器闭环尚未实施
-- **下一步**：提交本次 A4→A5 交接状态；随后按 brainstorming 流程探索 `apps/mobile/`，一次确认一个 A5 设计问题
+- **当前任务**：A5 实施——设计文档已含审查批注并由用户授权提交，开始编写实施计划与实现
+- **状态**：A4 已完成并提交；A5 已确认 D29–D36，设计文档 `docs/specs/2026-08-24-A5-mobile-web-design.md` 已含 2026-08-24 审查批注（认证失效窗口禁用重连、非正常 close 统一按断开+结果未知处理、消息方向表、忽略 `connectionStatus`、1 MiB 按 UTF-8 字节计）并已提交；尚未修改 A5 代码、配置或依赖
+- **范围**：按设计文档 §3 模块结构实施 `apps/mobile/src/protocol/`（types/pairing/decode/client）、`session/reducer.ts`、四个组件与 `App.tsx`；按 §10 测试门禁先写自动化测试
+- **通过条件**：`npm test`、`npm run lint`、`npm run build` 与 `git diff --check` 全部通过；本机浏览器闭环（§10.2）验证后写入 `docs/testing/A5-result.md`
+- **完成结果**：设计阶段完成；D29–D36 已录入 `DECISIONS.md`
+- **最近验证**：用户于 2026-08-24 审查 A5 设计并提出 5 点问题，已全部作为批注写入设计文档；用户授权提交设计文档
+- **未验证项**：A5 自动化测试、本机浏览器闭环和所有实现尚未开始
+- **下一步**：使用 writing-plans 编写 A5 实施计划并交用户确认，然后按 TDD 实施
 - **复审记录（2026-08-24，独立 Claude 会话，已被最终审查修复替代）**：只读门禁均 PASS，并确认 A2 仅复用 WhaleTerm SDK 用法、A3 保持 Controller/唯一 Worker 分层；其记录的 Session failure 部分文本换行 Minor 已在 Task 7 最终审查修复中关闭。
 - **最终审查记录（2026-08-24）**：首次整体审查发现 EOF 观察调度可能造成同一 Session failure 的 Turn+Session 双诊断；按 TDD 改为基于 Worker settlement/下一 `turn_started` 延迟 Turn 诊断，并补直接 Session failure 换行。原审查代理复核后确认 Critical/Important/Minor 均为零，Ready for user diff review / final Git authorization。
 - **A4 验收前审查记录（2026-08-24，独立会话）**：对 A4 全部新代码（pairing/channel/transport/CLI/channel-test-client）做只读审查。A4-result.md 声称证据 fresh 复现全部通过：全仓 `-count=1`、五个 A4 包 race、gofmt/vet/build、`git diff --check`、client race `-count=100`、Transport 三类关闭 race `-count=20`、fuzz 2s。发现 0 个 Critical、0 个 Important；2 个 Minor 观察（① `channel-test-client` 解析配对使用 `time.Now` 而非可注入时钟，`ExpiresAt` 在过期瞬间启动可能误报“配对信息无效”，重跑即可，不影响 Service 端正确性；② `commandGate.Abort` 生产未使用，仅测试调用，属轻微 API 冗余）。分层核对：Pairing/Channel/Transport 职责边界干净，Transport 未触碰 SDK，Channel 强制 `InputMobile`，D25 顺序门（`Begin → Submit → Finish(result 先入队 → 按原 seq 释放 early 事件)）` 实现正确；D27/D28 与实现一致。已向用户澄清：A4 范围即服务端管道 + Go 测试客户端，移动 Web 连接属 A5，无需在 A4 写移动端测试代码。
