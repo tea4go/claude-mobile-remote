@@ -4,19 +4,19 @@
 
 ## 0. 一句话现状
 
-A1–A3 已完成、提交且人工验收通过；A4 Channel 通信的 Task 1–8 已在当前 `main` 工作区完成自动门禁，代码与门禁记录尚未提交，正在等待用户统一检查和人工协议客户端验收。
+A1–A4 已完成、提交且人工验收通过（A4 提交 `669e23d`）；当前进入 A5 Mobile Web 设计阶段，尚未修改 A5 代码。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：A4 Channel 通信
-- **当前任务**：A4 Task 8——等待用户统一检查与人工协议客户端验收
-- **状态**：Task 1–8 自动化工作完成；全仓门禁、凭证扫描、三端复核和最终审查已通过，工作区未提交
-- **范围**：Pairing、Protocol、Channel、Outbox、WebSocket、CLI Runtime、Go 协议测试客户端及 `docs/testing/A4-result.md`；未运行真实 Claude、移动 Web 或 VPN
-- **通过条件**：用户统一检查差异，并按简短清单验证真实 Service 与 Go 测试客户端闭环；反馈通过或问题
-- **完成结果**：实现短期凭证、固定版本协议、Session Channel、隔离慢连接的有界队列、D25 顺序门、WebSocket 状态机、CLI 生命周期和可执行测试客户端；最终审查关闭客户端末尾 event/正常关闭竞态及取消停机未强制清理两项 Important
-- **最近验证**：fresh `go test -count=1 ./...` 与 `go test -race -count=1 ./...` 均 8/8 packages PASS；focused 两组 race PASS；vet/build/version/client build/fuzz PASS；客户端关闭顺序 race 100 次和 Transport 三类关闭 race 20 次 PASS；43 字符 Base64URL token 字符串字面量扫描无输出
-- **未验证项**：真实 Claude、React 移动 Web 和 VPN 真机不属于 A4 自动门禁；真实慢 socket 未做依赖 OS 缓冲的非确定压测，已由有界队列溢出单测和真实多客户端测试分层覆盖
-- **下一步**：等待用户统一 diff 检查并完成人工协议客户端验收；用户反馈通过前不进入 A5，不执行任何 Git 写操作
+- **子阶段**：A5 Mobile Web
+- **当前任务**：A5 分阶段设计——探索现有前端骨架、澄清交互范围并确定本机浏览器闭环
+- **状态**：A4 Task 1–8、自动门禁和人工协议客户端验收均已通过，A4 已由用户提交；A5 尚未修改代码或依赖
+- **范围**：设计配对负载输入、WebSocket 连接状态、snapshot/event 状态归并、扫码后文本展示、文本发送、刷新重连和本机浏览器验收；不实现二维码摄像头扫码、Capacitor、HarmonyOS、VPN 真机、审批、取消或完整 Markdown
+- **通过条件**：A5 方案逐节获得用户确认；与 A4/D27/D28 共用契约一致且三端可实现；形成可执行设计文档并交用户检查，确认后再编写实施计划
+- **完成结果**：A4 已完成且用户确认验证通过；A4 实现提交为 `669e23d`，当前仅切换交接状态至 A5
+- **最近验证**：用户于 2026-08-24 明确反馈 A4 已验证并提交；A4 自动门禁证据见 `docs/testing/A4-result.md`
+- **未验证项**：A5 的现有 React/Vite 骨架、依赖版本、测试配置和浏览器交互方案仍待只读核对；A5 本机浏览器闭环尚未实施
+- **下一步**：提交本次 A4→A5 交接状态；随后按 brainstorming 流程探索 `apps/mobile/`，一次确认一个 A5 设计问题
 - **复审记录（2026-08-24，独立 Claude 会话，已被最终审查修复替代）**：只读门禁均 PASS，并确认 A2 仅复用 WhaleTerm SDK 用法、A3 保持 Controller/唯一 Worker 分层；其记录的 Session failure 部分文本换行 Minor 已在 Task 7 最终审查修复中关闭。
 - **最终审查记录（2026-08-24）**：首次整体审查发现 EOF 观察调度可能造成同一 Session failure 的 Turn+Session 双诊断；按 TDD 改为基于 Worker settlement/下一 `turn_started` 延迟 Turn 诊断，并补直接 Session failure 换行。原审查代理复核后确认 Critical/Important/Minor 均为零，Ready for user diff review / final Git authorization。
 - **A4 验收前审查记录（2026-08-24，独立会话）**：对 A4 全部新代码（pairing/channel/transport/CLI/channel-test-client）做只读审查。A4-result.md 声称证据 fresh 复现全部通过：全仓 `-count=1`、五个 A4 包 race、gofmt/vet/build、`git diff --check`、client race `-count=100`、Transport 三类关闭 race `-count=20`、fuzz 2s。发现 0 个 Critical、0 个 Important；2 个 Minor 观察（① `channel-test-client` 解析配对使用 `time.Now` 而非可注入时钟，`ExpiresAt` 在过期瞬间启动可能误报“配对信息无效”，重跑即可，不影响 Service 端正确性；② `commandGate.Abort` 生产未使用，仅测试调用，属轻微 API 冗余）。分层核对：Pairing/Channel/Transport 职责边界干净，Transport 未触碰 SDK，Channel 强制 `InputMobile`，D25 顺序门（`Begin → Submit → Finish(result 先入队 → 按原 seq 释放 early 事件)）` 实现正确；D27/D28 与实现一致。已向用户澄清：A4 范围即服务端管道 + Go 测试客户端，移动 Web 连接属 A5，无需在 A4 写移动端测试代码。
@@ -69,15 +69,15 @@ A1–A3 已完成、提交且人工验收通过；A4 Channel 通信的 Task 1–
 | A3 门禁记录 | ✅ 通过 | `docs/testing/A3-result.md` |
 | A4 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-24-A4-channel-transport-design.md` |
 | A4 实施计划 | ✅ 已确认 | `docs/plans/2026-08-24-A4-channel-transport.md` |
-| A4 门禁记录 | ✅ 自动门禁通过，待人工验收 | `docs/testing/A4-result.md` |
-| 业务代码 | ✅ A3 已完成并由用户提交 | 薄 SDK Adapter + Session Core + 异步行式 CLI |
+| A4 门禁记录 | ✅ 自动门禁与人工验收通过 | `docs/testing/A4-result.md` |
+| 业务代码 | ✅ A4 已完成并由用户提交（`669e23d`） | 薄 SDK Adapter + Session Core + Channel/Transport + 配对与测试客户端 |
 
 ## 4. 下一步
 
-1. 用户统一检查 A4 实现与门禁记录；
-2. 使用真实 Service 输出的配对负载完成 Go CLI 协议客户端人工验收；
-3. 用户明确授权后再统一执行 Git 写操作；
-4. A4 人工验收通过后，按 A5 → A6 顺序验证移动浏览器与 VPN 真机闭环。
+1. 只读探索 `apps/mobile/` 现有 React/Vite 骨架、依赖和测试配置；
+2. 逐项确认 A5 Mobile Web 的交互、状态归并、凭证承载和本机验收边界；
+3. 写入 A5 分阶段设计并交用户检查，获确认后编写实施计划；
+4. A5 门禁通过后进入 A6 VPN 真机闭环。
 
 ## 5. 首期关键验证
 
