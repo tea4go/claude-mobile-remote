@@ -42,6 +42,13 @@
 1. **I-1 AssistantMessage.Error 静默成功**：原 `parseMessage` 忽略 SDK `AssistantMessage.Error` 字段（`server_error` / `authentication_failed` 等），API 出错时 CLI 会输出 `turn_completed` 且退出码 0。修复：`parseMessage` 提取错误类型与文本（`assistantErrorFact`）；`RunTurn` 收到错误 assistant 即终止当前流，发射 `turn_failed`，按类型分级——`server_error` / `rate_limit` 为 turn scope（可重试），其余（认证、计费等）为 session scope。分级依据 WhaleTerm 验证行为，未移植其错误文本关键字匹配（留给 A3）。新增测试：`TestParseMessage/assistant_error_*`、`TestHostAssistantErrorFailsTurn`；
 2. **I-2 门禁命令记录失实**：原记录誊写 `go vet ./...` / `go build ./...`，实际必须 `GOFLAGS=-buildvcs=false`（D18 副作用）。修正本记录与 README、AGENTS.md 三处文档。
 
+## 人工验收
+
+- 日期：2026-08-24
+- 结论：通过
+- 验收范围：CLI 连续多轮上下文、`:quit` 正常退出、A2 工具权限不静默越权
+- 用户反馈：通过，无新增问题
+
 真实门禁在受限沙箱内曾因外部 API `ConnectionRefused` 失败；在允许网络访问的执行环境中重跑同一测试后通过。完成前评审修正后的最终 fresh 门禁用时约 14.5 秒。
 
 本记录不包含真实 session ID、prompt、回复、认证信息或用户配置。
