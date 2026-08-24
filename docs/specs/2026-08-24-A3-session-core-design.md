@@ -2,8 +2,8 @@
 
 - 日期：2026-08-24
 - 子阶段：A3 Session Core（里程碑 A）
-- 状态：已确认，待实施
-- 依据：`REQUIREMENTS.md` §5.1、§9.1，总体设计 §2–§4、§8.1，D15、D19、D21、D24
+- 状态：已确认，实施中
+- 依据：`REQUIREMENTS.md` §5.1、§9.1，总体设计 §2–§4、§8.1，D15、D19、D21、D24、D25、D26
 
 ## 1. 目标
 
@@ -84,6 +84,7 @@ func NewController(host Host, options ...Option) *Controller
 func (c *Controller) Start(ctx context.Context) error
 func (c *Controller) Submit(ctx context.Context, input Input) (requestID string, err error)
 func (c *Controller) Snapshot(ctx context.Context) (Snapshot, error)
+func (c *Controller) WaitIdle(ctx context.Context) (Snapshot, error)
 func (c *Controller) Subscribe(ctx context.Context, capacity int) (Snapshot, <-chan Event, error)
 func (c *Controller) Stop(ctx context.Context) error
 ```
@@ -93,6 +94,8 @@ func (c *Controller) Stop(ctx context.Context) error
 传给 `Start` 的 service context 用于触发主动停止，但 Actor 使用独立的内部生命周期收敛状态和最终事件；每个 Turn 另有可单独取消的 context。service context 取消时，Controller 发起与显式 `Stop` 相同的流程，而不是直接杀死 Actor。
 
 `Subscribe` 在 Actor 内原子完成“登记订阅者 + 读取 snapshot”，返回的 snapshot 记录基准 `seq`，随后该订阅只接收更大的 `seq`，避免 A4 在“先 snapshot、再订阅”之间丢失事件。独立 `Snapshot` 用于普通状态查询。
+
+`WaitIdle` 是 PC 进程内的结算边界：只有 Actor 已处理当前 Worker result，且既无运行中 Turn 也无等待输入时才返回 Actor 一致的深复制 snapshot；Session 已结束时返回缓存的最终 snapshot。它不发布事件、不递增 `seq`，也不属于 A4 或移动端协议。CLI 在 EOF 已观察到全部已接受请求的 Turn 终态，或某个 Turn 失败后已无其他 pending 请求时调用它，用最终 Session snapshot 区分正常排空、可恢复 Turn failure 与紧随 Turn 终态发生的 Session scope failure；仍有 pending 请求时，下一条 `turn_started` 作为上一 Turn 已可恢复结算的证明，Session failure 则抑制同一根因的 Turn 诊断。
 
 订阅者是 CLI、A4 Channel 等可信进程内消费者。Actor 对每个订阅者保持同序背压以避免静默丢事件；订阅容量必须大于 0，消费者必须持续读取或及时取消自己的订阅 context。A4 的网络连接不得直接订阅 Controller，而由 Channel 快速消费后自行处理慢客户端。Controller 不为不消费且不取消的错误内部订阅者提供可用性保证。
 
@@ -107,10 +110,12 @@ func (c *Controller) Stop(ctx context.Context) error
 3. 在真实 session ID 已知时，非空目标 ID 必须严格相等；手机命令在 A4 必须始终带目标 ID；
 4. 只有真实 session ID 尚未产生时，终端首条输入才允许目标 ID 为空；
 5. 等待队列未满时，使用标准库 `crypto/rand` 生成 128-bit 小写十六进制 request ID；生成器通过测试选项注入；
-6. Actor 先向 `Submit` 返回接受结果，再派发 `turn_started`，保证调用方可以先登记 request ID；
+6. Actor 通过无缓冲 response 把接受结果交给 `Submit` goroutine 后，才在内部开始派发 Turn；该握手不承诺 Go 方法已经返回，也不承诺外部调用方代码已先于 Actor 再次获得调度；
 7. 当前没有运行中 Turn 时立即派发，否则进入 FIFO。
 
 容量 32 只计算等待中的输入，不计算正在执行的 Turn，因此上限为“1 个运行中 + 32 个等待中”。FIFO 顺序以 Actor 实际收到 `Submit` 命令的顺序为准，不承诺不同 goroutine 的墙上时钟先后关系。
+
+A3 不为 `Submit` 增加可执行回调或二阶段确认。CLI 在同一个事件循环中同步调用 `Submit`，方法返回并登记 request ID 之前不会消费 Controller 事件。A4 存在独立的命令处理与事件广播 goroutine，因此必须在 Channel/连接输出边界建立服务端顺序门控：对应的 `command_result` 已进入该连接的有序输出队列后，才能让同一 request ID 的 `turn_started` 对该客户端可见；必要时由服务端短暂缓冲提前到达的事件，不要求任何移动客户端处理乱序。缓冲只服务于尚未完成接受响应入队的移动请求；A4 设计必须给出明确的事件数或字节数上限及溢出收敛行为。
 
 ### 6.2 同步拒绝
 
@@ -249,7 +254,8 @@ CLI 使用一个 select 循环同时处理扫描结果、Controller 事件和进
 - `Submit` 成功后按 request ID 记录尚未终止的已接受请求；
 - `text_delta` 保持流式输出，Turn 终态负责换行和错误输出；
 - 入队拒绝打印清晰错误，但除 Session 不可用外不主动结束 Service；
-- EOF 表示不再接受终端输入，CLI 继续消费事件，直到已接受请求全部结束后正常停止；
+- EOF 表示不再接受终端输入；CLI 先消费完已接受请求的 Turn 终态，再通过 `WaitIdle` 等待 Actor 处理对应 Worker result。最终 snapshot 为 `starting/ready` 时正常停止，为 `failed` 时输出一次 Session 错误并以退出码 1 结束；
+- Turn failure 的诊断延迟到 Worker result 已确认 scope：无其他 pending 请求时通过 `WaitIdle` 判断；仍有 pending 请求时由下一条 `turn_started` 确认上一 Turn 可恢复。若先进入 Session failure，只输出一次 Session 根因；
 - `:quit` 或进程 context 取消立即调用 `Stop`，不等待队列排空；
 - Session scope 失败输出错误并以退出码 1 结束；正常 EOF、`:quit` 和信号停止沿用成功退出语义；
 - CLI 不直接调用 Host，也不自行维护 Session/Turn 真相。
@@ -277,10 +283,11 @@ Scanner 的 1 MiB 限制保留，同时 Controller 再做同一上限校验，�
 - init 前 Session 失败可以终止本地订阅者，但不能形成无 session ID 的网络契约；
 - 多 goroutine、terminal/mobile 来源并发 Submit 后，执行顺序与 Actor 接收顺序一致且 Host 最大并发数为 1；
 - 1 个运行中和 32 个等待中可接受，第 33 个等待项返回 `ErrQueueFull`；
-- request ID 唯一，拒绝请求不分配 ID，接受回复先于对应 `turn_started`；
+- request ID 唯一，拒绝请求不分配 ID，Actor 的接受 response 交付先于内部 `startNext`；A4 的网络可观察顺序不属于 A3 测试范围；
 - snapshot 在 `starting`、`running`、`completed`、Turn 失败、Connect/Session 失败和 `stopped` 下正确，Session 失败根因保留在顶层 `sessionError`；
 - 文本累积、最近 Turn 保留和下一 Turn 清空；
 - Turn scope 错误后继续下一项；Session scope 错误清空队列并拒绝新输入；
+- `WaitIdle` 不会在 Adapter 终态事件到达时提前返回，必须等 Worker result 被 Actor 处理；Session scope 结果返回最终 failed snapshot；
 - Stop 取消当前 Turn、清空队列、关闭 Host 一次，重复 Stop 幂等；
 - 多订阅者收到相同 `seq` 和顺序；原子 Subscribe 的 snapshot `seq` 与后续事件无缺口。
 
@@ -289,7 +296,8 @@ Scanner 的 1 MiB 限制保留，同时 Controller 再做同一上限校验，�
 - 连续多行在首 Turn 未结束时仍可成功入队；
 - 流式文本、每 Turn 换行和错误输出；
 - Queue full 等同步拒绝可诊断；
-- EOF 等待已接受任务排空；
+- EOF 等待已接受任务的事件和 Worker result 真正结算，且不会遗漏紧随 Turn 终态发生的 Session failure；
+- CLI 退出事件循环前先取消自己的 Controller 订阅；context 取消在 Start、Subscribe、scanner、事件关闭和失败事件竞态下均保持成功停止语义；
 - `:quit` 与 context 取消立即停止；
 - Turn scope 失败后继续，Session scope 失败以退出码 1 结束；
 - 启动和关闭错误不丢失主错误。
@@ -316,9 +324,10 @@ A3 正式细化总体设计中的状态模型与 snapshot，因此属于 D19 要
 - React/TypeScript、Capacitor iOS/Android 与 HarmonyOS ArkTS/ArkUI 均能实现相同枚举、snapshot 和事件归并；
 - Actor、Worker 和订阅背压属于 PC 内部实现，不进入三端协议；
 - A4 负责把领域事件映射到带 `version`、`type`、`sessionId`、request ID 和 `seq` 的 JSON envelope，并组合连接状态；
+- A4 还必须在服务端保证移动命令的 `command_result` 先于同一 request ID 的 `turn_started` 对该连接可见；可在 Channel/有序输出队列中门控或短暂缓冲，不把乱序兼容逻辑下放给客户端；
 - init 前 session ID 为空的内部失败事件只供本地 CLI，不进入任何移动端协议。
 
-因此 A3 不引入端特有依赖，也不改变配对负载。A4 固定 JSON 字段时仍需再次核对通信协议并更新决策。
+因此 A3 不引入端特有依赖，也不改变配对负载。接受/事件顺序由 PC Service 统一保证，React/TypeScript、Capacitor iOS/Android 与 HarmonyOS ArkTS/ArkUI 都只按同一正常顺序归并纯 JSON 消息，无需平台特有调度、缓存或回调语义。A4 固定 JSON 字段和顺序门控实现时仍需再次核对通信协议并更新决策。
 
 ## 14. 验收结论
 

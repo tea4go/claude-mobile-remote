@@ -193,3 +193,19 @@
 - **理由**：单写入者模型可以同时保证双端输入 FIFO、SDK Client 不被并发调用、状态快照一致和事件顺序；有界等待队列避免输入无限堆积；原子“订阅 + snapshot”边界可在不保存完整事件历史的前提下避免订阅建立时出现缺口。
 - **影响**：A3 新增 `internal/session` 并把 CLI 从同步直连 Host 迁移为异步提交与事件消费；最多同时存在 1 个运行中 Turn 和 32 个等待输入。A4 Channel 必须复用 Controller，并负责把纯数据领域事件映射为 JSON envelope 和组合连接状态。共用字段只使用 JSON 可表达的字符串、非负整数和可空对象，不包含 Go、浏览器或 Capacitor 专属语义；React/TypeScript、Capacitor iOS/Android 与 HarmonyOS ArkTS/ArkUI 均可实现相同状态和归并规则，三端可实现性核对通过。init 前无真实 session ID 的内部失败只供本地 CLI，不得序列化给移动端。
 - **状态**：已定
+
+## D25 · A3 保留内部接受握手，A4 保证协议可观察顺序
+
+- **日期**：2026-08-24
+- **决策**：A3 保持 `Submit(ctx, input) (requestID, error)` 接口和 Actor 内部无缓冲 response 握手，不增加可执行回调或二阶段确认。该握手只保证接受结果已交给 `Submit` goroutine 后 Actor 才开始派发 Turn，不承诺 Go 方法已经返回或外部调用方代码先获得调度。A4 Channel/Transport 必须在 PC Service 端保证移动命令的 `command_result` 已进入对应连接的有序输出队列后，才让同一 request ID 的 `turn_started` 对该客户端可见；必要时由服务端短暂缓冲提前事件。
+- **理由**：该竞态不会造成 SDK 并发写入、请求丢失或 Session 状态损坏，影响限于协议可观察顺序；在 Session Actor 中执行外部回调会引入阻塞、重入、panic 和失败原子性契约，而可观察顺序更适合由实际拥有连接输出队列的 A4 边界处理。
+- **影响**：A3 CLI 在单一事件循环内同步 Submit 并登记 request ID，不受该调度窗口影响。A4 的提前事件缓冲必须在内存中、有界，并在命令接受、连接关闭或 Session 终态时释放；具体结构随 A4 设计确定。顺序由服务端统一保证，三端只消费相同的正常顺序 JSON 消息：React/TypeScript、Capacitor iOS/Android 与 HarmonyOS ArkTS/ArkUI 均无需平台特有回调、线程调度或客户端乱序缓存，三端可实现性核对通过。
+- **状态**：已定
+
+## D26 · CLI EOF 使用 PC 内部 Controller 结算边界
+
+- **日期**：2026-08-24
+- **决策**：A3 Controller 新增进程内 `WaitIdle(ctx)`：仅当 Actor 已处理当前 Worker result，且无运行中 Turn、无等待输入时返回深复制 snapshot；Session 已结束时返回缓存的最终 snapshot。CLI 在 EOF 已观察到全部已接受请求的 Turn 终态后调用该方法，再依据最终 Session 状态决定退出码。`WaitIdle` 不发布事件、不递增 `seq`，不进入 A4 Transport/Channel 或任何移动端协议。
+- **理由**：Adapter Turn 终态事件先于 `Host.RunTurn` 的 Worker result 返回；只按终态事件清理 CLI pending 会在随后发生 Session scope 失败时提前成功退出。由 Actor 提供结算边界能复用 Session 真相，避免 CLI 猜测事件时序或新增移动端握手。
+- **影响**：改动仅限 PC Service 的 Go Controller 与 CLI 内部调用面，不新增协议消息、JSON 字段、状态枚举或客户端行为。React/TypeScript Web、Capacitor iOS/Android 与 HarmonyOS ArkTS/ArkUI 均无需实现 `WaitIdle` 或平台特有语义，三端共用契约保持不变，可实现性核对通过。
+- **状态**：已定
