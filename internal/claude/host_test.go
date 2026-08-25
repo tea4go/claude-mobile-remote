@@ -374,3 +374,208 @@ func TestDenyToolUse(t *testing.T) {
 		t.Fatalf("deny result = %#v", deny)
 	}
 }
+
+// ---- A5.2 预分配 session ID（设计 §4/§5）----
+
+// newHostWithReservedID 构造带预分配 ID 的 Host（新会话模式）。
+func newHostWithReservedID(t *testing.T, client *fakeClient, sessionID string) *Host {
+	t.Helper()
+	host, err := NewHostWithReservedSessionID(sessionID, withClient(client))
+	if err != nil {
+		t.Fatalf("NewHostWithReservedSessionID() error = %v", err)
+	}
+	return host
+}
+
+func TestHostReserveSessionIDForNewConversation(t *testing.T) {
+	sessionID := "9c3d7e2a-1b4f-4c5d-8e6a-2f7b9d0c4a11"
+	client := &fakeClient{iterators: []claudecode.MessageIterator{&fakeIterator{steps: []iteratorStep{
+		messageStep(&claudecode.SystemMessage{Subtype: "init", Data: map[string]any{"session_id": sessionID}}),
+		messageStep(&claudecode.AssistantMessage{Content: []claudecode.ContentBlock{&claudecode.TextBlock{Text: "ok"}}}),
+		messageStep(&claudecode.ResultMessage{SessionID: sessionID}),
+	}}}}
+	host := newHostWithReservedID(t, client, sessionID)
+
+	if err := host.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	// Connect 后预留 ID 已可读，但尚未确认（设计 §5.1）。
+	if host.SessionID() != sessionID {
+		t.Fatalf("SessionID() after Connect = %q, want reserved %q", host.SessionID(), sessionID)
+	}
+	if host.SessionConfirmed() {
+		t.Fatal("SessionConfirmed() must be false before the first init/Result")
+	}
+
+	events, emit := collectEvents()
+	if err := host.RunTurn(context.Background(), "prompt", emit); err != nil {
+		t.Fatalf("RunTurn() error = %v", err)
+	}
+	if !host.SessionConfirmed() {
+		t.Fatal("SessionConfirmed() must be true after init confirmed the reserved ID")
+	}
+	// session_started 仍只发一次，且 ID 与预留一致。
+	started := 0
+	for _, event := range *events {
+		if event.Kind == EventSessionStarted {
+			started++
+			if event.SessionID != sessionID {
+				t.Fatalf("session_started ID = %q, want %q", event.SessionID, sessionID)
+			}
+		}
+	}
+	if started != 1 {
+		t.Fatalf("session_started count = %d, want 1", started)
+	}
+}
+
+func TestHostReservedSessionIDMismatchFailsSession(t *testing.T) {
+	client := &fakeClient{iterators: []claudecode.MessageIterator{&fakeIterator{steps: []iteratorStep{
+		messageStep(&claudecode.SystemMessage{Subtype: "init", Data: map[string]any{"session_id": "session-other"}}),
+	}}}}
+	host := newHostWithReservedID(t, client, "9c3d7e2a-1b4f-4c5d-8e6a-2f7b9d0c4a11")
+	if err := host.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	err := host.RunTurn(context.Background(), "prompt", nil)
+	if err == nil || ScopeOf(err) != ScopeSession {
+		t.Fatalf("RunTurn() error = %v, want session-scoped mismatch failure", err)
+	}
+	if host.SessionConfirmed() {
+		t.Fatal("SessionConfirmed() must remain false on mismatch")
+	}
+}
+
+func TestHostReserveRejectsInvalidInput(t *testing.T) {
+	if _, err := NewHostWithReservedSessionID("not-a-uuid", withClient(&fakeClient{})); err == nil {
+		t.Fatal("NewHostWithReservedSessionID() accepted invalid UUID")
+	}
+	if _, err := NewHostWithReservedSessionID("", withClient(&fakeClient{})); err == nil {
+		t.Fatal("NewHostWithReservedSessionID() accepted empty session ID")
+	}
+}
+
+func TestHostNewConversationGeneratesUUID(t *testing.T) {
+	// NewHost 新会话模式：内部生成 UUID v4 并预分配（设计 §3.1）。
+	host := NewHost(withClient(&fakeClient{}))
+	if err := host.PrepareNewSession(); err != nil {
+		t.Fatalf("PrepareNewSession() error = %v", err)
+	}
+	id := host.SessionID()
+	if id == "" {
+		t.Fatal("PrepareNewSession() did not reserve a session ID")
+	}
+	if len(id) != 36 || id[14] != '4' {
+		t.Fatalf("reserved ID %q is not a UUID v4", id)
+	}
+	// 第二次调用拒绝：一个 Host 只允许一次预留。
+	if err := host.PrepareNewSession(); err == nil {
+		t.Fatal("second PrepareNewSession() must fail")
+	}
+}
+
+// TestSessionSDKOptionsSeparateNewAndResume 校验设计 §4 的互斥要求：新建模式
+// 只配置 WithSessionID，恢复模式只配置 WithResume，两者不得同时出现。
+func TestSessionSDKOptionsSeparateNewAndResume(t *testing.T) {
+	sessionID := "9c3d7e2a-1b4f-4c5d-8e6a-2f7b9d0c4a11"
+
+	newSession := claudecode.NewOptions(sessionSDKOptions(sessionModeNew, sessionID)...)
+	if newSession.SessionID == nil || *newSession.SessionID != sessionID {
+		t.Fatalf("new session SessionID = %v, want %q", newSession.SessionID, sessionID)
+	}
+	if newSession.Resume != nil {
+		t.Fatalf("new session must not set Resume, got %q", *newSession.Resume)
+	}
+	if err := newSession.Validate(); err != nil {
+		t.Fatalf("new session Validate() error = %v", err)
+	}
+
+	resumed := claudecode.NewOptions(sessionSDKOptions(sessionModeResume, sessionID)...)
+	if resumed.Resume == nil || *resumed.Resume != sessionID {
+		t.Fatalf("resume Resume = %v, want %q", resumed.Resume, sessionID)
+	}
+	if resumed.SessionID != nil {
+		t.Fatalf("resume must not set SessionID, got %q", *resumed.SessionID)
+	}
+	if err := resumed.Validate(); err != nil {
+		t.Fatalf("resume Validate() error = %v", err)
+	}
+}
+
+// TestHostResumeReservesExistingID 覆盖设计 §5.2：恢复会话在 Connect 前即持有
+// 已有 ID，首个 init/Result 必须返回同一 ID。
+func TestHostResumeReservesExistingID(t *testing.T) {
+	sessionID := "9c3d7e2a-1b4f-4c5d-8e6a-2f7b9d0c4a11"
+	client := &fakeClient{iterators: []claudecode.MessageIterator{&fakeIterator{steps: []iteratorStep{
+		messageStep(&claudecode.SystemMessage{Subtype: "init", Data: map[string]any{"session_id": sessionID}}),
+		messageStep(&claudecode.ResultMessage{SessionID: sessionID}),
+	}}}}
+	host, err := NewHostForResume(sessionID, withClient(client))
+	if err != nil {
+		t.Fatalf("NewHostForResume() error = %v", err)
+	}
+	if host.SessionID() != sessionID {
+		t.Fatalf("SessionID() = %q, want %q", host.SessionID(), sessionID)
+	}
+	if host.SessionConfirmed() {
+		t.Fatal("resume host must not be confirmed before the first init/Result")
+	}
+	if err := host.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	if err := host.RunTurn(context.Background(), "prompt", nil); err != nil {
+		t.Fatalf("RunTurn() error = %v", err)
+	}
+	if !host.SessionConfirmed() {
+		t.Fatal("resume host must confirm the existing session ID")
+	}
+}
+
+// TestHostResumeRejectsNewIDFromClaude 覆盖设计 §11：Resume 实际返回新 ID 时
+// 按 Session 级失败处理，禁止静默切换。
+func TestHostResumeRejectsNewIDFromClaude(t *testing.T) {
+	client := &fakeClient{iterators: []claudecode.MessageIterator{&fakeIterator{steps: []iteratorStep{
+		messageStep(&claudecode.SystemMessage{Subtype: "init", Data: map[string]any{"session_id": "other-session"}}),
+	}}}}
+	host, err := NewHostForResume("9c3d7e2a-1b4f-4c5d-8e6a-2f7b9d0c4a11", withClient(client))
+	if err != nil {
+		t.Fatalf("NewHostForResume() error = %v", err)
+	}
+	if err := host.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	turnErr := host.RunTurn(context.Background(), "prompt", nil)
+	if turnErr == nil || ScopeOf(turnErr) != ScopeSession {
+		t.Fatalf("RunTurn() error = %v, want session-scoped mismatch failure", turnErr)
+	}
+	if host.SessionConfirmed() {
+		t.Fatal("resume host must stay unconfirmed on ID mismatch")
+	}
+}
+
+func TestHostResumeRejectsInvalidID(t *testing.T) {
+	if _, err := NewHostForResume("not-a-uuid", withClient(&fakeClient{})); err == nil {
+		t.Fatal("NewHostForResume() accepted invalid UUID")
+	}
+	if _, err := NewHostForResume("", withClient(&fakeClient{})); err == nil {
+		t.Fatal("NewHostForResume() accepted empty session ID")
+	}
+}
+
+func TestHostUnreservedKeepsLegacyBehavior(t *testing.T) {
+	// 未预留 ID 的 Host 保持 A2 行为：SessionID 首轮 init 前为空。
+	client := &fakeClient{iterators: []claudecode.MessageIterator{&fakeIterator{steps: []iteratorStep{
+		messageStep(&claudecode.SystemMessage{Subtype: "init", Data: map[string]any{"session_id": "session-1"}}),
+		messageStep(&claudecode.ResultMessage{SessionID: "session-1"}),
+	}}}}
+	host := connectHost(t, client)
+	if host.SessionID() != "" || host.SessionConfirmed() {
+		t.Fatalf("legacy host must have empty/unconfirmed session before first turn")
+	}
+	if err := host.RunTurn(context.Background(), "prompt", nil); err != nil {
+		t.Fatalf("RunTurn() error = %v", err)
+	}
+	if host.SessionID() != "session-1" || !host.SessionConfirmed() {
+		t.Fatal("legacy host must confirm session ID from init")
+	}
+}

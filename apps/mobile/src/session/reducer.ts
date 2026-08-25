@@ -174,14 +174,16 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
   }
   // 运行/等待中的 Turn 即使尚无文本也创建占位消息：用户可能在 AI 回复
   // 前配对，订阅后的 text_delta 需要归并目标（A5.1 验收回归）。
+  // source 为空即首轮前尚无 Turn（A5.2），此时不创建任何消息。
   const turnActive =
     snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting'
-  if (snapshot.turn.message !== '' || turnActive) {
+  const turnSource = snapshot.turn.source
+  if (turnSource !== '' && (snapshot.turn.message !== '' || turnActive)) {
     next.messages = [
       {
         kind: 'claude',
         requestId: snapshot.turn.requestId,
-        source: snapshot.turn.source,
+        source: turnSource,
         text: snapshot.turn.message,
         status:
           snapshot.turn.status === 'failed'

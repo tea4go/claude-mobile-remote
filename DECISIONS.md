@@ -297,3 +297,11 @@
 - **理由**：用户验证 A5 时确认手机能够同步状态和 Claude 回复，但看不到 PC 发送的正文；该能力属于里程碑 A 的基础双端文本闭环，应在 A6 真机联调前固定。复用既有字段比新增 event kind 更小，且不改变版本 1 JSON 结构；Service 与新客户端仍需协调升级并通过同一门禁。
 - **影响**：本决策替代 D32 中“终端 Turn 只显示来源标记”的局部约定，D32 的易失消息、无历史、无 replay 边界继续有效。跨手机不承诺设备优先级、网络到达时间或客户端时钟顺序，只承诺 Controller 接受后的全局 FIFO 与唯一 request ID；每连接 command result 和慢连接隔离仍由 A4 保证。A5.1 不增加设备 ID、抢占或取消，真正中断当前 Turn 仍归 B2。A4 普通 outbox 与提前事件缓存必须容纳最大合法 prompt 加 envelope 开销，同时继续有界；React Web、Capacitor 和 HarmonyOS NEXT 均按相同 `source/requestId/text` 规则实现，不引入平台专属依赖。三端可实现性核对通过。
 - **状态**：已定
+
+## D38 · A5.2 预分配真实 Claude session ID 并在首轮前配对
+
+- **日期**：2026-08-25
+- **决策**：在 A6 前增加 A5.2。新会话由 Service 生成合法随机 UUID，并通过 `claude-agent-sdk-go` 新增的 `WithSessionID` 映射为 Claude CLI `--session-id`，从而在首个 Query 前取得该会话的真实 `sessionId`；恢复会话使用已有真实 ID和 `WithResume`，两者互斥。Controller 内部区分 ID 已预留与 Claude init 已确认；SDK Connect 成功后立即注册同一 ID的 Channel、签发 Pair Token 并允许 PC 或任意已配对手机提交第一条真实消息。首个 init 必须返回预期 ID，之后才发布 `session_started`，并保持其早于首个 `turn_started`。
+- **理由**：现有流程只有 PC 先发起首轮后才能扫码，阻止手机成为新会话第一条消息的来源，与正常接力流程冲突。Claude CLI 已支持 `--session-id <uuid>`，预分配方案不需要空对话、不污染上下文，也不需要引入本地 `channelId`、临时会话身份或协议版本升级。
+- **影响**：D28 的 token、配对负载和精确 Session 绑定结构保持不变，但 A4 总体设计 §10 和原总体设计中“收到 session_started 后才激活配对”的时机约定由本决策替代。现有版本 1 envelope、snapshot 和 Mobile Web 状态模型不增加字段；首轮前 snapshot 为已知 `sessionId`、Session=`starting`、Turn=`idle`，三端均可在该状态发送文本。PC 与多个手机近乎同时提交仍由 Controller 按实际接受顺序形成 FIFO，第一条触发 Query，其余排队。若 Claude 返回不同 ID，Session 必须失败并撤销凭证，禁止动态迁移 Channel。React Web、Capacitor 和 HarmonyOS NEXT 均复用相同协议与行为，三端可实现性核对通过。
+- **状态**：已定

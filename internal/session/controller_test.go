@@ -1961,3 +1961,131 @@ func TestControllerWaitIdleReturnsCachedFinalSnapshot(t *testing.T) {
 		t.Fatalf("WaitIdle() cached Snapshot = %#v, want stopped/idle queue 0", snapshot)
 	}
 }
+
+// ---- A5.2 预留 session ID 与 confirmed 状态（设计 §4/§6）----
+
+func TestControllerReservedSessionIDSubmitBeforeConfirm(t *testing.T) {
+	host := newControlledHost()
+	generator, _ := sequentialRequestIDs("request-01")
+	controller := startController(t, host,
+		withRequestIDGenerator(generator),
+		WithReservedSessionID("session-reserved"),
+	)
+
+	subscriptionContext, cancelSubscription := context.WithCancel(context.Background())
+	t.Cleanup(cancelSubscription)
+	initial, events, err := controller.Subscribe(subscriptionContext, 16)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v, want nil", err)
+	}
+	// 预留 ID 从订阅起可见：starting/idle/seq 0（设计 §9 snapshot）。
+	if initial.SessionID != "session-reserved" || initial.SessionStatus != SessionStarting ||
+		initial.Turn.Status != TurnIdle || initial.Seq != 0 {
+		t.Fatalf("initial Snapshot = %#v, want reserved ID/starting/idle/seq 0", initial)
+	}
+
+	// 未 confirmed 时手机输入（携带匹配 sessionId）与终端输入都可 Submit。
+	ctx, cancel := controllerContext(t)
+	defer cancel()
+	mobileRequestID, err := controller.Submit(ctx, Input{
+		SessionID: "session-reserved", Source: InputMobile, Text: "from phone",
+	})
+	if err != nil || mobileRequestID != "request-01" {
+		t.Fatalf("Submit(mobile) = %q, %v, want request-01, nil", mobileRequestID, err)
+	}
+
+	// 输入成为 current 并交给 Worker，但 turn_started 暂缓（设计 §6）。
+	first := receiveControlledTurn(t, host)
+	if first.prompt != "from phone" {
+		t.Fatalf("first Host prompt = %q, want from phone", first.prompt)
+	}
+	assertNoDomainEvent(t, events)
+
+	// init 前的 Claude 文本继续缓冲。
+	first.emit(t, projectclaude.Event{Kind: projectclaude.EventText, Text: "pre"})
+	assertNoDomainEvent(t, events)
+
+	// init 确认后按 session_started → turn_started → text_delta 顺序发布。
+	first.emit(t, projectclaude.Event{Kind: projectclaude.EventSessionStarted, SessionID: "session-reserved"})
+	sessionStarted := receiveDomainEvent(t, events)
+	if sessionStarted.Kind != EventSessionStarted || sessionStarted.SessionID != "session-reserved" {
+		t.Fatalf("session_started = %#v, want reserved ID", sessionStarted)
+	}
+	turnStarted := receiveDomainEvent(t, events)
+	if turnStarted.Kind != EventTurnStarted || turnStarted.RequestID != "request-01" ||
+		turnStarted.Source != InputMobile || turnStarted.Text != "from phone" {
+		t.Fatalf("turn_started = %#v, want mobile request-01 from phone", turnStarted)
+	}
+	delta := receiveDomainEvent(t, events)
+	if delta.Kind != EventTextDelta || delta.Text != "pre" {
+		t.Fatalf("text_delta = %#v, want buffered pre", delta)
+	}
+
+	first.emit(t, projectclaude.Event{Kind: projectclaude.EventTurnCompleted})
+	first.finish(t, nil)
+	if completed := receiveDomainEvent(t, events); completed.Kind != EventTurnCompleted {
+		t.Fatalf("turn_completed = %#v", completed)
+	}
+
+	snapshot := snapshotController(t, controller)
+	if snapshot.SessionID != "session-reserved" || snapshot.SessionStatus != SessionReady {
+		t.Fatalf("Snapshot = %#v, want reserved ID/ready", snapshot)
+	}
+}
+
+func TestControllerReservedSessionIDMismatchFailsSession(t *testing.T) {
+	host := newControlledHost()
+	generator, _ := sequentialRequestIDs("request-01", "request-02")
+	controller := startController(t, host,
+		withRequestIDGenerator(generator),
+		WithReservedSessionID("session-reserved"),
+	)
+
+	subscriptionContext, cancelSubscription := context.WithCancel(context.Background())
+	t.Cleanup(cancelSubscription)
+	_, events, err := controller.Subscribe(subscriptionContext, 16)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v, want nil", err)
+	}
+	if _, submitErr := submitTerminal(t, controller, "first"); submitErr != nil {
+		t.Fatalf("Submit(first) error = %v", submitErr)
+	}
+	// 队列里再放一条，验证 mismatch 时清空。
+	if _, submitErr := submitTerminal(t, controller, "second"); submitErr != nil {
+		t.Fatalf("Submit(second) error = %v", submitErr)
+	}
+
+	turn := receiveControlledTurn(t, host)
+	// init 返回不同 ID：Session 级失败，队列清空（设计 §11）。failSession
+	// 既有顺序：先结算当前 turn_failed，再发布 session_failed。
+	turn.emit(t, projectclaude.Event{Kind: projectclaude.EventSessionStarted, SessionID: "session-other"})
+	if turnFailed := receiveDomainEvent(t, events); turnFailed.Kind != EventTurnFailed {
+		t.Fatalf("turn event = %#v, want turn_failed", turnFailed)
+	}
+	failed := receiveDomainEvent(t, events)
+	if failed.Kind != EventSessionFailed || failed.SessionID != "session-reserved" {
+		t.Fatalf("session_failed = %#v, want reserved ID failure", failed)
+	}
+	turn.finish(t, nil)
+
+	snapshot := snapshotController(t, controller)
+	if snapshot.SessionStatus != SessionFailed || snapshot.QueueDepth != 0 {
+		t.Fatalf("Snapshot = %#v, want failed and empty queue", snapshot)
+	}
+	if _, submitErr := submitTerminal(t, controller, "after"); !errors.Is(submitErr, ErrSessionUnavailable) {
+		t.Fatalf("Submit(after failure) error = %v, want ErrSessionUnavailable", submitErr)
+	}
+}
+
+func TestControllerReservedSessionIDRejectsMismatchedMobileInput(t *testing.T) {
+	host := newControlledHost()
+	controller := startController(t, host, WithReservedSessionID("session-reserved"))
+
+	ctx, cancel := controllerContext(t)
+	defer cancel()
+	if _, err := controller.Submit(ctx, Input{
+		SessionID: "session-other", Source: InputMobile, Text: "wrong target",
+	}); !errors.Is(err, ErrSessionMismatch) {
+		t.Fatalf("Submit(mismatched mobile) error = %v, want ErrSessionMismatch", err)
+	}
+}

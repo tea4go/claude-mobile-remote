@@ -23,12 +23,12 @@
 
 ```mermaid
 flowchart LR
-    A["CLI Service 启动 Claude"] --> B["获得 sessionId"]
-    B --> C["显示会话二维码"]
+    A["CLI Service 启动"] --> B["新会话预分配 / 恢复会话取得真实 sessionId"]
+    B --> C["启动 Claude 并立即显示二维码"]
     C --> D["手机扫码并认证"]
     D --> E["订阅 sessionId Channel"]
     E --> F["同步当前状态"]
-    F <-->|"新消息与操作"| G["继续控制同一会话"]
+    F <-->|"首条或后续消息与操作"| G["控制同一会话"]
 ```
 
 二维码包含手机可通过 VPN 访问的 PC Service 地址、`sessionId` 和临时配对凭证。手机不读取扫码前的完整对话，只接收当前任务状态、待处理事项和扫码后的新消息。
@@ -64,7 +64,7 @@ flowchart LR
 
 - 简单行输入与流式输出，不复刻 Claude Code 完整终端 UI；
 - 通过 SDK 创建并托管一个 Claude 会话；
-- 获取真实 `sessionId` 后显示二维码和连接信息；
+- 新会话生成 UUID 并通过 Claude CLI `--session-id` 预分配真实 `sessionId`，恢复会话使用已有 ID；SDK Connect 成功后、首个 Turn 前显示二维码和连接信息；
 - 统一处理终端输入、手机输入和 Claude 事件；
 - 支持主动停止服务，并使当前配对凭证失效。
 
@@ -153,6 +153,7 @@ flowchart LR
 | A3 Session Core | Session/Turn 状态机、输入队列和 snapshot | 自动化测试通过 |
 | A4 Channel 通信 | 鉴权、订阅、发布和命令回传 | 测试客户端闭环通过 |
 | A5 Mobile Web | 连接、状态、文本展示和发送 | 本机浏览器通过 |
+| A5.2 首轮前配对 | 预分配真实 session ID、首轮前扫码、手机可发起首个 Turn | SDK 与浏览器闭环通过 |
 | A6 VPN 联调 | 手机连接 VPN 后扫码控制真实 Claude | 首期验收用例通过 |
 
 ### 9.2 后续里程碑
@@ -171,7 +172,8 @@ flowchart LR
 ## 十、首期验收标准
 
 - CLI Service 可通过 SDK 启动并结束一个 Claude 会话；
-- 可获取真实 `sessionId` 并生成有效二维码；
+- 新会话可预分配真实 `sessionId`，恢复会话可复用已有 ID，并在首个 Turn 前生成有效二维码；
+- PC 或已配对手机均可发送第一条真实消息来启动 Claude 会话；
 - 手机连接 VPN 后，浏览器可完成鉴权和连接；
 - Claude 新消息可实时显示在终端和手机；
 - 终端和手机均可发送消息，且不会重复或并发写乱；

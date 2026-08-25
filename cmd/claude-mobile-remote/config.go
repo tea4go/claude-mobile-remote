@@ -16,11 +16,12 @@ var defaultAllowedOrigins = []string{
 }
 
 type cliConfig struct {
-	showVersion    bool
-	listen         string
-	advertiseURL   string
-	pairTokenTTL   time.Duration
-	allowedOrigins []string
+	showVersion     bool
+	listen          string
+	advertiseURL    string
+	pairTokenTTL    time.Duration
+	allowedOrigins  []string
+	resumeSessionID string
 }
 
 type stringListFlag []string
@@ -51,11 +52,15 @@ func parseConfig(arguments []string) (cliConfig, error) {
 	flags.StringVar(&config.advertiseURL, "advertise-url", config.advertiseURL, "客户端可访问的 WebSocket URL")
 	flags.DurationVar(&config.pairTokenTTL, "pair-token-ttl", config.pairTokenTTL, "配对凭证有效期")
 	flags.Var(&extraOrigins, "allowed-origin", "额外允许的浏览器 Origin，可重复")
+	flags.StringVar(&config.resumeSessionID, "resume", "", "恢复已有会话的 session ID（UUID）")
 	if err := flags.Parse(arguments); err != nil {
 		return cliConfig{}, err
 	}
 	if flags.NArg() != 0 {
 		return cliConfig{}, errors.New("unexpected positional arguments")
+	}
+	if config.resumeSessionID != "" && !isUUID(config.resumeSessionID) {
+		return cliConfig{}, errors.New("invalid resume session ID: must be a UUID")
 	}
 	if _, _, err := net.SplitHostPort(config.listen); err != nil {
 		return cliConfig{}, errors.New("invalid listen address")
@@ -90,4 +95,25 @@ func validateOrigin(value string) error {
 		return errors.New("invalid allowed origin")
 	}
 	return nil
+}
+
+// isUUID 校验 8-4-4-4-12 十六进制 UUID（A5.2 resume 参数）。
+func isUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, char := range value {
+		switch i {
+		case 8, 13, 18, 23:
+			if char != '-' {
+				return false
+			}
+		default:
+			isHex := (char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')
+			if !isHex {
+				return false
+			}
+		}
+	}
+	return true
 }

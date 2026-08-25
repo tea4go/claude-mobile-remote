@@ -152,6 +152,52 @@ describe('decodeServerMessage：合法消息', () => {
     expect(message.payload.snapshot.sessionError?.code).toBe('internal')
     expect(message.payload.snapshot.turn.error?.message).toBe('turn boom')
   })
+
+  // A5.2 人工验收回归：首轮前 snapshot 的 turn 尚无任何 Turn，source
+  // 与 requestId 均为空串（Go 零值）。下方字面量与
+  // TestWebSocketPreTurnSnapshotTurnWireShape 断言的 wire 形状逐字对应。
+  test('首轮前 snapshot：turn.source 为空串时仍可解码', () => {
+    const wire = JSON.stringify({
+      version: 1,
+      type: 'snapshot',
+      sessionId: 'session-1',
+      commandId: '',
+      requestId: '',
+      seq: 0,
+      payload: {
+        connectionStatus: 'subscribed',
+        snapshot: {
+          sessionId: 'session-1',
+          sessionStatus: 'starting',
+          sessionError: null,
+          seq: 0,
+          turn: {
+            status: 'idle',
+            requestId: '',
+            source: '',
+            message: '',
+            error: null,
+            pendingAction: null,
+          },
+          queueDepth: 0,
+        },
+      },
+    })
+    const message = decodeServerMessage(wire)
+    if (message.type !== 'snapshot') throw new Error('unexpected type')
+    expect(message.payload.snapshot.sessionStatus).toBe('starting')
+    expect(message.payload.snapshot.turn.status).toBe('idle')
+    expect(message.payload.snapshot.turn.source).toBe('')
+  })
+
+  test('snapshot：requestId 非空但 source 为空串拒绝', () => {
+    const payload = snapshotPayload()
+    payload.snapshot.turn.requestId = 'req-1'
+    payload.snapshot.turn.source = '' as unknown as 'mobile'
+    expect(() =>
+      decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload }))),
+    ).toThrow()
+  })
 })
 
 describe('decodeServerMessage：非法 JSON 与基础结构', () => {

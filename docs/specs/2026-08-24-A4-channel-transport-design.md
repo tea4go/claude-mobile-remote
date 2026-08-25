@@ -260,7 +260,7 @@ connected → authenticated → subscribed
 - `unsubscribe` 取消 Controller 订阅并回到 `authenticated`；
 - `closing` 停止接受新命令，清理订阅并让 writer 有界退出。
 
-Transport 可以先开始监听，但真实 session ID 产生前 Pairing Manager 没有活动凭证，认证统一失败。A3 发布 `session_started` 后，CLI 编排层注册 Channel、签发 token 并输出配对负载。
+Transport 可以先开始监听。A5.2 起，新会话在启动 Claude 前生成 UUID 并通过 `--session-id` 预分配为真实 Claude session ID，恢复会话使用已有 ID；Controller/SDK Connect 成功后，CLI 编排层立即注册 Channel、签发 token 并输出配对负载。首个 init 的 `session_started` 只确认 Claude 返回相同 ID，不再触发配对激活。
 
 A3 事件映射规则：
 

@@ -44,7 +44,25 @@ func runMain(ctx context.Context, arguments []string, input io.Reader, output, e
 }
 
 func buildRuntime(config cliConfig) (sessionController, remoteService, error) {
-	controller := projectsession.NewController(projectclaude.NewHost())
+	// A5.2 §5：新会话预生成 UUID v4 并经 --session-id 指定为真实 ID；
+	// resume 直接使用已有 ID。两者都在创建 Host 前确定。
+	var host *projectclaude.Host
+	var reservedID string
+	if config.resumeSessionID != "" {
+		resumed, err := projectclaude.NewHostForResume(config.resumeSessionID)
+		if err != nil {
+			return nil, nil, err
+		}
+		host = resumed
+		reservedID = config.resumeSessionID
+	} else {
+		host = projectclaude.NewHost()
+		if err := host.PrepareNewSession(); err != nil {
+			return nil, nil, err
+		}
+		reservedID = host.SessionID()
+	}
+	controller := projectsession.NewController(host, projectsession.WithReservedSessionID(reservedID))
 	manager, err := pairing.NewManager(config.advertiseURL, config.pairTokenTTL)
 	if err != nil {
 		return nil, nil, err

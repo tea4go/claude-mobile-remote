@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -622,5 +623,158 @@ func TestWebSocketCloseForcesEveryConnectionAfterContextCancellation(t *testing.
 		} else if networkError, ok := err.(net.Error); ok && networkError.Timeout() {
 			t.Fatalf("connection %d remained open until the read deadline", index)
 		}
+	}
+}
+
+// ---- A5.2 首轮前配对的共用契约回归（设计 §9/§12.1）----
+
+// reservePreTurnSnapshot 把 fixture 改为首轮前状态：sessionId 已预留、Session
+// starting、Turn idle、seq=0、queueDepth=0。
+func reservePreTurnSnapshot(fixture *serverFixture) {
+	fixture.controller.mu.Lock()
+	defer fixture.controller.mu.Unlock()
+	fixture.controller.snapshot = projectsession.Snapshot{
+		SessionID:     "session-1",
+		SessionStatus: projectsession.SessionStarting,
+		Seq:           0,
+		Turn:          projectsession.TurnSnapshot{Status: projectsession.TurnIdle},
+	}
+}
+
+func TestWebSocketPreTurnSubscribeReceivesStartingSnapshot(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	reservePreTurnSnapshot(fixture)
+	connection := fixture.dial(t)
+
+	snapshot := authenticateAndSubscribe(t, fixture, connection)
+	if snapshot.Type != TypeSnapshot || snapshot.Version != Version || snapshot.Seq != 0 {
+		t.Fatalf("pre-turn snapshot envelope = %#v, want version %d snapshot seq 0", snapshot, Version)
+	}
+	var payload SnapshotPayload
+	if err := DecodePayload(snapshot, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Snapshot.SessionID != "session-1" {
+		t.Fatalf("pre-turn sessionId = %q, want the reserved real ID", payload.Snapshot.SessionID)
+	}
+	if payload.Snapshot.SessionStatus != projectsession.SessionStarting {
+		t.Fatalf("pre-turn sessionStatus = %q, want starting", payload.Snapshot.SessionStatus)
+	}
+	if payload.Snapshot.Turn.Status != projectsession.TurnIdle || payload.Snapshot.Turn.RequestID != "" {
+		t.Fatalf("pre-turn turn = %#v, want idle without request", payload.Snapshot.Turn)
+	}
+	if payload.Snapshot.Seq != 0 || payload.Snapshot.QueueDepth != 0 || payload.Snapshot.SessionError != nil {
+		t.Fatalf("pre-turn snapshot = %#v, want seq 0, empty queue, no error", payload.Snapshot)
+	}
+
+	// 三端共用契约：首轮前 snapshot 不得新增字段或浏览器特有分支。
+	var object map[string]any
+	if err := json.Unmarshal(snapshot.Payload, &object); err != nil {
+		t.Fatal(err)
+	}
+	inner, ok := object["snapshot"].(map[string]any)
+	if !ok {
+		t.Fatalf("snapshot payload = %#v", object)
+	}
+	wantKeys := map[string]bool{
+		"sessionId": true, "sessionStatus": true, "sessionError": true,
+		"seq": true, "turn": true, "queueDepth": true,
+	}
+	if len(inner) != len(wantKeys) {
+		t.Fatalf("snapshot keys = %#v, want exactly %#v", inner, wantKeys)
+	}
+	for key := range inner {
+		if !wantKeys[key] {
+			t.Fatalf("unexpected snapshot key %q", key)
+		}
+	}
+}
+
+// TestWebSocketPreTurnSnapshotTurnWireShape 固化首轮前 Turn 的 wire 形状。
+// 人工验收缺陷：首轮前 turn.source 为空串，而端侧解码器若按“非空枚举”
+// 校验 source 就会拒绝整个 snapshot 并断开。该断言是三端共用契约，任何
+// 端的解码器都必须接受此形状。
+func TestWebSocketPreTurnSnapshotTurnWireShape(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	reservePreTurnSnapshot(fixture)
+	connection := fixture.dial(t)
+
+	snapshot := authenticateAndSubscribe(t, fixture, connection)
+	var payload struct {
+		Snapshot struct {
+			Turn json.RawMessage `json:"turn"`
+		} `json:"snapshot"`
+	}
+	if err := json.Unmarshal(snapshot.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	const wantTurn = `{"status":"idle","requestId":"","source":"","message":"","error":null,"pendingAction":null}`
+	if got := string(payload.Snapshot.Turn); got != wantTurn {
+		t.Fatalf("pre-turn turn wire shape = %s, want %s", got, wantTurn)
+	}
+}
+
+// TestWebSocketPreTurnMobileFirstCommandStreamsToAllSubscribers 验证设计 §6：
+// 首条输入来自手机时，发送连接先收 command_result，随后所有订阅端按
+// session_started → turn_started → text_delta 收到同一套事件。
+func TestWebSocketPreTurnMobileFirstCommandStreamsToAllSubscribers(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	reservePreTurnSnapshot(fixture)
+	phone := fixture.dial(t)
+	observer := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, phone)
+	_ = authenticateAndSubscribe(t, fixture, observer)
+
+	// Controller 在 init 确认后才发布生命周期事件，首轮顺序与 A5.1 一致。
+	fixture.controller.submit = func(projectsession.Input) (string, error) {
+		fixture.controller.emit(projectsession.Event{
+			SessionID: "session-1", Seq: 1,
+			Kind: projectsession.EventSessionStarted, SessionStatus: projectsession.SessionReady,
+		})
+		fixture.controller.emit(projectsession.Event{
+			SessionID: "session-1", RequestID: "request-1", Seq: 2,
+			Kind: projectsession.EventTurnStarted, Source: projectsession.InputMobile,
+			Text: "from phone", TurnStatus: projectsession.TurnRunning,
+		})
+		fixture.controller.emit(projectsession.Event{
+			SessionID: "session-1", RequestID: "request-1", Seq: 3,
+			Kind: projectsession.EventTextDelta, Text: "hi", TurnStatus: projectsession.TurnRunning,
+		})
+		return "request-1", nil
+	}
+	writeTestEnvelope(t, phone, TypeCommand, "session-1", "command-1", "", 0, CommandPayload{Kind: CommandSendText, Text: "from phone"})
+
+	// 发送连接：command_result 仍先于 early 事件（A4 顺序门）。
+	result := readTestEnvelope(t, phone)
+	if result.Type != TypeCommandResult || result.CommandID != "command-1" || result.RequestID != "request-1" {
+		t.Fatalf("first command response = %#v, want command_result", result)
+	}
+
+	wantKinds := []projectsession.EventKind{
+		projectsession.EventSessionStarted,
+		projectsession.EventTurnStarted,
+		projectsession.EventTextDelta,
+	}
+	for name, connection := range map[string]*websocket.Conn{"phone": phone, "observer": observer} {
+		for index, wantKind := range wantKinds {
+			event := readTestEnvelope(t, connection)
+			var payload EventPayload
+			if event.Type != TypeEvent || DecodePayload(event, &payload) != nil {
+				t.Fatalf("%s message %d = %#v, want event", name, index, event)
+			}
+			if payload.Event.Kind != wantKind || event.Seq != uint64(index+1) {
+				t.Fatalf("%s event %d = kind %q seq %d, want kind %q seq %d",
+					name, index, payload.Event.Kind, event.Seq, wantKind, index+1)
+			}
+			if payload.Event.SessionID != "session-1" {
+				t.Fatalf("%s event %d sessionId = %q, want the reserved ID", name, index, payload.Event.SessionID)
+			}
+		}
+	}
+
+	fixture.controller.mu.Lock()
+	defer fixture.controller.mu.Unlock()
+	if len(fixture.controller.inputs) != 1 || fixture.controller.inputs[0].Source != projectsession.InputMobile {
+		t.Fatalf("submitted inputs = %#v, want one mobile input", fixture.controller.inputs)
 	}
 }
