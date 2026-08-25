@@ -68,6 +68,7 @@ func TestRunClientClosedLoop(t *testing.T) {
 		write(transport.TypeCommandResult, command.CommandID, "request-1", 0, transport.CommandResultPayload{Accepted: true})
 		write(transport.TypeEvent, "", "request-1", 8, transport.EventPayload{Event: projectsession.Event{
 			SessionID: "session-1", RequestID: "request-1", Seq: 8, Kind: projectsession.EventTurnStarted,
+			Source:    projectsession.InputMobile, Text: "hello", TurnStatus: projectsession.TurnRunning,
 		}})
 		_ = connection.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "complete"), time.Now().Add(time.Second))
 	}))

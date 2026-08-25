@@ -4,19 +4,19 @@
 
 ## 0. 一句话现状
 
-A1–A4 已完成、提交且人工验收通过（A4 提交 `669e23d`）；当前进入 A5 Mobile Web 设计阶段，尚未修改 A5 代码。
+A1–A5 已完成并提交（A5 提交 `74bda86`）；A5.1 终端输入实时同步设计已获用户确认，当前编写实施计划，尚未修改 A5.1 代码。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：A5 Mobile Web
-- **当前任务**：A5 走查修复完成，等待本机浏览器闭环验收
-- **状态**：A4 已完成并提交；A5 代码未提交；五类走查问题已按 TDD 修复并通过自动门禁
-- **范围**：按设计 §3 实现了 `apps/mobile/src/protocol/`（types/pairing/decode/client + 各自测试）、`session/reducer.ts`（+测试）、`components/`（PairingForm/SessionStatus/MessageFeed/MessageComposer + 测试）与 `App.tsx`（+测试）；无新增依赖
-- **通过条件**：完成本次回归修复，并通过本机浏览器闭环（设计 §10.2：真实 Service + pairing JSON + 刷新重连 + 断线重连 + 更换配对）后写入 `docs/testing/A5-result.md`
-- **完成结果**：已修复连接阶段状态归并、认证失效后的断开/pending 清理、snapshot/event envelope 关联校验、command result pending 关联和近底/流式滚动；新增回归测试 8 个
-- **最近验证**：2026-08-25 `npm test` 143/143、`npm run lint`、`npm run build`、`git diff --check` 全部通过；未执行真实 Service 浏览器闭环
-- **未验证项**：本机浏览器闭环 §10.2（需用户配合启动真实 CLI Service 与浏览器操作）；真实慢网/溢出关闭行为
-- **下一步**：执行设计 §10.2 本机浏览器闭环并记录 `docs/testing/A5-result.md`；A5 人工验收通过后进入 A6 VPN 联调
+- **子阶段**：A5.1 终端输入实时同步
+- **当前任务**：A5.1 已完成（含人工验收），按用户授权提交
+- **状态**：A5.1 代码、测试与门禁记录已完成；人工浏览器验收通过（含首轮流式回复回归修复）；resume 启动即配对作为 A5.2 候选、新会话先配对（D28 延迟绑定）作为待决策项
+- **范围**：复用 `turn_started.text` 传输规范化后的输入正文；不同手机统一为 `source=mobile` 并进入现有 FIFO，不增加设备身份或抢占；覆盖 A3 发布、A4 有界传输、A5.1 消息归并与三端契约；不实现历史、replay、snapshot 输入正文、取消或 Markdown
+- **通过条件**：计划逐项覆盖 A3 事件发布、A4 协议与有界传输、多手机真实 WebSocket、A5.1 decoder/reducer/UI、自动门禁和人工验收，且每项按测试先行拆分并写明精确文件与命令
+- **完成结果**：按 `docs/plans/2026-08-25-A5.1-terminal-input-sync.md` 7 个任务 TDD 完成：A3 `turn_started` 携带规范化正文（含首轮 init 补发与排队可见性测试）；A4 `validateEvent` kind 级语义（入站+出站）与派生预算 `outboundEventMaxBytes = MaxPromptBytes+64KiB`、outbox/early = 2×；多手机并发/全局顺序/最大正文/慢连接隔离 WebSocket 集成测试；前端 decoder `validateEventSemantics`、reducer `InputMessage` 归并（去重/冲突/重复 Turn 拒绝）、MessageFeed 电脑端/手机端展示与 App 闭环
+- **最近验证**：2026-08-25 自动门禁全绿——Go：`go test -race -count=1` session/channel/transport 三包、全仓 `go test -count=1 ./...`（9/9 包）、`go vet`、`go build`；前端：`npm test` 162/162、`npm run lint`、`npm run build`（含 tsc）；`git diff --check` 干净
+- **未验证项**：A5.1 双页面并发与慢连接人工验证（自动测试覆盖）；A5 正式门禁记录 `docs/testing/A5-result.md` 尚待补写
+- **下一步**：提交 A5.1；决策 A5.2（resume 启动即配对）与新会话延迟绑定的取舍；完成后进入 A6 VPN 联调
 - **复审记录（2026-08-24，独立 Claude 会话，已被最终审查修复替代）**：只读门禁均 PASS，并确认 A2 仅复用 WhaleTerm SDK 用法、A3 保持 Controller/唯一 Worker 分层；其记录的 Session failure 部分文本换行 Minor 已在 Task 7 最终审查修复中关闭。
 - **最终审查记录（2026-08-24）**：首次整体审查发现 EOF 观察调度可能造成同一 Session failure 的 Turn+Session 双诊断；按 TDD 改为基于 Worker settlement/下一 `turn_started` 延迟 Turn 诊断，并补直接 Session failure 换行。原审查代理复核后确认 Critical/Important/Minor 均为零，Ready for user diff review / final Git authorization。
 - **A4 验收前审查记录（2026-08-24，独立会话）**：对 A4 全部新代码（pairing/channel/transport/CLI/channel-test-client）做只读审查。A4-result.md 声称证据 fresh 复现全部通过：全仓 `-count=1`、五个 A4 包 race、gofmt/vet/build、`git diff --check`、client race `-count=100`、Transport 三类关闭 race `-count=20`、fuzz 2s。发现 0 个 Critical、0 个 Important；2 个 Minor 观察（① `channel-test-client` 解析配对使用 `time.Now` 而非可注入时钟，`ExpiresAt` 在过期瞬间启动可能误报“配对信息无效”，重跑即可，不影响 Service 端正确性；② `commandGate.Abort` 生产未使用，仅测试调用，属轻微 API 冗余）。分层核对：Pairing/Channel/Transport 职责边界干净，Transport 未触碰 SDK，Channel 强制 `InputMobile`，D25 顺序门（`Begin → Submit → Finish(result 先入队 → 按原 seq 释放 early 事件)）` 实现正确；D27/D28 与实现一致。已向用户澄清：A4 范围即服务端管道 + Go 测试客户端，移动 Web 连接属 A5，无需在 A4 写移动端测试代码。

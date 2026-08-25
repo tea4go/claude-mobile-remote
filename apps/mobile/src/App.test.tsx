@@ -187,7 +187,7 @@ describe('App：自动连接与发送', () => {
       payload: { accepted: true, code: '', message: '' },
     })
     await waitFor(() => {
-      expect(screen.getByText('已接收')).toBeInTheDocument()
+      expect(screen.getByText(/已接收/)).toBeInTheDocument()
     })
   })
 
@@ -316,5 +316,68 @@ describe('App：unauthorized 配对失效', () => {
       expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
       expect(screen.getByText(/结果未知/)).toBeInTheDocument()
     })
+  })
+})
+
+// ---- A5.1：PC 输入实时同步与手机输入去重 ----
+
+describe('App：A5.1 PC 输入与去重', () => {
+  test('PC 端 turn_started 显示电脑端正文并紧随 Claude 回复', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const socket = FakeWebSocket.instances[0]!
+    completeHandshake(socket)
+    await waitFor(() => {
+      expect(screen.getByText('已连接')).toBeInTheDocument()
+    })
+
+    socket.serverMessage({
+      version: 1, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq: 8,
+      payload: { event: { seq: 8, kind: 'turn_started', sessionId: 'session-1', requestId: 'req-pc', source: 'terminal', text: '来自电脑的问题', sessionStatus: '', turnStatus: 'running', error: null } },
+    })
+    socket.serverMessage({
+      version: 1, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq: 9,
+      payload: { event: { seq: 9, kind: 'text_delta', sessionId: 'session-1', requestId: 'req-pc', source: 'terminal', text: '电脑的回答', sessionStatus: '', turnStatus: '', error: null } },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('来自电脑的问题')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/电脑端/)).toBeInTheDocument()
+    expect(screen.getByText('电脑的回答')).toBeInTheDocument()
+  })
+
+  test('手机发送后正文只出现一次（command_result 与 turn_started 去重）', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const socket = FakeWebSocket.instances[0]!
+    completeHandshake(socket)
+    await waitFor(() => {
+      expect(screen.getByText('已连接')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '手机提问' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    const command = socket.sent.map((s) => JSON.parse(s)).find((m) => m.type === 'command')
+
+    socket.serverMessage({
+      version: 1, type: 'command_result', sessionId: 'session-1',
+      commandId: command.commandId, requestId: 'req-m', seq: 0,
+      payload: { accepted: true, code: '', message: '' },
+    })
+    socket.serverMessage({
+      version: 1, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-m', seq: 8,
+      payload: { event: { seq: 8, kind: 'turn_started', sessionId: 'session-1', requestId: 'req-m', source: 'mobile', text: '手机提问', sessionStatus: '', turnStatus: 'running', error: null } },
+    })
+    socket.serverMessage({
+      version: 1, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-m', seq: 9,
+      payload: { event: { seq: 9, kind: 'text_delta', sessionId: 'session-1', requestId: 'req-m', source: 'mobile', text: '答', sessionStatus: '', turnStatus: '', error: null } },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('答')).toBeInTheDocument()
+    })
+    expect(screen.getAllByText('手机提问')).toHaveLength(1)
+    expect(screen.getByText(/已接收/)).toBeInTheDocument()
   })
 })

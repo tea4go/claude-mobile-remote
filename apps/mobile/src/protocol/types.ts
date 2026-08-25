@@ -89,15 +89,17 @@ export interface SessionSnapshot {
   queueDepth: number
 }
 
+// 领域事件：按 kind 部分携带字段，其余枚举在线上为空字符串（Go 零值
+// 序列化）。kind 语义校验由 decoder 的 validateEventSemantics 负责。
 export interface DomainEvent {
   seq: number
   kind: EventKind
   sessionId: string
   requestId: string
-  source: InputSource
+  source: InputSource | ''
   text: string
-  sessionStatus: SessionStatus
-  turnStatus: TurnStatus
+  sessionStatus: SessionStatus | ''
+  turnStatus: TurnStatus | ''
   error: ErrorInfo | null
 }
 

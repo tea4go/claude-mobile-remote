@@ -22,11 +22,14 @@ const (
 )
 
 const (
-	outboxMaxItems = 64
-	outboxMaxBytes = 1024 * 1024
-	earlyMaxItems  = 32
-	earlyMaxBytes  = 256 * 1024
-	readLimitSlack = 64 * 1024
+	// 单条出站事件预算：最大合法 prompt + JSON envelope 余量。普通队列与
+	// 提前缓存至少容纳两条该预算的事件，数量上限保持不变。
+	outboundEventMaxBytes = projectsession.MaxPromptBytes + 64*1024
+	outboxMaxItems        = 64
+	outboxMaxBytes        = 2 * outboundEventMaxBytes
+	earlyMaxItems         = 32
+	earlyMaxBytes         = 2 * outboundEventMaxBytes
+	readLimitSlack        = 64 * 1024
 )
 
 type connection struct {
@@ -313,6 +316,11 @@ func (c *connection) forwardSubscription(subscription *channel.Subscription) {
 			if !ok {
 				events = nil
 				continue
+			}
+			// 出站事件同样受 kind 语义约束：不合法即视为内部错误，仅关闭本连接。
+			if err := validateEvent(event); err != nil {
+				c.shutdown()
+				return
 			}
 			envelope, err := NewEnvelope(TypeEvent, c.sessionID, "", event.RequestID, event.Seq, EventPayload{Event: event})
 			if err != nil {

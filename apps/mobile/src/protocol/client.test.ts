@@ -244,7 +244,7 @@ describe('命令与事件', () => {
     client.onEvent = (e) => events.push(e)
     socket.serverMessage({
       version: 1, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-9', seq: 8,
-      payload: { event: { seq: 8, kind: 'turn_started', sessionId: 'session-1', requestId: 'req-9', source: 'mobile', text: '', sessionStatus: 'ready', turnStatus: 'running', error: null } },
+      payload: { event: { seq: 8, kind: 'turn_started', sessionId: 'session-1', requestId: 'req-9', source: 'mobile', text: 'from phone', sessionStatus: '', turnStatus: 'running', error: null } },
     })
     expect(events).toEqual([{
       kind: 'event',

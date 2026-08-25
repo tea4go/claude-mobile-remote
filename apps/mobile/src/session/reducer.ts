@@ -25,14 +25,18 @@ export interface ClaudeMessage {
   error: ErrorInfo | null
 }
 
-export interface MobileMessage {
-  kind: 'mobile'
+// 通用输入消息（A5.1/D37）：终端与本机手机输入都走这里。终端输入由
+// turn_started 创建；本机手机输入由 command_result 创建；其他手机连接
+// 的输入由 turn_started 观察创建。
+export interface InputMessage {
+  kind: 'input'
+  source: 'terminal' | 'mobile'
   requestId: string | null
   text: string
-  status: 'accepted' | 'unknown'
+  status: 'accepted' | 'unknown' | null
 }
 
-export type Message = ClaudeMessage | MobileMessage
+export type Message = ClaudeMessage | InputMessage
 
 export interface PendingCommand {
   commandId: string
@@ -139,8 +143,9 @@ function applyCanSend(state: MobileState): MobileState {
 
 function markPendingUnknown(state: MobileState): MobileState {
   if (state.pendingCommand === null) return state
-  const unknown: MobileMessage = {
-    kind: 'mobile',
+  const unknown: InputMessage = {
+    kind: 'input',
+    source: 'mobile',
     requestId: null,
     text: state.pendingCommand.text,
     status: 'unknown',
@@ -167,7 +172,11 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     pendingCommand: null,
     lastError: null,
   }
-  if (snapshot.turn.message !== '') {
+  // 运行/等待中的 Turn 即使尚无文本也创建占位消息：用户可能在 AI 回复
+  // 前配对，订阅后的 text_delta 需要归并目标（A5.1 验收回归）。
+  const turnActive =
+    snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting'
+  if (snapshot.turn.message !== '' || turnActive) {
     next.messages = [
       {
         kind: 'claude',
@@ -177,7 +186,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
         status:
           snapshot.turn.status === 'failed'
             ? 'failed'
-            : snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting'
+            : turnActive
               ? 'streaming'
               : 'done',
         error: snapshot.turn.error,
@@ -185,6 +194,53 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     ]
   }
   return applyCanSend(next)
+}
+
+// turn_started 归并（A5.1 §7.2）：同一 requestId 已有 Claude 回复是重复
+// Turn；已有输入必须是本连接 accepted 且 source/text 一致；否则按事件
+// 正文创建输入。最后只创建一个 Claude 回复。返回 null 表示协议错误。
+function mergeTurnStarted(
+  state: MobileState,
+  event: DomainEvent,
+): MobileState | null {
+  const claudeIndex = state.messages.findIndex(
+    (m) => m.kind === 'claude' && m.requestId === event.requestId,
+  )
+  if (claudeIndex >= 0) return null
+
+  const inputIndex = state.messages.findIndex(
+    (m) => m.kind === 'input' && m.requestId === event.requestId,
+  )
+  let messages = state.messages
+  // decoder 已校验 turn_started.source 非空合法；此处收窄给消息模型。
+  const source = event.source as InputMessage['source']
+  if (inputIndex >= 0) {
+    const existing = state.messages[inputIndex] as InputMessage
+    if (existing.source !== event.source || existing.text !== event.text) {
+      return null
+    }
+  } else {
+    const input: InputMessage = {
+      kind: 'input',
+      source,
+      requestId: event.requestId,
+      text: event.text,
+      status: null,
+    }
+    messages = [...state.messages, input]
+  }
+  messages = [
+    ...messages,
+    {
+      kind: 'claude',
+      requestId: event.requestId,
+      source,
+      text: '',
+      status: 'streaming',
+      error: null,
+    },
+  ]
+  return { ...state, messages }
 }
 
 function applyEvent(state: MobileState, event: DomainEvent): MobileState {
@@ -195,30 +251,26 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
   let next: MobileState = { ...state, seqBase: event.seq }
 
   switch (event.kind) {
+    // session_* 事件按协议携带非空 sessionStatus（decoder 语义校验入口）。
     case 'session_started':
-      next.sessionStatus = event.sessionStatus
+      next.sessionStatus = event.sessionStatus as MobileState['sessionStatus']
       next.sessionId = event.sessionId
       break
     case 'session_failed':
-      next.sessionStatus = event.sessionStatus
+      next.sessionStatus = event.sessionStatus as MobileState['sessionStatus']
       next.sessionError = event.error
       break
     case 'session_stopped':
-      next.sessionStatus = event.sessionStatus
+      next.sessionStatus = event.sessionStatus as MobileState['sessionStatus']
       break
-    case 'turn_started':
-      next.messages = [
-        ...next.messages,
-        {
-          kind: 'claude',
-          requestId: event.requestId,
-          source: event.source,
-          text: '',
-          status: 'streaming',
-          error: null,
-        },
-      ]
+    case 'turn_started': {
+      const merged = mergeTurnStarted(next, event)
+      if (merged === null) {
+        return { ...markPendingUnknown(next), phase: 'protocolError', canSend: false }
+      }
+      next = merged
       break
+    }
     case 'text_delta': {
       const index = next.messages.findIndex(
         (m) => m.kind === 'claude' && m.requestId === event.requestId,
@@ -285,8 +337,9 @@ export function reducer(state: MobileState, action: Action): MobileState {
       ) {
         return state
       }
-      const accepted: MobileMessage = {
-        kind: 'mobile',
+      const accepted: InputMessage = {
+        kind: 'input',
+        source: 'mobile',
         requestId: action.requestId,
         text: state.pendingCommand.text,
         status: 'accepted',

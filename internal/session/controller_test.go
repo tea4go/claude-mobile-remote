@@ -373,7 +373,7 @@ func TestControllerFirstTurnEventOrderAndSnapshot(t *testing.T) {
 		EventTextDelta,
 		EventTurnCompleted,
 	}
-	wantTexts := []string{"", "", "pre", "post", ""}
+	wantTexts := []string{"", "first", "pre", "post", ""}
 	for index, wantKind := range wantKinds {
 		event := receiveDomainEvent(t, events)
 		if event.Kind != wantKind || event.Seq != uint64(index+1) || event.SessionID != "session-1" {
@@ -406,6 +406,11 @@ func TestControllerFirstTurnEventOrderAndSnapshot(t *testing.T) {
 	if err != nil || requestID != "request-02" {
 		t.Fatalf("Submit(second) = %q, %v, want request-02, nil", requestID, err)
 	}
+	started := receiveDomainEvent(t, events)
+	if started.Kind != EventTurnStarted || started.RequestID != "request-02" ||
+		started.Source != InputTerminal || started.Text != "second" {
+		t.Fatalf("second turn_started = %#v, want terminal request-02 text second", started)
+	}
 	snapshot = snapshotController(t, controller)
 	if snapshot.SessionStatus != SessionReady || snapshot.Turn.Status != TurnRunning || snapshot.Turn.RequestID != "request-02" {
 		t.Fatalf("second Turn Snapshot = %#v, want ready/running request-02", snapshot)
@@ -415,6 +420,59 @@ func TestControllerFirstTurnEventOrderAndSnapshot(t *testing.T) {
 	}
 
 	second := receiveControlledTurn(t, host)
+	second.emit(t, projectclaude.Event{Kind: projectclaude.EventTurnCompleted})
+	second.finish(t, nil)
+}
+
+func TestControllerTurnStartedPublishesNormalizedInputOnlyWhenRunning(t *testing.T) {
+	host := newControlledHost()
+	generator, _ := sequentialRequestIDs("request-01", "request-02")
+	controller := startController(t, host, withRequestIDGenerator(generator))
+
+	subscriptionContext, cancelSubscription := context.WithCancel(context.Background())
+	t.Cleanup(cancelSubscription)
+	_, events, err := controller.Subscribe(subscriptionContext, 16)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v, want nil", err)
+	}
+
+	if _, submitErr := submitTerminal(t, controller, "  first  "); submitErr != nil {
+		t.Fatalf("Submit(  first  ) error = %v", submitErr)
+	}
+	if _, submitErr := submitTerminal(t, controller, "  second  "); submitErr != nil {
+		t.Fatalf("Submit(  second  ) error = %v", submitErr)
+	}
+
+	first := receiveControlledTurn(t, host)
+	if first.prompt != "first" {
+		t.Fatalf("first Host prompt = %q, want normalized first", first.prompt)
+	}
+	first.emit(t, projectclaude.Event{Kind: projectclaude.EventSessionStarted, SessionID: "session-1"})
+
+	if sessionStarted := receiveDomainEvent(t, events); sessionStarted.Kind != EventSessionStarted {
+		t.Fatalf("first event = %#v, want session_started", sessionStarted)
+	}
+	started := receiveDomainEvent(t, events)
+	if started.Kind != EventTurnStarted || started.RequestID != "request-01" || started.Text != "first" {
+		t.Fatalf("first turn_started = %#v, want request-01 text first", started)
+	}
+	// 第二条输入仍在队列中：结算前不发布其正文。
+	assertNoDomainEvent(t, events)
+
+	first.emit(t, projectclaude.Event{Kind: projectclaude.EventTurnCompleted})
+	first.finish(t, nil)
+	if completed := receiveDomainEvent(t, events); completed.Kind != EventTurnCompleted {
+		t.Fatalf("first turn_completed = %#v, want turn_completed", completed)
+	}
+
+	second := receiveControlledTurn(t, host)
+	if second.prompt != "second" {
+		t.Fatalf("second Host prompt = %q, want normalized second", second.prompt)
+	}
+	secondStarted := receiveDomainEvent(t, events)
+	if secondStarted.Kind != EventTurnStarted || secondStarted.RequestID != "request-02" || secondStarted.Text != "second" {
+		t.Fatalf("second turn_started = %#v, want request-02 text second", secondStarted)
+	}
 	second.emit(t, projectclaude.Event{Kind: projectclaude.EventTurnCompleted})
 	second.finish(t, nil)
 }
