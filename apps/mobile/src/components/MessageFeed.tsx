@@ -33,21 +33,31 @@ export default function MessageFeed({ messages }: MessageFeedProps) {
       style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', overflowY: 'auto', padding: '8px 0' }}
     >
       {messages.map((message, index) => {
-        if (message.kind === 'mobile') {
+        if (message.kind === 'input') {
+          // 输入消息（A5.1）：终端与其他手机输入无确认状态；本连接手机
+          // 输入按 command_result 显示已接收/结果未知。
+          const sourceLabel = message.source === 'terminal' ? '电脑端' : '手机端'
+          const statusLabel =
+            message.status === 'accepted'
+              ? ' · 已接收'
+              : message.status === 'unknown'
+                ? ' · 结果未知（连接已断开）'
+                : ''
           return (
             <div key={index} style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
               <div style={{ background: '#e6f4ff', borderRadius: 8, padding: '8px 12px' }}>
                 {message.text}
               </div>
               <div style={{ fontSize: 12, color: '#888', textAlign: 'right' }}>
-                {message.status === 'accepted' ? '已接收' : '结果未知（连接已断开）'}
+                {sourceLabel}
+                {statusLabel}
               </div>
             </div>
           )
         }
         return (
           <div key={index} style={{ alignSelf: 'flex-start', maxWidth: '90%' }}>
-            <Tag>{message.source === 'terminal' ? '电脑端发起' : '手机端发起'}</Tag>
+            <Tag>Claude</Tag>
             {message.text !== '' && (
               <div
                 style={{

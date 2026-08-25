@@ -41,7 +41,7 @@ function eventPayload() {
   return {
     event: {
       seq: 8,
-      kind: 'text_delta' as const,
+      kind: 'text_delta' as 'text_delta' | 'turn_completed',
       sessionId: 'session-1',
       requestId: 'req-1',
       source: 'mobile' as const,
@@ -49,6 +49,22 @@ function eventPayload() {
       // 服务端按 kind 部分携带字段：text_delta 不带状态枚举（空字符串）。
       sessionStatus: '' as string,
       turnStatus: '' as string,
+      error: null as { code: string; message: string } | null,
+    },
+  }
+}
+
+function turnStartedPayload() {
+  return {
+    event: {
+      seq: 8,
+      kind: 'turn_started' as const,
+      sessionId: 'session-1',
+      requestId: 'req-9',
+      source: 'mobile' as 'mobile' | '',
+      text: 'from phone',
+      sessionStatus: '' as string,
+      turnStatus: 'running' as 'running' | 'completed',
       error: null as { code: string; message: string } | null,
     },
   }
@@ -360,6 +376,110 @@ describe('decodeServerMessage：payload 结构校验', () => {
     expect(() =>
       decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'event', payload }))),
     ).toThrow()
+  })
+
+  test('turn_started 合法正文可解码（A5.1）', () => {
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({
+          type: 'event',
+          requestId: 'req-9',
+          seq: 8,
+          payload: {
+            event: {
+              seq: 8,
+              kind: 'turn_started',
+              sessionId: 'session-1',
+              requestId: 'req-9',
+              source: 'terminal',
+              text: 'from pc',
+              sessionStatus: '',
+              turnStatus: 'running',
+              error: null,
+            },
+          },
+        }),
+      ),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    expect(message.payload.event.text).toBe('from pc')
+  })
+
+  test('turn_started 空 requestId 拒绝', () => {
+    const payload = turnStartedPayload()
+    payload.event.requestId = ''
+    expect(() =>
+      decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'event', requestId: '', payload }))),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('turn_started 空正文拒绝（envelope 一致，纯语义校验）', () => {
+    const payload = turnStartedPayload()
+    payload.event.text = ''
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-9', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('turn_started 空 source 拒绝', () => {
+    const payload = turnStartedPayload()
+    payload.event.source = ''
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-9', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('turn_started 空正文拒绝', () => {
+    const payload = turnStartedPayload()
+    payload.event.text = ''
+    expect(() =>
+      decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'event', payload }))),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('turn_started 非 running 的 turnStatus 拒绝', () => {
+    const payload = turnStartedPayload()
+    payload.event.turnStatus = 'completed'
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-9', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('turn_started 超过 1 MiB UTF-8 字节的正文拒绝', () => {
+    const payload = turnStartedPayload()
+    payload.event.text = '你'.repeat(350_000) // 1050000 字节 > 1 MiB
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-9', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('text_delta 空正文拒绝', () => {
+    const payload = eventPayload()
+    payload.event.text = ''
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('turn_completed 携带正文拒绝', () => {
+    const payload = eventPayload()
+    payload.event.kind = 'turn_completed'
+    payload.event.turnStatus = 'completed'
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
   })
 
   test('event seq 为负数拒绝', () => {

@@ -105,7 +105,11 @@ func TestNewEnvelopeRoundTrip(t *testing.T) {
 
 func TestValidateEnvelopeAcceptsServiceMessages(t *testing.T) {
 	snapshot := projectsession.Snapshot{SessionID: "session-1", SessionStatus: projectsession.SessionReady, Seq: 7}
-	event := projectsession.Event{SessionID: "session-1", Kind: projectsession.EventTurnStarted, RequestID: "request-1", Seq: 8}
+	event := projectsession.Event{
+		SessionID: "session-1", RequestID: "request-1", Seq: 8,
+		Kind: projectsession.EventTurnStarted, Source: projectsession.InputTerminal,
+		Text: "check changes", TurnStatus: projectsession.TurnRunning,
+	}
 	tests := []struct {
 		name      string
 		typeName  MessageType
@@ -129,6 +133,81 @@ func TestValidateEnvelopeAcceptsServiceMessages(t *testing.T) {
 			}
 			if err := ValidateEnvelope(envelope); err != nil {
 				t.Fatalf("ValidateEnvelope() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateEnvelopeRejectsInvalidEventSemantics(t *testing.T) {
+	baseEvent := func() projectsession.Event {
+		return projectsession.Event{
+			SessionID: "session-1", RequestID: "request-1", Seq: 8,
+			Kind: projectsession.EventTurnStarted, Source: projectsession.InputTerminal,
+			Text: "check changes", TurnStatus: projectsession.TurnRunning,
+		}
+	}
+	tests := []struct {
+		name  string
+		event projectsession.Event
+	}{
+		{name: "turn started without request id", event: func() projectsession.Event {
+			event := baseEvent()
+			event.RequestID = ""
+			return event
+		}()},
+		{name: "turn started without source", event: func() projectsession.Event {
+			event := baseEvent()
+			event.Source = ""
+			return event
+		}()},
+		{name: "turn started with unknown source", event: func() projectsession.Event {
+			event := baseEvent()
+			event.Source = "watch"
+			return event
+		}()},
+		{name: "turn started without text", event: func() projectsession.Event {
+			event := baseEvent()
+			event.Text = ""
+			return event
+		}()},
+		{name: "turn started with oversized text", event: func() projectsession.Event {
+			event := baseEvent()
+			event.Text = string(make([]byte, projectsession.MaxPromptBytes+1))
+			return event
+		}()},
+		{name: "turn started with wrong turn status", event: func() projectsession.Event {
+			event := baseEvent()
+			event.TurnStatus = projectsession.TurnCompleted
+			return event
+		}()},
+		{name: "text delta without text", event: projectsession.Event{
+			SessionID: "session-1", RequestID: "request-1", Seq: 8,
+			Kind: projectsession.EventTextDelta, Source: projectsession.InputTerminal,
+		}},
+		{name: "turn completed with text", event: projectsession.Event{
+			SessionID: "session-1", RequestID: "request-1", Seq: 8,
+			Kind: projectsession.EventTurnCompleted,
+			Text: "unexpected",
+		}},
+		{name: "session started with text", event: projectsession.Event{
+			SessionID: "session-1", Seq: 8,
+			Kind: projectsession.EventSessionStarted,
+			Text: "unexpected",
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			envelope, err := NewEnvelope(TypeEvent, "session-1", "", test.event.RequestID, test.event.Seq, EventPayload{Event: test.event})
+			if err != nil {
+				t.Fatalf("NewEnvelope() error = %v", err)
+			}
+			err = ValidateEnvelope(envelope)
+			var protocolErr *ProtocolError
+			if !errors.As(err, &protocolErr) || protocolErr.Code != CodeInvalidMessage {
+				t.Fatalf("ValidateEnvelope() error = %v, want code %q", err, CodeInvalidMessage)
+			}
+			if protocolErr != nil && test.event.Text != "" && protocolErr.Message == test.event.Text {
+				t.Fatal("error message must not echo event text")
 			}
 		})
 	}

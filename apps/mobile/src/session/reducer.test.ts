@@ -53,9 +53,10 @@ function event(
     sessionId: 'session-1',
     requestId: 'req-1',
     source: 'terminal',
-    text: '',
+    // turn_started 按协议必须携带非空正文；其余 kind 默认空。
+    text: kind === 'turn_started' ? 'input text' : '',
     sessionStatus: 'ready',
-    turnStatus: 'running',
+    turnStatus: kind === 'turn_started' || kind === 'text_delta' ? 'running' : '',
     error: null,
     ...fields,
   }
@@ -165,10 +166,11 @@ describe('Turn 与消息流', () => {
     expect(claude).toMatchObject({ requestId: 'req-2', text: '你好，世界', status: 'done' })
   })
 
-  test('终端 turn_started 只显示电脑端发起，不显示用户正文', () => {
+  test('终端 turn_started 创建输入与空 Claude 回复', () => {
     let state = stateWithSnapshot()
     state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-2', source: 'terminal' })))
     expect(state.messages).toEqual([
+      { kind: 'input', source: 'terminal', requestId: 'req-2', text: 'input text', status: null },
       { kind: 'claude', requestId: 'req-2', source: 'terminal', text: '', status: 'streaming', error: null },
     ])
   })
@@ -219,7 +221,8 @@ describe('单飞命令', () => {
     state = reducer(state, commandAccepted({ commandId: 'cmd-1', requestId: 'req-5' }))
     expect(state.pendingCommand).toBeNull()
     expect(state.messages).toContainEqual({
-      kind: 'mobile',
+      kind: 'input',
+      source: 'mobile',
       requestId: 'req-5',
       text: 'hi',
       status: 'accepted',
@@ -232,7 +235,7 @@ describe('单飞命令', () => {
     state = reducer(state, commandSent({ commandId: 'cmd-1', text: 'hi' }))
     state = reducer(state, commandRejected({ commandId: 'cmd-1', code: 'queue_full', message: '队列已满' }))
     expect(state.pendingCommand).toBeNull()
-    expect(state.messages).not.toContainEqual(expect.objectContaining({ kind: 'mobile' }))
+    expect(state.messages).not.toContainEqual(expect.objectContaining({ kind: 'input' }))
     expect(state.lastError).toEqual({ code: 'queue_full', message: '队列已满' })
   })
 
@@ -242,7 +245,8 @@ describe('单飞命令', () => {
     state = reducer(state, commandUnknown({ commandId: 'cmd-1' }))
     expect(state.pendingCommand).toBeNull()
     expect(state.messages).toContainEqual({
-      kind: 'mobile',
+      kind: 'input',
+      source: 'mobile',
       requestId: null,
       text: 'hi',
       status: 'unknown',
@@ -257,7 +261,8 @@ describe('断线与重置', () => {
     state = reducer(state, connectionFailed({ kind: 'disconnected' }))
     expect(state.connection).toBe('disconnected')
     expect(state.messages).toContainEqual({
-      kind: 'mobile',
+      kind: 'input',
+      source: 'mobile',
       requestId: null,
       text: 'hi',
       status: 'unknown',
@@ -314,7 +319,7 @@ describe('A5 闭环回归：命令后事件序列', () => {
     state = reducer(state, commandSent({ commandId: 'cmd-1', text: '你好' }))
     state = reducer(state, commandAccepted({ commandId: 'cmd-1', requestId: 'req-m' }))
 
-    state = reducer(state, eventReceived(event('turn_started', 8, { requestId: 'req-m', source: 'mobile' })))
+    state = reducer(state, eventReceived(event('turn_started', 8, { requestId: 'req-m', source: 'mobile', text: '你好' })))
     state = reducer(state, eventReceived(event('text_delta', 9, { requestId: 'req-m', text: '回复' })))
 
     const claude = state.messages.find((m) => m.kind === 'claude')
@@ -358,5 +363,187 @@ describe('A5 闭环回归：命令后事件序列', () => {
     state = reducer(state, eventReceived(event('text_delta', 8, { text: '孤儿' })))
     expect(state.phase).toBe('connected')
     expect(state.messages.filter((m) => m.kind === 'claude')).toHaveLength(0)
+  })
+})
+
+// ---- A5.1：输入消息归并（D37）----
+
+describe('A5.1 输入消息归并', () => {
+  test('PC turn_started 先创建电脑端输入，再创建 Claude 回复', () => {
+    let state = createInitialState()
+    state = reducer(state, pairLoaded())
+    state = reducer(state, snapshotReceived(snapshot({ seq: 7 })))
+    state = reducer(state, eventReceived(event('turn_started', 8, {
+      source: 'terminal', requestId: 'req-pc', text: '来自电脑的问题',
+    })))
+    state = reducer(state, eventReceived(event('text_delta', 9, { requestId: 'req-pc', text: '回复' })))
+
+    const input = state.messages.find((m) => m.kind === 'input')
+    expect(input).toEqual({
+      kind: 'input',
+      source: 'terminal',
+      requestId: 'req-pc',
+      text: '来自电脑的问题',
+      status: null,
+    })
+    const claude = state.messages.find((m) => m.kind === 'claude')
+    expect(claude).toMatchObject({ requestId: 'req-pc', text: '回复' })
+    expect(state.messages.indexOf(input!)).toBeLessThan(state.messages.indexOf(claude!))
+  })
+
+  test('本页面手机输入：commandAccepted 创建 accepted 输入，匹配 turn_started 只补 Claude 回复', () => {
+    let state = createInitialState()
+    state = reducer(state, pairLoaded())
+    state = reducer(state, snapshotReceived(snapshot({ seq: 7 })))
+    state = reducer(state, commandSent({ commandId: 'cmd-1', text: '手机提问' }))
+    state = reducer(state, commandAccepted({ commandId: 'cmd-1', requestId: 'req-m' }))
+    state = reducer(state, eventReceived(event('turn_started', 8, {
+      source: 'mobile', requestId: 'req-m', text: '手机提问',
+    })))
+    state = reducer(state, eventReceived(event('text_delta', 9, { requestId: 'req-m', text: '答' })))
+
+    const inputs = state.messages.filter((m) => m.kind === 'input')
+    expect(inputs).toEqual([
+      { kind: 'input', source: 'mobile', requestId: 'req-m', text: '手机提问', status: 'accepted' },
+    ])
+    expect(state.messages.filter((m) => m.kind === 'claude')).toHaveLength(1)
+  })
+
+  test('其他手机连接的输入：turn_started 创建无确认状态的输入', () => {
+    let state = createInitialState()
+    state = reducer(state, pairLoaded())
+    state = reducer(state, snapshotReceived(snapshot({ seq: 7 })))
+    state = reducer(state, eventReceived(event('turn_started', 8, {
+      source: 'mobile', requestId: 'req-other', text: '另一台手机',
+    })))
+    const input = state.messages.find((m) => m.kind === 'input')
+    expect(input).toEqual({
+      kind: 'input',
+      source: 'mobile',
+      requestId: 'req-other',
+      text: '另一台手机',
+      status: null,
+    })
+  })
+
+  test('匹配 request ID 但正文冲突 → 协议错误', () => {
+    let state = createInitialState()
+    state = reducer(state, pairLoaded())
+    state = reducer(state, snapshotReceived(snapshot({ seq: 7 })))
+    state = reducer(state, commandSent({ commandId: 'cmd-1', text: '手机提问' }))
+    state = reducer(state, commandAccepted({ commandId: 'cmd-1', requestId: 'req-m' }))
+    state = reducer(state, eventReceived(event('turn_started', 8, {
+      source: 'mobile', requestId: 'req-m', text: '被篡改的正文',
+    })))
+    expect(state.phase).toBe('protocolError')
+  })
+
+  test('匹配 request ID 但来源冲突 → 协议错误', () => {
+    let state = createInitialState()
+    state = reducer(state, pairLoaded())
+    state = reducer(state, snapshotReceived(snapshot({ seq: 7 })))
+    state = reducer(state, commandSent({ commandId: 'cmd-1', text: '手机提问' }))
+    state = reducer(state, commandAccepted({ commandId: 'cmd-1', requestId: 'req-m' }))
+    state = reducer(state, eventReceived(event('turn_started', 8, {
+      source: 'terminal', requestId: 'req-m', text: '手机提问',
+    })))
+    expect(state.phase).toBe('protocolError')
+  })
+
+  test('同一 requestId 已有 Claude 回复后再次 turn_started → 协议错误（重复 Turn）', () => {
+    let state = createInitialState()
+    state = reducer(state, pairLoaded())
+    state = reducer(state, snapshotReceived(snapshot({ seq: 7 })))
+    state = reducer(state, eventReceived(event('turn_started', 8, { requestId: 'req-1' })))
+    state = reducer(state, eventReceived(event('turn_completed', 9, { requestId: 'req-1', turnStatus: 'completed' })))
+    state = reducer(state, eventReceived(event('turn_started', 10, { requestId: 'req-1' })))
+    expect(state.phase).toBe('protocolError')
+  })
+
+  test('断线未确认的手机输入保留 unknown 状态', () => {
+    let state = createInitialState()
+    state = reducer(state, pairLoaded())
+    state = reducer(state, snapshotReceived(snapshot({ seq: 7 })))
+    state = reducer(state, commandSent({ commandId: 'cmd-1', text: '悬而未决' }))
+    state = reducer(state, connectionFailed({ kind: 'disconnected' }))
+    const input = state.messages.find((m) => m.kind === 'input')
+    expect(input).toEqual({
+      kind: 'input',
+      source: 'mobile',
+      requestId: null,
+      text: '悬而未决',
+      status: 'unknown',
+    })
+  })
+
+  test('snapshot 仍只创建 Claude 消息，不恢复输入正文', () => {
+    const state = stateWithSnapshot({
+      seq: 5,
+      turn: {
+        status: 'running',
+        requestId: 'req-9',
+        source: 'terminal',
+        message: '已有输出',
+        error: null,
+        pendingAction: null,
+      },
+    })
+    expect(state.messages.filter((m) => m.kind === 'input')).toHaveLength(0)
+    expect(state.messages.filter((m) => m.kind === 'claude')).toHaveLength(1)
+  })
+})
+
+// ---- 问题2回归：Turn 运行中订阅，text_delta 必须可归并 ----
+
+describe('Turn 运行中订阅的 snapshot 归并（A5.1 验收回归）', () => {
+  test('snapshot Turn 运行中且 message 为空时仍创建 Claude 占位，后续 text_delta 可累积', () => {
+    let state = createInitialState()
+    state = reducer(state, pairLoaded())
+    // 订阅时 Turn 运行中、尚无文本（用户在 AI 回复前配对的场景）
+    state = reducer(state, snapshotReceived(snapshot({
+      seq: 8,
+      turn: {
+        status: 'running',
+        requestId: 'req-first',
+        source: 'terminal',
+        message: '',
+        error: null,
+        pendingAction: null,
+      },
+    })))
+    // 后续 text_delta 到达必须累积到该 Turn
+    state = reducer(state, eventReceived(event('text_delta', 9, {
+      requestId: 'req-first', text: '第一段',
+    })))
+    state = reducer(state, eventReceived(event('text_delta', 10, {
+      requestId: 'req-first', text: '第二段',
+    })))
+    const claude = state.messages.find((m) => m.kind === 'claude')
+    expect(claude).toMatchObject({
+      requestId: 'req-first',
+      text: '第一段第二段',
+      status: 'streaming',
+    })
+    state = reducer(state, eventReceived(event('turn_completed', 11, {
+      requestId: 'req-first', turnStatus: 'completed',
+    })))
+    expect(state.messages.find((m) => m.kind === 'claude')).toMatchObject({
+      status: 'done',
+    })
+  })
+
+  test('snapshot Turn 已完成且 message 为空时不创建占位（无可显示内容）', () => {
+    const state = stateWithSnapshot({
+      seq: 8,
+      turn: {
+        status: 'completed',
+        requestId: 'req-old',
+        source: 'terminal',
+        message: '',
+        error: null,
+        pendingAction: null,
+      },
+    })
+    expect(state.messages).toEqual([])
   })
 })

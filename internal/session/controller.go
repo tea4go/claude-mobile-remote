@@ -491,6 +491,7 @@ func (c *Controller) startNext(state *actorState) {
 			SessionID:  state.snapshot.SessionID,
 			RequestID:  next.RequestID,
 			Source:     next.Input.Source,
+			Text:       next.Input.Text,
 			TurnStatus: TurnRunning,
 		})
 	}
@@ -571,6 +572,7 @@ func (c *Controller) handleWorkerEvent(state *actorState, event workerEvent) {
 				SessionID:  state.snapshot.SessionID,
 				RequestID:  state.current.RequestID,
 				Source:     state.current.Input.Source,
+				Text:       state.current.Input.Text,
 				TurnStatus: TurnRunning,
 			})
 		}

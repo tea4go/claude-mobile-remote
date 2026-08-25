@@ -15,6 +15,17 @@ function claude(overrides: Partial<Extract<Message, { kind: 'claude' }>> = {}): 
   }
 }
 
+function input(overrides: Partial<Extract<Message, { kind: 'input' }>> = {}): Message {
+  return {
+    kind: 'input',
+    source: 'mobile',
+    requestId: 'req-1',
+    text: '你好',
+    status: 'accepted',
+    ...overrides,
+  }
+}
+
 describe('MessageFeed', () => {
   test('流式文本变化时在底部自动滚动', () => {
     const scrollIntoView = vi.fn()
@@ -51,33 +62,41 @@ describe('MessageFeed', () => {
     expect(scrollIntoView).not.toHaveBeenCalled()
   })
 
-  test('手机输入展示正文与已接收', () => {
+  test('本页面手机输入展示正文与已接收', () => {
     const messages: Message[] = [
-      { kind: 'mobile', requestId: 'req-1', text: '你好', status: 'accepted' },
+      input({ source: 'mobile', requestId: 'req-1', text: '你好', status: 'accepted' }),
     ]
     render(<MessageFeed messages={messages} />)
     expect(screen.getByText('你好')).toBeInTheDocument()
-    expect(screen.getByText('已接收')).toBeInTheDocument()
+    expect(screen.getByText(/已接收/)).toBeInTheDocument()
   })
 
   test('结果未知的手机输入展示提示', () => {
     const messages: Message[] = [
-      { kind: 'mobile', requestId: null, text: '你好', status: 'unknown' },
+      input({ source: 'mobile', requestId: null, text: '你好', status: 'unknown' }),
     ]
     render(<MessageFeed messages={messages} />)
     expect(screen.getByText(/结果未知/)).toBeInTheDocument()
   })
 
-  test('电脑端发起的 Turn 只显示来源标记，不显示用户正文', () => {
-    const messages: Message[] = [claude({ source: 'terminal' })]
+  test('PC 输入展示正文与电脑端标识（A5.1）', () => {
+    const messages: Message[] = [
+      input({ source: 'terminal', requestId: 'req-pc', text: '来自电脑的问题', status: null }),
+    ]
     render(<MessageFeed messages={messages} />)
-    expect(screen.getByText('电脑端发起')).toBeInTheDocument()
+    expect(screen.getByText('来自电脑的问题')).toBeInTheDocument()
+    expect(screen.getByText(/电脑端/)).toBeInTheDocument()
   })
 
-  test('手机端发起的 Turn 显示来源标记', () => {
-    const messages: Message[] = [claude({ source: 'mobile' })]
+  test('其他手机连接的输入只显示手机端标识，无确认状态（A5.1）', () => {
+    const messages: Message[] = [
+      input({ source: 'mobile', requestId: 'req-other', text: '另一台手机', status: null }),
+    ]
     render(<MessageFeed messages={messages} />)
-    expect(screen.getByText('手机端发起')).toBeInTheDocument()
+    expect(screen.getByText('另一台手机')).toBeInTheDocument()
+    expect(screen.getByText(/手机端/)).toBeInTheDocument()
+    expect(screen.queryByText(/已接收/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/结果未知/)).not.toBeInTheDocument()
   })
 
   test('Claude 流式文本按纯文本渲染并保留换行', () => {

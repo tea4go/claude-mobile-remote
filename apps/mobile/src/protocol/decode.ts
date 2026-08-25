@@ -14,7 +14,7 @@ import type {
   TurnSnapshot,
   TurnStatus,
 } from './types'
-import { PROTOCOL_VERSION, SERVER_TO_CLIENT_TYPES } from './types'
+import { MAX_TEXT_BYTES, PROTOCOL_VERSION, SERVER_TO_CLIENT_TYPES } from './types'
 
 // 不可信网络 JSON 的运行时严格解码。TypeScript 类型不能替代校验：
 // 未知版本、未知类型、方向不符或错误结构一律抛错，由调用方终止当前连接。
@@ -74,19 +74,19 @@ function requireNonNegativeInteger(
   return value
 }
 
+// 事件按 kind 部分携带字段：text_delta 只带 text、session_started 只带
+// sessionStatus 等，其余枚举字段在线上为空字符串（Go 零值）。
+// requireEnum 允许空；requireNonEmptyEnum 用于 kind 等必须存在的枚举。
 function requireEnum<T extends string>(
   container: Record<string, unknown>,
   key: string,
   allowed: ReadonlySet<string>,
-): T {
+): T | '' {
   const value = requireString(container, key)
   if (value !== '' && !allowed.has(value)) fail(`field ${key} has unknown value`)
-  return value as T
+  return value as T | ''
 }
 
-// 事件按 kind 部分携带字段：text_delta 只带 text、session_started 只带
-// sessionStatus 等，其余枚举字段在线上为空字符串（Go 零值）。decoder
-// 只对 kind 相关的必填枚举做非空校验。
 function requireNonEmptyEnum<T extends string>(
   container: Record<string, unknown>,
   key: string,
@@ -127,9 +127,9 @@ function decodePendingAction(value: unknown): PendingAction | null {
 function decodeTurnSnapshot(value: unknown): TurnSnapshot {
   if (!isObject(value)) fail('turn must be an object')
   return {
-    status: requireEnum<TurnStatus>(value, 'status', TURN_STATUSES),
+    status: requireNonEmptyEnum<TurnStatus>(value, 'status', TURN_STATUSES),
     requestId: requireString(value, 'requestId'),
-    source: requireEnum<InputSource>(value, 'source', INPUT_SOURCES),
+    source: requireNonEmptyEnum<InputSource>(value, 'source', INPUT_SOURCES),
     message: requireString(value, 'message'),
     error: decodeErrorInfo(value.error),
     pendingAction: decodePendingAction(value.pendingAction),
@@ -140,7 +140,7 @@ function decodeSessionSnapshot(value: unknown): SessionSnapshot {
   if (!isObject(value)) fail('snapshot must be an object')
   return {
     sessionId: requireString(value, 'sessionId'),
-    sessionStatus: requireEnum<SessionStatus>(value, 'sessionStatus', SESSION_STATUSES),
+    sessionStatus: requireNonEmptyEnum<SessionStatus>(value, 'sessionStatus', SESSION_STATUSES),
     sessionError: decodeErrorInfo(value.sessionError),
     seq: requireNonNegativeInteger(value, 'seq'),
     turn: decodeTurnSnapshot(value.turn),
@@ -171,7 +171,31 @@ function decodeEventPayload(value: unknown): EventPayload {
     turnStatus: requireEnum<TurnStatus>(event, 'turnStatus', TURN_STATUSES),
     error: decodeErrorInfo(event.error),
   }
+  validateEventSemantics(domainEvent)
   return { event: domainEvent }
+}
+
+// kind 级事件语义（A5.1 设计 §4.1/§9）：turn_started 必须携带非空、不超
+// MaxPromptBytes 的输入正文和 running 状态；text_delta 必须有增量；其他
+// kind 不得携带正文。错误信息不包含正文本身。
+function validateEventSemantics(event: DomainEvent): void {
+  if (event.kind === 'turn_started') {
+    if (
+      event.requestId === '' ||
+      event.source === '' ||
+      event.text === '' ||
+      event.turnStatus !== 'running' ||
+      new TextEncoder().encode(event.text).length > MAX_TEXT_BYTES
+    ) {
+      fail('invalid turn_started event')
+    }
+    return
+  }
+  if (event.kind === 'text_delta') {
+    if (event.text === '') fail('invalid text_delta event')
+    return
+  }
+  if (event.text !== '') fail('unexpected event text')
 }
 
 function decodeCommandResultPayload(value: unknown): CommandResultPayload {

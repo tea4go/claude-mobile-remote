@@ -4,7 +4,21 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 )
+
+func TestConnectionBudgetsAccommodateMaximumPromptEvent(t *testing.T) {
+	if outboundEventMaxBytes < projectsession.MaxPromptBytes+64*1024 {
+		t.Fatalf("outbound event budget = %d, too small", outboundEventMaxBytes)
+	}
+	if outboxMaxItems <= 0 || earlyMaxItems <= 0 || outboxMaxBytes <= 0 || earlyMaxBytes <= 0 {
+		t.Fatal("connection budgets must remain bounded")
+	}
+	if outboxMaxBytes < outboundEventMaxBytes || earlyMaxBytes < outboundEventMaxBytes {
+		t.Fatalf("budgets = outbox %d early %d, each must hold one max event %d", outboxMaxBytes, earlyMaxBytes, outboundEventMaxBytes)
+	}
+}
 
 func TestCommandGateEnqueuesResultBeforeEarlyEvents(t *testing.T) {
 	outbox := newOutbox(64, 1024*1024)

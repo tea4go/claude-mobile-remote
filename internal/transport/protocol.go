@@ -167,6 +167,9 @@ func ValidateEnvelope(envelope Envelope) error {
 			payload.Event.RequestID != envelope.RequestID || payload.Event.Seq != envelope.Seq {
 			return protocolError(CodeInvalidMessage, "invalid event message")
 		}
+		if err := validateEvent(payload.Event); err != nil {
+			return err
+		}
 	case TypeCommandResult:
 		var payload CommandResultPayload
 		if envelope.CommandID == "" || envelope.Seq != 0 || DecodePayload(envelope, &payload) != nil {
@@ -192,6 +195,30 @@ func ValidateEnvelope(envelope Envelope) error {
 func isEmptyPayload(envelope Envelope) bool {
 	var payload struct{}
 	return DecodePayload(envelope, &payload) == nil
+}
+
+// validateEvent enforces kind-level field semantics for outbound events:
+// turn_started must carry the normalized input text, text_delta a non-empty
+// increment, and all other kinds no text at all.
+func validateEvent(event projectsession.Event) error {
+	switch event.Kind {
+	case projectsession.EventTurnStarted:
+		if event.RequestID == "" ||
+			(event.Source != projectsession.InputTerminal && event.Source != projectsession.InputMobile) ||
+			event.Text == "" || len([]byte(event.Text)) > projectsession.MaxPromptBytes ||
+			event.TurnStatus != projectsession.TurnRunning {
+			return protocolError(CodeInvalidMessage, "invalid turn_started event")
+		}
+	case projectsession.EventTextDelta:
+		if event.Text == "" {
+			return protocolError(CodeInvalidMessage, "invalid text_delta event")
+		}
+	default:
+		if event.Text != "" {
+			return protocolError(CodeInvalidMessage, "unexpected event text")
+		}
+	}
+	return nil
 }
 
 func protocolError(code, message string) error {

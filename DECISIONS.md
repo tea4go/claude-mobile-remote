@@ -289,3 +289,11 @@
 - **理由**：A4 只有 snapshot 携带 `queueDepth`，后续 event 不包含队列变化；客户端既无法观察终端新提交的等待输入，也无法可靠维护全局实时计数。持续展示推断值会误导用户。
 - **影响**：A5 不为队列数字修改 A4 协议或状态模型。若后续产品确需实时队列深度，应作为三端共用契约变更重新设计并核对 React Web、Capacitor 与 HarmonyOS NEXT；当前三端契约保持不变。
 - **状态**：已定
+
+## D37 · A5.1 通过 turn_started 实时同步当前输入正文
+
+- **日期**：2026-08-25
+- **决策**：在 A6 VPN 联调前增加 A5.1。A3 在既有 `turn_started.text` 中携带规范化后的本轮输入正文，终端和手机来源使用同一字段语义。Pairing 成功并订阅同一 Channel 的手机连接地位相同，不建立设备身份、主从或跨客户端锁；任意连接均可发送，全部强制为 `source=mobile` 并由同一 Controller 按实际接受顺序形成 FIFO。Mobile Web 对不存在的 request ID 创建输入消息，对已由本连接 `command_result` 展示的手机输入按 `requestId`、来源和正文校验后去重。snapshot 不增加输入字段，刷新、重连和新连接不恢复旧输入正文。
+- **理由**：用户验证 A5 时确认手机能够同步状态和 Claude 回复，但看不到 PC 发送的正文；该能力属于里程碑 A 的基础双端文本闭环，应在 A6 真机联调前固定。复用既有字段比新增 event kind 更小，且不改变版本 1 JSON 结构；Service 与新客户端仍需协调升级并通过同一门禁。
+- **影响**：本决策替代 D32 中“终端 Turn 只显示来源标记”的局部约定，D32 的易失消息、无历史、无 replay 边界继续有效。跨手机不承诺设备优先级、网络到达时间或客户端时钟顺序，只承诺 Controller 接受后的全局 FIFO 与唯一 request ID；每连接 command result 和慢连接隔离仍由 A4 保证。A5.1 不增加设备 ID、抢占或取消，真正中断当前 Turn 仍归 B2。A4 普通 outbox 与提前事件缓存必须容纳最大合法 prompt 加 envelope 开销，同时继续有界；React Web、Capacitor 和 HarmonyOS NEXT 均按相同 `source/requestId/text` 规则实现，不引入平台专属依赖。三端可实现性核对通过。
+- **状态**：已定

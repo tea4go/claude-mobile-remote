@@ -285,7 +285,8 @@ func TestWebSocketCommandResultPrecedesTurnEvent(t *testing.T) {
 	fixture.controller.submit = func(projectsession.Input) (string, error) {
 		fixture.controller.emit(projectsession.Event{
 			SessionID: "session-1", RequestID: "request-1", Seq: 8,
-			Kind: projectsession.EventTurnStarted, TurnStatus: projectsession.TurnRunning,
+			Kind: projectsession.EventTurnStarted, Source: projectsession.InputMobile,
+			Text: "hello", TurnStatus: projectsession.TurnRunning,
 		})
 		return "request-1", nil
 	}
@@ -341,11 +342,195 @@ func TestWebSocketMultipleClientsReceiveSameEvent(t *testing.T) {
 	_ = authenticateAndSubscribe(t, fixture, first)
 	_ = authenticateAndSubscribe(t, fixture, second)
 
-	fixture.controller.emit(projectsession.Event{SessionID: "session-1", RequestID: "request-1", Seq: 8, Kind: projectsession.EventTurnStarted})
+	fixture.controller.emit(projectsession.Event{
+		SessionID: "session-1", RequestID: "request-1", Seq: 8,
+		Kind: projectsession.EventTurnStarted, Source: projectsession.InputTerminal,
+		Text: "from terminal", TurnStatus: projectsession.TurnRunning,
+	})
 	for name, connection := range map[string]*websocket.Conn{"first": first, "second": second} {
 		event := readTestEnvelope(t, connection)
 		if event.Type != TypeEvent || event.Seq != 8 {
 			t.Fatalf("%s event = %#v", name, event)
+		}
+	}
+}
+
+func TestWebSocketTwoPhonesSubmitConcurrently(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	first := fixture.dial(t)
+	second := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, first)
+	_ = authenticateAndSubscribe(t, fixture, second)
+
+	// 两个连接近乎同时发送不同命令。
+	results := make(chan Envelope, 2)
+	for name, item := range map[string]struct {
+		connection *websocket.Conn
+		commandID  string
+	}{
+		"first":  {connection: first, commandID: "command-1"},
+		"second": {connection: second, commandID: "command-2"},
+	} {
+		go func(name string, connection *websocket.Conn, commandID string) {
+			_ = connection.SetWriteDeadline(time.Now().Add(3 * time.Second))
+			writeTestEnvelope(t, connection, TypeCommand, "session-1", commandID, "", 0, CommandPayload{Kind: CommandSendText, Text: "from " + name})
+			_ = connection.SetReadDeadline(time.Now().Add(3 * time.Second))
+			result := readTestEnvelope(t, connection)
+			results <- result
+		}(name, item.connection, item.commandID)
+	}
+
+	seen := map[string]Envelope{}
+	for range 2 {
+		result := <-results
+		seen[result.CommandID] = result
+	}
+	if len(seen) != 2 {
+		t.Fatalf("command results = %#v, want two distinct", seen)
+	}
+	fixture.controller.mu.Lock()
+	defer fixture.controller.mu.Unlock()
+	if len(fixture.controller.inputs) != 2 {
+		t.Fatalf("controller inputs = %#v, want two", fixture.controller.inputs)
+	}
+	texts := map[string]bool{}
+	for _, input := range fixture.controller.inputs {
+		if input.Source != projectsession.InputMobile {
+			t.Fatalf("input source = %q, want mobile", input.Source)
+		}
+		texts[input.Text] = true
+	}
+	if !texts["from first"] || !texts["from second"] {
+		t.Fatalf("input texts = %#v, want both phones' texts", texts)
+	}
+}
+
+func TestWebSocketAllSubscribersObserveSameTurnOrder(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	first := fixture.dial(t)
+	second := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, first)
+	_ = authenticateAndSubscribe(t, fixture, second)
+
+	// 按 Controller 接受顺序广播两个递增 seq 的 turn_started。
+	fixture.controller.emit(projectsession.Event{
+		SessionID: "session-1", RequestID: "request-1", Seq: 8,
+		Kind: projectsession.EventTurnStarted, Source: projectsession.InputMobile,
+		Text: "from first", TurnStatus: projectsession.TurnRunning,
+	})
+	fixture.controller.emit(projectsession.Event{
+		SessionID: "session-1", RequestID: "request-2", Seq: 9,
+		Kind: projectsession.EventTurnStarted, Source: projectsession.InputMobile,
+		Text: "from second", TurnStatus: projectsession.TurnRunning,
+	})
+	for name, connection := range map[string]*websocket.Conn{"first": first, "second": second} {
+		for wantSeq, wantText := range []string{"from first", "from second"} {
+			event := readTestEnvelope(t, connection)
+			var payload EventPayload
+			if event.Type != TypeEvent || event.Seq != uint64(8+wantSeq) ||
+				DecodePayload(event, &payload) != nil || payload.Event.Text != wantText ||
+				payload.Event.Source != projectsession.InputMobile {
+				t.Fatalf("%s event = %#v, want seq %d text %q mobile", name, event, 8+wantSeq, wantText)
+			}
+		}
+	}
+}
+
+func TestWebSocketMaximumPromptEventDoesNotCloseConnection(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	connection := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, connection)
+
+	fixture.controller.emit(projectsession.Event{
+		SessionID: "session-1", RequestID: "request-1", Seq: 8,
+		Kind:       projectsession.EventTurnStarted,
+		Source:     projectsession.InputTerminal,
+		Text:       strings.Repeat("x", projectsession.MaxPromptBytes),
+		TurnStatus: projectsession.TurnRunning,
+	})
+	big := readTestEnvelope(t, connection)
+	if big.Type != TypeEvent || big.Seq != 8 {
+		t.Fatalf("big event = %#v, want event seq 8", big)
+	}
+
+	// 同一连接继续接收下一条小事件，证明未被容量关闭。
+	fixture.controller.emit(projectsession.Event{
+		SessionID: "session-1", RequestID: "request-2", Seq: 9,
+		Kind: projectsession.EventTextDelta,
+		Text: "still connected",
+	})
+	small := readTestEnvelope(t, connection)
+	if small.Type != TypeEvent || small.Seq != 9 {
+		t.Fatalf("small event = %#v, want event seq 9", small)
+	}
+}
+
+func TestWebSocketSlowClientIsolation(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	fast := fixture.dial(t)
+	slow := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, fast)
+	_ = authenticateAndSubscribe(t, fixture, slow)
+
+	// fast 连接持续读取，避免它自己的 outbox 溢出；读取循环一直跑到底，
+	// gorilla 连接不允许并发读取，最终断言也在同一 goroutine 里做。
+	fast.SetReadLimit(4 * 1024 * 1024)
+	type readOutcome struct {
+		envelope Envelope
+		err      error
+	}
+	outcomes := make(chan readOutcome, 64)
+	go func() {
+		for {
+			_, data, err := fast.ReadMessage()
+			if err != nil {
+				outcomes <- readOutcome{err: err}
+				return
+			}
+			envelope, decodeErr := DecodeEnvelope(data)
+			outcomes <- readOutcome{envelope: envelope, err: decodeErr}
+		}
+	}()
+
+	// 反复入队大事件，直至不再读取的慢连接触发字节上限被关闭。
+	for i := range 16 {
+		fixture.controller.emit(projectsession.Event{
+			SessionID: "session-1", RequestID: "request-1", Seq: uint64(8 + i),
+			Kind:       projectsession.EventTurnStarted,
+			Source:     projectsession.InputTerminal,
+			Text:       strings.Repeat("x", 512*1024),
+			TurnStatus: projectsession.TurnRunning,
+		})
+		// 慢连接的关闭路径需要时间收敛；观察它是否已被移除。
+		fixture.controller.mu.Lock()
+		slowRemoved := len(fixture.controller.subscribers) < 2
+		fixture.controller.mu.Unlock()
+		if slowRemoved {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// fast 连接必须仍然可用：发出一条小事件并读到它。
+	deadline := time.After(3 * time.Second)
+	fixture.controller.emit(projectsession.Event{
+		SessionID: "session-1", RequestID: "request-2", Seq: 100,
+		Kind: projectsession.EventTextDelta, Text: "fast alive",
+	})
+	for {
+		select {
+		case outcome := <-outcomes:
+			if outcome.err != nil {
+				t.Fatalf("fast connection closed: %v", outcome.err)
+			}
+			if outcome.envelope.Type == TypeError {
+				t.Fatalf("fast connection got error envelope: %#v", outcome.envelope)
+			}
+			if outcome.envelope.Seq == 100 {
+				return
+			}
+		case <-deadline:
+			t.Fatal("fast connection never received the sentinel event")
 		}
 	}
 }
