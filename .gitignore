@@ -48,3 +48,5 @@ coverage/
 # 环境与密钥
 *.pem
 *.key
+
+.qoder/

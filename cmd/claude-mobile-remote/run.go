@@ -16,6 +16,7 @@ import (
 
 type sessionController interface {
 	Start(context.Context) error
+	ReservedSessionID() string
 	Submit(context.Context, projectsession.Input) (string, error)
 	Subscribe(context.Context, int) (projectsession.Snapshot, <-chan projectsession.Event, error)
 	WaitIdle(context.Context) (projectsession.Snapshot, error)
@@ -144,6 +145,19 @@ func runWithRemote(ctx context.Context, input io.Reader, output, errorOutput io.
 			return 1
 		}
 		pairings = remote.Pairings()
+		// A5.2 §8：预留 ID 已知时在首个 Turn 前注册 Channel 并签发凭证；
+		// SDK Connect 成功即激活，不等待 session_started。
+		if reservedID := controller.ReservedSessionID(); reservedID != "" {
+			payload, activateErr := remote.Activate(reservedID)
+			if activateErr != nil {
+				fmt.Fprintln(errorOutput, "配对激活错误")
+				return 1
+			}
+			if err := writePairingPayload(output, payload); err != nil {
+				fmt.Fprintln(errorOutput, "配对信息输出错误")
+				return 1
+			}
+		}
 	}
 
 	subscriptionContext, cancelSubscription := context.WithCancel(ctx)
@@ -289,8 +303,10 @@ func runWithRemote(ctx context.Context, input io.Reader, output, errorOutput io.
 
 			switch event.Kind {
 			case projectsession.EventSessionStarted:
+				// A5.2 §8：预留 ID 的会话在 Connect 后已激活，此处只确认
+				// 可见状态；旧路径（未预留 ID）保持 init 后激活。
 				fmt.Fprintf(output, "session: %s\n", event.SessionID)
-				if remote != nil {
+				if remote != nil && controller.ReservedSessionID() == "" {
 					payload, activateErr := remote.Activate(event.SessionID)
 					if activateErr != nil {
 						fmt.Fprintln(errorOutput, "远程配对激活错误")

@@ -59,6 +59,7 @@ func normalizeInput(currentID string, input Input) (Input, error) {
 		return Input{}, ErrInvalidInput
 	}
 
+	// A5.2：预留的 session ID 即真实 ID，手机输入在确认前即可携带它提交。
 	if input.Source == InputMobile && currentID == "" {
 		return Input{}, ErrSessionUnavailable
 	}

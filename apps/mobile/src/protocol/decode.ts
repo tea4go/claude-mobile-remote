@@ -126,14 +126,21 @@ function decodePendingAction(value: unknown): PendingAction | null {
 
 function decodeTurnSnapshot(value: unknown): TurnSnapshot {
   if (!isObject(value)) fail('turn must be an object')
-  return {
+  const turn: TurnSnapshot = {
     status: requireNonEmptyEnum<TurnStatus>(value, 'status', TURN_STATUSES),
     requestId: requireString(value, 'requestId'),
-    source: requireNonEmptyEnum<InputSource>(value, 'source', INPUT_SOURCES),
+    // A5.2：首轮前尚无任何 Turn，source 在线上为空串（Go 零值）。
+    source: requireEnum<InputSource>(value, 'source', INPUT_SOURCES),
     message: requireString(value, 'message'),
     error: decodeErrorInfo(value.error),
     pendingAction: decodePendingAction(value.pendingAction),
   }
+  // 服务端对 Turn 同时赋值 requestId 与 source（internal/session
+  // applyNextInput），因此已有 Turn 时 source 不得为空。
+  if (turn.source === '' && turn.requestId !== '') {
+    fail('turn source is required once a turn exists')
+  }
+  return turn
 }
 
 function decodeSessionSnapshot(value: unknown): SessionSnapshot {

@@ -3,6 +3,7 @@ package claude
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"strings"
@@ -35,11 +36,12 @@ func denyToolUse(
 
 // Host 持有一个长生命周期 SDK Client。RunTurn 必须由上层串行调用。
 type Host struct {
-	client      sdkClient
-	connected   bool
-	closed      bool
-	sessionID   string
-	startedSent bool
+	client       sdkClient
+	connected    bool
+	closed       bool
+	sessionID    string
+	sessionIDSet bool
+	startedSent  bool
 }
 
 // NewHost 创建使用 SDK 默认权限模式的 Host。A2 对进入回调的工具请求统一拒绝。
@@ -49,6 +51,92 @@ func NewHost(options ...Option) *Host {
 		option(host)
 	}
 	return host
+}
+
+// sessionMode 区分预分配 ID 的两种来源（A5.2 设计 §4）：新建会话把 Service
+// 生成的 UUID 指定给 Claude，恢复会话沿用已有 ID。两种模式的 SDK 选项互斥。
+type sessionMode int
+
+const (
+	sessionModeNew sessionMode = iota
+	sessionModeResume
+)
+
+// sessionSDKOptions 按模式构造 SDK 选项：新建只映射 --session-id，恢复只
+// 映射 --resume（设计 §5）。SDK 侧 Validate 会拒绝两者并用。
+func sessionSDKOptions(mode sessionMode, sessionID string) []claudecode.Option {
+	options := []claudecode.Option{claudecode.WithCanUseTool(denyToolUse)}
+	if mode == sessionModeResume {
+		return append(options, claudecode.WithResume(sessionID))
+	}
+	return append(options, claudecode.WithSessionID(sessionID))
+}
+
+// NewHostWithReservedSessionID 创建以既有 UUID 预分配新 Claude session 的
+// Host（A5.2）。ID 通过 SDK WithSessionID 映射到 Claude CLI --session-id；
+// Host 从 Connect 前持有预期 ID，首个 init/Result 必须返回相同 ID。
+func NewHostWithReservedSessionID(sessionID string, options ...Option) (*Host, error) {
+	return newReservedHost(sessionModeNew, sessionID, options...)
+}
+
+// NewHostForResume 创建恢复已有会话的 Host（A5.2 设计 §5.2）。已有 ID 通过
+// SDK WithResume 映射到 Claude CLI --resume，不传 --session-id；Claude 返回
+// 其他 ID 时按 Session 级失败处理。
+func NewHostForResume(sessionID string, options ...Option) (*Host, error) {
+	return newReservedHost(sessionModeResume, sessionID, options...)
+}
+
+func newReservedHost(mode sessionMode, sessionID string, options ...Option) (*Host, error) {
+	if !isValidUUID(sessionID) {
+		return nil, fmt.Errorf("预分配 session ID 必须是合法 UUID: %q", sessionID)
+	}
+	host := NewHost(append([]Option{withReservedSessionID(mode, sessionID)}, options...)...)
+	return host, nil
+}
+
+func withReservedSessionID(mode sessionMode, sessionID string) Option {
+	return func(host *Host) {
+		host.sessionID = sessionID
+		host.sessionIDSet = true
+		host.client = claudecode.NewClient(sessionSDKOptions(mode, sessionID)...)
+	}
+}
+
+// PrepareNewSession 为新会话生成 UUID v4 并预分配（A5.2 设计 §3.1）。
+// 只能调用一次；Connect 前调用。
+func (h *Host) PrepareNewSession() error {
+	if h.sessionIDSet || h.connected || h.closed {
+		return wrapError(ScopeSession, "预分配 session ID", errors.New("session ID 已确定或 Host 已启动"))
+	}
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return wrapError(ScopeSession, "生成 session UUID", err)
+	}
+	raw[6] = (raw[6] & 0x0f) | 0x40 // version 4
+	raw[8] = (raw[8] & 0x3f) | 0x80 // variant 10
+	sessionID := fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
+	withReservedSessionID(sessionModeNew, sessionID)(h)
+	return nil
+}
+
+func isValidUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, char := range value {
+		switch i {
+		case 8, 13, 18, 23:
+			if char != '-' {
+				return false
+			}
+		default:
+			isHex := (char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')
+			if !isHex {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // Connect 启动并连接由 SDK 托管的 Claude CLI。
@@ -64,7 +152,12 @@ func (h *Host) Connect(ctx context.Context) error {
 }
 
 // SessionID 返回 SDK 提供的真实 session ID；首轮 init/Result 前为空。
+// A5.2 预分配后从 Connect 前即返回预留 ID。
 func (h *Host) SessionID() string { return h.sessionID }
+
+// SessionConfirmed 报告 Claude init/Result 是否已确认预留 ID（A5.2 §4）。
+// 未预留 ID 的 Host 在首个非空 init/Result 接受后同样视为已确认。
+func (h *Host) SessionConfirmed() bool { return h.startedSent }
 
 // RunTurn 在当前 Client 上执行一个文本 Turn，并同步发出 A2 内部事件。
 func (h *Host) RunTurn(ctx context.Context, prompt string, emit func(Event)) error {

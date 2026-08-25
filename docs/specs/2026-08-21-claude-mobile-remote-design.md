@@ -45,7 +45,7 @@ Claude 的完整上下文、会话状态和操作执行始终留在 PC。手机�
 
 ```text
 Session
-├── sessionId          Claude 返回的真实会话 ID
+├── sessionId          新会话预分配或恢复会话已有的真实 Claude 会话 ID
 ├── status             starting / ready / stopped / failed
 ├── seq                单调递增事件序号
 ├── turn
@@ -56,7 +56,7 @@ Session
 └── inputQueue         终端和手机共用的串行输入队列
 ```
 
-`sessionId` 由 SDK/Claude 产生。Service 在收到包含真实 `session_id` 的初始化事件后生成二维码，不用应用自造 ID 冒充 Claude session。
+新会话的 `sessionId` 由 Service 生成合法 UUID，并通过 Claude CLI `--session-id` 指定为该会话的真实 ID；恢复会话使用已有真实 ID 和 `--resume`。SDK Connect 成功后即可生成二维码，首个真实 Query 的 init 事件必须返回相同 ID并完成确认。Service 不使用未交给 Claude 的本地替代 ID冒充 Claude session。
 
 `ResultMessage` 只结束当前 Turn：Turn 进入 `completed`，Session 回到 `ready` 并继续接收下一条消息。只有 Session 停止或失败后才拒绝新操作。
 
@@ -72,9 +72,9 @@ sequenceDiagram
     participant M as 手机
     participant CH as Session Channel
 
-    U->>S: 启动并输入首条指令
-    S->>SDK: 创建 Client 并 Query
-    SDK-->>S: 初始化事件 + sessionId
+    U->>S: 启动 Service
+    S->>S: 新会话生成 UUID / 恢复会话读取已有 ID
+    S->>SDK: Connect(--session-id / --resume)
     S-->>U: 显示二维码
     U->>M: 扫码
     M->>S: WebSocket 连接 + pairToken
@@ -83,6 +83,9 @@ sequenceDiagram
     S->>CH: 注册连接与 sessionId
     CH-->>S: subscribed + 当前状态
     S-->>M: subscribed + snapshot
+    M->>S: 首条真实消息（也可由 PC 发送）
+    S->>SDK: Query
+    SDK-->>S: init + 已确认的 sessionId
     CH-->>S: 后续实时事件
     S-->>M: event
 ```
@@ -183,7 +186,8 @@ snapshot 只用于保持手机界面与 PC 当前状态一致，不用于重建 
 | 场景 | 首期行为 |
 | --- | --- |
 | SDK 启动失败 | CLI 输出可诊断错误，不启动配对服务 |
-| 尚未取得 sessionId | 不显示可扫描二维码 |
+| 新会话 UUID 生成失败或恢复 ID 无效 | 启动失败，不启动 Claude 或配对服务 |
+| 首个 init 返回的 ID 与预期不一致 | Session 失败、撤销凭证并关闭连接，不动态迁移 Channel |
 | 手机凭证错误 | 拒绝连接，不返回状态 |
 | Channel 不存在或无权订阅 | 返回错误，不加入订阅者集合 |
 | 手机短暂断线 | 重新鉴权后返回最新 snapshot |

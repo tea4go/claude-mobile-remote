@@ -86,6 +86,37 @@ function snapshotMessage(seq = 7) {
   }
 }
 
+// 首轮前 snapshot（A5.2）：Session 已预留真实 ID 但 Claude init 未确认，
+// 尚无任何 Turn，因此 turn.requestId 与 turn.source 均为空串。
+function preTurnSnapshotMessage() {
+  return {
+    version: 1,
+    type: 'snapshot',
+    sessionId: 'session-1',
+    commandId: '',
+    requestId: '',
+    seq: 0,
+    payload: {
+      connectionStatus: 'subscribed',
+      snapshot: {
+        sessionId: 'session-1',
+        sessionStatus: 'starting',
+        sessionError: null,
+        seq: 0,
+        turn: {
+          status: 'idle',
+          requestId: '',
+          source: '',
+          message: '',
+          error: null,
+          pendingAction: null,
+        },
+        queueDepth: 0,
+      },
+    },
+  }
+}
+
 function makeClient(payload: PairingPayload = pairing()) {
   const socket = () => new FakeWebSocket(payload.wsUrl)
   const client = new ProtocolClient(payload, socket)
@@ -140,6 +171,26 @@ describe('握手流程', () => {
     socket.serverMessage({ version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
     socket.serverMessage({ version: 1, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
     socket.serverMessage(snapshotMessage())
+    expect(events).toContain('snapshot')
+    expect(client.isReady()).toBe(true)
+    client.close()
+  })
+
+  // A5.2 人工验收回归：首轮前（Session starting、Turn idle、seq 0、
+  // turn.source 为空串）扫码必须能直接连上，不得因解码失败断开。
+  test('首轮前 snapshot 仍能进入已连接（不报协议错误）', () => {
+    const { client } = makeClient()
+    const events: string[] = []
+    const closes: string[] = []
+    client.onEvent = (e) => events.push(e.kind)
+    client.onClose = (info) => closes.push(info.kind)
+    client.connect()
+    const socket = FakeWebSocket.instances[0]!
+    socket.serverOpen()
+    socket.serverMessage({ version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 1, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage(preTurnSnapshotMessage())
+    expect(closes).toEqual([])
     expect(events).toContain('snapshot')
     expect(client.isReady()).toBe(true)
     client.close()

@@ -74,7 +74,8 @@ export interface PendingAction {
 export interface TurnSnapshot {
   status: TurnStatus
   requestId: string
-  source: InputSource
+  // 首轮前（A5.2）尚无 Turn，source 为空串；一旦 requestId 非空则必非空。
+  source: InputSource | ''
   message: string
   error: ErrorInfo | null
   pendingAction: PendingAction | null

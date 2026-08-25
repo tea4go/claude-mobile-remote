@@ -65,6 +65,8 @@ type fakeRemoteService struct {
 	controller        *fakeController
 	pairings          chan pairing.Payload
 	activatePayload   pairing.Payload
+	activateErr       error
+	activateCalls     int
 	calls             []string
 	activated         chan struct{}
 	activateOnce      sync.Once
@@ -121,9 +123,20 @@ func (f *fakeRemoteService) Start() error {
 func (f *fakeRemoteService) Activate(sessionID string) (pairing.Payload, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, "activate:"+sessionID)
+	f.activateCalls++
+	err := f.activateErr
 	f.mu.Unlock()
 	f.activateOnce.Do(func() { close(f.activated) })
+	if err != nil {
+		return pairing.Payload{}, err
+	}
 	return f.activatePayload, nil
+}
+
+func (f *fakeRemoteService) activateCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.activateCalls
 }
 
 func (f *fakeRemoteService) Pairings() <-chan pairing.Payload { return f.pairings }
@@ -311,6 +324,12 @@ func (f *fakeController) Start(context.Context) error {
 		hook()
 	}
 	return err
+}
+
+func (f *fakeController) ReservedSessionID() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.snapshot.SessionID
 }
 
 func (f *fakeController) Submit(_ context.Context, input projectsession.Input) (string, error) {
@@ -1232,5 +1251,151 @@ func TestRunReportsUnexpectedEventClosureWithPendingRequest(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "事件流") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+// ---- A5.2 首轮前配对（设计 §8）----
+
+// syncBuffer 是并发安全的输出缓冲。首轮前配对的断言需要在 run goroutine 仍在
+// 写入时读取输出，普通 bytes.Buffer 会被 race 检测判定为竞争。
+type syncBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (s *syncBuffer) Write(data []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buffer.Write(data)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buffer.String()
+}
+
+// waitForOutput 轮询等待 output 出现 marker，超时则失败。
+func waitForOutput(t *testing.T, output *syncBuffer, marker string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(output.String(), marker) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("output = %q, want %q", output.String(), marker)
+}
+
+func TestRunWithRemoteActivatesBeforeFirstInput(t *testing.T) {
+	controller := newFakeController()
+	controller.snapshot = projectsession.Snapshot{
+		SessionID:     "session-reserved",
+		SessionStatus: projectsession.SessionStarting,
+		Turn:          projectsession.TurnSnapshot{Status: projectsession.TurnIdle},
+	}
+	remote := newFakeRemoteService(controller)
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	output := &syncBuffer{}
+	errorOutput := &syncBuffer{}
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithRemote(context.Background(), reader, output, errorOutput, controller, remote)
+	}()
+
+	// 无任何终端输入：Subscribe 后立即以预留 ID 激活并输出配对（设计 §8）。
+	waitForOutput(t, output, "pairing:")
+	if activateCalls := remote.activateCallCount(); activateCalls != 1 {
+		t.Fatalf("Activate calls before first input = %d, want 1", activateCalls)
+	}
+
+	// session_started 只更新可见状态，不再触发第二次激活。
+	controller.events <- projectsession.Event{Kind: projectsession.EventSessionStarted, SessionID: "session-reserved"}
+	waitForOutput(t, output, "session: session-reserved")
+	if activateCalls := remote.activateCallCount(); activateCalls != 1 {
+		t.Fatalf("Activate calls after session_started = %d, want exactly 1 (pre-turn)", activateCalls)
+	}
+
+	if _, err := io.WriteString(writer, ":quit\n"); err != nil {
+		t.Fatal(err)
+	}
+	if exitCode := waitForRun(t, done); exitCode != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", exitCode, errorOutput.String())
+	}
+	_ = writer.Close()
+}
+
+func TestRunWithRemoteActivationFailureCleansUp(t *testing.T) {
+	controller := newFakeController()
+	controller.snapshot = projectsession.Snapshot{
+		SessionID:     "session-reserved",
+		SessionStatus: projectsession.SessionStarting,
+		Turn:          projectsession.TurnSnapshot{Status: projectsession.TurnIdle},
+	}
+	remote := newFakeRemoteService(controller)
+	remote.activateErr = errors.New("channel register failed")
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	var output bytes.Buffer
+	var errorOutput bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithRemote(context.Background(), reader, &output, &errorOutput, controller, remote)
+	}()
+
+	_ = writer
+	if exitCode := waitForRun(t, done); exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1 on activation failure", exitCode)
+	}
+	if !strings.Contains(errorOutput.String(), "配对激活错误") {
+		t.Fatalf("stderr = %q, want activation failure", errorOutput.String())
+	}
+	_, _, _, _, _, stopCalls, _ := controller.state()
+	if stopCalls != 1 {
+		t.Fatalf("Stop calls = %d, want 1 (cleanup on activation failure)", stopCalls)
+	}
+}
+
+func TestParseConfigResumeSessionID(t *testing.T) {
+	config, err := parseConfig([]string{"--resume", "0f0d7a5a-33b5-4f0a-9d3e-6f2b8cf1a111"})
+	if err != nil {
+		t.Fatalf("parseConfig(--resume) error = %v", err)
+	}
+	if config.resumeSessionID != "0f0d7a5a-33b5-4f0a-9d3e-6f2b8cf1a111" {
+		t.Fatalf("resumeSessionID = %q", config.resumeSessionID)
+	}
+	if _, err := parseConfig([]string{"--resume", "not-a-uuid"}); err == nil {
+		t.Fatal("parseConfig accepted invalid resume UUID")
+	}
+}
+
+// TestBuildRuntimeReservesSessionIDBeforeConnect 验证启动顺序的第一步（设计
+// §5）：新会话在创建 Host 前生成 UUID，resume 沿用已有 ID；两者都在
+// Connect 前就把真实 ID 预留给 Controller，供首轮前配对使用。
+func TestBuildRuntimeReservesSessionIDBeforeConnect(t *testing.T) {
+	baseConfig, err := parseConfig(nil)
+	if err != nil {
+		t.Fatalf("parseConfig(nil) error = %v", err)
+	}
+
+	newSessionController, _, err := buildRuntime(baseConfig)
+	if err != nil {
+		t.Fatalf("buildRuntime(new session) error = %v", err)
+	}
+	generated := newSessionController.ReservedSessionID()
+	if len(generated) != 36 || generated[14] != '4' {
+		t.Fatalf("new session reserved ID = %q, want UUID v4", generated)
+	}
+
+	resumeConfig := baseConfig
+	resumeConfig.resumeSessionID = "0f0d7a5a-33b5-4f0a-9d3e-6f2b8cf1a111"
+	resumeController, _, err := buildRuntime(resumeConfig)
+	if err != nil {
+		t.Fatalf("buildRuntime(resume) error = %v", err)
+	}
+	if reserved := resumeController.ReservedSessionID(); reserved != resumeConfig.resumeSessionID {
+		t.Fatalf("resume reserved ID = %q, want %q", reserved, resumeConfig.resumeSessionID)
 	}
 }

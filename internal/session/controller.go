@@ -21,6 +21,16 @@ func withRequestIDGenerator(generator requestIDGenerator) Option {
 	}
 }
 
+// WithReservedSessionID 预留真实 Claude session ID（A5.2 §4）：ID 从创建起
+// 不可变并进入 snapshot，但 Claude init 确认前 Session 保持 starting。
+func WithReservedSessionID(sessionID string) Option {
+	return func(controller *Controller) {
+		if sessionID != "" {
+			controller.initialSnapshot.SessionID = sessionID
+		}
+	}
+}
+
 // Controller serializes all Session state and Host work through one actor.
 type Controller struct {
 	worker             *hostWorker
@@ -70,6 +80,9 @@ type actorState struct {
 	workerCloseErr       error
 	pendingStops         []chan error
 	pendingIdle          []chan snapshotResponse
+	// sessionConfirmed 报告 Claude init/Result 是否已确认 session ID
+	//（A5.2 §4）。预留 ID 只影响路由与配对，不影响该状态。
+	sessionConfirmed bool
 }
 
 type actorCommand interface {
@@ -178,6 +191,12 @@ func (c *Controller) Start(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// ReservedSessionID 返回预留的真实 session ID（A5.2）；未预留时为空串，
+// 上层沿用 init 后激活的旧路径。
+func (c *Controller) ReservedSessionID() string {
+	return c.initialSnapshot.SessionID
 }
 
 // Submit accepts an input into the actor's FIFO. Once delivered to the actor,
@@ -484,7 +503,9 @@ func (c *Controller) startNext(state *actorState) {
 		PendingAction: nil,
 	}
 
-	if state.snapshot.SessionID != "" {
+	// A5.2 §6：sessionId 已预留但未确认时暂缓 turn_started，init 确认后
+	// 由 handleWorkerEvent 按既有顺序补发。
+	if state.sessionConfirmed {
 		state.turnStartedPublished = true
 		c.publish(state, Event{
 			Kind:       EventTurnStarted,
@@ -554,10 +575,18 @@ func (c *Controller) handleWorkerEvent(state *actorState, event workerEvent) {
 
 	switch event.Adapter.Kind {
 	case projectclaude.EventSessionStarted:
-		if state.snapshot.SessionID != "" {
+		if state.sessionConfirmed {
+			return
+		}
+		if state.snapshot.SessionID != "" && state.snapshot.SessionID != event.Adapter.SessionID {
+			// A5.2 §4：Claude init 返回的 ID 必须与预留 ID 一致，不一致按
+			// Session 级错误处理，禁止迁移。
+			c.failSession(state, errors.New(fmt.Sprintf("session ID 与预留不一致: 预留 %q, Claude 返回 %q",
+				state.snapshot.SessionID, event.Adapter.SessionID)))
 			return
 		}
 		state.snapshot.SessionID = event.Adapter.SessionID
+		state.sessionConfirmed = true
 		state.snapshot.SessionStatus = SessionReady
 		state.snapshot.SessionError = nil
 		c.publish(state, Event{
@@ -582,7 +611,7 @@ func (c *Controller) handleWorkerEvent(state *actorState, event workerEvent) {
 			c.appendText(state, bufferedEvent)
 		}
 	case projectclaude.EventText:
-		if state.snapshot.SessionID == "" {
+		if !state.sessionConfirmed {
 			state.preSessionEvents = append(state.preSessionEvents, event)
 			return
 		}

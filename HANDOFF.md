@@ -4,19 +4,22 @@
 
 ## 0. 一句话现状
 
-A1–A5 已完成并提交（A5 提交 `74bda86`）；A5.1 终端输入实时同步设计已获用户确认，当前编写实施计划，尚未修改 A5.1 代码。
+A1–A5.1 已完成、验证并提交；A5.2 首轮前配对已实施，首轮前扫码连接缺陷已修复并经用户实机验收通过，自动门禁全绿且已提交；但真实 Claude 门禁仍因账号额度只部分通过，尚不满足进入 A6 的门禁条件。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：A5.1 终端输入实时同步
-- **当前任务**：A5.1 已完成（含人工验收），按用户授权提交
-- **状态**：A5.1 代码、测试与门禁记录已完成；人工浏览器验收通过（含首轮流式回复回归修复）；resume 启动即配对作为 A5.2 候选、新会话先配对（D28 延迟绑定）作为待决策项
-- **范围**：复用 `turn_started.text` 传输规范化后的输入正文；不同手机统一为 `source=mobile` 并进入现有 FIFO，不增加设备身份或抢占；覆盖 A3 发布、A4 有界传输、A5.1 消息归并与三端契约；不实现历史、replay、snapshot 输入正文、取消或 Markdown
-- **通过条件**：计划逐项覆盖 A3 事件发布、A4 协议与有界传输、多手机真实 WebSocket、A5.1 decoder/reducer/UI、自动门禁和人工验收，且每项按测试先行拆分并写明精确文件与命令
-- **完成结果**：按 `docs/plans/2026-08-25-A5.1-terminal-input-sync.md` 7 个任务 TDD 完成：A3 `turn_started` 携带规范化正文（含首轮 init 补发与排队可见性测试）；A4 `validateEvent` kind 级语义（入站+出站）与派生预算 `outboundEventMaxBytes = MaxPromptBytes+64KiB`、outbox/early = 2×；多手机并发/全局顺序/最大正文/慢连接隔离 WebSocket 集成测试；前端 decoder `validateEventSemantics`、reducer `InputMessage` 归并（去重/冲突/重复 Turn 拒绝）、MessageFeed 电脑端/手机端展示与 App 闭环
-- **最近验证**：2026-08-25 自动门禁全绿——Go：`go test -race -count=1` session/channel/transport 三包、全仓 `go test -count=1 ./...`（9/9 包）、`go vet`、`go build`；前端：`npm test` 162/162、`npm run lint`、`npm run build`（含 tsc）；`git diff --check` 干净
-- **未验证项**：A5.1 双页面并发与慢连接人工验证（自动测试覆盖）；A5 正式门禁记录 `docs/testing/A5-result.md` 尚待补写
-- **下一步**：提交 A5.1；决策 A5.2（resume 启动即配对）与新会话延迟绑定的取舍；完成后进入 A6 VPN 联调
+- **子阶段**：A5.2 首轮前配对（代码完成；人工验收通过；已按用户授权提交；真实 Claude 门禁未完全通过）
+- **当前任务**：`docs/plans/2026-08-25-A5.2-pre-turn-pairing.md` 6 个任务已实施完毕，并修复了用户实机验收报告的首轮前配对阻塞缺陷；用户确认验证通过并授权提交，已完成本地提交（未推送）；剩余欠口为真实 Claude 额度相关门禁
+- **状态**：SDK 侧走本地 `replace` 验证（`go.mod` 不入库、`go.mod.base` 未变），SDK 变更（`WithSessionID`）由用户随后自行发布新版本；项目侧改动已按用户授权提交到本地分支（未推送）
+- **范围**：SDK 增加 `WithSessionID`；新会话预分配 UUID、Resume 预置已有 ID；Controller 区分 ID 已预留与 Claude init 已确认；Remote 在首轮前激活；前端解码器接受首轮前的空 `turn.source`；保持现有协议结构、真实 `sessionId`、Controller FIFO、多手机平等发送和 `session_started → turn_started` 顺序
+- **A5.2 实际完成项**：① SDK `Options.SessionID` + `WithSessionID` + `--session-id` 映射 + UUID 校验 + 与 `Resume` 互斥；② Host `PrepareNewSession` 生成 UUID v4，新建走 `NewHostWithReservedSessionID`→`WithSessionID`、恢复走 `NewHostForResume`→`WithResume`（由 `sessionSDKOptions` 集中保证互斥），init ID 不一致按 Session 级失败；③ Controller `WithReservedSessionID` + `sessionConfirmed`，未确认即可 Submit，`turn_started` 暂缓至 init 确认后补发；④ CLI Connect 成功后即以预留 ID `Activate` 并输出配对，`session_started` 不重复激活，激活失败逆序清理退出 1，新增 `--resume <uuid>`；⑤ 首轮前 snapshot 与手机首条消息的 WebSocket 回归；⑥ 门禁记录 `docs/testing/A5.2-result.md`
+- **实施与验收中修复的缺陷**：① resume 路径原误用 `--session-id`（违背设计 §4/§5.2 与 D38），已拆分 `NewHostForResume` 走 `WithResume`；② `TestRunWithRemoteActivatesBeforeFirstInput` 共享 `bytes.Buffer` 导致 `-race` DATA RACE，已改为互斥 `syncBuffer` + `waitForOutput`；③【用户人工验收发现，阻断 A5.2 主目标】首轮前扫码必连接失败、只有 PC 先完成一轮会话后重连才成功——首轮前 wire 上 `turn.source` 为空串（Go 零值），而 `decode.ts` 的 `decodeTurnSnapshot` 用 `requireNonEmptyEnum` 校验 `source`，解码抛错后 `client.ts` 以 `protocolError` 终止连接；已改用 `requireEnum` + 语义校验（`requestId` 非空时 `source` 不得为空），`types.ts` 将 `TurnSnapshot.source` 放宽为 `InputSource | ''`，`reducer.ts` 的 `applySnapshot` 增加空 `source` 守卫
+- **缺陷③的门禁盲区与补测**：原仅断言 snapshot 键集、未断言 `turn.source` 的值，且前端 fixture 用了不真实组合 `{requestId:'', source:'mobile'}`。已补三层测试：`TestWebSocketPreTurnSnapshotTurnWireShape`（固化首轮前 Turn 的精确 wire JSON，属三端共用契约）、`decode.test.ts` 两个用例、`client.test.ts` 的「首轮前 snapshot 仍能进入已连接」
+- **前端结论**：`canSendNow` 已允许 `sessionStatus === 'starting'`，首轮前配对无需新增前端状态、页面或命令类型；前端仅因缺陷③修改了 `decode.ts`/`types.ts`/`reducer.ts`
+- **最近验证（2026-08-25，修复后全量复跑）**：Go `go test -race -count=1 ./...` 8/8、`go vet`、`go build`、`git diff --check` 干净；SDK 仓库 `go test ./...` 全绿；前端 `npm test` 167/167、`npm run lint` 0/0、`npm run build` 成功。真实 Service 端到端复验：启动后不在 PC 侧做任何会话，用真实前端 `ProtocolClient` + `decodeServerMessage` 直连 pairing，`hello_ack → subscribed → snapshot` 全部成功（`sessionStatus=starting`、`turn.source=''`，无 `protocolError`）；验证脚本为临时件，已删除不入库，配对凭证未写入任何文件。真实 Claude 门禁部分通过：`Connect(--session-id UUID)` 成功、Connect 后无业务 transcript、首个 init 返回预留 UUID 均已验证
+- **人工验收（2026-08-25，用户实机）**：通过。启动 Service 后立即把 pairing 复制进 Web 即连接成功（无需先在 PC 会话），且首条输入来自手机时会话正常建立并回显；设计 §12.3 的重连、resume 等剩余步骤用户未逐条报告
+- **未验证项**：① 真实 Claude 首轮完成/Result 同 ID/跨 Turn 上下文/Resume 同 ID（设计 §12.2 第 3–6 项）被账号额度阻断（`rate_limit 429` 后重跑 `context deadline exceeded`），`TestLiveReservedSessionIDPreTurn` 当前以 `t.Skip` 结束且不计入门禁；② 设计 §12.3 的重连与 resume 等剩余人工步骤未逐条确认；③ 计划 Task 5 Step 4 resume 人工验收未执行；④ `docs/testing/A5-result.md` 仍未补写（A5 遗留）；⑤ 既有 `cmd/channel-test-client/main_test.go` 存在与 A5.2 无关的 `gofmt` 对齐漂移，本次未改动以免污染 diff
+- **下一步**：额度恢复后重跑 `CLAUDE_MOBILE_REMOTE_LIVE=1 go test -tags integration ./internal/claude -run TestLiveReservedSessionIDPreTurn` 并把结果补入 `docs/testing/A5.2-result.md`；补写 `docs/testing/A5-result.md`；真实 Claude 门禁补齐后才进入 A6 VPN 联调；SDK `WithSessionID` 由用户发布新版本后，将本地 `replace` 换回正式版本并同步 `go.mod.base`
 - **复审记录（2026-08-24，独立 Claude 会话，已被最终审查修复替代）**：只读门禁均 PASS，并确认 A2 仅复用 WhaleTerm SDK 用法、A3 保持 Controller/唯一 Worker 分层；其记录的 Session failure 部分文本换行 Minor 已在 Task 7 最终审查修复中关闭。
 - **最终审查记录（2026-08-24）**：首次整体审查发现 EOF 观察调度可能造成同一 Session failure 的 Turn+Session 双诊断；按 TDD 改为基于 Worker settlement/下一 `turn_started` 延迟 Turn 诊断，并补直接 Session failure 换行。原审查代理复核后确认 Critical/Important/Minor 均为零，Ready for user diff review / final Git authorization。
 - **A4 验收前审查记录（2026-08-24，独立会话）**：对 A4 全部新代码（pairing/channel/transport/CLI/channel-test-client）做只读审查。A4-result.md 声称证据 fresh 复现全部通过：全仓 `-count=1`、五个 A4 包 race、gofmt/vet/build、`git diff --check`、client race `-count=100`、Transport 三类关闭 race `-count=20`、fuzz 2s。发现 0 个 Critical、0 个 Important；2 个 Minor 观察（① `channel-test-client` 解析配对使用 `time.Now` 而非可注入时钟，`ExpiresAt` 在过期瞬间启动可能误报“配对信息无效”，重跑即可，不影响 Service 端正确性；② `commandGate.Abort` 生产未使用，仅测试调用，属轻微 API 冗余）。分层核对：Pairing/Channel/Transport 职责边界干净，Transport 未触碰 SDK，Channel 强制 `InputMobile`，D25 顺序门（`Begin → Submit → Finish(result 先入队 → 按原 seq 释放 early 事件)）` 实现正确；D27/D28 与实现一致。已向用户澄清：A4 范围即服务端管道 + Go 测试客户端，移动 Web 连接属 A5，无需在 A4 写移动端测试代码。
@@ -70,14 +73,23 @@ A1–A5 已完成并提交（A5 提交 `74bda86`）；A5.1 终端输入实时同
 | A4 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-24-A4-channel-transport-design.md` |
 | A4 实施计划 | ✅ 已确认 | `docs/plans/2026-08-24-A4-channel-transport.md` |
 | A4 门禁记录 | ✅ 自动门禁与人工验收通过 | `docs/testing/A4-result.md` |
-| 业务代码 | ✅ A4 已完成并由用户提交（`669e23d`） | 薄 SDK Adapter + Session Core + Channel/Transport + 配对与测试客户端 |
+| A5 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-24-A5-mobile-web-design.md` |
+| A5 门禁记录 | ⚠️ 待补写 | `docs/testing/A5-result.md` 尚未创建 |
+| A5.1 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-25-A5.1-terminal-input-sync-design.md` |
+| A5.1 实施计划 | ✅ 已执行 | `docs/plans/2026-08-25-A5.1-terminal-input-sync.md` |
+| A5.1 门禁记录 | ✅ 通过 | `docs/testing/A5.1-result.md` |
+| A5.2 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-25-A5.2-pre-turn-pairing-design.md`（D38） |
+| A5.2 实施计划 | ✅ 已执行 | `docs/plans/2026-08-25-A5.2-pre-turn-pairing.md` |
+| A5.2 门禁记录 | ⚠️ 自动门禁与人工验收通过；真实 Claude 门禁仅部分通过（额度受限） | `docs/testing/A5.2-result.md` |
+| 业务代码 | ✅ A5.2 及之前已提交（本地，未推送） | 薄 SDK Adapter + Session Core + Channel/Transport + 配对与测试客户端 + Mobile Web |
 
 ## 4. 下一步
 
-1. 只读探索 `apps/mobile/` 现有 React/Vite 骨架、依赖和测试配置；
-2. 逐项确认 A5 Mobile Web 的交互、状态归并、凭证承载和本机验收边界；
-3. 写入 A5 分阶段设计并交用户检查，获确认后编写实施计划；
-4. A5 门禁通过后进入 A6 VPN 真机闭环。
+1. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
+2. 按需补做 A5.2 设计 §12.3 剩余人工步骤（重连、resume 验收），结果写回 `docs/testing/A5.2-result.md`；
+3. 补写 A5 正式门禁记录 `docs/testing/A5-result.md`；
+4. SDK `WithSessionID` 发布新版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`；
+5. A5.2 门禁全部通过后进入 A6 VPN 真机闭环。
 
 ## 5. 首期关键验证
 
