@@ -2,11 +2,11 @@
 
 ## 一、产品目标
 
-用户在电脑上通过 CLI Service 启动 Claude；离开电脑前扫描当前会话二维码，即可在手机上继续查看进度、发送消息和处理任务。
+用户在电脑上通过 Standalone CLI 创建或恢复 Claude Session；离开电脑前扫描当前会话二维码，即可在手机上继续查看进度、发送消息和处理任务。后续同一套单 Session Remote Server 可嵌入 WhaleTerm 已持有的 Claude Session，移动端可保存并切换多个已扫描 Session。
 
 > 产品定位：远程接力当前 Claude 会话，不做全量 Claude 历史管理器。
 >
-> 首期交付对应里程碑 A，按 A1–A6 六个可独立验证的子阶段推进。
+> 首期交付对应里程碑 A，按 A1–A6 的独立门禁推进；A6 先用局域网跨机器桌面浏览器验证网络闭环，手机/VPN 真机验收在 C2 完成。
 
 ## 二、目标效果
 
@@ -14,53 +14,58 @@
 | --- | --- | --- |
 | 前期 | 单会话接力 | 扫码连接当前 `sessionId`，实时查看新消息并发送简单指令 |
 | 中期 | 完整会话控制 | 展示 Markdown、Thinking、Tool，支持审批、回答、取消和补充指令 |
-| 中期 | 多会话 | 一台电脑可同时管理多个由 Service 托管的会话 |
-| 后期 | 原生体验 | 支持扫码、语音输入、生命周期恢复和系统通知 |
+| 中期 | 移动端多 Session | 安全保存多个已扫描 Session，在列表与单个会话详情间切换 |
+| 中期 | 宿主复用 | Standalone CLI 与 WhaleTerm 均可为各自持有的单个 Session 启动 Remote Server |
+| 后期 | 原生体验 | 支持原生扫码、安全存储、语音输入、生命周期恢复和系统通知 |
 | 后期 | 三端覆盖 | iOS / Android 先行，HarmonyOS NEXT 独立开发 |
-| 后期 | 多机器与独立公网访问 | 支持多 PC 切换；最后评估脱离 VPN 的公网中转 |
+| 后期 | 多机器与独立公网访问 | 通过多个配对记录切换 Session；使用可信的每 CLI 单隧道 Relay 脱离 VPN |
 
 ## 三、核心流程
 
 ```mermaid
 flowchart LR
-    A["CLI Service 启动"] --> B["新会话预分配 / 恢复会话取得真实 sessionId"]
-    B --> C["启动 Claude 并立即显示二维码"]
+    A["Session Host 创建或恢复会话"] --> B["取得真实 sessionId"]
+    B --> C["启动单 Session Remote Server 并显示二维码"]
     C --> D["手机扫码并认证"]
-    D --> E["订阅 sessionId Channel"]
-    E --> F["同步当前状态"]
-    F <-->|"首条或后续消息与操作"| G["控制同一会话"]
+    D --> E["保存或更新配对记录"]
+    E --> F["进入会话并订阅 sessionId Channel"]
+    F --> G["同步当前状态"]
+    G <-->|"首条或后续消息与操作"| H["控制同一会话"]
 ```
 
-二维码包含手机可通过 VPN 访问的 PC Service 地址、`sessionId` 和临时配对凭证。手机不读取扫码前的完整对话，只接收当前任务状态、待处理事项和扫码后的新消息。
+二维码包含手机可访问的 Remote Server 地址、`sessionId` 和临时配对凭证。地址首期为 LAN/VPN 直连地址，后期可为 Relay `wss://` 地址。手机不读取扫码前的完整对话，只接收当前任务状态、待处理事项和连接后的新消息。
 
 ## 四、总体方案
 
 ```mermaid
 flowchart LR
-    T["电脑终端"] <-->|"输入与输出"| SC["Session Controller"]
+    H["Session Host<br/>CLI / WhaleTerm"] --> SC["Session Controller / 宿主队列"]
     SC <-->|"生命周期事件"| SDK["claude-agent-sdk-go"]
     SDK <-->|"进程与 stdio"| A["Claude"]
     SC -->|"发布事件"| CH["Session Channel<br/>sessionId"]
-    M["手机端"] <-->|"WebSocket"| W["Transport"]
+    M["手机端当前会话"] <-->|"WebSocket"| W["单 Session Remote Server"]
     W -->|"订阅 / 操作"| CH
     CH -->|"会话事件"| W
     CH -->|"转交操作"| SC
 ```
 
-- CLI Service 是 Claude 进程和会话状态的唯一管理者；
+- 每个活跃 Claude Session 只有一个 Session Host 和一个 SDK Client；
+- 一个 Standalone CLI 进程只管理一个 Session；低频并行 Session 通过多个进程和不同端口解决；
+- WhaleTerm 后续只暴露自身已持有的一个 Session，不启动额外 CLI 或第二个 SDK Client；
 - `github.com/tea4go/claude-agent-sdk-go` 负责启动 Claude、接收事件和执行控制；
 - Claude 的完整上下文和所有操作始终留在 PC；手机只展示 PC 推送的数据并回传操作；
-- 终端与手机的输入统一进入 Session Controller，避免并发写入；
+- PC 与手机的输入统一进入 Session Controller 或宿主单一队列，避免并发写入；
 - 每个 `sessionId` 对应一个 Session Channel；手机认证后显式订阅该 Channel；
 - Session Controller 向 Channel 发布事件，Channel 将手机操作转回 Controller；
 - Channel 只负责路由，不保存完整会话，也不运行 Claude；
 - WebSocket 是网络传输协议，不使用操作系统 Pipe 连接手机；
-- 手机默认先连接 VPN，再通过 WebSocket 直连 PC Service；
-- 首期不处理局域网发现、NAT 穿透和网络差异，公网中转与消息推送不阻塞核心闭环。
+- 移动端可保存多个独立配对记录，但一次只连接当前进入的 Session；
+- 手机默认先连接 VPN，再通过 WebSocket 直连 PC；不开发局域网发现或 NAT 穿透；
+- 后期 Relay 每个 CLI 只建立一条出站隧道，不保存 Claude 状态或历史。
 
 ## 五、首期范围
 
-### 5.1 CLI Service
+### 5.1 Standalone CLI
 
 - 简单行输入与流式输出，不复刻 Claude Code 完整终端 UI；
 - 通过 SDK 创建并托管一个 Claude 会话；
@@ -79,7 +84,7 @@ flowchart LR
 ### 5.3 首期不做
 
 - 全量历史会话与扫码前完整消息；
-- 多会话、多 PC 和账号系统；
+- 单进程多 Session、移动端持久多配对列表、多 PC 账号系统；
 - 公网中转、后台推送和语音输入；
 - 完整 Markdown、Tool UI、权限审批和复杂任务控制；
 - Capacitor 真机功能和 HarmonyOS NEXT 业务实现。
@@ -90,11 +95,12 @@ flowchart LR
 | --- | --- | --- | :---: |
 | CLI Service | Go | 适合进程、并发和跨平台 CLI | A1–A3 |
 | Claude 托管 | `claude-agent-sdk-go` | 已验证可覆盖生命周期、流式事件、权限与管道日志 | A2 |
-| 远程通信 | VPN + WebSocket + Session Channel | 无需公网中转即可按 `sessionId` 订阅和双向操作 | A4 |
+| 远程通信 | LAN/VPN + WebSocket + Session Channel | 按 `sessionId` 订阅和双向操作；A6 可显式使用 LAN 地址 | A4–A6 |
+| 单 Session Remote Server | Go 公共组件 | 复用 Pairing、Channel 和 Transport，供 Standalone 与 WhaleTerm 使用 | B3 |
 | 移动 Web | React + TypeScript + antd-mobile + Vite | 移动端组件成熟，浏览器调试方便 | A5 |
 | iOS / Android | Capacitor | 复用 Web UI，并接入扫码、语音和推送 | C |
 | HarmonyOS NEXT | ArkTS + ArkUI 独立开发 | 符合 HarmonyOS NEXT 原生体系 | D |
-| 公网能力 | 后期独立设计中转服务 | 解决跨网络访问和后台通知 | 后期 |
+| 公网能力 | 可信的每 CLI 单隧道 Relay | 通过出站 WSS 解决跨网络访问，不迁移 Claude 状态 | 后期 |
 
 ## 七、App 研发范围
 
@@ -104,7 +110,7 @@ flowchart LR
     B --> C["后期<br/>语音、系统通知与生命周期"]
 ```
 
-iOS / Android 共用 React Web UI 和协议层，通过 Capacitor 接入系统能力。HarmonyOS NEXT 独立开发，但必须复用同一套三端共用契约（通信协议、状态模型、配对负载、验收用例，见总体设计 §8.1）：所有规划在生效前已按「HarmonyOS NEXT 可独立实现」校验，协议与状态变更时必须重新核对三端可实现性，防止前两端收尾后才发现不兼容。
+iOS / Android 共用 React Web UI 和协议层，通过 Capacitor 接入系统能力；原生 App 使用系统安全存储保存多个已扫描 Session 的未过期 Pair Token，列表一次只连接当前进入的 Session。HarmonyOS NEXT 独立开发并使用等价安全存储，但必须复用同一套三端共用契约（通信协议、状态模型、配对负载、验收用例，见总体设计 §8.1）：所有规划在生效前已按「HarmonyOS NEXT 可独立实现」校验，协议与状态变更时必须重新核对三端可实现性。
 
 ## 八、开发目录规划
 
@@ -137,11 +143,16 @@ claude-mobile-remote/
 ## 九、开发步骤
 
 ```mermaid
-flowchart LR
-    A["里程碑 A<br/>单会话最小闭环"] --> B["里程碑 B<br/>完整会话控制"]
-    B --> C["里程碑 C<br/>iOS / Android"]
-    C --> D["里程碑 D<br/>HarmonyOS NEXT"]
-    D --> E["里程碑 E<br/>发布与后续能力"]
+flowchart TD
+    A["A6 跨机器浏览器"] --> B1["B1 消息与移动 UI"]
+    B1 --> B2["B2 交互与取消"]
+    B2 --> B3["B3 单 Session Remote Server"]
+    A --> C1["C1 Capacitor / 扫码 / 安全存储"]
+    B2 --> C2["C2 真机 / VPN / 生命周期"]
+    C1 --> C2
+    B3 --> W["W1 WhaleTerm 接入"]
+    C2 --> D["D HarmonyOS NEXT"]
+    C2 --> E["E 发布与后续能力"]
 ```
 
 ### 9.1 里程碑 A：单会话最小闭环
@@ -153,33 +164,37 @@ flowchart LR
 | A3 Session Core | Session/Turn 状态机、输入队列和 snapshot | 自动化测试通过 |
 | A4 Channel 通信 | 鉴权、订阅、发布和命令回传 | 测试客户端闭环通过 |
 | A5 Mobile Web | 连接、状态、文本展示和发送 | 本机浏览器通过 |
+| A5.1 双端输入同步 | PC 与任意手机来源的输入正文同步到同一 Channel | 浏览器可按 request ID 正确展示并去重 |
 | A5.2 首轮前配对 | 预分配真实 session ID、首轮前扫码、手机可发起首个 Turn | SDK 与浏览器闭环通过 |
-| A6 VPN 联调 | 手机连接 VPN 后扫码控制真实 Claude | 首期验收用例通过 |
+| A6 跨机器浏览器联调 | Windows 机器只运行 Mobile Web，通过显式 LAN 地址控制机器 A 的 Claude | 跨机器首轮、同步、FIFO、鉴权和重连门禁通过 |
 
 ### 9.2 后续里程碑
 
 | 里程碑 | 子阶段 |
 | --- | --- |
-| B 完整会话控制 | B1 消息渲染；B2 审批与任务控制；B3 多会话；B4 重连与状态恢复 |
-| C iOS / Android | C1 Capacitor 与扫码；C2 两端真机联调；C3 语音、通知与生命周期 |
+| B 完整会话控制 | B1 消息渲染与已配对 Session 列表；B2 审批、AskUserQuestion 与取消；B3 单 Session Remote Server 组件化 |
+| C iOS / Android | C1 Capacitor、扫码与安全存储；C2 多配对列表、两端真机、VPN 与生命周期；C3 语音和通知 |
+| W WhaleTerm | W1 为 WhaleTerm 已持有的单个 Claude Session 启动进程内 Remote Server |
 | D HarmonyOS NEXT | D1 工程与协议；D2 功能迁移；D3 真机、推送与发布验证 |
-| E 发布与后续能力 | E1 安全与兼容验收；E2 签名与上架；E3 多 PC 与公网中转 |
+| E 发布与后续能力 | E1 安全与兼容验收；E2 签名与上架；E3 可信公网 Relay 与多 PC |
 
-每次只展开当前子阶段的实施计划；前一子阶段门禁未通过，不进入下一子阶段。
+每次只展开当前子阶段的实施计划；直接依赖的门禁未通过，不进入该子阶段。C1 在 A6 后可与 B 并行，C2 依赖 C1 与 B2，W1 依赖 B3。
 
-公网中转、系统推送、多会话和多机器在核心闭环稳定后单独排期，不反向阻塞前期设计。
+公网中转、系统推送、单进程多 Session 和云端多机器管理在核心闭环稳定后单独排期，不反向阻塞前期设计。
 
 ## 十、首期验收标准
 
-- CLI Service 可通过 SDK 启动并结束一个 Claude 会话；
+- Standalone CLI 可通过 SDK 启动并结束一个 Claude 会话；
 - 新会话可预分配真实 `sessionId`，恢复会话可复用已有 ID，并在首个 Turn 前生成有效二维码；
 - PC 或已配对手机均可发送第一条真实消息来启动 Claude 会话；
-- 手机连接 VPN 后，浏览器可完成鉴权和连接；
-- Claude 新消息可实时显示在终端和手机；
-- 终端和手机均可发送消息，且不会重复或并发写乱；
-- 手机连接后不返回扫码前的完整历史；
+- Windows 机器 B 只运行 Mobile Web，即可通过显式 LAN 地址完成鉴权并连接机器 A；
+- Claude 新消息可实时显示在机器 A 和机器 B 的浏览器；
+- PC、机器 B 及多个浏览器均可发送消息，且不会重复或并发写乱；
+- 客户端连接后不返回扫码前的完整历史；
 - 页面刷新或短暂断线后可恢复当前状态；
 - 错误凭证无法获得会话数据，凭证不写入日志和文档。
+
+手机、VPN、原生扫码、安全存储和移动生命周期不属于 A6 通过结论，在 C2 使用真机验收。
 
 ## 十一、主要风险
 
@@ -187,6 +202,8 @@ flowchart LR
 | --- | --- | --- |
 | 双端输入并发 | 消息重复或顺序错误 | 所有输入由 Session Controller 串行处理 |
 | iOS / Android 生命周期 | 后台连接中断 | 原生阶段补状态恢复和系统通知 |
+| 原生多配对凭证泄露 | 未过期 Token 被滥用 | Pair Token 使用系统安全存储，过期/撤销/Remote Server 重启后重新扫码；浏览器不写 localStorage |
 | HarmonyOS NEXT 成本 | 独立开发、调试和上架周期长 | 后置实施并复用统一协议与验收用例 |
 | WebView 套壳兼容（C1） | 明文 WebSocket 被 iOS ATS / Android cleartext 策略拦截 | C1 增加平台配置：iOS Info.plist ATS 例外，Android Manifest `usesCleartextTraffic`；移动 Web 路由自 A5 起约束为 hash / 内存路由，规避自定义 scheme 路径解析问题 |
 | 共用契约被单端污染 | 前两端收尾后 HarmonyOS NEXT 无法实现，被迫换方案 | 协议与状态变更强制核对三端可实现性（硬约束 11 / 设计 §8.1），核对结论记入 DECISIONS |
+| 可信 Relay 可见协议流量 | 公网中转基础设施可接触会话内容 | Relay 不存储内容并与 Pair Token 权限分离；若未来要求不可信中转，再独立设计端到端加密 |

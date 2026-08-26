@@ -1,6 +1,6 @@
 # claude-mobile-remote
 
-通过独立 CLI Service 托管本地 Claude，让用户离开电脑后可在手机上继续查看和控制当前会话。
+通过独立 Standalone CLI 托管一个本地 Claude Session，让用户离开电脑后可在手机上继续查看和控制。移动端后续可保存多个已扫描 Session；WhaleTerm 可复用同一单 Session Remote Server，但每个活跃 Session 始终只有一个 Host 和一个 SDK Client。
 
 ## 如何开始
 
@@ -24,7 +24,8 @@
 2. `HANDOFF.md`：当前进度、下一步和已知问题；
 3. `DECISIONS.md`：已确认的产品与技术决策；
 4. `REQUIREMENTS.md`：完整产品需求与阶段范围；
-5. `docs/specs/2026-08-21-claude-mobile-remote-design.md`：总体技术设计。
+5. `docs/specs/2026-08-21-claude-mobile-remote-design.md`：总体技术设计；
+6. `docs/specs/2026-08-25-simplified-roadmap-and-session-remote-design.md`：A5.2 后的单 Session、移动端多配对、阶段依赖与可信 Relay 路线。
 
 `CLAUDE.md` 用于引导 Claude Code 读取同一套项目记忆，避免维护重复规则。
 
@@ -39,10 +40,10 @@ cp go.mod.base go.mod && go mod tidy
 ```
 
 ```bash
-# Go CLI（A1 骨架）
+# Go CLI
 go run ./cmd/claude-mobile-remote -version
 
-# 移动 Web（A1 骨架）
+# 移动 Web
 cd apps/mobile && npm install && npm run dev
 ```
 

@@ -4,31 +4,33 @@
 
 ## 项目定位
 
-Claude Mobile Remote 是独立于 WhaleTerm 的新项目。它通过 CLI Service 和 `github.com/tea4go/claude-agent-sdk-go` 托管本地 Claude，让用户扫码后在手机上接力当前会话。该 SDK 由用户自行维护，已在 WhaleTerm 验证使用，核心生命周期能力和缺陷修复可控；本项目仍需在 A2 验证独立集成及 Claude 上游兼容性。
+Claude Mobile Remote 是独立于 WhaleTerm 的项目。Standalone CLI 通过 `github.com/tea4go/claude-agent-sdk-go` 托管本地 Claude，让用户扫码后在手机上接力当前会话；B3 后可将同一套单 Session Remote Server 嵌入 WhaleTerm 已持有的 Claude Session，但不继承 WhaleTerm 旧远程控制架构。该 SDK 由用户自行维护，已在本项目 A2–A5.2 验证核心生命周期、真实 `sessionId` 和首轮前配对能力。
 
-> 一句话架构：CLI Service 持有 Claude 和会话状态，手机连接 VPN 后通过 WebSocket 订阅指定 `sessionId` 并发送操作。
+> 一句话架构：唯一 Session Host 持有 Claude 和会话状态，单 Session Remote Server 通过 WebSocket 把指定 `sessionId` 暴露给已配对客户端。
 
 ## 产品边界
 
-- 首期只支持一个由 Service 启动和托管的 Claude 会话；
+- 一个 Standalone CLI 进程只创建或恢复一个 Claude Session；低频并行 Session 使用多个进程和不同端口，不建设 PC 多 Session daemon；
+- WhaleTerm 后续只为其已持有的一个 Claude Session 启动进程内 Remote Server，不创建第二个 SDK Client；
 - 手机不管理全量历史，只接收当前状态、待处理事项和扫码后的消息；
+- 移动端后续可安全保存多个已扫描 Session，但一次只连接当前进入的 Session，不建设服务器端 Session 列表；
 - Claude 的完整上下文、会话状态和操作执行始终留在 PC，手机只负责展示和回传操作；
 - 首期使用简单行式 CLI 和浏览器移动页面；
 - 里程碑 A 的手机端只收发文本消息，审批与取消在 B2 接入；
-- 手机默认连接 VPN，并可直接访问 PC Service；
+- A6 只做局域网跨机器桌面浏览器联调；手机默认通过 VPN 直连 PC，并在 C2 做真机验证；
 - iOS / Android 后续使用 React + TypeScript + antd-mobile + Vite + Capacitor；
 - HarmonyOS NEXT 使用 ArkTS + ArkUI 独立开发；
-- 多会话、多机器、公网中转、语音和推送均为后续能力。
+- 后期公网中转采用每个 CLI 一条可信 Relay 出站隧道；永久 route、云端 Session 中心、语音和推送均为后置能力。
 
 ## 硬约束
 
-1. **Service 是唯一会话管理者**：只能远程控制由本 Service 启动的 Claude，不承诺接管任意外部 Claude 进程。
+1. **Session Host 是唯一会话管理者**：每个活跃 Session 同时只能有一个 Host 和一个 SDK Client。Standalone 只能控制自身创建或恢复的 Session；WhaleTerm 只能暴露自身已持有的 Session；不得通过 JSONL 或第二个 `--resume` Client 接管活跃会话。
 2. **SDK 是 Claude 接入层**：优先使用 `claude-agent-sdk-go` 的 Client、事件、权限、取消和恢复能力，不自行解析 Claude 私有输出替代 SDK。
-3. **输入必须串行**：终端和手机的输入统一经过 Session Controller，不允许两个入口直接并发写 SDK Client。
+3. **输入必须串行**：PC 和手机的输入统一经过 Session Controller 或宿主的单一队列，不允许多个入口直接并发写 SDK Client。
 4. **会话严格隔离**：协议消息必须包含 `sessionId`；后续多会话不得串线。
 5. **手机不重建上下文**：手机配对时只返回界面所需的当前状态与待处理事项，之后推送新增事件；完整 Claude 上下文始终留在 PC。
-6. **VPN 直连优先**：首期默认手机连接 VPN 后可访问 PC，不开发局域网发现、NAT 穿透和公网中转；推送不得阻塞单会话闭环。
-7. **凭证保密**：二维码中的配对凭证短期有效、可撤销，不得写入日志、文档、测试快照或提交到 Git。
+6. **VPN 直连优先**：产品首期默认手机连接 VPN 后直连 PC；A6 可用显式 LAN 地址做跨机器浏览器门禁，但不开发局域网发现或 NAT 穿透。后期 Relay 只转发单 Session 隧道，不保存 Claude 状态或历史；推送不得阻塞单会话闭环。
+7. **凭证保密**：二维码中的配对凭证短期有效、可撤销，不得写入日志、文档、测试快照或提交到 Git；原生 App 需要跨重启保存时必须使用系统安全存储，浏览器不得写入 `localStorage`。
 8. **阶段兼容**：协议从首期保留版本、`sessionId`、request ID 和 `seq`，但不提前实现后期功能。
 9. **Git 写操作必须由用户明确授权**：Codex、Claude 等 AI 可主动运行只读的 `git diff`（含 `--check`、`--stat` 等 diff 变体）检查改动；不得主动执行暂存、提交、推送、恢复、分支、合并或其他会改变仓库/远端状态的 Git 操作。上述写操作仅在用户明确要求时，才可在该次授权范围内执行；一次授权不得扩展到后续操作。其他未明确允许的 Git 只读命令仍需用户授权。
 10. **Turn 完成不结束 Session**：Claude 的一次 `ResultMessage` 只结束当前 Turn，Session 仍可接收下一条消息；只有 Session 停止或失败后才拒绝新操作。
@@ -85,7 +87,7 @@ Claude Mobile Remote 是独立于 WhaleTerm 的新项目。它通过 CLI Service
 
 ## 参考边界
 
-WhaleTerm 的旧远程控制方案、阶段和记忆全部作废，不得复制到本项目。仅可按需参考其对 `claude-agent-sdk-go` 的已验证用法：
+WhaleTerm 的旧远程控制方案、阶段和记忆全部作废，不得复制到本项目。W1 只能按已确认的单 Session Remote Server 设计接入。当前仅可按需参考其对 `claude-agent-sdk-go` 的已验证用法：
 
 - `/Users/zhangym/code/work/whale-term/backend/chat/claude_code_cli_new.go`
 - `/Users/zhangym/code/work/whale-term/backend/chat/claude_code_cli_new_runtime.go`

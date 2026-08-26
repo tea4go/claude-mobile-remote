@@ -16,7 +16,7 @@
 - **决策**：使用 `github.com/tea4go/claude-agent-sdk-go` 作为 Claude 接入层。
 - **理由**：SDK 由用户自行维护，已在 WhaleTerm 验证使用，覆盖 Claude 完整生命周期（流式回复、Tool、权限审批、问答交互、中止/恢复及管道日志），并可自主修复缺陷；本项目仍需在 A2 验证独立集成及 Claude 上游兼容性。
 - **影响**：Service 从会话开始时持有 Claude，不接管任意外部 Claude 进程。
-- **状态**：已定
+- **状态**：主体有效；会话所有权边界由 D39 补充
 
 ## D3 · 首期只做单会话接力
 
@@ -24,7 +24,7 @@
 - **决策**：首期手机通过扫码绑定一个正在进行的 `sessionId`。
 - **理由**：优先验证用户离开电脑后的会话接力价值，减少历史和设备管理复杂度。
 - **影响**：多会话和多 PC 后置。
-- **状态**：已定
+- **状态**：首期有效；后续 PC 与移动端的多 Session 边界由 D39、D41 替代原笼统表述
 
 ## D4 · 不同步扫码前完整历史
 
@@ -72,7 +72,7 @@
 - **决策**：开发规划采用“里程碑 + 可独立验证的子阶段”；每次实施计划只展开当前子阶段。
 - **理由**：避免一个阶段同时包含 Service、前端和联调，降低 AI 长会话与问题定位成本。
 - **影响**：首期拆为 A1 项目骨架、A2 SDK 托管、A3 Session Core、A4 Channel、A5 Mobile Web、A6 VPN 联调；前一门禁未通过不得进入下一阶段。
-- **状态**：已定
+- **状态**：里程碑与独立门禁有效；全局串行关系由 D40 替代
 
 ## D10 · 显式 Session Channel 订阅
 
@@ -96,7 +96,7 @@
 - **决策**：手机默认连接 VPN，并可直接访问 PC Service；首期不处理局域网环境差异。
 - **理由**：VPN 已提供稳定的手机到 PC 网络可达性，无需为局域网发现、防火墙差异或 NAT 穿透增加复杂度。
 - **影响**：二维码使用 VPN 内可达的 PC Service 地址；A6 改为 VPN 手机联调；公网中转只解决未来脱离 VPN 的独立访问。本决策替代 D5 的局域网前提。
-- **状态**：已定
+- **状态**：VPN 产品前提有效；A6 门禁与后期 Relay 边界由 D40、D43 补充
 
 ## D13 · 完整上下文与操作保留在 PC
 
@@ -224,7 +224,7 @@
 - **决策**：A4 Pair Token 使用 256-bit 安全随机值和无填充 Base64URL 编码，与精确 `sessionId` 绑定，默认有效期 10 分钟。有效期内可供多个连接重复认证；自然过期只阻止新认证并触发配对信息轮换，不断开已认证连接；用户撤销或 Service 停止立即失效并关闭相关连接。配对负载为纯 JSON `{version, wsUrl, sessionId, pairToken, expiresAt}`；token 在 WebSocket 首条 `hello` 中提交，不放入 WebSocket URL，Web 配对链接使用 URL Fragment。Service 默认监听 `127.0.0.1`，VPN bind 地址和 `advertise-url` 由用户显式配置，不自动探测网卡。
 - **理由**：VPN 提供网络可达性但不证明客户端获得了当前 Session 的控制授权；短期 token 是不引入账号体系的最小应用层鉴权。显式地址避免错误选择网卡，Fragment 和日志过滤降低凭证经访问日志、Referer 或错误信息泄露的风险。
 - **影响**：认证前不返回 Session 数据；自然过期支持扫码、刷新和短暂重连，撤销保留立即止损能力。无 Origin 的原生客户端仍可认证，浏览器 Origin 必须匹配显式 allowlist。配对与鉴权只依赖 JSON、WebSocket、安全随机字符串和时间戳，React Web、Capacitor 与 HarmonyOS NEXT 均可实现；Web 的 Fragment 仅是承载方式，不改变其他端协议，三端可实现性核对通过。
-- **状态**：已定
+- **状态**：除默认 TTL 外有效；TTL 与移动端安全保存由 D41 替代和补充
 
 ## D29 · 里程碑 A 的 Mobile Web 功能优先，视觉辅助延后至 B
 
@@ -304,4 +304,44 @@
 - **决策**：在 A6 前增加 A5.2。新会话由 Service 生成合法随机 UUID，并通过 `claude-agent-sdk-go` 新增的 `WithSessionID` 映射为 Claude CLI `--session-id`，从而在首个 Query 前取得该会话的真实 `sessionId`；恢复会话使用已有真实 ID和 `WithResume`，两者互斥。Controller 内部区分 ID 已预留与 Claude init 已确认；SDK Connect 成功后立即注册同一 ID的 Channel、签发 Pair Token 并允许 PC 或任意已配对手机提交第一条真实消息。首个 init 必须返回预期 ID，之后才发布 `session_started`，并保持其早于首个 `turn_started`。
 - **理由**：现有流程只有 PC 先发起首轮后才能扫码，阻止手机成为新会话第一条消息的来源，与正常接力流程冲突。Claude CLI 已支持 `--session-id <uuid>`，预分配方案不需要空对话、不污染上下文，也不需要引入本地 `channelId`、临时会话身份或协议版本升级。
 - **影响**：D28 的 token、配对负载和精确 Session 绑定结构保持不变，但 A4 总体设计 §10 和原总体设计中“收到 session_started 后才激活配对”的时机约定由本决策替代。现有版本 1 envelope、snapshot 和 Mobile Web 状态模型不增加字段；首轮前 snapshot 为已知 `sessionId`、Session=`starting`、Turn=`idle`，三端均可在该状态发送文本。PC 与多个手机近乎同时提交仍由 Controller 按实际接受顺序形成 FIFO，第一条触发 Query，其余排队。若 Claude 返回不同 ID，Session 必须失败并撤销凭证，禁止动态迁移 Channel。React Web、Capacitor 和 HarmonyOS NEXT 均复用相同协议与行为，三端可实现性核对通过。
+- **状态**：已定
+
+## D39 · 单 Session Host 与单 Session Remote Server
+
+- **日期**：2026-08-26
+- **决策**：每个活跃 Claude Session 同时只有一个 Session Host 和一个 SDK Client。一个 Standalone CLI 进程只创建或恢复一个 Session；低频并行 Session 使用多个 CLI 进程和不同端口。WhaleTerm 后续只为其已持有的一个 Session 在进程内启动 Remote Server，不创建第二个 Client；关闭远程控制不停止 Claude Session。禁止通过 JSONL 或第二个 `--resume` Client 接管活跃 Session。
+- **理由**：同时远程控制多个 Session 的场景少，单进程多 Session daemon 会引入不必要的生命周期、管理 API、持久化和故障隔离复杂度；现有 A2–A5.2 已是单 Session 组合。
+- **影响**：保留现有 SDK Adapter、Session Controller、FIFO、Channel、Pairing、Transport 和版本 1 协议；B3 只把远程组合包装为可导入的单 Session 组件，不实现 Runtime Registry、Local Control API、PC TUI 或跨 Session 管理。本决策替代 D2“只能由 Service 启动”的绝对影响表述及 D3 对后续多会话的笼统边界。Session Host/Remote Server 是 PC 进程内概念，不进入客户端协议；React Web、Capacitor 和 HarmonyOS NEXT 均无需区分 CLI 与 WhaleTerm，三端可实现性核对通过。
+- **状态**：已定
+
+## D40 · A6 改为跨机器浏览器门禁并采用依赖式并行路线
+
+- **日期**：2026-08-26
+- **决策**：A6 改为局域网跨机器桌面浏览器联调：机器 A 运行 Go Service 和 Claude，Windows 机器 B 只运行 `apps/mobile` Vite 并在 `http://localhost:5173` 打开页面，通过 A 配对负载中的显式 LAN `wsUrl` 连接。手机浏览器、VPN 和移动生命周期真机验证移入 C2。C1 在 A6 后可与 B 并行；C2 依赖 C1 和 B2；W1 依赖 B3。
+- **理由**：移动测试机尚未到位，跨机器桌面浏览器足以先验证地址、监听、Origin、鉴权和双向通信；Capacitor 工程与 B 阶段服务端能力没有实现冲突，不必全局串行等待。
+- **影响**：A6 标准流程使用 `--listen 0.0.0.0:8765` 和 `--advertise-url ws://<A-LAN-IP>:8765/ws`；B 浏览器 Origin 仍是默认允许的 localhost，不要求额外 Origin。默认配置继续只监听 loopback，不增加自动 IP 发现或网络诊断系统。D12 的 VPN 产品前提保持不变，但“A6 为 VPN 手机联调”被本决策替代；D9 的里程碑和子阶段门禁保留，但“所有后续阶段全局串行”改为依赖图门禁。该变更不修改三端协议、状态或配对负载，三端可实现性核对通过。
+- **状态**：已定
+
+## D41 · 移动端多配对列表与 12 小时 Pair Token
+
+- **日期**：2026-08-26
+- **决策**：Pair Token 默认有效期由 10 分钟调整为 12 小时，用于覆盖典型远程接力窗口，仍可通过 `--pair-token-ttl` 收紧。移动端后续以 `sessionId` 为逻辑身份保存多个已扫描配对记录；原生 App 使用系统安全存储保存未过期 Token，重启后可直接重连，一次只连接当前进入的 Session。浏览器继续使用 Fragment/内存，不把 Token 写入 `localStorage`。过期、撤销或 Remote Server 重启后保留元数据并要求重新扫码；删除本地记录不撤销服务器共享 Token。
+- **理由**：用户离开 PC 后，锁屏、切后台和换网导致断线是正常场景，10 分钟凭证不足以覆盖典型接力窗口；移动端列表需要管理多个独立 CLI/Session，但不应反向引入 PC 聚合服务或长期设备身份。
+- **影响**：配对负载仍为 `{version, wsUrl, sessionId, pairToken, expiresAt}`，有效期内重新认证后只取得最新 snapshot，不做 replay；12 小时不保证覆盖任意长度的 Session。D28 除默认 TTL 外继续有效，D30–D34 仍约束 A5 浏览器单连接行为。本地列表属于端内 UI/存储能力，不是三端通信协议或服务器端 Session 中心；Capacitor 与 HarmonyOS 使用各自系统安全存储，React Web 不持久化凭证，三端可实现性核对通过。
+- **状态**：已定
+
+## D42 · B2 交互范围与 B3 组件化替代多会话阶段
+
+- **日期**：2026-08-26
+- **决策**：B2 覆盖 Tool 权限、AskUserQuestion（单选、多选、自由文本和一次 callback 的多个问题）、取消当前 Turn 与按 request ID 取消排队输入。Session 只维护一个可空 pending action；多入口同时回答时第一位合法解决者成功，其余返回 `stale_action`。B3 不再实现单进程多会话，而是提取单 Session Remote Server 和薄宿主接口；不再设置 B4 持久授权/Journal 阶段。
+- **理由**：审批、问答和取消是完整远程控制的必要能力；单 pending action 与第一解决者规则能覆盖多手机和 WhaleTerm UI，又不引入设备竞态模型。组件化只服务 Standalone 与 WhaleTerm 两种 Host，无需多 Runtime 管理平台。
+- **影响**：B2 的具体 JSON payload、SDK 映射和 callback 释放规则必须在 B2 分阶段设计中再固定并重新完成三端共用契约核对；当前只确认范围和竞态语义，不提前增加协议字段。B3 在 B2 后确定最小公共 Go API，关闭 Remote Server 与停止 Claude Session 保持不同语义。
+- **状态**：已定
+
+## D43 · 后期公网访问使用可信的每 CLI 单隧道 Relay
+
+- **日期**：2026-08-26
+- **决策**：后期公网访问由每个 CLI 为其唯一 Session 建立一条出站 WSS 隧道。可信 Relay 只维护易失的 `routeId → CLI tunnel` 并转发协议流量；公网地址直接写入现有配对负载的 `wsUrl`。CLI 到 Relay 的宿主凭证与手机到 Session 的 Pair Token 分离，Pair Token 仍由 Session Host 验证。CLI 或隧道重启后旧 route 和 Token 失效并重新扫码。
+- **理由**：单隧道与单 CLI 单 Session 模型自然一致，可绕过入站 NAT，又不需要 PC 聚合 daemon、统一 endpoint 或云端 Claude 状态。
+- **影响**：Relay 可以看到转发流量但不得存储消息、snapshot、上下文或历史；首版不提供永久公网地址、跨重启恢复、云端 Session 列表或账号驱动的多 Session 管理。若未来要求 Relay 无法看到内容，再独立设计端到端加密。现有客户端仍执行 `connect(wsUrl) → hello(pairToken) → subscribe(sessionId)`，配对负载和版本 1 envelope 不变；LAN/VPN 与 Relay 地址可共存于移动端列表，React Web、Capacitor 和 HarmonyOS NEXT 三端可实现性核对通过。
 - **状态**：已定
