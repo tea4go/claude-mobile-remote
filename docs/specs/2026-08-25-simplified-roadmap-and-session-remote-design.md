@@ -90,7 +90,7 @@ CLI C → Session C → Pairing C ┘
 - Pair Token 过期、被撤销，或 Remote Server 重启后认证失败时，保留列表元数据并标记“需要重新扫码”；
 - 本地列表不是长期 device grant，也不是服务器端 Session 管理中心。
 
-B1 设计列表与对话详情的共享 UI；C1 接入原生扫码和安全存储；C2 在真机上验证持久化、切换和失效行为。
+B1 设计列表与对话详情的共享 UI；C1 创建 Capacitor 壳、接入 Web UI 并放行局域网明文；C2 接入原生扫码和安全存储，并在真机上验证持久化、切换和失效行为。
 
 ## 4. 配对与重连
 
@@ -157,7 +157,7 @@ B3 不实现多 Runtime Registry、统一 daemon、Control API、持久授权、
 
 ### C、W 与 D
 
-- C1 在 A6 后与 B 并行：创建 Capacitor iOS/Android 工程、扫码桥接、安全存储和平台网络配置；
+- C1 在 A6 后与 B 并行：创建 Capacitor iOS/Android 工程、接入 Web UI 和局域网明文放行；
 - W1 在 B3 后：WhaleTerm 接入单 Session Remote Server；
 - C2 依赖 C1 和 B2：真机扫码、多配对列表、局域网/VPN、权限交互、前后台切换和有效期内重连；
 - C3 在 C2 后实现语音和系统通知；
@@ -169,7 +169,7 @@ flowchart TD
     A6 --> B1["B1 消息与移动 UI"]
     B1 --> B2["B2 交互与取消"]
     B2 --> B3["B3 单 Session Remote Server"]
-    A6 --> C1["C1 Capacitor / 扫码 / 安全存储"]
+    A6 --> C1["C1 Capacitor / Web 接入 / 局域网放行"]
     B2 --> C2["C2 真机 / VPN / 生命周期"]
     C1 --> C2
     B3 --> W1["W1 WhaleTerm 接入"]
@@ -220,7 +220,7 @@ CLI B / Session B ──出站 WSS──> Relay ──WSS──> 手机
 - A5 Mobile Web 和版本 1 协议继续使用；
 - A6 主要使用现有 listen、advertise URL 和 Origin 配置完成跨机器验证；
 - B1 增加客户端配对列表和列表/详情导航；
-- C1/C2 增加原生扫码、安全存储和多配对切换；
+- C2 增加原生扫码、安全存储和多配对切换；C1 只负责 Capacitor 壳、Web 接入和局域网明文放行；
 - B3 是唯一必要的结构性抽取，把当前命令目录内的远程组合包装成公共单 Session 组件；
 - 公网 Relay 是后期新增传输方式，不反向改变 Session 所有权。
 

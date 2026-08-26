@@ -345,3 +345,19 @@
 - **理由**：单隧道与单 CLI 单 Session 模型自然一致，可绕过入站 NAT，又不需要 PC 聚合 daemon、统一 endpoint 或云端 Claude 状态。
 - **影响**：Relay 可以看到转发流量但不得存储消息、snapshot、上下文或历史；首版不提供永久公网地址、跨重启恢复、云端 Session 列表或账号驱动的多 Session 管理。若未来要求 Relay 无法看到内容，再独立设计端到端加密。现有客户端仍执行 `connect(wsUrl) → hello(pairToken) → subscribe(sessionId)`，配对负载和版本 1 envelope 不变；LAN/VPN 与 Relay 地址可共存于移动端列表，React Web、Capacitor 和 HarmonyOS NEXT 三端可实现性核对通过。
 - **状态**：已定
+
+## D44 · C1 范围收敛为原生壳与局域网明文放行，扫码与安全存储移入 C2
+
+- **日期**：2026-08-26
+- **决策**：C1 只交付三项：（1）在 `apps/mobile/` 下创建 Capacitor iOS/Android 工程；（2）现有 React/Vite Web UI 通过 `dist → npx cap sync` 接入两个原生壳；（3）局域网明文网络放行与仅开发用 `server.url` live reload。iOS 使用 `NSAllowsLocalNetworking` 与 `NSLocalNetworkUsageDescription`，Android 使用 cleartext 放行（Manifest 属性或 `network_security_config.xml`）。原生扫码、系统安全存储、NativeBridge、生命周期和推送移入 C2，不设 C1.1 子阶段。Android SDK/JDK 在 C1 开始前安装，Android 原生构建纳入 C1 门禁。
+- **理由**：不放行局域网明文时，WebView 无法连接 `ws://` LAN 地址，壳子只能展示空布局，消息流、Markdown、状态栏均无真实数据，达不到 C1 尽早验证 Web 界面在两端 WebView 适配程度的目的；REQUIREMENTS 风险表原本已把平台网络配置归在 C1。扫码与安全存储与真机、多配对持久化强耦合，与 C2 一起验收更经济。Android WebView（Chromium）与 iOS WKWebView（WebKit）在 antd-mobile 上表现有差异，只验一端无法得出适配结论。
+- **影响**：`REQUIREMENTS.md` 开发步骤图、§9.2 阶段表和 WebView 套壳兼容风险行按本决策更新；C1.1 不作为阶段存在。只放行局域网明文，不使用 `NSAllowsArbitraryLoads`，不放行公网明文；`server.url` 仅用于开发，不得进入发布构建。C1 不新增协议字段、状态枚举、配对负载或凭证存储，Pair Token 仍只在 Fragment/内存；D41 的原生安全存储能力推迟到 C2 实现。HarmonyOS NEXT 不加入 Capacitor 工程，只复用共用契约并自行实现等价明文策略，三端可实现性核对通过。
+- **状态**：已定
+
+## D45 · 原生应用标识
+
+- **日期**：2026-08-26
+- **决策**：iOS/Android App name 固定为 `Claude Mobile Remote`，App ID / bundle ID 固定为 `com.tea4go.claudemobileremote`，Capacitor `webDir` 固定为 `dist`，Web asset scheme 沿用 Capacitor 默认配置。
+- **理由**：App ID 影响签名、商店上架、Keychain group 和后续 HarmonyOS 包名规划，属于长期不可逆标识，必须在创建平台工程前固定；沿用 SDK 所属的 `tea4go` 命名空间保持一致。
+- **影响**：标识只用于原生工程与商店分发，不进入 WebSocket envelope、配对负载或三端共用协议；变更 App ID 需重新签名并视为新应用。HarmonyOS NEXT 可使用等价包名，但不复用 Capacitor 工程。
+- **状态**：已定

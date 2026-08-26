@@ -147,8 +147,8 @@ flowchart TD
     A["A6 跨机器浏览器"] --> B1["B1 消息与移动 UI"]
     B1 --> B2["B2 交互与取消"]
     B2 --> B3["B3 单 Session Remote Server"]
-    A --> C1["C1 Capacitor / 扫码 / 安全存储"]
-    B2 --> C2["C2 真机 / VPN / 生命周期"]
+    A --> C1["C1 Capacitor 工程 / Web 接入 / 局域网放行"]
+    B2 --> C2["C2 扫码 / 安全存储 / 真机 / VPN / 生命周期"]
     C1 --> C2
     B3 --> W["W1 WhaleTerm 接入"]
     C2 --> D["D HarmonyOS NEXT"]
@@ -173,7 +173,7 @@ flowchart TD
 | 里程碑 | 子阶段 |
 | --- | --- |
 | B 完整会话控制 | B1 消息渲染与已配对 Session 列表；B2 审批、AskUserQuestion 与取消；B3 单 Session Remote Server 组件化 |
-| C iOS / Android | C1 Capacitor、扫码与安全存储；C2 多配对列表、两端真机、VPN 与生命周期；C3 语音和通知 |
+| C iOS / Android | C1 Capacitor 工程、Web 接入与局域网明文放行；C2 扫码、安全存储、多配对列表、两端真机、VPN 与生命周期；C3 语音和通知 |
 | W WhaleTerm | W1 为 WhaleTerm 已持有的单个 Claude Session 启动进程内 Remote Server |
 | D HarmonyOS NEXT | D1 工程与协议；D2 功能迁移；D3 真机、推送与发布验证 |
 | E 发布与后续能力 | E1 安全与兼容验收；E2 签名与上架；E3 可信公网 Relay 与多 PC |
@@ -204,6 +204,6 @@ flowchart TD
 | iOS / Android 生命周期 | 后台连接中断 | 原生阶段补状态恢复和系统通知 |
 | 原生多配对凭证泄露 | 未过期 Token 被滥用 | Pair Token 使用系统安全存储，过期/撤销/Remote Server 重启后重新扫码；浏览器不写 localStorage |
 | HarmonyOS NEXT 成本 | 独立开发、调试和上架周期长 | 后置实施并复用统一协议与验收用例 |
-| WebView 套壳兼容（C1） | 明文 WebSocket 被 iOS ATS / Android cleartext 策略拦截 | C1 增加平台配置：iOS Info.plist ATS 例外，Android Manifest `usesCleartextTraffic`；移动 Web 路由自 A5 起约束为 hash / 内存路由，规避自定义 scheme 路径解析问题 |
+| WebView 套壳兼容（C1） | 明文 WebSocket 被 iOS ATS / Android cleartext 策略拦截，壳子只能显示空布局 | C1 只放行局域网明文（D44）：iOS Info.plist 使用 `NSAllowsLocalNetworking` 并提供 `NSLocalNetworkUsageDescription`（iOS 14+ 本地网络权限），Android 使用 cleartext 放行；不使用 `NSAllowsArbitraryLoads`，不放行公网明文；移动 Web 路由自 A5 起约束为 hash / 内存路由，规避自定义 scheme 路径解析问题 |
 | 共用契约被单端污染 | 前两端收尾后 HarmonyOS NEXT 无法实现，被迫换方案 | 协议与状态变更强制核对三端可实现性（硬约束 11 / 设计 §8.1），核对结论记入 DECISIONS |
 | 可信 Relay 可见协议流量 | 公网中转基础设施可接触会话内容 | Relay 不存储内容并与 Pair Token 权限分离；若未来要求不可信中转，再独立设计端到端加密 |

@@ -64,7 +64,7 @@ Mobile Web
 
 ### 4.1 新增和更新
 
-- 用户从新增配对入口粘贴现有配对 JSON，或通过后续 C1 的扫码入口交给同一解析函数；
+- 用户从新增配对入口粘贴现有配对 JSON，或通过后续 C2 的扫码入口交给同一解析函数；
 - 解析成功后按 `sessionId` 查找记录；不存在则新增，存在则更新 `wsUrl`、`pairToken`、`expiresAt` 和最近连接时间；
 - 列表只保存当前页面内存，Pair Token 不写入 `localStorage`；
 - 删除记录只删除本地内存记录，不发送服务器撤销命令，不影响其他已配对客户端；
@@ -148,7 +148,7 @@ HarmonyOS NEXT 不直接运行 React/antd-mobile 组件，因此 B1 第三方依
 - **实现层**：React 插件只允许服务于 Web/Capacitor UI；不得要求 HarmonyOS 复用其组件二进制或 npm 运行时；
 - **语义层**：插件产生的展示语义必须能用 ArkTS/ArkUI 按同一消息字段、状态和安全规则重新实现。Markdown 只固定受限语法和安全规则，不能把某个 React 渲染器当成三端契约。
 
-涉及 C1 原生扫码、安全存储或生命周期的插件，则必须同时检查 iOS、Android 和 HarmonyOS NEXT 的等价能力；若没有等价插件，采用各平台原生 API/官方能力实现同一薄接口，而不是让 B1 引入平台专属依赖。
+涉及后续 C2 原生扫码、安全存储或生命周期的插件，则必须同时检查 iOS、Android 和 HarmonyOS NEXT 的等价能力；若没有等价插件，采用各平台原生 API/官方能力实现同一薄接口，而不是让 B1 引入平台专属依赖。
 
 ### 7.4 第三方依赖验收门
 
@@ -195,6 +195,6 @@ B1 实施计划应至少覆盖：
 ## 10. 后续关系
 
 - B1 完成后进入 B2 结构化 Thinking/Tool、审批、AskUserQuestion 与取消设计；
-- C1 可与 B1 并行，但只创建 Capacitor 工程并接入扫码/安全存储，不提前改变 B1 Web 列表的内存边界；
+- C1 可与 B1 并行，但只创建 Capacitor 工程、接入 Web UI 并放行局域网明文；扫码/安全存储移入 C2，不提前改变 B1 Web 列表的内存边界；
 - C2 依赖 C1 与 B2，负责真机、多配对持久化、VPN 和生命周期验收；
 - B3 仍只负责单 Session Remote Server 组件化，不因 B1 列表引入 PC 多 Session 管理。

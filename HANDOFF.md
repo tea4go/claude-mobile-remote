@@ -4,19 +4,19 @@
 
 ## 0. 一句话现状
 
-A1–A6 已完成并提交；B1 设计与实施计划已由用户确认并提交，下一步进入 B1 代码实施。
+A1–A6 已完成并提交；B1 设计与实施计划已确认并提交；C1 设计与实施计划已按 D44/D45 修订并确认，之后 B1 与 C1 可并行实施。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：B1 消息与移动 UI（实施）
-- **当前任务**：B1 实施计划已复核并提交，开始按 Task 1→5 实施 Mobile Web 列表、导航、Markdown 与状态展示。
-- **范围**：实现浏览器内存 Session 列表（含本地重命名）、列表/详情导航、单 WebSocket 约束、Markdown/代码块和 Session/Turn/来源/错误状态；Thinking/Tool 只做只读占位，不接入真实数据，结构化协议扩展留到 B2；不改变 Go 代码、协议 envelope、状态模型、配对负载和 Pair Token 存储边界；不实现 B2 审批/AskUserQuestion/取消，不实现 C1 原生能力。
-- **通过条件**：Store/列表/导航/Markdown 定向测试与既有 A5–A5.2 回归全部通过；`npm test`、`npm run lint`、`npm run build` 通过；`apps/mobile/src/protocol/types.ts` 与 Go 协议未被修改；人工浏览器验收覆盖多 Session、重命名、切换单连接、Markdown、状态、刷新边界且无审批控件；无 Pair Token、真实 `sessionId`、会话内容或构建产物入库。
-- **状态**：B1 设计与实施计划复核完成并已提交（修正：移除计划中的外部 sub-skill 指令、补齐设计中已确认的“本地重命名”覆盖、更新参考图章节与文档状态）。参考图 5 张已确认为模拟数据。尚未开始代码实施。
+- **子阶段**：C1 Capacitor 工程接入（设计与实施计划修订）
+- **当前任务**：按用户确认的两项决策修订 C1 设计与实施计划，并修正复核提出的问题；不进入代码实现。
+- **范围**：新增 D44（C1 交付三项：平台工程、Web 接入、局域网明文放行；扫码与安全存储移入 C2，取消 C1.1）与 D45（原生应用标识）；同步更新 `REQUIREMENTS.md` 阶段职责与风险行、根 `.gitignore` 原生产物忽略规则、C1 设计与实施计划（.gitignore 任务、ATS/cleartext、开发态 `server.url`、构建脚本、同步重现步骤、依赖版本锁定、Android SDK 前置）；不修改协议、状态模型、配对负载、Go 代码或 `apps/mobile/src`，不执行 Git 写操作。
+- **通过条件**：不存在独立的 C1.1 阶段；REQUIREMENTS 与 C1 设计对 ATS/cleartext、扫码、安全存储的阶段归属一致；计划存在创建 `.gitignore` 规则的实际步骤而非只做检查；`android/local.properties` 与两个 `public/` 同步目录已被忽略；设计/计划/HANDOFF 对 Android SDK 与文档状态的表述一致；无悬空承诺（构建脚本、不可执行步骤）。
+- **状态**：已完成修订并经用户确认，待进入实施。已执行：新增 D44/D45；`REQUIREMENTS.md` 步骤图、§9.2 阶段表与 WebView 风险行更新；根 `.gitignore` 新增原生产物与签名文件规则（已用 `git check-ignore -v` 验证四条代表路径命中、`apps/mobile/public/favicon.svg` 未误伤）；C1 设计新增 §4.1 开发态 live reload、重写 §6.1 平台网络策略、§7 新增验证项与 §7.1 环境前置；C1 计划由 5 个 Task 扩为 6 个（新增 Task 4 “放行局域网明文并验证壳内连通”）；同步修正 B1、A6 验证记录和简化路线中的 C1 旧职责表述。尚未开始 C1 代码实施。B1 已提交。
 
 ## 1. 当前目标
 
-B1 实施：为 Mobile Web 增加页面内存 Session 列表、列表/详情导航与更完整的消息展示；C1 作为可并行子项目暂不展开。
+B1 进入代码实施；C1 并行完成 Capacitor iOS/Android 工程创建、现有 React/Vite Web UI 接入与局域网明文放行。
 
 ```text
 机器 A：PC 输入 ──> Session Controller ──> Claude
@@ -45,7 +45,7 @@ B1 实施：为 Mobile Web 增加页面内存 Session 列表、列表/详情导�
 - 后期公网访问使用可信的每 CLI 单出站隧道 Relay，不建设 PC 聚合 daemon、云端 Session 中心或永久 route；
 - 心跳、事件 replay、系统推送、单进程多 Session 和云端多 PC 管理后置；
 - A1 只创建 Go CLI、React/Vite 与基础工程配置；Capacitor 工程在 C1 创建，HarmonyOS 工程在 D1 创建；
-- 开发按里程碑和直接依赖门禁推进，A6 已通过，下一阶段候选为可并行准备的 B1 与 C1；
+- 开发按里程碑和直接依赖门禁推进，A6 已通过，B1 已提交实施，C1 可并行设计和实施；
 - AI 可主动使用只读 `git diff` 检查改动；Git 写操作与其他未明确允许的 Git 命令仍需用户授权（D23）。
 
 ## 3. 文档状态
@@ -55,7 +55,7 @@ B1 实施：为 Mobile Web 增加页面内存 Session 列表、列表/详情导�
 | `REQUIREMENTS.md` | ✅ 用户已确认 | 产品需求、阶段范围和验收标准 |
 | `AGENTS.md` | ✅ 用户已确认 | 长期约束和协作规则 |
 | `CLAUDE.md` | ✅ | Claude Code 阅读入口 |
-| `DECISIONS.md` | ✅ D39–D43 已确认 | 新项目决策日志 |
+| `DECISIONS.md` | ✅ D39–D45 已确认 | 新项目决策日志 |
 | 总体设计 | ✅ 用户已确认 | 架构、Channel、协议和测试边界 |
 | A5.2 后简化路线设计 | ✅ 用户已确认 | `docs/specs/2026-08-25-simplified-roadmap-and-session-remote-design.md` |
 | A1 实施计划 | ✅ 已执行 | `docs/plans/2026-08-21-A1-project-skeleton.md` |
@@ -81,15 +81,19 @@ B1 实施：为 Mobile Web 增加页面内存 Session 列表、列表/详情导�
 | A6 门禁记录 | ✅ 自动门禁与用户双机人工验收通过 | `docs/testing/A6-result.md` |
 | B1 分阶段设计 | ✅ 用户已确认 | `docs/specs/2026-08-26-B1-mobile-ui-design.md` |
 | B1 实施计划 | ✅ 已复核并提交，待执行 | `docs/plans/2026-08-26-B1-mobile-ui.md` |
+| C1 分阶段设计 | ✅ 用户已确认（已按 D44/D45 修订） | `docs/specs/2026-08-26-C1-capacitor-shell-design.md` |
+| C1 实施计划 | ✅ 用户已确认（已按 D44/D45 修订为 6 个 Task） | `docs/plans/2026-08-26-C1-capacitor-shell.md` |
 | 业务代码 | ✅ A5.2 及之前已提交（本地，未推送） | 薄 SDK Adapter + Session Core + Channel/Transport + 配对与测试客户端 + Mobile Web |
 
 ## 4. 下一步
 
 1. 按 `docs/plans/2026-08-26-B1-mobile-ui.md` 执行 Task 1→5，完成 B1 代码实施与门禁；
-2. B1 门禁通过后再展开 B2 结构化 Thinking/Tool、审批与取消设计；C1 Capacitor 工程可并行准备；
-3. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
-4. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
-5. SDK `WithSessionID` 发布正式版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`。
+2. 安装 JDK 与 Android SDK（Apple Silicon 选 arm64-v8a 镜像），作为 C1 环境前置；
+3. 按 `docs/plans/2026-08-26-C1-capacitor-shell.md` 执行 Task 1→6，C1 与 B1 可并行；
+5. B1 门禁通过后再展开 B2 结构化 Thinking/Tool、审批与取消设计；
+6. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
+7. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
+8. SDK `WithSessionID` 发布正式版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`。
 
 ## 5. 首期关键验证
 
@@ -104,7 +108,8 @@ B1 实施：为 Mobile Web 增加页面内存 Session 列表、列表/详情导�
 ## 6. 环境与已知事项
 
 - 本机已具备 Go、Node.js 和 Xcode；
-- Android SDK / Android Studio 与 DevEco Studio 尚未安装，分别在进入 C1、D1 前准备；
+- Android SDK / Android Studio 尚未安装，按 D44 属于 C1 环境前置，需在 C1 开始前完成（Apple Silicon 选 arm64-v8a 系统镜像）；DevEco Studio 在 D1 前准备；
+- 模拟器只用于界面适配与构建验证；其网络经 NAT（宿主机为 `10.0.2.2`），不能代替 C2 的真机与 VPN 验证；
 - antd-mobile 5.42.3 的部分传递依赖与 React 19 peer 范围不一致；用户已评估为当前可忽略，A1 测试、构建和 lint 均通过。
 
 ## 7. 参考提醒
