@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { Button, NavBar } from 'antd-mobile'
-import MessageComposer from './components/MessageComposer'
-import MessageFeed from './components/MessageFeed'
+import { NavBar } from 'antd-mobile'
 import PairingForm from './components/PairingForm'
-import SessionStatus from './components/SessionStatus'
+import SessionDetail from './components/SessionDetail'
+import SessionList from './components/SessionList'
 import { ProtocolClient, type CloseInfo, type SocketFactory } from './protocol/client'
 import { encodePairingFragment, parsePairingFragment, parsePairingJson, type PairingPayload } from './protocol/pairing'
+import { PROTOCOL_VERSION } from './protocol/types'
 import {
   commandAccepted,
   commandRejected,
@@ -20,6 +20,14 @@ import {
   reset,
   snapshotReceived,
 } from './session/reducer'
+import {
+  createInitialSessionStore,
+  listSessions,
+  markSessionStatus,
+  removeSession,
+  renameSession,
+  upsertSession,
+} from './session/store'
 
 // 生成唯一 commandId：优先 Web Crypto，测试环境退化为计数器。
 let commandCounter = 0
@@ -46,16 +54,32 @@ function App({
   socketFactory = defaultSocketFactory,
 }: AppProps = {}) {
   const [state, dispatch] = useReducer(reducer, undefined, createInitialState)
-  const [pairing, setPairing] = useState<PairingPayload | null>(null)
+  const [store, setStore] = useState(createInitialSessionStore)
+  const [view, setView] = useState<'list' | 'detail'>('list')
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  // 当前详情页正在连接的配对负载。与 store 记录分开保存：记录会因重命名或
+  // 状态更新产生新对象，若连接 effect 依赖记录会导致误重连（B1）。
+  const [activePairing, setActivePairing] = useState<PairingPayload | null>(null)
+  const [adding, setAdding] = useState(false)
   const [pairingError, setPairingError] = useState<string | null>(null)
   const [pairingInvalid, setPairingInvalid] = useState(false)
   const clientRef = useRef<ProtocolClient | null>(null)
+  // now 的默认值是内联函数，每次渲染引用都不同。连接 effect 只能通过 ref
+  // 读取它，否则依赖数组每渲染都变化会导致无限重连。
+  const nowRef = useRef(now)
+  nowRef.current = now
 
-  // Fragment 或粘贴 JSON → 校验通过后进入连接。
-  const startPairing = useCallback(
+  const sessions = listSessions(store)
+
+  // 配对成功：写入内存记录并进入该 Session 的详情页。
+  const openPairing = useCallback(
     (payload: PairingPayload) => {
+      setStore((current) => upsertSession(current, payload))
+      setCurrentSessionId(payload.sessionId)
+      setActivePairing(payload)
+      setView('detail')
+      setAdding(false)
       setPairingInvalid(false)
-      setPairing(payload)
       setPairingError(null)
       window.location.hash = `#pair=${encodePairingFragment(payload)}`
       dispatch(pairLoaded())
@@ -70,12 +94,13 @@ function App({
         setPairingError(result.error)
         return
       }
-      startPairing(result.value)
+      openPairing(result.value)
     },
-    [now, startPairing],
+    [now, openPairing],
   )
 
-  // 首次加载：从 Fragment 自动读取并连接。
+  // 首次加载：从 Fragment 自动读取并连接当前 Session（A5 行为保留）。
+  // 只恢复 Fragment 中的这一个会话，不恢复其他列表记录、旧消息或做 replay。
   useEffect(() => {
     if (window.location.hash === '') return
     const result = parsePairingFragment(window.location.hash, now())
@@ -83,21 +108,28 @@ function App({
       setPairingError(result.error)
       return
     }
-    startPairing(result.value)
+    openPairing(result.value)
     // 仅在首次挂载时读取 Fragment。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // pairing 变化时创建 client 并连接。
+  // activePairing 变化时创建 client 并连接：任意时刻只存在一个活动连接。
   useEffect(() => {
-    if (pairing === null) return
-    const client = new ProtocolClient(pairing, socketFactory)
+    if (activePairing === null) return
+    const sessionId = activePairing.sessionId
+    const client = new ProtocolClient(activePairing, socketFactory)
     clientRef.current = client
 
     client.onEvent = (event) => {
       switch (event.kind) {
         case 'snapshot':
           dispatch(snapshotReceived(event.snapshot))
+          setStore((current) =>
+            markSessionStatus(current, sessionId, {
+              status: 'connected',
+              lastConnectedAt: nowRef.current(),
+            }),
+          )
           break
         case 'event':
           dispatch(eventReceived(event.event))
@@ -128,6 +160,7 @@ function App({
       switch (info.kind) {
         case 'disconnected':
           dispatch(connectionFailed({ kind: 'disconnected' }))
+          setStore((current) => markSessionStatus(current, sessionId, { status: 'disconnected' }))
           if (info.pendingCommandId !== null) {
             dispatch(commandUnknown({ commandId: info.pendingCommandId }))
           }
@@ -135,9 +168,11 @@ function App({
         case 'pairingInvalid':
           dispatch(connectionFailed({ kind: 'disconnected' }))
           setPairingInvalid(true)
+          setStore((current) => markSessionStatus(current, sessionId, { status: 'needsPairing' }))
           break
         case 'protocolError':
           dispatch(connectionFailed({ kind: 'protocolError' }))
+          setStore((current) => markSessionStatus(current, sessionId, { status: 'disconnected' }))
           if (info.pendingCommandId !== null) {
             dispatch(commandUnknown({ commandId: info.pendingCommandId }))
           }
@@ -151,7 +186,7 @@ function App({
       client.onClose = null
       client.close()
     }
-  }, [pairing, socketFactory])
+  }, [activePairing, socketFactory])
 
   const handleSend = useCallback((text: string) => {
     const client = clientRef.current
@@ -168,15 +203,35 @@ function App({
     dispatch(pairLoaded())
   }, [])
 
-  const handleReset = useCallback(() => {
+  // 返回列表：关闭当前连接并清理详情状态，保留其他内存记录。
+  const backToList = useCallback(() => {
     clientRef.current?.close()
     clientRef.current = null
-    setPairing(null)
+    setActivePairing(null)
+    setCurrentSessionId(null)
+    setView('list')
+    setAdding(false)
     setPairingInvalid(false)
     setPairingError(null)
     window.location.hash = ''
     dispatch(reset())
   }, [])
+
+  const openSession = useCallback(
+    (sessionId: string) => {
+      const record = store.records.find((r) => r.sessionId === sessionId)
+      if (record === undefined) return
+      openPairing({
+        // 记录只在校验通过的负载上创建，版本固定为当前协议版本。
+        version: PROTOCOL_VERSION,
+        wsUrl: record.wsUrl,
+        sessionId: record.sessionId,
+        pairToken: record.pairToken,
+        expiresAt: record.expiresAt,
+      })
+    },
+    [store, openPairing],
+  )
 
   const turnStatus = useMemo(() => {
     const claude = [...state.messages].reverse().find((m) => m.kind === 'claude')
@@ -184,54 +239,60 @@ function App({
     return claude.status === 'streaming' ? 'running' : claude.status
   }, [state.messages])
 
-  // 配对页
-  if (pairing === null) {
+  const currentRecord =
+    currentSessionId === null
+      ? undefined
+      : store.records.find((r) => r.sessionId === currentSessionId)
+
+  // 详情页
+  if (view === 'detail' && currentRecord !== undefined) {
+    return (
+      <SessionDetail
+        record={currentRecord}
+        state={state}
+        turnStatus={turnStatus}
+        pairingInvalid={pairingInvalid}
+        onBack={backToList}
+        onReconnect={handleReconnect}
+        onSend={handleSend}
+      />
+    )
+  }
+
+  // 配对页：列表为空时直接进入，否则由“新增配对”打开。
+  if (adding || sessions.length === 0) {
     return (
       <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
-        <NavBar back={null}>Claude Mobile Remote</NavBar>
+        <NavBar
+          back={sessions.length === 0 ? null : '返回'}
+          onBack={() => {
+            setAdding(false)
+            setPairingError(null)
+          }}
+        >
+          Claude Mobile Remote
+        </NavBar>
         <PairingForm initialError={pairingError} onSubmit={submitJson} />
       </div>
     )
   }
 
-  // 会话页
-  const showReconnect =
-    (state.phase === 'disconnected' || state.phase === 'protocolError') && !pairingInvalid
-
+  // 列表页
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f5f5', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
       <NavBar back={null}>Claude Mobile Remote</NavBar>
-      <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <SessionStatus
-          connection={pairingInvalid ? 'disconnected' : state.connection}
-          sessionStatus={state.sessionStatus}
-          turnStatus={turnStatus}
-          queueDepthHint={state.queueDepthHint}
-        />
-        {pairingInvalid && (
-          <div style={{ color: '#e00' }}>配对已失效，请更换配对</div>
-        )}
-        {state.phase === 'protocolError' && !pairingInvalid && (
-          <div style={{ color: '#e00' }}>状态异常，请重新连接以获取最新状态</div>
-        )}
-        {state.lastError !== null && (
-          <div style={{ color: '#e00' }}>{state.lastError.message}</div>
-        )}
-        {showReconnect && (
-          <Button color="primary" size="small" onClick={handleReconnect}>
-            重新连接
-          </Button>
-        )}
-        <Button size="small" onClick={handleReset}>
-          更换配对
-        </Button>
-      </div>
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', padding: '0 16px' }}>
-        <MessageFeed messages={state.messages} />
-      </div>
-      <div style={{ padding: '8px 16px', borderTop: '1px solid #e0e0e0' }}>
-        <MessageComposer enabled={state.canSend} onSend={handleSend} />
-      </div>
+      <SessionList
+        sessions={sessions}
+        onAdd={() => {
+          setAdding(true)
+          setPairingError(null)
+        }}
+        onOpen={openSession}
+        onRemove={(sessionId) => setStore((current) => removeSession(current, sessionId))}
+        onRename={(sessionId, name) =>
+          setStore((current) => renameSession(current, sessionId, name))
+        }
+      />
     </div>
   )
 }

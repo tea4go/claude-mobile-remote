@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { Tag } from 'antd-mobile'
+import MessageMarkdown from './MessageMarkdown'
 import type { Message } from '../session/reducer'
 
 interface MessageFeedProps {
   messages: Message[]
 }
 
-// 易失消息流（D32）：本连接期内手机输入、来源标记、Claude 流式纯文本与失败反馈。
-// 纯文本渲染，不转换 Markdown，不注入 HTML。
+// 易失消息流（D32）：本连接期内手机输入、来源标记、Claude 流式文本与失败反馈。
+// Claude 文本经受限 Markdown 渲染（B1）；输入消息保持纯文本，不解析语法。
 export default function MessageFeed({ messages }: MessageFeedProps) {
   const feedRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -65,11 +66,10 @@ export default function MessageFeed({ messages }: MessageFeedProps) {
                   borderRadius: 8,
                   padding: '8px 12px',
                   marginTop: 4,
-                  whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                 }}
               >
-                {message.text}
+                <MessageMarkdown text={message.text} />
               </div>
             )}
             {message.status === 'failed' && message.error !== null && (

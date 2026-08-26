@@ -198,3 +198,12 @@ B1 实施计划应至少覆盖：
 - C1 可与 B1 并行，但只创建 Capacitor 工程、接入 Web UI 并放行局域网明文；扫码/安全存储移入 C2，不提前改变 B1 Web 列表的内存边界；
 - C2 依赖 C1 与 B2，负责真机、多配对持久化、VPN 和生命周期验收；
 - B3 仍只负责单 Session Remote Server 组件化，不因 B1 列表引入 PC 多 Session 管理。
+
+## 11. 实施结果（2026-08-26）
+
+实际实现与本设计一致，两处需要记入的实施结论：
+
+1. **未引入 `rehype-sanitize`。** §7.2 候选表把它列为「如允许 HTML」的前置条件；实际配置不启用 `rehype-raw`，raw HTML 全程按纯文本转义，`disallowedElements` 再禁掉 `img`，URL 由 `react-markdown` 内建 `html-url-attributes` 过滤。安全断言（raw `<script>`/`<iframe>`/`onerror` 不进入 DOM、`javascript:` 链接无可执行 `href`、代码块保持纯文本、不加载远程图片）在无 `rehype-sanitize` 时全部通过，因此按 §7.4「不为视觉一致性增加跨端风险」的原则不装冗余依赖。若 B2 之后需要放行受信 HTML，必须先补 `rehype-sanitize` 并重跑同一组安全测试。
+2. **`sessionError` 首次进入 UI。** 该字段自 A5 起已由 `decode.ts` 解析、由 reducer 归并，但从未渲染；B1 在 `SessionStatus` 增加「会话错误：{message}」一行，不新增协议字段。
+
+实际依赖增量、包体影响与三端结论记录在 `docs/testing/B1-result.md`。
