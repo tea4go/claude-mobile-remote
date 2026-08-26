@@ -4,19 +4,19 @@
 
 ## 0. 一句话现状
 
-A1–A5.2 已完成并提交；A6 的代码、双机说明和单机自动门禁已完成，当前等待 Windows 机器 B 完成人工跨机器门禁。
+A1–A5.2 已完成并提交；A6 的代码、双机说明、自动门禁和 Windows 机器 B 人工跨机器门禁均已完成。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：A6 局域网跨机器桌面浏览器联调（实施）
-- **当前任务**：准备执行 A6 Task 4。Task 1–3 已提交为本地 commit `42d436d`，但尚未推送；Windows 机器 B 需要取得该 commit 中修复后的 lockfile，之后再启动双机门禁。
-- **范围**：修改 `cmd/claude-mobile-remote/config.go` 与测试、`README.md`、`apps/mobile/README.md`、`HANDOFF.md`；修复阻断机器 B `npm ci` 的 `apps/mobile/package-lock.json` 可选平台元数据，但不改变 `package.json` 或依赖版本；双机验收完成后再创建 `docs/testing/A6-result.md`。不修改协议、状态、配对负载结构、前端业务代码、SDK 或后期功能，不执行 Git 写操作。
-- **通过条件**：默认 Pair Token 为 12 小时且可配置覆盖，默认 loopback 与 localhost Origin 不变；Go/前端自动门禁通过；机器 B 通过 A 的显式 LAN `wsUrl` 完成首轮、双向同步、FIFO、错误凭证和重连验证；结果不外推到手机/VPN/C2。
-- **状态**：Task 1–3 已完成并创建本地 commit `42d436d`。默认 TTL 的测试先按预期因旧值 10 分钟失败，改为 12 小时后通过；`npm ci` 的既有 lockfile 空版本问题已在空目录复现，并通过补齐同一 `oxlint 1.79.0` 的 8 个可选平台元数据修复。Fresh 门禁：Go 8 包 race、vet、build 通过；`npm ci` 成功，Mobile Web 167/167、lint、build 通过；gofmt、lockfile、凭证字面量和 `git diff --check` 检查通过。尚未把这些自动结果推断为 A6 人工通过。commit 未推送；执行技能要求的 worktree 因本项目 Git 写操作授权约束未创建。
+- **子阶段**：A6 局域网跨机器桌面浏览器联调（收尾）
+- **当前任务**：A6 Task 5 已完成，保留 A6 门禁记录并交接到 B1/C1 阶段准备。
+- **范围**：创建 `docs/testing/A6-result.md`，更新 `HANDOFF.md`，复核文档不含真实 IP、`sessionId`、Pair Token 或用户会话内容；不修改业务代码、协议、状态、配对负载、SDK 或后期功能，不执行 Git 写操作。
+- **通过条件**：准确记录既有自动门禁与用户确认的错误凭证、首轮手机发送、PC→浏览器同步、多入口 FIFO、刷新重连结果；明确 A6 只证明局域网跨机器桌面浏览器闭环，不外推到手机、VPN、Capacitor、安全存储、移动生命周期或 Relay；最终差异和凭证检查通过。
+- **状态**：用户已反馈 A6 人工清单全部通过；`docs/testing/A6-result.md` 已创建；文档差异、凭证字面量和 `git diff --check` 复核通过。A6 不外推到手机、VPN、Capacitor、安全存储、移动生命周期或 Relay。
 
 ## 1. 当前目标
 
-下一门禁为 A6 局域网跨机器桌面浏览器联调：机器 A 运行 Standalone CLI、Claude 和 Remote Server，Windows 机器 B 只运行 `apps/mobile` 并通过 A 的显式 LAN `wsUrl` 控制同一 Session。
+下一阶段准备 B1 消息与移动 UI、C1 Capacitor 工程与原生能力；两者可并行设计，C2 仍依赖 C1 与 B2。
 
 ```text
 机器 A：PC 输入 ──> Session Controller ──> Claude
@@ -45,7 +45,7 @@ A1–A5.2 已完成并提交；A6 的代码、双机说明和单机自动门禁�
 - 后期公网访问使用可信的每 CLI 单出站隧道 Relay，不建设 PC 聚合 daemon、云端 Session 中心或永久 route；
 - 心跳、事件 replay、系统推送、单进程多 Session 和云端多 PC 管理后置；
 - A1 只创建 Go CLI、React/Vite 与基础工程配置；Capacitor 工程在 C1 创建，HarmonyOS 工程在 D1 创建；
-- 开发按里程碑和直接依赖门禁推进，当前下一阶段为 A6 局域网跨机器桌面浏览器联调；
+- 开发按里程碑和直接依赖门禁推进，A6 已通过，下一阶段候选为可并行准备的 B1 与 C1；
 - AI 可主动使用只读 `git diff` 检查改动；Git 写操作与其他未明确允许的 Git 命令仍需用户授权（D23）。
 
 ## 3. 文档状态
@@ -77,15 +77,15 @@ A1–A5.2 已完成并提交；A6 的代码、双机说明和单机自动门禁�
 | A5.2 分阶段设计 | ✅ 已确认 | `docs/specs/2026-08-25-A5.2-pre-turn-pairing-design.md`（D38） |
 | A5.2 实施计划 | ✅ 已执行 | `docs/plans/2026-08-25-A5.2-pre-turn-pairing.md` |
 | A5.2 门禁记录 | ⚠️ 自动门禁与人工验收通过；真实 Claude 门禁仅部分通过（额度受限） | `docs/testing/A5.2-result.md` |
-| A6 实施计划 | ✅ 用户已确认 / Task 1–3 已提交 | `docs/plans/2026-08-26-A6-lan-cross-machine-browser.md` |
+| A6 实施计划 | ✅ 已执行 / A6 门禁通过 | `docs/plans/2026-08-26-A6-lan-cross-machine-browser.md` |
+| A6 门禁记录 | ✅ 自动门禁与用户双机人工验收通过 | `docs/testing/A6-result.md` |
 | 业务代码 | ✅ A5.2 及之前已提交（本地，未推送） | 薄 SDK Adapter + Session Core + Channel/Transport + 配对与测试客户端 + Mobile Web |
 
 ## 4. 下一步
 
-1. 用户明确授权推送本地 commit `42d436d`，或指定其他方式让机器 B 取得修复后的 `apps/mobile/package-lock.json`；
-2. 机器 B 获取后按 A6 清单完成错误凭证、首轮、双向同步、多入口 FIFO 和刷新重连验证；
-3. AI 根据用户反馈创建 `docs/testing/A6-result.md` 并更新本文件；
-4. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
+1. 开始 B1 消息渲染与已配对 Session 列表的设计准备；
+2. 并行开始 C1 Capacitor iOS/Android 工程、扫码、安全存储和平台网络配置的设计准备；
+3. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
 4. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
 5. SDK `WithSessionID` 发布正式版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`。
 
