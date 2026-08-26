@@ -42,7 +42,7 @@ func parseConfig(arguments []string) (cliConfig, error) {
 	config := cliConfig{
 		listen:       "127.0.0.1:8765",
 		advertiseURL: "ws://127.0.0.1:8765/ws",
-		pairTokenTTL: 10 * time.Minute,
+		pairTokenTTL: 12 * time.Hour,
 	}
 	var extraOrigins stringListFlag
 	flags := flag.NewFlagSet("claude-mobile-remote", flag.ContinueOnError)

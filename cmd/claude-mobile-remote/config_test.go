@@ -31,8 +31,12 @@ func TestParseConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseConfig(defaults) error = %v", err)
 	}
-	if got.listen != "127.0.0.1:8765" || got.advertiseURL != "ws://127.0.0.1:8765/ws" || got.pairTokenTTL != 10*time.Minute {
+	if got.listen != "127.0.0.1:8765" || got.advertiseURL != "ws://127.0.0.1:8765/ws" || got.pairTokenTTL != 12*time.Hour {
 		t.Fatalf("defaults = %#v", got)
+	}
+	defaultOrigins := []string{"http://127.0.0.1:5173", "http://localhost:5173"}
+	if !reflect.DeepEqual(got.allowedOrigins, defaultOrigins) {
+		t.Fatalf("default allowed origins = %#v, want %#v", got.allowedOrigins, defaultOrigins)
 	}
 
 	got, err = parseConfig([]string{
@@ -45,7 +49,7 @@ func TestParseConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseConfig(explicit) error = %v", err)
 	}
-	wantOrigins := []string{"http://127.0.0.1:5173", "http://localhost:5173", "capacitor://localhost", "http://dev.local"}
+	wantOrigins := append(defaultOrigins, "capacitor://localhost", "http://dev.local")
 	if !reflect.DeepEqual(got.allowedOrigins, wantOrigins) {
 		t.Fatalf("allowed origins = %#v, want %#v", got.allowedOrigins, wantOrigins)
 	}

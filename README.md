@@ -49,6 +49,38 @@ cd apps/mobile && npm install && npm run dev
 
 构建与测试：`go test ./...`、`gofmt -l .`（无输出即通过）、`cd apps/mobile && npm run test && npm run build`。注意 `go vet` / `go build` 需加 `GOFLAGS=-buildvcs=false`（go.mod 不入库的副作用，见 D18）。依赖变更时：本地改 `go.mod`，确认后同步更新 `go.mod.base` 提交。
 
+## A6 局域网跨机器联调
+
+A6 只验证桌面浏览器跨机器闭环：机器 A 运行 Claude 和 Remote Server，Windows 机器 B 只运行 Mobile Web。两台机器应位于用户信任的同一局域网。
+
+机器 A 先人工确认自己的私有 IPv4 地址，并确保现有 `go.mod` 已配置可用的 SDK；如果本机依赖 SDK `replace`，不要用 `go.mod.base` 覆盖它。把下列 `<A-LAN-IP>` 替换为实际地址后，从仓库根目录启动：
+
+```bash
+GOFLAGS=-buildvcs=false go run ./cmd/claude-mobile-remote \
+  --listen 0.0.0.0:8765 \
+  --advertise-url 'ws://<A-LAN-IP>:8765/ws'
+```
+
+输出的配对 JSON 中，`wsUrl` 必须使用同一 LAN 地址，不能是 `127.0.0.1` 或 `localhost`。配对 JSON 含控制凭证，只能临时传给机器 B 的配对输入框，不要放进命令行、日志、截图、问题单或验证记录。
+
+Windows 机器 B 从 Git 仓库取得项目后，只执行：
+
+```powershell
+cd apps/mobile
+npm ci
+npm run dev
+```
+
+在 B 本机打开 Vite 输出的 `http://localhost:5173`，粘贴机器 A 当前输出的配对 JSON。标准流程不运行 Go、不使用 `vite --host`，也不需要增加 `--allowed-origin`。
+
+如果无法连接：
+
+- 连接拒绝或超时：检查机器 A 的 `--listen`、LAN IP，以及机器 A 的主机防火墙是否允许私有网络 TCP 8765；
+- 页面提示配对失效：使用当前 Service 最新输出的配对负载，旧 Service 或已修改的凭证不能复用；
+- Origin 被拒绝：确认页面确实从 B 的 `http://localhost:5173` 打开。通过 B 的 LAN IP 暴露 Vite 不属于 A6 标准流程；若主动这样做，必须同时显式配置 Vite host 和精确的 `--allowed-origin`。
+
+`--listen 0.0.0.0:8765` 会把端口暴露到机器 A 的全部网络接口。联调结束后在 CLI 输入 `:quit` 停止 Service；项目不会自动探测网卡、开放防火墙或扫描端口。
+
 ## 仓库
 
 https://github.com/tea4go/claude-mobile-remote
