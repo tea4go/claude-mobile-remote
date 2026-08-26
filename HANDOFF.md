@@ -4,19 +4,28 @@
 
 ## 0. 一句话现状
 
-A1–A6 已提交；B1 已完成并通过门禁（自动化 14 files / 240 tests / lint 0 / build 通过 + 用户浏览器人工验收通过）；C1 待 JDK/Android SDK 安装后推进。
+A1–A6 已提交；B1 已完成并通过门禁（自动化 14 files / 240 tests / lint 0 / build 通过 + 用户浏览器人工验收通过）；下一步进入 B2 设计，C1 待 JDK/Android SDK 安装后推进。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：B1 消息与移动 UI（已完成）
-- **当前任务**：B1 Task 1–5 全部完成，自动化门禁与人工浏览器验收均通过，记录见 `docs/testing/B1-result.md`。
-- **范围**：新增 `apps/mobile/src/session/store.ts`、`components/SessionList.tsx`、`components/SessionDetail.tsx`、`components/MessageMarkdown.tsx`、`components/StructuredBlockPlaceholder.tsx` 及各自测试；修改 `App.tsx`、`MessageFeed.tsx`、`SessionStatus.tsx` 与对应测试；Markdown 依赖只装 `react-markdown@10.1.0` + `remark-gfm@4.0.1`（实测 `rehype-sanitize` 冗余，未装）。
-- **通过条件**：均已达成 —— `npm test && npm run lint && npm run build` 全通过（14 files / 240 tests / 0 warning / 390 kB gzip 121 kB）；A5/A5.1/A5.2 既有测试零回归；`apps/mobile/src/protocol/types.ts` 与 Go 端无改动；Markdown 不启用 raw HTML 且 `javascript:` 链接不产生可执行 href；任意时刻只有一个活动 `ProtocolClient`；Thinking/Tool 仅为只读占位、不发送 command。
-- **状态**：已完成。下一子阶段为 B2（结构化 Thinking/Tool、审批与取消）；C1 因 JDK/Android SDK 尚未安装，保持环境前置。
+- **子阶段**：B2 结构化会话控制（设计）
+- **当前任务**：按 SDK 源码与 WhaleTerm 实证核对结论修订 B2 设计草案（文件改名为 `docs/specs/2026-08-26-B2-interaction-control-design.md`）；暂不修改代码或实施计划。
+- **范围**：设计真实 Thinking/Tool、MCP 工具自动放行与展示、Task 进度展示、工具权限审批、`AskUserQuestion` 单选/多选/自由文本、当前 Turn 取消、排队输入取消，以及 Session 终态的移动端呈现；统一设计 Go SDK Adapter、Session Controller、WebSocket 协议和 Mobile Web 的边界；不涉及 Capacitor、扫码、安全存储、VPN 真机或系统推送实现。
+- **通过条件**：B2 设计明确 SDK 事件/回调映射、阻塞审批与取消的解阻塞顺序、action ID/request ID/seq 关联、审批/问答/取消的协议与状态语义、排队项可见性、超时/断线/重复操作/多客户端处理和 HarmonyOS NEXT 可实现性；用户确认设计后再写 `DECISIONS.md` 与实施计划。
+- **已确认核对结论**（用户 2026-08-26 确认，待随设计定稿写入 `DECISIONS.md`）：
+  1. pending action 期间不得直接调 SDK `Interrupt`（控制响应被阻塞的单读循环挡住、必然 5s 超时），取消统一先回 `PermissionResultDeny{Interrupt: true}` 解阻塞再收尾；
+  2. `AskUserQuestion` 与工具权限共用 `CanUseTool` 链路，答案经 `UpdatedInput["answers"]` 回传（WhaleTerm 已实证）；协议保留数组 + `questionId`，由 Adapter 转成 CLI 期望的扁平 map；
+  3. MCP 工具（`mcp__<server>__<tool>`）自动放行、不进审批，`pendingAction` 去掉 `toolClass`；
+  4. Task 保留独立展示，支持 `kind=task`、`taskId`、`taskStatus`、`taskSummary` 和聚合数量；移动端默认折叠；
+  5. 结构化事件 `kind` 收敛为 `thinking`/`tool_use`/`tool_result`（`mcp_tool` 合并进 `tool_use`）；
+  6. Session 终态沿用 A3/A4 既有 `session_failed`/`session_stopped`，B2 只补移动端 UI；
+  7. `AskUserQuestion` 回答的 `tool_result` 会带 `is_error: true`，必须修正为非错误；
+  8. B2 同时支持单选、多选和自由文本回答；自由文本使用非空字符串回传。
+- **状态**：B1 已完成；B2 设计已按上述结论修订为 `2026-08-26-B2-interaction-control-design.md`，待用户复核。C1 因 JDK/Android SDK 尚未安装，保持环境前置。
 
 ## 1. 当前目标
 
-B1 已完成；下一步要么开展 B2 结构化 Thinking/Tool 与审批/取消设计，要么安装 JDK/Android SDK 后推进 C1 Capacitor 工程。
+B2 先完成结构化 Thinking/Tool、审批、AskUserQuestion 与取消的设计确认；C1 等 JDK/Android SDK 就绪后再实施。
 
 ```text
 机器 A：PC 输入 ──> Session Controller ──> Claude
@@ -82,13 +91,14 @@ B1 已完成；下一步要么开展 B2 结构化 Thinking/Tool 与审批/取消
 | B1 分阶段设计 | ✅ 用户已确认 | `docs/specs/2026-08-26-B1-mobile-ui-design.md` |
 | B1 实施计划 | ✅ Task 1–5 已执行 | `docs/plans/2026-08-26-B1-mobile-ui.md` |
 | B1 门禁记录 | ✅ 自动门禁与用户人工验收通过 | `docs/testing/B1-result.md` |
+| B2 分阶段设计 | 📝 修订稿，待用户复核 | `docs/specs/2026-08-26-B2-interaction-control-design.md` |
 | C1 分阶段设计 | ✅ 用户已确认（已按 D44/D45 修订） | `docs/specs/2026-08-26-C1-capacitor-shell-design.md` |
 | C1 实施计划 | ✅ 用户已确认（已按 D44/D45 修订为 6 个 Task） | `docs/plans/2026-08-26-C1-capacitor-shell.md` |
 | 业务代码 | ✅ B1 及之前已提交（本地，未推送） | 薄 SDK Adapter + Session Core + Channel/Transport + 配对与测试客户端 + Mobile Web（B1 新增列表/详情/Markdown/占位） |
 
 ## 4. 下一步
 
-1. 开展 B2 设计：结构化 Thinking/Tool 事件、审批与取消（需改协议，按硬约束 11 先核对三端可实现性并记入 `DECISIONS.md`）；
+1. 完成 B2 设计：结构化 Thinking/Tool 事件、审批、AskUserQuestion 与取消；用户确认后编写实施计划（需改协议，按硬约束 11 先核对三端可实现性并记入 `DECISIONS.md`）；
 2. 安装 JDK 与 Android SDK（Apple Silicon 选 arm64-v8a 镜像），作为 C1 环境前置；
 3. 按 `docs/plans/2026-08-26-C1-capacitor-shell.md` 执行 Task 1→6；
 4. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
