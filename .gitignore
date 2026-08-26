@@ -49,4 +49,28 @@ coverage/
 *.pem
 *.key
 
+# Capacitor 原生工程（C1）：本机路径、依赖缓存与 Web 同步产物
+# webDir 同步副本（cap sync 从 dist 拷入，不得入库）
+apps/mobile/ios/App/App/public/
+apps/mobile/android/app/src/main/assets/public/
+# iOS 本机产物
+apps/mobile/ios/App/Pods/
+apps/mobile/ios/App/Podfile.lock
+apps/mobile/ios/DerivedData/
+apps/mobile/ios/**/xcuserdata/
+# Android 本机产物（local.properties 包含本机 SDK 绝对路径）
+apps/mobile/android/local.properties
+apps/mobile/android/.gradle/
+apps/mobile/android/build/
+apps/mobile/android/app/build/
+apps/mobile/android/captures/
+
+# 平台签名与描述文件
+*.keystore
+*.jks
+*.p12
+*.p8
+*.mobileprovision
+*.cer
+
 .qoder/
