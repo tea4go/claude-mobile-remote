@@ -4,19 +4,19 @@
 
 ## 0. 一句话现状
 
-A1–A5.2 已完成并提交；A6 的代码、双机说明、自动门禁和 Windows 机器 B 人工跨机器门禁均已完成。
+A1–A6 已完成并提交；B1 设计与实施计划已由用户确认并提交，下一步进入 B1 代码实施。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：A6 局域网跨机器桌面浏览器联调（收尾）
-- **当前任务**：A6 Task 5 已完成，保留 A6 门禁记录并交接到 B1/C1 阶段准备。
-- **范围**：创建 `docs/testing/A6-result.md`，更新 `HANDOFF.md`，复核文档不含真实 IP、`sessionId`、Pair Token 或用户会话内容；不修改业务代码、协议、状态、配对负载、SDK 或后期功能，不执行 Git 写操作。
-- **通过条件**：准确记录既有自动门禁与用户确认的错误凭证、首轮手机发送、PC→浏览器同步、多入口 FIFO、刷新重连结果；明确 A6 只证明局域网跨机器桌面浏览器闭环，不外推到手机、VPN、Capacitor、安全存储、移动生命周期或 Relay；最终差异和凭证检查通过。
-- **状态**：用户已反馈 A6 人工清单全部通过；`docs/testing/A6-result.md` 已创建；文档差异、凭证字面量和 `git diff --check` 复核通过。A6 不外推到手机、VPN、Capacitor、安全存储、移动生命周期或 Relay。
+- **子阶段**：B1 消息与移动 UI（实施）
+- **当前任务**：B1 实施计划已复核并提交，开始按 Task 1→5 实施 Mobile Web 列表、导航、Markdown 与状态展示。
+- **范围**：实现浏览器内存 Session 列表（含本地重命名）、列表/详情导航、单 WebSocket 约束、Markdown/代码块和 Session/Turn/来源/错误状态；Thinking/Tool 只做只读占位，不接入真实数据，结构化协议扩展留到 B2；不改变 Go 代码、协议 envelope、状态模型、配对负载和 Pair Token 存储边界；不实现 B2 审批/AskUserQuestion/取消，不实现 C1 原生能力。
+- **通过条件**：Store/列表/导航/Markdown 定向测试与既有 A5–A5.2 回归全部通过；`npm test`、`npm run lint`、`npm run build` 通过；`apps/mobile/src/protocol/types.ts` 与 Go 协议未被修改；人工浏览器验收覆盖多 Session、重命名、切换单连接、Markdown、状态、刷新边界且无审批控件；无 Pair Token、真实 `sessionId`、会话内容或构建产物入库。
+- **状态**：B1 设计与实施计划复核完成并已提交（修正：移除计划中的外部 sub-skill 指令、补齐设计中已确认的“本地重命名”覆盖、更新参考图章节与文档状态）。参考图 5 张已确认为模拟数据。尚未开始代码实施。
 
 ## 1. 当前目标
 
-下一阶段准备 B1 消息与移动 UI、C1 Capacitor 工程与原生能力；两者可并行设计，C2 仍依赖 C1 与 B2。
+B1 实施：为 Mobile Web 增加页面内存 Session 列表、列表/详情导航与更完整的消息展示；C1 作为可并行子项目暂不展开。
 
 ```text
 机器 A：PC 输入 ──> Session Controller ──> Claude
@@ -79,12 +79,14 @@ A1–A5.2 已完成并提交；A6 的代码、双机说明、自动门禁和 Win
 | A5.2 门禁记录 | ⚠️ 自动门禁与人工验收通过；真实 Claude 门禁仅部分通过（额度受限） | `docs/testing/A5.2-result.md` |
 | A6 实施计划 | ✅ 已执行 / A6 门禁通过 | `docs/plans/2026-08-26-A6-lan-cross-machine-browser.md` |
 | A6 门禁记录 | ✅ 自动门禁与用户双机人工验收通过 | `docs/testing/A6-result.md` |
+| B1 分阶段设计 | ✅ 用户已确认 | `docs/specs/2026-08-26-B1-mobile-ui-design.md` |
+| B1 实施计划 | ✅ 已复核并提交，待执行 | `docs/plans/2026-08-26-B1-mobile-ui.md` |
 | 业务代码 | ✅ A5.2 及之前已提交（本地，未推送） | 薄 SDK Adapter + Session Core + Channel/Transport + 配对与测试客户端 + Mobile Web |
 
 ## 4. 下一步
 
-1. 开始 B1 消息渲染与已配对 Session 列表的设计准备；
-2. 并行开始 C1 Capacitor iOS/Android 工程、扫码、安全存储和平台网络配置的设计准备；
+1. 按 `docs/plans/2026-08-26-B1-mobile-ui.md` 执行 Task 1→5，完成 B1 代码实施与门禁；
+2. B1 门禁通过后再展开 B2 结构化 Thinking/Tool、审批与取消设计；C1 Capacitor 工程可并行准备；
 3. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
 4. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
 5. SDK `WithSessionID` 发布正式版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`。
