@@ -8,6 +8,7 @@ describe('SessionStatus', () => {
       <SessionStatus
         connection="connected"
         sessionStatus="ready"
+        sessionError={null}
         turnStatus="running"
         queueDepthHint={0}
       />,
@@ -23,6 +24,7 @@ describe('SessionStatus', () => {
       <SessionStatus
         connection="connected"
         sessionStatus="ready"
+        sessionError={null}
         turnStatus="idle"
         queueDepthHint={3}
       />,
@@ -35,10 +37,41 @@ describe('SessionStatus', () => {
       <SessionStatus
         connection="disconnected"
         sessionStatus="ready"
+        sessionError={null}
         turnStatus="idle"
         queueDepthHint={0}
       />,
     )
     expect(screen.getByText('已断开')).toBeInTheDocument()
+  })
+})
+
+describe('SessionStatus：会话错误（B1）', () => {
+  test('会话失败时展示错误原因', () => {
+    render(
+      <SessionStatus
+        connection="connected"
+        sessionStatus="failed"
+        sessionError={{ code: 'internal', message: 'claude 进程退出' }}
+        turnStatus="idle"
+        queueDepthHint={0}
+      />,
+    )
+    expect(screen.getByText('会话：失败')).toBeInTheDocument()
+    expect(screen.getByText(/claude 进程退出/)).toBeInTheDocument()
+  })
+
+  test('无会话错误时不展示错误行', () => {
+    const { container } = render(
+      <SessionStatus
+        connection="connected"
+        sessionStatus="stopped"
+        sessionError={null}
+        turnStatus="idle"
+        queueDepthHint={0}
+      />,
+    )
+    expect(screen.getByText('会话：已停止')).toBeInTheDocument()
+    expect(container.textContent).not.toContain('原因')
   })
 })

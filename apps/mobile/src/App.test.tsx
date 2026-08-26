@@ -251,8 +251,8 @@ describe('App：断线与重连', () => {
   })
 })
 
-describe('App：更换配对', () => {
-  test('清除 Fragment、关闭连接并返回输入页', async () => {
+describe('App：返回列表', () => {
+  test('清除 Fragment、关闭连接并保留列表记录', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
     const socket = FakeWebSocket.instances[0]!
@@ -261,10 +261,125 @@ describe('App：更换配对', () => {
       expect(screen.getByText('已连接')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '更换配对' }))
-    expect(screen.getByText('连接 Claude 会话')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('返回'))
+
+    expect(screen.getByText('会话列表')).toBeInTheDocument()
+    expect(screen.getByTestId('session-list-item')).toBeInTheDocument()
     expect(window.location.hash).toBe('')
     expect(socket.closed).toBe(true)
+  })
+
+  test('从列表再进入会重新连接同一 Session', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    completeHandshake(FakeWebSocket.instances[0]!)
+    await waitFor(() => {
+      expect(screen.getByText('已连接')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '进入' }))
+
+    await waitFor(() => {
+      expect(FakeWebSocket.instances).toHaveLength(2)
+    })
+    completeHandshake(FakeWebSocket.instances[1]!)
+    await waitFor(() => {
+      expect(screen.getByText('已连接')).toBeInTheDocument()
+    })
+  })
+})
+
+describe('App：单连接生命周期', () => {
+  test('切换到第二个 Session 先关闭第一个再连接', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const first = FakeWebSocket.instances[0]!
+    completeHandshake(first)
+    await waitFor(() => {
+      expect(screen.getByText('已连接')).toBeInTheDocument()
+    })
+
+    // 返回列表后新增第二个配对。
+    fireEvent.click(screen.getByText('返回'))
+    expect(first.closed).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: JSON.stringify({ ...PAIRING, sessionId: 'session-2' }) },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '连接' }))
+
+    await waitFor(() => {
+      expect(FakeWebSocket.instances).toHaveLength(2)
+    })
+    // 任意时刻只有一个未关闭连接。
+    expect(FakeWebSocket.instances.filter((s) => !s.closed)).toHaveLength(1)
+
+    fireEvent.click(screen.getByText('返回'))
+
+    // 两个 Session 都在列表中，且都已断开。
+    expect(screen.getAllByTestId('session-list-item')).toHaveLength(2)
+    expect(FakeWebSocket.instances.filter((s) => !s.closed)).toHaveLength(0)
+  })
+
+  test('同一 sessionId 重新配对后列表不重复', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    completeHandshake(FakeWebSocket.instances[0]!)
+    await waitFor(() => {
+      expect(screen.getByText('已连接')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: JSON.stringify(PAIRING) } })
+    fireEvent.click(screen.getByRole('button', { name: '连接' }))
+    await waitFor(() => {
+      expect(FakeWebSocket.instances).toHaveLength(2)
+    })
+    fireEvent.click(screen.getByText('返回'))
+
+    expect(screen.getAllByTestId('session-list-item')).toHaveLength(1)
+  })
+
+  test('删除列表记录后回到配对页', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    completeHandshake(FakeWebSocket.instances[0]!)
+    await waitFor(() => {
+      expect(screen.getByText('已连接')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    // 列表为空时直接回到配对输入页。
+    expect(screen.getByText('连接 Claude 会话')).toBeInTheDocument()
+  })
+})
+
+describe('App：刷新边界', () => {
+  test('无 Fragment 时列表为空，不恢复任何记录', () => {
+    window.location.hash = ''
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+
+    expect(screen.getByText('连接 Claude 会话')).toBeInTheDocument()
+    expect(screen.queryByTestId('session-list-item')).not.toBeInTheDocument()
+    expect(FakeWebSocket.instances).toHaveLength(0)
+  })
+
+  test('详情页 Fragment 只恢复当前 Session，不恢复其他记录与旧消息', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    completeHandshake(FakeWebSocket.instances[0]!)
+    await waitFor(() => {
+      expect(screen.getByText('已连接')).toBeInTheDocument()
+    })
+
+    // 只有 Fragment 中的这一个会话，且消息流为空（不做 replay）。
+    expect(screen.getByTestId('message-feed').textContent).toBe('')
+    fireEvent.click(screen.getByText('返回'))
+    expect(screen.getAllByTestId('session-list-item')).toHaveLength(1)
   })
 })
 
@@ -287,7 +402,8 @@ describe('App：unauthorized 配对失效', () => {
       expect(screen.getByText(/配对已失效/)).toBeInTheDocument()
     })
     expect(screen.queryByRole('button', { name: '重新连接' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '更换配对' })).toBeInTheDocument()
+    // 配对失效后通过返回列表重新配对。
+    expect(screen.getByText('返回')).toBeInTheDocument()
   })
 
   test('已连接后配对失效会禁用发送并标记 pending 结果未知', async () => {

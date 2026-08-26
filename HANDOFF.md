@@ -4,19 +4,19 @@
 
 ## 0. 一句话现状
 
-A1–A6 已完成并提交；B1 设计与实施计划已确认并提交；C1 设计与实施计划已按 D44/D45 修订并确认，之后 B1 与 C1 可并行实施。
+A1–A6 已提交；B1 已完成并通过门禁（自动化 14 files / 240 tests / lint 0 / build 通过 + 用户浏览器人工验收通过）；C1 待 JDK/Android SDK 安装后推进。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：C1 Capacitor 工程接入（设计与实施计划修订）
-- **当前任务**：按用户确认的两项决策修订 C1 设计与实施计划，并修正复核提出的问题；不进入代码实现。
-- **范围**：新增 D44（C1 交付三项：平台工程、Web 接入、局域网明文放行；扫码与安全存储移入 C2，取消 C1.1）与 D45（原生应用标识）；同步更新 `REQUIREMENTS.md` 阶段职责与风险行、根 `.gitignore` 原生产物忽略规则、C1 设计与实施计划（.gitignore 任务、ATS/cleartext、开发态 `server.url`、构建脚本、同步重现步骤、依赖版本锁定、Android SDK 前置）；不修改协议、状态模型、配对负载、Go 代码或 `apps/mobile/src`，不执行 Git 写操作。
-- **通过条件**：不存在独立的 C1.1 阶段；REQUIREMENTS 与 C1 设计对 ATS/cleartext、扫码、安全存储的阶段归属一致；计划存在创建 `.gitignore` 规则的实际步骤而非只做检查；`android/local.properties` 与两个 `public/` 同步目录已被忽略；设计/计划/HANDOFF 对 Android SDK 与文档状态的表述一致；无悬空承诺（构建脚本、不可执行步骤）。
-- **状态**：已完成修订并经用户确认，待进入实施。已执行：新增 D44/D45；`REQUIREMENTS.md` 步骤图、§9.2 阶段表与 WebView 风险行更新；根 `.gitignore` 新增原生产物与签名文件规则（已用 `git check-ignore -v` 验证四条代表路径命中、`apps/mobile/public/favicon.svg` 未误伤）；C1 设计新增 §4.1 开发态 live reload、重写 §6.1 平台网络策略、§7 新增验证项与 §7.1 环境前置；C1 计划由 5 个 Task 扩为 6 个（新增 Task 4 “放行局域网明文并验证壳内连通”）；同步修正 B1、A6 验证记录和简化路线中的 C1 旧职责表述。尚未开始 C1 代码实施。B1 已提交。
+- **子阶段**：B1 消息与移动 UI（已完成）
+- **当前任务**：B1 Task 1–5 全部完成，自动化门禁与人工浏览器验收均通过，记录见 `docs/testing/B1-result.md`。
+- **范围**：新增 `apps/mobile/src/session/store.ts`、`components/SessionList.tsx`、`components/SessionDetail.tsx`、`components/MessageMarkdown.tsx`、`components/StructuredBlockPlaceholder.tsx` 及各自测试；修改 `App.tsx`、`MessageFeed.tsx`、`SessionStatus.tsx` 与对应测试；Markdown 依赖只装 `react-markdown@10.1.0` + `remark-gfm@4.0.1`（实测 `rehype-sanitize` 冗余，未装）。
+- **通过条件**：均已达成 —— `npm test && npm run lint && npm run build` 全通过（14 files / 240 tests / 0 warning / 390 kB gzip 121 kB）；A5/A5.1/A5.2 既有测试零回归；`apps/mobile/src/protocol/types.ts` 与 Go 端无改动；Markdown 不启用 raw HTML 且 `javascript:` 链接不产生可执行 href；任意时刻只有一个活动 `ProtocolClient`；Thinking/Tool 仅为只读占位、不发送 command。
+- **状态**：已完成。下一子阶段为 B2（结构化 Thinking/Tool、审批与取消）；C1 因 JDK/Android SDK 尚未安装，保持环境前置。
 
 ## 1. 当前目标
 
-B1 进入代码实施；C1 并行完成 Capacitor iOS/Android 工程创建、现有 React/Vite Web UI 接入与局域网明文放行。
+B1 已完成；下一步要么开展 B2 结构化 Thinking/Tool 与审批/取消设计，要么安装 JDK/Android SDK 后推进 C1 Capacitor 工程。
 
 ```text
 机器 A：PC 输入 ──> Session Controller ──> Claude
@@ -80,20 +80,21 @@ B1 进入代码实施；C1 并行完成 Capacitor iOS/Android 工程创建、现
 | A6 实施计划 | ✅ 已执行 / A6 门禁通过 | `docs/plans/2026-08-26-A6-lan-cross-machine-browser.md` |
 | A6 门禁记录 | ✅ 自动门禁与用户双机人工验收通过 | `docs/testing/A6-result.md` |
 | B1 分阶段设计 | ✅ 用户已确认 | `docs/specs/2026-08-26-B1-mobile-ui-design.md` |
-| B1 实施计划 | ✅ 已复核并提交，待执行 | `docs/plans/2026-08-26-B1-mobile-ui.md` |
+| B1 实施计划 | ✅ Task 1–5 已执行 | `docs/plans/2026-08-26-B1-mobile-ui.md` |
+| B1 门禁记录 | ✅ 自动门禁与用户人工验收通过 | `docs/testing/B1-result.md` |
 | C1 分阶段设计 | ✅ 用户已确认（已按 D44/D45 修订） | `docs/specs/2026-08-26-C1-capacitor-shell-design.md` |
 | C1 实施计划 | ✅ 用户已确认（已按 D44/D45 修订为 6 个 Task） | `docs/plans/2026-08-26-C1-capacitor-shell.md` |
-| 业务代码 | ✅ A5.2 及之前已提交（本地，未推送） | 薄 SDK Adapter + Session Core + Channel/Transport + 配对与测试客户端 + Mobile Web |
+| 业务代码 | ✅ B1 及之前已提交（本地，未推送） | 薄 SDK Adapter + Session Core + Channel/Transport + 配对与测试客户端 + Mobile Web（B1 新增列表/详情/Markdown/占位） |
 
 ## 4. 下一步
 
-1. 按 `docs/plans/2026-08-26-B1-mobile-ui.md` 执行 Task 1→5，完成 B1 代码实施与门禁；
+1. 开展 B2 设计：结构化 Thinking/Tool 事件、审批与取消（需改协议，按硬约束 11 先核对三端可实现性并记入 `DECISIONS.md`）；
 2. 安装 JDK 与 Android SDK（Apple Silicon 选 arm64-v8a 镜像），作为 C1 环境前置；
-3. 按 `docs/plans/2026-08-26-C1-capacitor-shell.md` 执行 Task 1→6，C1 与 B1 可并行；
-5. B1 门禁通过后再展开 B2 结构化 Thinking/Tool、审批与取消设计；
-6. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
-7. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
-8. SDK `WithSessionID` 发布正式版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`。
+3. 按 `docs/plans/2026-08-26-C1-capacitor-shell.md` 执行 Task 1→6；
+4. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
+5. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
+6. 行内代码当前为 `wordBreak: 'break-all'`，会在任意字符处切断标识符（见 B1-result §8.3），待确认是否改为 `break-word`；
+7. SDK `WithSessionID` 发布正式版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`。
 
 ## 5. 首期关键验证
 

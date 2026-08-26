@@ -113,3 +113,32 @@ describe('MessageFeed', () => {
     expect(screen.getByText(/boom/)).toBeInTheDocument()
   })
 })
+
+describe('MessageFeed：Markdown 渲染边界（B1）', () => {
+  test('Claude 文本按 Markdown 渲染列表与代码块', () => {
+    const messages: Message[] = [claude({ text: '- 步骤一\n- 步骤二\n\n```go\nfmt.Println(1)\n```' })]
+    const { container } = render(<MessageFeed messages={messages} />)
+    expect(container.querySelectorAll('li')).toHaveLength(2)
+    expect(container.querySelector('pre code')?.textContent).toContain('fmt.Println(1)')
+  })
+
+  test('Claude 文本中的恶意 HTML 不进入 DOM', () => {
+    const messages: Message[] = [claude({ text: '<img src=x onerror="x()"><script>x()</script>' })]
+    const { container } = render(<MessageFeed messages={messages} />)
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('script')).toBeNull()
+  })
+
+  test('输入消息保持纯文本，不解析 Markdown', () => {
+    const messages: Message[] = [input({ text: '**不要加粗** 和 `不要代码`' })]
+    const { container } = render(<MessageFeed messages={messages} />)
+    expect(container.querySelector('strong')).toBeNull()
+    expect(container.querySelector('code')).toBeNull()
+    expect(container.textContent).toContain('**不要加粗** 和 `不要代码`')
+  })
+
+  test('空 Claude 文本不渲染消息气泡', () => {
+    const { container } = render(<MessageFeed messages={[claude({ text: '' })]} />)
+    expect(container.querySelector('p')).toBeNull()
+  })
+})
