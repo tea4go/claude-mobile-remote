@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- C1 局域网调试与 VPN 直连放行明文（D44）。
+     Android 的 Network Security Config 无法按 IP 网段精确限定 cleartext，
+     且产品路径不存在公网明文入口（后期 Relay 走 WSS，见 D43），
+     故以 base-config 放行明文；公网 HTTPS 始终不受此配置影响。 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
