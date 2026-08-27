@@ -24,6 +24,11 @@ type Config struct {
 	AuthTimeout    time.Duration
 	CloseTimeout   time.Duration
 	ReadLimit      int64
+	// ServiceConfig gates which resolutions a remote client may even express.
+	// It must stay identical to the value handed to session.WithServiceConfig:
+	// the transport only pre-validates, the Controller still owns the verdict,
+	// so a divergence would surface as a rejection the UI cannot explain.
+	ServiceConfig projectsession.ServiceConfig
 }
 
 func DefaultConfig() Config {
@@ -33,6 +38,7 @@ func DefaultConfig() Config {
 		AuthTimeout:    5 * time.Second,
 		CloseTimeout:   time.Second,
 		ReadLimit:      int64(projectsession.MaxPromptBytes + 64*1024),
+		ServiceConfig:  projectsession.DefaultServiceConfig(),
 	}
 }
 

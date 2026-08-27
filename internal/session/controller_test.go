@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -72,21 +73,32 @@ func (turn *controlledTurn) finish(t *testing.T, err error) {
 type controlledHost struct {
 	connectErr     error
 	closeErr       error
+	interruptErr   error
 	started        chan *controlledTurn
 	connectEntered chan struct{}
 	connectRelease <-chan struct{}
 	closeEntered   chan struct{}
 	closeRelease   <-chan struct{}
+	// actions is the unbuffered side channel the Adapter uses to hand pending
+	// interactions to the Controller, mirroring B2 §3.4.
+	actions         chan *projectclaude.ActionRequest
+	interruptCalled chan struct{}
 
-	mu               sync.Mutex
-	active           int
-	maxActive        int
-	closeCalls       int
-	closeEnteredOnce sync.Once
+	mu                   sync.Mutex
+	active               int
+	maxActive            int
+	closeCalls           int
+	interrupts           int
+	closeEnteredOnce     sync.Once
+	interruptEnteredOnce sync.Once
 }
 
 func newControlledHost() *controlledHost {
-	return &controlledHost{started: make(chan *controlledTurn)}
+	return &controlledHost{
+		started:         make(chan *controlledTurn),
+		actions:         make(chan *projectclaude.ActionRequest),
+		interruptCalled: make(chan struct{}),
+	}
 }
 
 func (host *controlledHost) Connect(ctx context.Context) error {
@@ -153,10 +165,54 @@ func (host *controlledHost) Close() error {
 	return host.closeErr
 }
 
+func (host *controlledHost) Actions() <-chan *projectclaude.ActionRequest {
+	return host.actions
+}
+
+func (host *controlledHost) Interrupt(context.Context) error {
+	host.mu.Lock()
+	host.interrupts++
+	host.mu.Unlock()
+	host.interruptEnteredOnce.Do(func() {
+		close(host.interruptCalled)
+	})
+	return host.interruptErr
+}
+
 func (host *controlledHost) counts() (maxActive, closeCalls int) {
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	return host.maxActive, host.closeCalls
+}
+
+func (host *controlledHost) interruptCount() int {
+	host.mu.Lock()
+	defer host.mu.Unlock()
+	return host.interrupts
+}
+
+// requestAction hands one pending interaction to the Controller the same way a
+// blocked permission callback would, then returns the request so the test can
+// observe the decision that travels back down the side channel.
+func (host *controlledHost) requestAction(t *testing.T, spec projectclaude.ActionSpec) *projectclaude.ActionRequest {
+	t.Helper()
+	request := projectclaude.NewActionRequest(spec)
+	select {
+	case host.actions <- request:
+		return request
+	case <-time.After(controllerTestTimeout):
+		t.Fatal("timed out handing an action request to the Controller")
+		return nil
+	}
+}
+
+func (host *controlledHost) awaitInterrupt(t *testing.T) {
+	t.Helper()
+	select {
+	case <-host.interruptCalled:
+	case <-time.After(controllerTestTimeout):
+		t.Fatal("timed out waiting for the SDK Interrupt call")
+	}
 }
 
 func receiveControlledTurn(t *testing.T, host *controlledHost) *controlledTurn {
@@ -1456,7 +1512,9 @@ func TestControllerRejectsZeroSubscriptionCapacity(t *testing.T) {
 	controller := startController(t, host, withRequestIDGenerator(monotonicRequestIDs()))
 
 	snapshot, events, err := controller.Subscribe(context.Background(), 0)
-	if !errors.Is(err, ErrInvalidInput) || events != nil || snapshot != (Snapshot{}) {
+	// Snapshot carries a queuedRequests slice since B2, so the zero value has to
+	// be compared structurally rather than with ==.
+	if !errors.Is(err, ErrInvalidInput) || events != nil || !reflect.DeepEqual(snapshot, Snapshot{}) {
 		t.Fatalf("Subscribe(capacity 0) = %#v, %#v, %v, want zero Snapshot, nil events, ErrInvalidInput", snapshot, events, err)
 	}
 
@@ -2087,5 +2145,650 @@ func TestControllerReservedSessionIDRejectsMismatchedMobileInput(t *testing.T) {
 		SessionID: "session-other", Source: InputMobile, Text: "wrong target",
 	}); !errors.Is(err, ErrSessionMismatch) {
 		t.Fatalf("Submit(mismatched mobile) error = %v, want ErrSessionMismatch", err)
+	}
+}
+
+// activeSession is a Controller that already runs one confirmed Turn, which is
+// the only state in which a pending action can exist.
+type activeSession struct {
+	controller *Controller
+	host       *controlledHost
+	turn       *controlledTurn
+	events     <-chan Event
+	requestID  string
+}
+
+func startActiveSession(t *testing.T, options ...Option) *activeSession {
+	t.Helper()
+	host := newControlledHost()
+	controller := startController(t, host, append([]Option{withRequestIDGenerator(monotonicRequestIDs())}, options...)...)
+
+	// The subscription must outlive every wait below, so it cannot borrow the
+	// short-lived per-call context helpers.
+	subscriptionContext, cancelSubscription := context.WithCancel(context.Background())
+	t.Cleanup(cancelSubscription)
+	_, events, err := controller.Subscribe(subscriptionContext, 64)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v, want nil", err)
+	}
+
+	requestID, err := submitTerminal(t, controller, "run the tool")
+	if err != nil {
+		t.Fatalf("Submit() error = %v, want nil", err)
+	}
+	turn := receiveControlledTurn(t, host)
+	turn.emitAndWaitForDelivery(t, projectclaude.Event{
+		Kind: projectclaude.EventSessionStarted, SessionID: "session-1",
+	})
+	if event := receiveDomainEvent(t, events); event.Kind != EventSessionStarted {
+		t.Fatalf("first event = %q, want session_started", event.Kind)
+	}
+	if event := receiveDomainEvent(t, events); event.Kind != EventTurnStarted {
+		t.Fatalf("second event = %q, want turn_started", event.Kind)
+	}
+	return &activeSession{controller: controller, host: host, turn: turn, events: events, requestID: requestID}
+}
+
+func approvalSpec(toolName, preview string, allowSession bool) projectclaude.ActionSpec {
+	return projectclaude.ActionSpec{
+		Kind:                  projectclaude.ActionToolApproval,
+		ToolName:              toolName,
+		Preview:               preview,
+		AllowSessionAvailable: allowSession,
+	}
+}
+
+func questionSpec(questions ...projectclaude.Question) projectclaude.ActionSpec {
+	return projectclaude.ActionSpec{
+		Kind:      projectclaude.ActionAskUserQuestion,
+		ToolName:  AskUserQuestionToolName,
+		Questions: questions,
+	}
+}
+
+func choiceQuestion(header, prompt string, multiSelect bool, labels ...string) projectclaude.Question {
+	options := make([]projectclaude.QuestionOption, 0, len(labels))
+	for _, label := range labels {
+		options = append(options, projectclaude.QuestionOption{Label: label})
+	}
+	return projectclaude.Question{
+		Header:      header,
+		Question:    prompt,
+		InputType:   projectclaude.QuestionChoice,
+		MultiSelect: multiSelect,
+		Options:     options,
+	}
+}
+
+func awaitDecision(t *testing.T, request *projectclaude.ActionRequest) projectclaude.ActionDecision {
+	t.Helper()
+	select {
+	case decision := <-request.Decision():
+		return decision
+	case <-time.After(controllerTestTimeout):
+		t.Fatal("timed out waiting for the Controller action decision")
+		return projectclaude.ActionDecision{}
+	}
+}
+
+func assertNoDecision(t *testing.T, request *projectclaude.ActionRequest) {
+	t.Helper()
+	select {
+	case decision := <-request.Decision():
+		t.Fatalf("unexpected action decision: %+v", decision)
+	case <-time.After(25 * time.Millisecond):
+	}
+}
+
+func awaitActionRequired(t *testing.T, session *activeSession, spec projectclaude.ActionSpec) (*projectclaude.ActionRequest, Event) {
+	t.Helper()
+	request := session.host.requestAction(t, spec)
+	event := receiveDomainEvent(t, session.events)
+	if event.Kind != EventActionRequired || event.PendingAction == nil {
+		t.Fatalf("event = %#v, want action_required carrying a pending action", event)
+	}
+	return request, event
+}
+
+func resolveAction(t *testing.T, controller *Controller, actionID string, decision ActionDecision, answers []QuestionAnswer) error {
+	t.Helper()
+	ctx, cancel := controllerContext(t)
+	defer cancel()
+	return controller.ResolveAction(ctx, actionID, decision, answers)
+}
+
+func cancelTurn(t *testing.T, controller *Controller, requestID string) error {
+	t.Helper()
+	ctx, cancel := controllerContext(t)
+	defer cancel()
+	return controller.CancelTurn(ctx, requestID)
+}
+
+func cancelQueued(t *testing.T, controller *Controller, requestID string) error {
+	t.Helper()
+	ctx, cancel := controllerContext(t)
+	defer cancel()
+	return controller.CancelQueued(ctx, requestID)
+}
+
+func TestControllerPublishesActionRequired(t *testing.T) {
+	session := startActiveSession(t)
+	_, event := awaitActionRequired(t, session, approvalSpec("Bash", "ls -la /tmp", true))
+
+	if event.RequestID != session.requestID || event.TurnStatus != TurnWaiting {
+		t.Fatalf("event = %#v, want the running request waiting", event)
+	}
+	pending := event.PendingAction
+	if pending.ActionID == "" {
+		t.Fatal("action_required must carry a Controller-assigned actionId")
+	}
+	if pending.RequestID != session.requestID || pending.Kind != ActionToolApproval {
+		t.Fatalf("PendingAction = %#v, want a tool approval on the running Turn", pending)
+	}
+	if pending.ToolName != "Bash" || pending.Preview != "ls -la /tmp" || !pending.AllowSessionAvailable {
+		t.Fatalf("PendingAction = %#v, want the Adapter display fields", pending)
+	}
+
+	// The waiting status and the pending action must become visible together.
+	snapshot := snapshotController(t, session.controller)
+	if snapshot.Turn.Status != TurnWaiting || snapshot.Turn.PendingAction == nil {
+		t.Fatalf("Snapshot.Turn = %#v, want waiting with a pending action", snapshot.Turn)
+	}
+	if snapshot.Turn.PendingAction.ActionID != pending.ActionID {
+		t.Fatalf("Snapshot action ID = %q, want the published %q", snapshot.Turn.PendingAction.ActionID, pending.ActionID)
+	}
+}
+
+func TestControllerResolveActionAllowOnce(t *testing.T) {
+	session := startActiveSession(t)
+	request, event := awaitActionRequired(t, session, approvalSpec("Bash", "ls", true))
+	actionID := event.PendingAction.ActionID
+
+	if err := resolveAction(t, session.controller, actionID, DecisionAllowOnce, nil); err != nil {
+		t.Fatalf("ResolveAction() error = %v, want nil", err)
+	}
+	if decision := awaitDecision(t, request); decision.Kind != projectclaude.DecisionAllowOnce {
+		t.Fatalf("decision = %+v, want allow_once", decision)
+	}
+
+	resolved := receiveDomainEvent(t, session.events)
+	if resolved.Kind != EventActionResolved || resolved.RequestID != session.requestID {
+		t.Fatalf("event = %#v, want action_resolved for the running Turn", resolved)
+	}
+	if resolved.TurnStatus != TurnRunning {
+		t.Fatalf("action_resolved TurnStatus = %q, want running again", resolved.TurnStatus)
+	}
+	if resolved.PendingAction != nil {
+		t.Fatalf("action_resolved must not carry a pending action: %#v", resolved.PendingAction)
+	}
+
+	snapshot := snapshotController(t, session.controller)
+	if snapshot.Turn.Status != TurnRunning || snapshot.Turn.PendingAction != nil {
+		t.Fatalf("Snapshot.Turn = %#v, want running without a pending action", snapshot.Turn)
+	}
+	if err := resolveAction(t, session.controller, actionID, DecisionDeny, nil); !errors.Is(err, ErrActionNotPending) {
+		t.Fatalf("second ResolveAction() error = %v, want ErrActionNotPending", err)
+	}
+}
+
+func TestControllerResolveActionRejectsUnknownAction(t *testing.T) {
+	session := startActiveSession(t)
+	request, event := awaitActionRequired(t, session, approvalSpec("Bash", "ls", true))
+
+	if err := resolveAction(t, session.controller, event.PendingAction.ActionID+"-stale", DecisionAllowOnce, nil); !errors.Is(err, ErrActionNotPending) {
+		t.Fatalf("ResolveAction(stale) error = %v, want ErrActionNotPending", err)
+	}
+	assertNoDecision(t, request)
+	assertNoDomainEvent(t, session.events)
+}
+
+func TestControllerResolveActionRejectsAllowSessionWithoutSuggestions(t *testing.T) {
+	session := startActiveSession(t)
+	request, event := awaitActionRequired(t, session, approvalSpec("Bash", "ls", false))
+
+	if err := resolveAction(t, session.controller, event.PendingAction.ActionID, DecisionAllowSession, nil); !errors.Is(err, ErrInvalidAction) {
+		t.Fatalf("ResolveAction(allow_session) error = %v, want ErrInvalidAction", err)
+	}
+	assertNoDecision(t, request)
+	if snapshot := snapshotController(t, session.controller); snapshot.Turn.PendingAction == nil {
+		t.Fatal("a rejected resolution must leave the action pending")
+	}
+}
+
+func TestControllerResolveActionAnswersQuestions(t *testing.T) {
+	session := startActiveSession(t, WithServiceConfig(ServiceConfig{AskUserTextEnabled: false}))
+	request, event := awaitActionRequired(t, session, questionSpec(
+		choiceQuestion("Framework", "Which framework?", false, "React", "Vue"),
+		choiceQuestion("Targets", "Which targets?", true, "iOS", "Android"),
+	))
+
+	pending := event.PendingAction
+	if len(pending.Questions) != 2 {
+		t.Fatalf("Questions = %#v, want two", pending.Questions)
+	}
+	for index, question := range pending.Questions {
+		if question.QuestionID == "" {
+			t.Fatalf("Questions[%d] has no Controller-assigned questionId", index)
+		}
+	}
+
+	// Answers arrive keyed by questionId in any order; the Adapter decision must
+	// still follow the question order the SDK asked in.
+	err := resolveAction(t, session.controller, pending.ActionID, "", []QuestionAnswer{
+		{QuestionID: pending.Questions[1].QuestionID, Values: []string{"iOS", "Android"}},
+		{QuestionID: pending.Questions[0].QuestionID, Values: []string{"React"}},
+	})
+	if err != nil {
+		t.Fatalf("ResolveAction(answers) error = %v, want nil", err)
+	}
+	decision := awaitDecision(t, request)
+	if decision.Kind != projectclaude.DecisionAnswer {
+		t.Fatalf("decision kind = %q, want answer", decision.Kind)
+	}
+	wantAnswers := [][]string{{"React"}, {"iOS", "Android"}}
+	if !reflect.DeepEqual(decision.Answers, wantAnswers) {
+		t.Fatalf("decision.Answers = %#v, want %#v in question order", decision.Answers, wantAnswers)
+	}
+}
+
+func TestControllerResolveActionRejectsMismatchedShapes(t *testing.T) {
+	approval := startActiveSession(t)
+	approvalRequest, approvalEvent := awaitActionRequired(t, approval, approvalSpec("Bash", "ls", true))
+	answers := []QuestionAnswer{{QuestionID: "q1", Values: []string{"React"}}}
+	if err := resolveAction(t, approval.controller, approvalEvent.PendingAction.ActionID, "", answers); !errors.Is(err, ErrInvalidAction) {
+		t.Fatalf("ResolveAction(answers for approval) error = %v, want ErrInvalidAction", err)
+	}
+	assertNoDecision(t, approvalRequest)
+
+	question := startActiveSession(t)
+	questionRequest, questionEvent := awaitActionRequired(t, question, questionSpec(
+		choiceQuestion("Framework", "Which framework?", false, "React", "Vue"),
+		choiceQuestion("Targets", "Which targets?", false, "iOS", "Android"),
+	))
+	pending := questionEvent.PendingAction
+	if err := resolveAction(t, question.controller, pending.ActionID, DecisionAllowOnce, nil); !errors.Is(err, ErrInvalidAction) {
+		t.Fatalf("ResolveAction(approval for question) error = %v, want ErrInvalidAction", err)
+	}
+	partial := []QuestionAnswer{{QuestionID: pending.Questions[0].QuestionID, Values: []string{"React"}}}
+	if err := resolveAction(t, question.controller, pending.ActionID, "", partial); !errors.Is(err, ErrInvalidAnswer) {
+		t.Fatalf("ResolveAction(partial answers) error = %v, want ErrInvalidAnswer", err)
+	}
+	unknown := []QuestionAnswer{
+		{QuestionID: pending.Questions[0].QuestionID, Values: []string{"React"}},
+		{QuestionID: "q-not-here", Values: []string{"iOS"}},
+	}
+	if err := resolveAction(t, question.controller, pending.ActionID, "", unknown); !errors.Is(err, ErrInvalidAnswer) {
+		t.Fatalf("ResolveAction(unknown question) error = %v, want ErrInvalidAnswer", err)
+	}
+	assertNoDecision(t, questionRequest)
+}
+
+func TestControllerRejectsConcurrentAction(t *testing.T) {
+	session := startActiveSession(t)
+	first, event := awaitActionRequired(t, session, approvalSpec("Bash", "ls", true))
+
+	second := session.host.requestAction(t, approvalSpec("Write", "/etc/hosts", true))
+	decision := awaitDecision(t, second)
+	if decision.Kind != projectclaude.DecisionDeny || decision.Interrupt {
+		t.Fatalf("decision = %+v, want a non-interrupting deny", decision)
+	}
+
+	notice := receiveDomainEvent(t, session.events)
+	if notice.Kind != EventUnsupported || notice.Code != UnsupportedConcurrentAction {
+		t.Fatalf("event = %#v, want unsupported/concurrent_action", notice)
+	}
+	if notice.PendingAction != nil || notice.Block != nil {
+		t.Fatalf("unsupported notice must stay structurally empty: %#v", notice)
+	}
+
+	snapshot := snapshotController(t, session.controller)
+	if snapshot.Turn.PendingAction == nil || snapshot.Turn.PendingAction.ActionID != event.PendingAction.ActionID {
+		t.Fatalf("Snapshot.Turn = %#v, want the first action still pending", snapshot.Turn)
+	}
+	assertNoDecision(t, first)
+}
+
+func TestControllerRejectsFreeTextQuestionWhenDisabled(t *testing.T) {
+	freeText := projectclaude.Question{
+		Header: "Name", Question: "What should it be called?", InputType: projectclaude.QuestionText,
+	}
+
+	disabled := startActiveSession(t)
+	request := disabled.host.requestAction(t, questionSpec(freeText))
+	if decision := awaitDecision(t, request); decision.Kind != projectclaude.DecisionDeny || decision.Interrupt {
+		t.Fatalf("decision = %+v, want a non-interrupting deny", decision)
+	}
+	notice := receiveDomainEvent(t, disabled.events)
+	if notice.Kind != EventUnsupported || notice.Code != UnsupportedTextDisabled {
+		t.Fatalf("event = %#v, want unsupported/text_input_disabled", notice)
+	}
+	if snapshot := snapshotController(t, disabled.controller); snapshot.Turn.PendingAction != nil {
+		t.Fatalf("Snapshot.Turn = %#v, want no pending action", snapshot.Turn)
+	}
+
+	enabled := startActiveSession(t, WithServiceConfig(ServiceConfig{AskUserTextEnabled: true}))
+	allowed, event := awaitActionRequired(t, enabled, questionSpec(freeText))
+	if len(event.PendingAction.Questions) != 1 || event.PendingAction.Questions[0].InputType != QuestionText {
+		t.Fatalf("PendingAction = %#v, want one free-text question", event.PendingAction)
+	}
+	err := resolveAction(t, enabled.controller, event.PendingAction.ActionID, "", []QuestionAnswer{
+		{QuestionID: event.PendingAction.Questions[0].QuestionID, Values: []string{"Aurora"}},
+	})
+	if err != nil {
+		t.Fatalf("ResolveAction(free text) error = %v, want nil", err)
+	}
+	if decision := awaitDecision(t, allowed); !reflect.DeepEqual(decision.Answers, [][]string{{"Aurora"}}) {
+		t.Fatalf("decision.Answers = %#v, want the free-text answer", decision.Answers)
+	}
+}
+
+func TestControllerRejectsMalformedQuestionAction(t *testing.T) {
+	session := startActiveSession(t)
+	// The Adapter reports an empty question list when it cannot render the SDK
+	// payload safely; such an action can never be answered.
+	request := session.host.requestAction(t, questionSpec())
+	if decision := awaitDecision(t, request); decision.Kind != projectclaude.DecisionDeny {
+		t.Fatalf("decision = %+v, want deny", decision)
+	}
+	notice := receiveDomainEvent(t, session.events)
+	if notice.Kind != EventUnsupported || notice.Code != UnsupportedUnknownBlock {
+		t.Fatalf("event = %#v, want unsupported/unknown_block", notice)
+	}
+}
+
+func TestControllerSubmitDuringPendingActionDoesNotDeadlock(t *testing.T) {
+	session := startActiveSession(t)
+	request, event := awaitActionRequired(t, session, approvalSpec("Bash", "ls", true))
+
+	// A blocked permission callback must not stall the actor: queueing, snapshots
+	// and the later resolution all have to keep working (B2 §3.4).
+	queuedID, err := submitTerminal(t, session.controller, "next prompt")
+	if err != nil {
+		t.Fatalf("Submit(during pending action) error = %v, want nil", err)
+	}
+	snapshot := snapshotController(t, session.controller)
+	if snapshot.QueueDepth != 1 || snapshot.Turn.Status != TurnWaiting {
+		t.Fatalf("Snapshot = %#v, want one queued input while waiting", snapshot)
+	}
+	if len(snapshot.QueuedRequests) != 1 || snapshot.QueuedRequests[0].RequestID != queuedID {
+		t.Fatalf("QueuedRequests = %#v, want the newly queued request", snapshot.QueuedRequests)
+	}
+
+	if err := resolveAction(t, session.controller, event.PendingAction.ActionID, DecisionDeny, nil); err != nil {
+		t.Fatalf("ResolveAction() error = %v, want nil", err)
+	}
+	if decision := awaitDecision(t, request); decision.Kind != projectclaude.DecisionDeny || decision.Interrupt {
+		t.Fatalf("decision = %+v, want a non-interrupting deny", decision)
+	}
+	if session.host.interruptCount() != 0 {
+		t.Fatalf("Interrupt called %d times, want 0 for a plain deny", session.host.interruptCount())
+	}
+}
+
+func TestControllerCancelTurnWithPendingActionSkipsInterrupt(t *testing.T) {
+	session := startActiveSession(t)
+	request, _ := awaitActionRequired(t, session, approvalSpec("Bash", "ls", true))
+
+	if err := cancelTurn(t, session.controller, session.requestID); err != nil {
+		t.Fatalf("CancelTurn() error = %v, want nil", err)
+	}
+	// §3.3 case 1: the pending callback is released with Deny{Interrupt:true};
+	// calling SDK Interrupt first would deadlock on the blocked read loop.
+	decision := awaitDecision(t, request)
+	if decision.Kind != projectclaude.DecisionDeny || !decision.Interrupt {
+		t.Fatalf("decision = %+v, want an interrupting deny", decision)
+	}
+	if session.host.interruptCount() != 0 {
+		t.Fatalf("Interrupt called %d times, want 0 while an action was pending", session.host.interruptCount())
+	}
+
+	cancelled := receiveDomainEvent(t, session.events)
+	if cancelled.Kind != EventTurnCompleted || cancelled.TurnStatus != TurnCancelled {
+		t.Fatalf("event = %#v, want a cancelled terminal Turn event", cancelled)
+	}
+	if cancelled.RequestID != session.requestID {
+		t.Fatalf("cancelled event request = %q, want %q", cancelled.RequestID, session.requestID)
+	}
+	waitForTurnCancellation(t, session.turn)
+
+	snapshot := waitForSnapshot(t, session.controller, func(snapshot Snapshot) bool {
+		return snapshot.Turn.PendingAction == nil
+	})
+	if snapshot.Turn.Status != TurnCancelled || snapshot.SessionStatus != SessionReady {
+		t.Fatalf("Snapshot = %#v, want a cancelled Turn on a ready Session", snapshot)
+	}
+	if err := cancelTurn(t, session.controller, session.requestID); !errors.Is(err, ErrTurnNotCancellable) {
+		t.Fatalf("second CancelTurn() error = %v, want ErrTurnNotCancellable", err)
+	}
+}
+
+func TestControllerCancelTurnWithoutPendingActionInterrupts(t *testing.T) {
+	session := startActiveSession(t)
+
+	if err := cancelTurn(t, session.controller, session.requestID); err != nil {
+		t.Fatalf("CancelTurn() error = %v, want nil", err)
+	}
+	// §3.3 case 2: without a pending action nothing blocks the read loop, so the
+	// SDK Interrupt is the only way to stop Claude mid-Turn.
+	session.host.awaitInterrupt(t)
+	cancelled := receiveDomainEvent(t, session.events)
+	if cancelled.Kind != EventTurnCompleted || cancelled.TurnStatus != TurnCancelled {
+		t.Fatalf("event = %#v, want a cancelled terminal Turn event", cancelled)
+	}
+	waitForTurnCancellation(t, session.turn)
+	if snapshot := snapshotController(t, session.controller); snapshot.SessionStatus != SessionReady {
+		t.Fatalf("SessionStatus = %q, want a cancelled Turn to keep the Session ready", snapshot.SessionStatus)
+	}
+	if err := cancelTurn(t, session.controller, "request-unknown"); !errors.Is(err, ErrTurnNotCancellable) {
+		t.Fatalf("CancelTurn(unknown) error = %v, want ErrTurnNotCancellable", err)
+	}
+}
+
+func TestControllerCancelQueuedRemovesRequest(t *testing.T) {
+	session := startActiveSession(t)
+	firstID, err := submitTerminal(t, session.controller, "first queued")
+	if err != nil {
+		t.Fatalf("Submit(first) error = %v, want nil", err)
+	}
+	ctx, cancel := controllerContext(t)
+	defer cancel()
+	secondID, err := session.controller.Submit(ctx, Input{
+		SessionID: "session-1", Source: InputMobile, Text: "second queued",
+	})
+	if err != nil {
+		t.Fatalf("Submit(second) error = %v, want nil", err)
+	}
+
+	if err := cancelQueued(t, session.controller, firstID); err != nil {
+		t.Fatalf("CancelQueued() error = %v, want nil", err)
+	}
+	snapshot := snapshotController(t, session.controller)
+	if snapshot.QueueDepth != 1 || len(snapshot.QueuedRequests) != 1 {
+		t.Fatalf("Snapshot = %#v, want the two FIFO views to agree on one entry", snapshot)
+	}
+	remaining := snapshot.QueuedRequests[0]
+	if remaining.RequestID != secondID || remaining.Source != InputMobile || remaining.Preview != "second queued" {
+		t.Fatalf("QueuedRequests[0] = %#v, want the surviving mobile entry", remaining)
+	}
+
+	if err := cancelQueued(t, session.controller, firstID); !errors.Is(err, ErrRequestNotQueued) {
+		t.Fatalf("CancelQueued(twice) error = %v, want ErrRequestNotQueued", err)
+	}
+	// The running Turn is not a queue entry; it can only be stopped by cancel_turn.
+	if err := cancelQueued(t, session.controller, session.requestID); !errors.Is(err, ErrRequestNotQueued) {
+		t.Fatalf("CancelQueued(running) error = %v, want ErrRequestNotQueued", err)
+	}
+}
+
+func TestControllerStopEndsPendingAction(t *testing.T) {
+	session := startActiveSession(t)
+	request, _ := awaitActionRequired(t, session, approvalSpec("Bash", "ls", true))
+
+	stopCtx, cancelStop := controllerContext(t)
+	defer cancelStop()
+	stopped := make(chan error, 1)
+	go func() { stopped <- session.controller.Stop(stopCtx) }()
+
+	decision := awaitDecision(t, request)
+	if decision.Kind != projectclaude.DecisionDeny || !decision.Interrupt {
+		t.Fatalf("decision = %+v, want an interrupting deny so shutdown can proceed", decision)
+	}
+	if session.host.interruptCount() != 0 {
+		t.Fatalf("Interrupt called %d times, want 0 while an action was pending", session.host.interruptCount())
+	}
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatalf("Stop() error = %v, want nil", err)
+		}
+	case <-time.After(controllerTestTimeout):
+		t.Fatal("Stop() did not finish while an action was pending")
+	}
+	if snapshot := snapshotController(t, session.controller); snapshot.Turn.PendingAction != nil {
+		t.Fatalf("final Snapshot.Turn = %#v, want no pending action", snapshot.Turn)
+	}
+}
+
+func TestControllerTurnFailureEndsPendingAction(t *testing.T) {
+	session := startActiveSession(t)
+	request, _ := awaitActionRequired(t, session, approvalSpec("Bash", "ls", true))
+
+	session.turn.emit(t, projectclaude.Event{
+		Kind: projectclaude.EventTurnFailed, SessionID: "session-1", Text: "Claude API Error",
+	})
+	if decision := awaitDecision(t, request); decision.Kind != projectclaude.DecisionDeny {
+		t.Fatalf("decision = %+v, want deny once the Turn failed", decision)
+	}
+	failed := receiveDomainEvent(t, session.events)
+	if failed.Kind != EventTurnFailed || failed.TurnStatus != TurnFailed {
+		t.Fatalf("event = %#v, want turn_failed", failed)
+	}
+	if failed.PendingAction != nil {
+		t.Fatalf("turn_failed must not carry a pending action: %#v", failed.PendingAction)
+	}
+	if snapshot := snapshotController(t, session.controller); snapshot.Turn.PendingAction != nil {
+		t.Fatalf("Snapshot.Turn = %#v, want no pending action after failure", snapshot.Turn)
+	}
+}
+
+func TestControllerPublishesContentBlocksWithAssignedIDs(t *testing.T) {
+	session := startActiveSession(t)
+	failed := true
+	adapterBlocks := []projectclaude.ContentBlock{
+		{Kind: projectclaude.BlockThinking, Thinking: "weighing the options"},
+		{
+			Kind: projectclaude.BlockToolUse, ToolUseID: "tool-use-1",
+			ToolClass: projectclaude.ToolMCP, MCPServer: "filesystem", ToolName: "read_file",
+		},
+		{Kind: projectclaude.BlockToolResult, ToolUseID: "tool-use-1", IsError: &failed},
+	}
+
+	var previousSeq uint64
+	for index, block := range adapterBlocks {
+		session.turn.emit(t, projectclaude.Event{
+			Kind: projectclaude.EventContentBlock, SessionID: "session-1", Block: &block,
+		})
+		event := receiveDomainEvent(t, session.events)
+		if event.Kind != EventContentBlock || event.Block == nil {
+			t.Fatalf("event %d = %#v, want a content_block carrying a block", index, event)
+		}
+		// The Controller owns seq, so it also owns the display IDs the clients
+		// correlate against (B2 §4.2).
+		wantID := fmt.Sprintf("%s-block-%d", session.requestID, index+1)
+		if event.Block.ID != wantID {
+			t.Fatalf("Block.ID = %q, want %q", event.Block.ID, wantID)
+		}
+		if event.RequestID != session.requestID || event.Source != InputTerminal {
+			t.Fatalf("event %d correlation = %#v, want the current terminal Turn", index, event)
+		}
+		if event.Seq <= previousSeq {
+			t.Fatalf("Seq = %d, want strictly greater than %d", event.Seq, previousSeq)
+		}
+		previousSeq = event.Seq
+		if event.Text != "" || event.PendingAction != nil || event.Code != "" {
+			t.Fatalf("content_block must stay structurally minimal: %#v", event)
+		}
+	}
+
+	if got := adapterBlocks[0]; got.Kind != projectclaude.BlockThinking {
+		t.Fatalf("Adapter block mutated: %#v", got)
+	}
+	snapshot := snapshotController(t, session.controller)
+	if snapshot.Turn.Message != "" || snapshot.Turn.Status != TurnRunning {
+		t.Fatalf("Snapshot.Turn = %#v, want a running Turn with no accumulated text", snapshot.Turn)
+	}
+}
+
+func TestControllerForwardsAdapterUnsupportedNotice(t *testing.T) {
+	session := startActiveSession(t)
+	session.turn.emit(t, projectclaude.Event{
+		Kind: projectclaude.EventUnsupported, SessionID: "session-1",
+		Code: projectclaude.UnsupportedUnknownSubtype,
+	})
+
+	notice := receiveDomainEvent(t, session.events)
+	if notice.Kind != EventUnsupported || notice.Code != UnsupportedUnknownSubtype {
+		t.Fatalf("event = %#v, want unsupported/unknown_subtype", notice)
+	}
+	if notice.RequestID != session.requestID || notice.Block != nil || notice.PendingAction != nil || notice.Text != "" {
+		t.Fatalf("unsupported notice must stay structurally empty: %#v", notice)
+	}
+
+	// A degraded block only drops that one block; the Turn keeps streaming.
+	session.turn.emit(t, projectclaude.Event{
+		Kind: projectclaude.EventText, SessionID: "session-1", Text: "still here",
+	})
+	if event := receiveDomainEvent(t, session.events); event.Kind != EventTextDelta || event.Text != "still here" {
+		t.Fatalf("event = %#v, want the following text delta", event)
+	}
+}
+
+func TestControllerBuffersContentBlocksUntilSessionConfirmed(t *testing.T) {
+	host := newControlledHost()
+	controller := startController(t, host, withRequestIDGenerator(monotonicRequestIDs()))
+	subscriptionContext, cancelSubscription := context.WithCancel(context.Background())
+	t.Cleanup(cancelSubscription)
+	_, events, err := controller.Subscribe(subscriptionContext, 64)
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v, want nil", err)
+	}
+	requestID, err := submitTerminal(t, controller, "run the tool")
+	if err != nil {
+		t.Fatalf("Submit() error = %v, want nil", err)
+	}
+	turn := receiveControlledTurn(t, host)
+
+	// Anything the Adapter emits before Claude confirms the session ID has to wait
+	// for that ID, otherwise clients would see events for a session they cannot
+	// name yet (A5.2 §4).
+	turn.emitAndWaitForDelivery(t, projectclaude.Event{
+		Kind: projectclaude.EventContentBlock, SessionID: "session-1",
+		Block: &projectclaude.ContentBlock{Kind: projectclaude.BlockThinking, Thinking: "early"},
+	})
+	turn.emitAndWaitForDelivery(t, projectclaude.Event{
+		Kind: projectclaude.EventText, SessionID: "session-1", Text: "early text",
+	})
+	assertNoDomainEvent(t, events)
+
+	turn.emitAndWaitForDelivery(t, projectclaude.Event{
+		Kind: projectclaude.EventSessionStarted, SessionID: "session-1",
+	})
+	for _, want := range []EventKind{EventSessionStarted, EventTurnStarted} {
+		if event := receiveDomainEvent(t, events); event.Kind != want {
+			t.Fatalf("event = %q, want %q", event.Kind, want)
+		}
+	}
+	replayed := receiveDomainEvent(t, events)
+	if replayed.Kind != EventContentBlock || replayed.Block == nil || replayed.Block.Thinking != "early" {
+		t.Fatalf("event = %#v, want the buffered content block replayed first", replayed)
+	}
+	if want := fmt.Sprintf("%s-block-1", requestID); replayed.Block.ID != want {
+		t.Fatalf("Block.ID = %q, want %q", replayed.Block.ID, want)
+	}
+	if replayed.SessionID != "session-1" {
+		t.Fatalf("SessionID = %q, want the confirmed session", replayed.SessionID)
+	}
+	if event := receiveDomainEvent(t, events); event.Kind != EventTextDelta || event.Text != "early text" {
+		t.Fatalf("event = %#v, want the buffered text delta in order", event)
 	}
 }

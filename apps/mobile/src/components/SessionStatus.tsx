@@ -34,6 +34,12 @@ const TURN_LABELS: Record<string, string> = {
   failed: '失败',
 }
 
+// 终态横幅文案（B2 §6）：只告知会话已结束，不推测原因。
+const TERMINAL_BANNERS: Record<string, string> = {
+  stopped: '会话已结束，不再接收新输入',
+  failed: '会话已失败，不再接收新输入',
+}
+
 // 状态栈：连接、Session、当前 Turn 与连接时队列提示（D36：不持续展示推断值）。
 // snapshot / session_status 带回的 sessionError 在此展示原因（B1）。
 export default function SessionStatus({
@@ -43,6 +49,9 @@ export default function SessionStatus({
   turnStatus,
   queueDepthHint,
 }: SessionStatusProps) {
+  const terminalBanner =
+    sessionStatus === null ? undefined : TERMINAL_BANNERS[sessionStatus]
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -57,6 +66,21 @@ export default function SessionStatus({
         <Tag>{`Turn：${TURN_LABELS[turnStatus] ?? turnStatus}`}</Tag>
         {queueDepthHint > 0 && <Tag color="warning">连接时有 {queueDepthHint} 条等待任务</Tag>}
       </div>
+      {terminalBanner !== undefined && (
+        <div
+          data-testid="session-terminal-banner"
+          style={{
+            fontSize: 13,
+            color: '#8a5a00',
+            background: '#fff7e6',
+            border: '1px solid #ffe0a3',
+            borderRadius: 6,
+            padding: '6px 8px',
+          }}
+        >
+          {terminalBanner}
+        </div>
+      )}
       {sessionError !== null && (
         <div style={{ fontSize: 12, color: '#e00' }}>会话错误：{sessionError.message}</div>
       )}

@@ -367,6 +367,35 @@ func (f *fakeController) Subscribe(ctx context.Context, capacity int) (projectse
 	return snapshot, events, nil
 }
 
+// B2 扩大命令面后，以下四个方法只为让本 fake 继续满足 channel.Controller；
+// 这里覆盖的运行时装配流程不会发出这些命令。
+func (f *fakeController) Snapshot(context.Context) (projectsession.Snapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.snapshot, nil
+}
+
+func (f *fakeController) ResolveAction(context.Context, string, projectsession.ActionDecision, []projectsession.QuestionAnswer) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "resolve_action")
+	return nil
+}
+
+func (f *fakeController) CancelTurn(context.Context, string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "cancel_turn")
+	return nil
+}
+
+func (f *fakeController) CancelQueued(context.Context, string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "cancel_queued")
+	return nil
+}
+
 func (f *fakeController) WaitIdle(context.Context) (projectsession.Snapshot, error) {
 	f.mu.Lock()
 	f.waitIdleCalls++
@@ -470,13 +499,19 @@ func (turn *runControlledTurn) finish(err error) {
 
 type runControlledHost struct {
 	started chan *runControlledTurn
+	// actions stays empty: these CLI tests never exercise pending interactions,
+	// they only need the Host interface B2 widened.
+	actions chan *projectclaude.ActionRequest
 
 	mu         sync.Mutex
 	closeCalls int
 }
 
 func newRunControlledHost() *runControlledHost {
-	return &runControlledHost{started: make(chan *runControlledTurn)}
+	return &runControlledHost{
+		started: make(chan *runControlledTurn),
+		actions: make(chan *projectclaude.ActionRequest),
+	}
 }
 
 func (host *runControlledHost) Connect(context.Context) error { return nil }
@@ -495,6 +530,10 @@ func (host *runControlledHost) RunTurn(ctx context.Context, _ string, emit func(
 		return ctx.Err()
 	}
 }
+
+func (host *runControlledHost) Actions() <-chan *projectclaude.ActionRequest { return host.actions }
+
+func (host *runControlledHost) Interrupt(context.Context) error { return nil }
 
 func (host *runControlledHost) Close() error {
 	host.mu.Lock()

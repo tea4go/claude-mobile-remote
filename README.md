@@ -49,6 +49,26 @@ cd apps/mobile && npm install && npm run dev
 
 构建与测试：`go test ./...`、`gofmt -l .`（无输出即通过）、`cd apps/mobile && npm run test && npm run build`。注意 `go vet` / `go build` 需加 `GOFLAGS=-buildvcs=false`（go.mod 不入库的副作用，见 D18）。依赖变更时：本地改 `go.mod`，确认后同步更新 `go.mod.base` 提交。
 
+## 使用
+
+### 新建会话（默认）
+
+不传 `--resume` 直接启动即新建一个 Claude 会话：CLI 自动生成 UUID 并预分配给 Claude，Connect 成功后、首个 Turn 前在终端输出配对 JSON（二维码数据）。默认只监听 `127.0.0.1:8765`，跨机器时按下方「A6 局域网跨机器联调」补充 `--listen` / `--advertise-url`。
+
+```bash
+go run ./cmd/claude-mobile-remote
+```
+
+### 恢复已有会话
+
+用 `--resume <sessionId>` 接续电脑上已经存在的 Claude 会话。`sessionId` 必须是合法 UUID（8-4-4-4-12），Claude 端需存在该会话历史，否则 init 时按 Session 失败处理。恢复后手机配对、订阅与消息收发和新建会话完全一致。
+
+```bash
+go run ./cmd/claude-mobile-remote --resume <sessionId>
+```
+
+**恢复 ≠ 接管活跃会话。** `--resume` 只能接续一个当前没有被其他 Claude 进程活跃占用的会话；它不能接管一个正被另一个 Claude Code 进程运行中的会话。每个活跃 Session 始终只有一个 Host 和一个 SDK Client（见 DECISIONS D2 / D39），对活跃会话再开一个 `--resume` Client 属禁止行为，会引发会话冲突。
+
 ## A6 局域网跨机器联调
 
 A6 只验证桌面浏览器跨机器闭环：机器 A 运行 Claude 和 Remote Server，Windows 机器 B 只运行 Mobile Web。两台机器应位于用户信任的同一局域网。

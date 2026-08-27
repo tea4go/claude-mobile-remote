@@ -1,11 +1,15 @@
-// 版本 1 协议类型，字段与 A4 internal/transport/protocol.go 逐字段对应。
+// 版本 2 协议类型，字段与 B2 internal/transport/protocol.go 逐字段对应。
 // 组件不得复制消息定义，一律从本文件导入。
 
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
-// ---- 领域枚举（A3 internal/session/model.go、event.go）----
+// AskUserQuestion 是唯一以问答形态出现的工具名（internal/session/model.go
+// 的 AskUserQuestionToolName）。
+export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
+
+// ---- 领域枚举（B2 internal/session/model.go、event.go）----
 
 export type SessionStatus = 'starting' | 'ready' | 'stopped' | 'failed'
 
@@ -19,6 +23,7 @@ export type TurnStatus =
 
 export type InputSource = 'terminal' | 'mobile'
 
+// unsupported 不是事件 kind：它走独立的 type=unsupported envelope。
 export type EventKind =
   | 'session_started'
   | 'turn_started'
@@ -27,8 +32,94 @@ export type EventKind =
   | 'turn_failed'
   | 'session_failed'
   | 'session_stopped'
+  | 'content_block'
+  | 'action_required'
+  | 'action_resolved'
 
-// ---- envelope（A4 internal/transport/protocol.go）----
+// ---- 结构化内容块（B2 §4.1）----
+
+export type BlockKind = 'thinking' | 'tool_use' | 'tool_result'
+
+export type ToolClass = 'builtin' | 'mcp'
+
+// 按 kind 携带不相交的字段子集；服务端对多余字段一律拒绝。
+export type ContentBlock =
+  | { id: string; kind: 'thinking'; thinking: string }
+  | {
+      id: string
+      kind: 'tool_use'
+      toolUseId: string
+      toolClass: ToolClass
+      toolName: string
+      // 服务端按工具白名单抽取的有限长度展示摘要，不是原始 input。
+      preview?: string
+      // builtin 工具必须为空串，mcp 工具必须非空。
+      mcpServer: string
+    }
+  | { id: string; kind: 'tool_result'; toolUseId: string; isError: boolean }
+
+// ---- 待处理事项（B2 §4.2）----
+
+export type ActionKind = 'tool_approval' | 'ask_user_question'
+
+export type QuestionInputType = 'choice' | 'text'
+
+export interface QuestionOption {
+  label: string
+  description: string
+}
+
+export interface Question {
+  questionId: string
+  header: string
+  question: string
+  inputType: QuestionInputType
+  multiSelect: boolean
+  // choice 必须非空；text 必须为空。
+  options: QuestionOption[]
+}
+
+// pendingAction 只携带展示所需字段：不含工具原始 input、toolClass 或 toolUseId。
+export type PendingAction =
+  | {
+      actionId: string
+      requestId: string
+      kind: 'tool_approval'
+      toolName: string
+      // 白名单抽取的单行预览；未命中白名单时为空串，客户端不得自行拼接。
+      preview: string
+      allowSessionAvailable: boolean
+    }
+  | {
+      actionId: string
+      requestId: string
+      kind: 'ask_user_question'
+      toolName: typeof ASK_USER_QUESTION_TOOL_NAME
+      allowSessionAvailable: boolean
+      questions: Question[]
+    }
+
+// ---- 排队输入（B2 §4.3）----
+
+export interface QueuedRequest {
+  requestId: string
+  source: InputSource
+  preview: string
+}
+
+// ---- 不支持通知（B2 §4.4）----
+
+export type UnsupportedCode =
+  | 'unknown_block'
+  | 'unknown_subtype'
+  | 'concurrent_action'
+  | 'text_input_disabled'
+
+export interface UnsupportedPayload {
+  code: UnsupportedCode
+}
+
+// ---- envelope（B2 internal/transport/protocol.go）----
 
 export type MessageType =
   | 'hello'
@@ -39,11 +130,12 @@ export type MessageType =
   | 'unsubscribed'
   | 'snapshot'
   | 'event'
+  | 'unsupported'
   | 'command'
   | 'command_result'
   | 'error'
 
-// 消息方向表（A4 设计 §5）：客户端→服务端、服务端→客户端。
+// 消息方向表（A4 设计 §5、B2 §4.4）：客户端→服务端、服务端→客户端。
 export const CLIENT_TO_SERVER_TYPES: ReadonlySet<string> = new Set([
   'hello',
   'subscribe',
@@ -57,6 +149,7 @@ export const SERVER_TO_CLIENT_TYPES: ReadonlySet<string> = new Set([
   'unsubscribed',
   'snapshot',
   'event',
+  'unsupported',
   'command_result',
   'error',
 ])
@@ -66,11 +159,6 @@ export interface ErrorInfo {
   message: string
 }
 
-export interface PendingAction {
-  // A3 的 PendingAction 目前为空对象；保留字段以匹配 JSON 形状。
-  [key: string]: never
-}
-
 export interface TurnSnapshot {
   status: TurnStatus
   requestId: string
@@ -78,6 +166,7 @@ export interface TurnSnapshot {
   source: InputSource | ''
   message: string
   error: ErrorInfo | null
+  // 非空时 status 必为 waiting，且 requestId 与 Turn 一致。
   pendingAction: PendingAction | null
 }
 
@@ -87,7 +176,9 @@ export interface SessionSnapshot {
   sessionError: ErrorInfo | null
   seq: number
   turn: TurnSnapshot
+  // 与 queuedRequests.length 恒等；服务端空队列在线上是 null。
   queueDepth: number
+  queuedRequests: QueuedRequest[]
 }
 
 // 领域事件：按 kind 部分携带字段，其余枚举在线上为空字符串（Go 零值
@@ -102,6 +193,9 @@ export interface DomainEvent {
   sessionStatus: SessionStatus | ''
   turnStatus: TurnStatus | ''
   error: ErrorInfo | null
+  // 只有 content_block 携带 block，只有 action_required 携带 pendingAction。
+  block?: ContentBlock
+  pendingAction?: PendingAction
 }
 
 // 传输层 envelope。payload 在解码时按 type 严格校验，这里是未验证的原始值。
@@ -139,14 +233,32 @@ export interface CommandResultPayload {
 export interface ErrorPayload {
   code: string
   message: string
+  // 仅版本不匹配时携带，用于提示客户端需要的版本（B2 §4.5）。
+  expectedVersion?: number
 }
 
-export type CommandKind = 'send_text'
+// ---- 命令（B2 §5）----
 
-export interface CommandPayload {
-  kind: CommandKind
-  text: string
+export type CommandKind =
+  | 'send_text'
+  | 'resolve_action'
+  | 'cancel_turn'
+  | 'cancel_queued'
+
+export type ActionDecision = 'allow_once' | 'allow_session' | 'deny'
+
+export interface QuestionAnswer {
+  questionId: string
+  values: string[]
 }
+
+// 每个 kind 的字段子集互不相交，与 Go validateCommand 一致。
+export type CommandPayload =
+  | { kind: 'send_text'; text: string }
+  | { kind: 'resolve_action'; actionId: string; decision: ActionDecision }
+  | { kind: 'resolve_action'; actionId: string; answers: QuestionAnswer[] }
+  | { kind: 'cancel_turn'; requestId: string }
+  | { kind: 'cancel_queued'; requestId: string }
 
 // 服务端可发送给客户端的消息：envelope 关键字段与已验证的 payload 绑定。
 export type ServerMessage = {
@@ -158,6 +270,7 @@ export type ServerMessage = {
   | { type: 'hello_ack' | 'subscribed' | 'unsubscribed'; payload: Record<string, never> }
   | { type: 'snapshot'; payload: SnapshotPayload }
   | { type: 'event'; payload: EventPayload }
+  | { type: 'unsupported'; payload: UnsupportedPayload }
   | { type: 'command_result'; payload: CommandResultPayload }
   | { type: 'error'; payload: ErrorPayload }
 )

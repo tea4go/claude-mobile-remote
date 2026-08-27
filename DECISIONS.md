@@ -361,3 +361,35 @@
 - **理由**：App ID 影响签名、商店上架、Keychain group 和后续 HarmonyOS 包名规划，属于长期不可逆标识，必须在创建平台工程前固定；沿用 SDK 所属的 `tea4go` 命名空间保持一致。
 - **影响**：标识只用于原生工程与商店分发，不进入 WebSocket envelope、配对负载或三端共用协议；变更 App ID 需重新签名并视为新应用。HarmonyOS NEXT 可使用等价包名，但不复用 Capacitor 工程。
 - **状态**：已定
+
+## D46 · B2 结构化内容、权限交互与取消协议
+
+- **日期**：2026-08-26（用户 2026-08-27 复核收敛范围）
+- **决策**：B2 将协议 envelope 版本升为 2，保留 `version`、`type`、`sessionId`、`commandId`、`requestId`、`seq` 和对象 `payload`。结构化内容事件只有 `thinking`、`tool_use`、`tool_result` 三类；MCP 工具沿用 `tool_use`，工具名符合 `mcp__<server>__<tool>` 时按 WhaleTerm 已验证策略自动放行，不产生 pending action。**`Task` 按普通工具展示**：SDK 无 Task 类 `SystemMessage` subtype（全包仅 `SubtypeInitialize`），B2 不做任务聚合，不下发 `taskId`/`taskStatus`/`taskSummary`/子任务数量/耗时，子代理消息沿用 A2 的 `ParentToolUseID` 过滤不下发。移动端 Tool/MCP/`Task` 只展示标题与状态，Tool 结果只下发关联 ID 与成败状态（**不下发结果正文，也不下发服务端摘要**）；Thinking 与工具项默认折叠。
+- **决策**：工具审批**不下发原始 `input` 对象**，而是由服务端按工具白名单抽取单个字符串 `pendingAction.preview`：`Bash`←`command`，`Read`/`Write`/`Edit`/`NotebookEdit`←`file_path`，`Glob`/`Grep`←`pattern`（有 `path` 时拼为 `<pattern> @ <path>`），`WebFetch`←`url`，`WebSearch`←`query`；未命中白名单、字段缺失或类型不符时不下发 `preview`，客户端只显示工具名；`preview` 按 PC Service 配置上限（默认 200 字符）按 rune 边界截断。回答 SDK 时仍使用服务端保留的未修改原始 `input`。
+- **决策**：`AskUserQuestion` 与工具权限共用 SDK `CanUseTool` 回调，协议支持单选、多选和一次多个问题；Adapter 将客户端答案转换为 SDK `UpdatedInput["answers"]` 所需的扁平 map。**自由文本为条件能力**：WhaleTerm 的 `buildAskUserAnswerInput` 只产出 `options[].label`，无自由文本分支；实施阶段先用真实 CLI 实证非 `label` 字符串能否被接受，通过则启用 `inputType: text`，不通过则 B2 只支持单选/多选、`inputType` 固定 `choice` 作为扩展位。工具审批支持本次允许、本会话允许（仅 SDK Suggestions 非空时）和拒绝；所有 action 使用项目生成的 `actionId`，多个已认证客户端竞争时第一条合法决议成功。
+- **决策**：SDK 权限回调阻塞期间不得调用 `Interrupt`。pending action 的取消先返回 `PermissionResultDeny{Interrupt:true}` 解阻塞，再完成 Turn 取消；无 pending action 时才调用 SDK `Interrupt`。审批超时返回 `Deny{Interrupt:false}`，由 Claude 决定后续行为。当前 Turn 和 FIFO 排队输入分别支持按 `requestId` 取消。权限回调运行在 SDK 读循环 goroutine 而非 `hostWorker`，`internal/session/worker.go` 的无缓冲通道不得用作 action 通路：pending action 上行与决议下行必须走专用旁路通道，并有死锁回归测试。
+- **决策**：Session error/finish 沿用 A3/A4 的 `session_failed` / `session_stopped` 事件与 snapshot，B2 补移动端终态展示；在线客户端实时接收，重连从 snapshot 恢复。系统通知、后台推送和推送 Token 后置，不新增推送专用协议。
+- **决策**：B2 新增**假 Host 桩模式**（实现 `session.Host` 窄接口）按脚本触发 Thinking、工具调用/结果、工具审批、AskUserQuestion、取消和 Session 终态，使自动化测试与人工浏览器门禁不依赖真实 Claude 额度；桩模式不得影响默认运行路径。
+- **决策**：未知或不完整的 SDK block 使用独立 `type=unsupported` 安全事件，仅携带固定 `code`，不作为第四种 `content_block.kind`，不得透传原始 SDK 数据。`ServiceConfig.ToolPreviewMaxRunes` 默认 200；`ServiceConfig.AskUserTextEnabled` 默认关闭，只有 CLI 实证通过后才允许开启自由文本。
+- **理由**：复用 SDK 已验证的权限和消息模型，解决 SDK 单读循环阻塞时的取消竞态；MCP 自动放行与 WhaleTerm 现有行为一致；砍掉无 SDK 数据源的 Task 聚合与无必要的结果摘要、把原始 `input` 换成白名单 `preview`，既压缩 B2 范围又缩小敏感数据下发面；假 Host 桩使门禁可重复执行。
+- **影响**：A4/B1 客户端必须升级到版本 2 才能连接 B2 服务；React/Capacitor 与 HarmonyOS NEXT 均按相同 JSON、状态、action 和取消语义实现，不复制 SDK 私有控制协议；工具结果正文、工具原始 `input`、权限规则原文不进入移动端展示或日志；白名单需随新工具人工维护（未列入则无预览）。Task 进度聚合与任务卡片、工具输入完整下发、结果摘要后置到 B2 之后。B3 复用 B2 action 协议，不重新设计多 Session 或 Remote Server 管理。D46 明确替代 D42 中“自由文本已确认纳入 B2”及 `stale_action` 命名的旧表述，统一以本决策的条件能力和 `action_not_pending` 为准。
+- **状态**：已定
+
+## D48 · B2 Web 结构化消息顺序与工具活动展示
+
+- **日期**：2026-08-27
+- **决策**：移动端 reducer 按事件到达顺序维护 Claude 文本片段与结构化 block 的同一消息流；文本跨越 Thinking/Tool block 时拆成新的文本片段，不再把一个 Turn 的全部文本聚合到工具之后。`tool_use` 与对应 `tool_result` 按 `toolUseId` 合并为一个工具活动，最终状态由结果决定；连续工具活动在展示层归并为一个默认折叠的工具组，文本、Thinking 或输入消息会打断分组。
+- **决策**：`content_block.tool_use` 可携带服务端按既有工具白名单抽取、按 `ToolPreviewMaxRunes` 截断的 `preview`；仍禁止下发原始 `input`、结果正文和服务端摘要。工具标题使用 `工具：<name> ｜ <preview>`，无 preview 时回退为工具名。
+- **理由**：保持 Claude 实际阅读顺序，避免工具执行过程与回复文本割裂；合并调用和结果减少重复信息；连续工具折叠降低长工具链对阅读流的干扰，同时沿用既有敏感数据最小化边界。
+- **影响**：B2 共用协议新增可选 `tool_use.preview`，React Web、Capacitor 与 HarmonyOS NEXT 需按同一字段解码；不新增 SDK 私有字段或完整工具输入。既有 B2 的三类 `content_block.kind`、MCP 自动放行、Task 普通工具展示和结果脱敏规则保持不变。
+- **状态**：已定
+
+## D47 · pending action 的事件对与 FIFO 队列快照字段
+
+- **日期**：2026-08-27
+- **决策**：pending action 的出现与清除使用一对具名事件而非快照差异比较：`action_required` 携带完整 `pendingAction` 且 `turnStatus` 必为 `waiting`，`action_resolved` 不再携带 `pendingAction` 且 `turnStatus` 回到 `running`；两者与 `snapshot.turn.pendingAction` 并存，前者给在线客户端提供发生时刻，后者给重连客户端提供当前状态。
+- **决策**：`snapshot` 在 D46 的 `queueDepth` 之外新增 `queuedRequests` 数组，元素只含 `requestId` 与按 `ToolPreviewMaxRunes` 截断的输入预览；两个字段构成同一份 FIFO 视图，必须同时写入，不允许只更新其中之一。
+- **理由**：只靠快照差异比较会丢掉审批发生的时间点，客户端无法区分“新审批到达”与“重连后看到既有审批”，也无法在 action 被其他客户端抢先决议时给出明确反馈；`cancel_queued` 需要客户端先看到可取消的 `requestId`，仅有深度数字无法定位目标。
+- **影响（三端可实现性核对结论）**：两个事件与新增快照字段只使用字符串、布尔、数组和对象，走与其它事件同一条按 `seq` 单调有序的管道，不依赖任何浏览器特有能力，React / Capacitor iOS·Android / HarmonyOS ArkTS 均可实现。`queuedRequests` 只下发截断预览，不下发完整输入正文。本条在 D46 之下细化，不替代 D46 任何决策。
+- **状态**：已定

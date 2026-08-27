@@ -10,6 +10,53 @@ import (
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
 )
 
+// The interaction control vocabulary lives here rather than in model.go because
+// B2 Task 3 owns this file. Transport defines the same wire values, but session
+// must not import transport: the dependency runs transport → session → claude,
+// so the two vocabularies are converted explicitly at the transport boundary.
+var (
+	// ErrActionNotPending is the single stable answer to any decision that lost
+	// the race: unknown, already resolved, or ended by cancel/stop/failure.
+	ErrActionNotPending = errors.New("action not pending")
+	// ErrInvalidAction reports a resolution that does not fit the action shape.
+	ErrInvalidAction = errors.New("invalid action resolution")
+	// ErrInvalidAnswer reports answers that do not cover the questions exactly.
+	ErrInvalidAnswer = errors.New("invalid question answers")
+	// ErrTurnNotCancellable reports that the named Turn is not the running one.
+	ErrTurnNotCancellable = errors.New("turn not cancellable")
+	// ErrRequestNotQueued reports that the named request is not a FIFO entry.
+	ErrRequestNotQueued = errors.New("request not queued")
+)
+
+// ActionDecision is the decision a client applies to a tool approval. Question
+// answers carry no decision value and leave it empty.
+type ActionDecision string
+
+const (
+	DecisionAllowOnce    ActionDecision = "allow_once"
+	DecisionAllowSession ActionDecision = "allow_session"
+	DecisionDeny         ActionDecision = "deny"
+)
+
+// QuestionAnswer answers exactly one question of a pending ask_user_question
+// action. Clients address questions by questionId, never by position.
+type QuestionAnswer struct {
+	QuestionID string   `json:"questionId"`
+	Values     []string `json:"values"`
+}
+
+// The deny reasons Claude sees. They explain the outcome without echoing user
+// content, tool input or client identities.
+const (
+	denyReasonNoTurn       = "no active Turn can accept this action"
+	denyReasonConcurrent   = "another action is already awaiting a decision"
+	denyReasonTextDisabled = "free-text questions are disabled for this session"
+	denyReasonUnrenderable = "the question could not be presented safely"
+	denyReasonUser         = "the user rejected this action"
+	denyReasonCancelled    = "the Turn was cancelled"
+	denyReasonTerminated   = "the Turn ended before a decision arrived"
+)
+
 // Option configures a Controller before it starts.
 type Option func(*Controller)
 
@@ -31,6 +78,18 @@ func WithReservedSessionID(sessionID string) Option {
 	}
 }
 
+// WithServiceConfig overrides the service knobs that shape published state, so a
+// caller can raise the preview limit or opt into free-text questions without any
+// other component holding its own copy of those defaults (B2 §4.3).
+func WithServiceConfig(config ServiceConfig) Option {
+	return func(controller *Controller) {
+		if config.ToolPreviewMaxRunes > 0 {
+			controller.config.ToolPreviewMaxRunes = config.ToolPreviewMaxRunes
+		}
+		controller.config.AskUserTextEnabled = config.AskUserTextEnabled
+	}
+}
+
 // Controller serializes all Session state and Host work through one actor.
 type Controller struct {
 	worker             *hostWorker
@@ -39,6 +98,7 @@ type Controller struct {
 	actorDone          chan struct{}
 	initialSnapshot    Snapshot
 	requestIDGenerator requestIDGenerator
+	config             ServiceConfig
 
 	startMu      sync.Mutex
 	startCalled  bool
@@ -83,6 +143,19 @@ type actorState struct {
 	// sessionConfirmed 报告 Claude init/Result 是否已确认 session ID
 	//（A5.2 §4）。预留 ID 只影响路由与配对，不影响该状态。
 	sessionConfirmed bool
+	// pendingAction is the one blocked permission callback, if any. It is kept
+	// beside the published snapshot copy so the actor can always release the SDK
+	// read loop, which stays stuck until the callback returns (B2 §3.4).
+	pendingAction   *projectclaude.ActionRequest
+	pendingActionID string
+	nextActionSeq   uint64
+	// nextBlockSeq numbers the client-facing content block IDs. Like nextActionSeq
+	// it stays monotonic across Turns, so an ID can never be reused.
+	nextBlockSeq uint64
+	// currentCancelled marks a Turn the Controller cancelled itself. The Host
+	// then reports context.Canceled, which is Session-scoped by default and would
+	// otherwise fail the whole Session.
+	currentCancelled bool
 }
 
 type actorCommand interface {
@@ -145,6 +218,29 @@ type stopCommand struct {
 
 func (stopCommand) isActorCommand() {}
 
+type resolveActionCommand struct {
+	actionID string
+	decision ActionDecision
+	answers  []QuestionAnswer
+	response chan error
+}
+
+func (resolveActionCommand) isActorCommand() {}
+
+type cancelTurnCommand struct {
+	requestID string
+	response  chan error
+}
+
+func (cancelTurnCommand) isActorCommand() {}
+
+type cancelQueuedCommand struct {
+	requestID string
+	response  chan error
+}
+
+func (cancelQueuedCommand) isActorCommand() {}
+
 // NewController constructs a not-yet-started Controller with its initial state.
 func NewController(host Host, options ...Option) *Controller {
 	controller := &Controller{
@@ -159,6 +255,7 @@ func NewController(host Host, options ...Option) *Controller {
 			},
 		},
 		requestIDGenerator: randomRequestID,
+		config:             DefaultServiceConfig(),
 	}
 	for _, option := range options {
 		option(controller)
@@ -354,6 +451,57 @@ func (c *Controller) Stop(ctx context.Context) error {
 	}
 }
 
+// ResolveAction applies one client decision to the pending action. The decision
+// always travels through the actor before it reaches the SDK, so Transport can
+// never wake a blocked permission callback directly (B2 §3.2).
+func (c *Controller) ResolveAction(ctx context.Context, actionID string, decision ActionDecision, answers []QuestionAnswer) error {
+	return c.sendControl(ctx, func(response chan error) actorCommand {
+		return resolveActionCommand{actionID: actionID, decision: decision, answers: answers, response: response}
+	})
+}
+
+// CancelTurn cancels the running Turn. The Session stays usable: only a stop or
+// a Session-level failure refuses further work.
+func (c *Controller) CancelTurn(ctx context.Context, requestID string) error {
+	return c.sendControl(ctx, func(response chan error) actorCommand {
+		return cancelTurnCommand{requestID: requestID, response: response}
+	})
+}
+
+// CancelQueued drops one not-yet-started FIFO entry. It never touches the
+// running Turn or the other queued inputs (B2 §3.2).
+func (c *Controller) CancelQueued(ctx context.Context, requestID string) error {
+	return c.sendControl(ctx, func(response chan error) actorCommand {
+		return cancelQueuedCommand{requestID: requestID, response: response}
+	})
+}
+
+// sendControl delivers a command that answers with an error only, so the three
+// control commands share one liveness contract with Submit.
+func (c *Controller) sendControl(ctx context.Context, build func(chan error) actorCommand) error {
+	if !c.actorLive.Load() {
+		return ErrSessionUnavailable
+	}
+	response := make(chan error, 1)
+	command := build(response)
+	select {
+	case c.commands <- command:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.actorDone:
+		return ErrSessionUnavailable
+	}
+
+	select {
+	case err := <-response:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.actorDone:
+		return ErrSessionUnavailable
+	}
+}
+
 func (c *Controller) stopWhenServiceContextEnds(ctx context.Context) {
 	select {
 	case <-ctx.Done():
@@ -393,6 +541,10 @@ func (c *Controller) runActor() {
 			}
 		case event := <-c.worker.events:
 			c.handleWorkerEvent(&state, event)
+		case request := <-c.worker.actions():
+			// Pending actions share this select with Turn events on purpose: the
+			// actor must never block on the worker while holding action state.
+			c.handleActionRequest(&state, request)
 		case result := <-c.worker.results:
 			c.handleWorkerResult(&state, result)
 		case closeErr := <-c.worker.closed:
@@ -434,6 +586,12 @@ func (c *Controller) handleCommand(state *actorState, command actorCommand) bool
 		}
 	case unsubscribeCommand:
 		c.removeSubscriber(state, command.subscriberID)
+	case resolveActionCommand:
+		c.handleResolveAction(state, command)
+	case cancelTurnCommand:
+		c.handleCancelTurn(state, command)
+	case cancelQueuedCommand:
+		c.handleCancelQueued(state, command)
 	case stopCommand:
 		state.pendingStops = append(state.pendingStops, command.response)
 		if !state.stopping {
@@ -445,6 +603,261 @@ func (c *Controller) handleCommand(state *actorState, command actorCommand) bool
 		}
 	}
 	return false
+}
+
+// handleActionRequest admits at most one pending action per Session. Every
+// rejection path must resolve the request before returning, otherwise the SDK
+// read loop stays blocked forever (B2 §3.4).
+func (c *Controller) handleActionRequest(state *actorState, request *projectclaude.ActionRequest) {
+	spec := request.Spec()
+	if state.stopping || state.current == nil || state.currentTerminal {
+		request.Resolve(projectclaude.ActionDecision{Kind: projectclaude.DecisionDeny, Reason: denyReasonNoTurn})
+		return
+	}
+	if state.pendingAction != nil {
+		c.denyAndNotify(state, request, denyReasonConcurrent, UnsupportedConcurrentAction)
+		return
+	}
+	if spec.Kind == projectclaude.ActionAskUserQuestion {
+		// An empty question list is the Adapter's way of reporting a payload it
+		// could not render; such an action could never be answered.
+		if len(spec.Questions) == 0 {
+			c.denyAndNotify(state, request, denyReasonUnrenderable, UnsupportedUnknownBlock)
+			return
+		}
+		if !c.config.AskUserTextEnabled && hasFreeTextQuestion(spec.Questions) {
+			c.denyAndNotify(state, request, denyReasonTextDisabled, UnsupportedTextDisabled)
+			return
+		}
+	}
+
+	state.nextActionSeq++
+	actionID := fmt.Sprintf("%s-action-%d", state.current.RequestID, state.nextActionSeq)
+	pending := newPendingAction(actionID, state.current.RequestID, spec)
+	state.pendingAction = request
+	state.pendingActionID = actionID
+	state.snapshot.Turn.Status = TurnWaiting
+	state.snapshot.Turn.PendingAction = pending
+	c.publish(state, Event{
+		Kind:          EventActionRequired,
+		SessionID:     state.snapshot.SessionID,
+		RequestID:     state.current.RequestID,
+		Source:        state.current.Input.Source,
+		TurnStatus:    TurnWaiting,
+		PendingAction: pending,
+	})
+}
+
+// denyAndNotify refuses an action the Session cannot present and tells clients
+// why. The notice stays structurally empty: it describes a dropped action, so it
+// must not look like one clients can address.
+func (c *Controller) denyAndNotify(state *actorState, request *projectclaude.ActionRequest, reason string, code UnsupportedCode) {
+	request.Resolve(projectclaude.ActionDecision{Kind: projectclaude.DecisionDeny, Reason: reason})
+	c.publish(state, Event{
+		Kind:      EventUnsupported,
+		SessionID: state.snapshot.SessionID,
+		RequestID: state.current.RequestID,
+		Source:    state.current.Input.Source,
+		Code:      code,
+	})
+}
+
+// newPendingAction assigns the client-facing identifiers. The Adapter never sees
+// them: actionId and questionId only exist so a client can name a decision
+// target, and they are derived from actor state rather than the request ID
+// generator so cancellation cannot consume request IDs.
+func newPendingAction(actionID, requestID string, spec projectclaude.ActionSpec) *PendingAction {
+	pending := &PendingAction{
+		ActionID:              actionID,
+		RequestID:             requestID,
+		Kind:                  ActionKind(spec.Kind),
+		ToolName:              spec.ToolName,
+		Preview:               spec.Preview,
+		AllowSessionAvailable: spec.AllowSessionAvailable,
+	}
+	if len(spec.Questions) == 0 {
+		return pending
+	}
+	pending.Questions = make([]Question, 0, len(spec.Questions))
+	for index, question := range spec.Questions {
+		converted := Question{
+			QuestionID:  fmt.Sprintf("%s-q%d", actionID, index+1),
+			Header:      question.Header,
+			Question:    question.Question,
+			InputType:   QuestionInputType(question.InputType),
+			MultiSelect: question.MultiSelect,
+		}
+		if len(question.Options) > 0 {
+			converted.Options = make([]QuestionOption, 0, len(question.Options))
+			for _, option := range question.Options {
+				converted.Options = append(converted.Options, QuestionOption{Label: option.Label, Description: option.Description})
+			}
+		}
+		pending.Questions = append(pending.Questions, converted)
+	}
+	return pending
+}
+
+func hasFreeTextQuestion(questions []projectclaude.Question) bool {
+	for _, question := range questions {
+		if question.InputType == projectclaude.QuestionText {
+			return true
+		}
+	}
+	return false
+}
+
+// handleResolveAction is the only path from a client decision to the blocked
+// callback. A rejected resolution leaves the action pending so a second client
+// can still answer it.
+func (c *Controller) handleResolveAction(state *actorState, command resolveActionCommand) {
+	pending := state.snapshot.Turn.PendingAction
+	if state.pendingAction == nil || pending == nil || state.current == nil || state.pendingActionID != command.actionID {
+		command.response <- ErrActionNotPending
+		return
+	}
+	decision, err := buildActionDecision(pending, command.decision, command.answers)
+	if err != nil {
+		command.response <- err
+		return
+	}
+
+	state.pendingAction.Resolve(decision)
+	state.pendingAction = nil
+	state.pendingActionID = ""
+	state.snapshot.Turn.PendingAction = nil
+	state.snapshot.Turn.Status = TurnRunning
+	c.publish(state, Event{
+		Kind:       EventActionResolved,
+		SessionID:  state.snapshot.SessionID,
+		RequestID:  pending.RequestID,
+		Source:     state.current.Input.Source,
+		TurnStatus: TurnRunning,
+	})
+	command.response <- nil
+}
+
+// buildActionDecision enforces the shape contract between the action kind and
+// the resolution. Deeper answer validation (option membership, single vs multi
+// select arity) belongs to Transport, which owns the wire contract.
+func buildActionDecision(pending *PendingAction, decision ActionDecision, answers []QuestionAnswer) (projectclaude.ActionDecision, error) {
+	if pending.Kind == ActionAskUserQuestion {
+		if decision != "" {
+			return projectclaude.ActionDecision{}, ErrInvalidAction
+		}
+		ordered, err := orderAnswers(pending.Questions, answers)
+		if err != nil {
+			return projectclaude.ActionDecision{}, err
+		}
+		return projectclaude.ActionDecision{Kind: projectclaude.DecisionAnswer, Answers: ordered}, nil
+	}
+
+	if len(answers) > 0 {
+		return projectclaude.ActionDecision{}, ErrInvalidAction
+	}
+	switch decision {
+	case DecisionAllowOnce:
+		return projectclaude.ActionDecision{Kind: projectclaude.DecisionAllowOnce}, nil
+	case DecisionAllowSession:
+		// "Allow for this Session" only exists when the SDK supplied permission
+		// suggestions; the Adapter never invents its own permission rules.
+		if !pending.AllowSessionAvailable {
+			return projectclaude.ActionDecision{}, ErrInvalidAction
+		}
+		return projectclaude.ActionDecision{Kind: projectclaude.DecisionAllowSession}, nil
+	case DecisionDeny:
+		return projectclaude.ActionDecision{Kind: projectclaude.DecisionDeny, Reason: denyReasonUser}, nil
+	default:
+		return projectclaude.ActionDecision{}, ErrInvalidAction
+	}
+}
+
+// orderAnswers turns the questionId-keyed client answers into the positional
+// form the SDK expects. Answers may arrive in any order, but every question must
+// be answered exactly once.
+func orderAnswers(questions []Question, answers []QuestionAnswer) ([][]string, error) {
+	if len(answers) != len(questions) {
+		return nil, ErrInvalidAnswer
+	}
+	positions := make(map[string]int, len(questions))
+	for index, question := range questions {
+		positions[question.QuestionID] = index
+	}
+	ordered := make([][]string, len(questions))
+	for _, answer := range answers {
+		index, known := positions[answer.QuestionID]
+		if !known || ordered[index] != nil || len(answer.Values) == 0 {
+			return nil, ErrInvalidAnswer
+		}
+		ordered[index] = append([]string(nil), answer.Values...)
+	}
+	return ordered, nil
+}
+
+// handleCancelTurn ends the running Turn without ending the Session. The order
+// matters: a blocked callback must be released through its decision channel,
+// because the SDK control response for Interrupt travels on the same read loop
+// the callback is holding (B2 §3.3).
+func (c *Controller) handleCancelTurn(state *actorState, command cancelTurnCommand) {
+	if state.stopping || state.current == nil || state.currentTerminal || state.current.RequestID != command.requestID {
+		command.response <- ErrTurnNotCancellable
+		return
+	}
+
+	state.currentCancelled = true
+	interrupt := state.pendingAction == nil
+	c.clearPendingAction(state, projectclaude.ActionDecision{
+		Kind: projectclaude.DecisionDeny, Reason: denyReasonCancelled, Interrupt: true,
+	})
+	state.snapshot.Turn.Status = TurnCancelled
+	state.snapshot.Turn.Error = nil
+	state.currentTerminal = true
+	state.preSessionEvents = nil
+	c.publish(state, Event{
+		Kind:       EventTurnCompleted,
+		SessionID:  state.snapshot.SessionID,
+		RequestID:  state.current.RequestID,
+		Source:     state.current.Input.Source,
+		TurnStatus: TurnCancelled,
+	})
+	if state.currentCancel != nil {
+		state.currentCancel()
+	}
+	if interrupt {
+		// Interrupt must not be awaited inside the actor: it is a round trip to
+		// Claude, and the actor is the only consumer of the worker channels.
+		go func() {
+			_ = c.worker.interrupt(context.Background())
+		}()
+	}
+	command.response <- nil
+}
+
+// handleCancelQueued drops a not-yet-started FIFO entry. It publishes no domain
+// event: the queue is carried by the snapshot, and Transport acknowledges the
+// command directly.
+func (c *Controller) handleCancelQueued(state *actorState, command cancelQueuedCommand) {
+	for index, queued := range state.queue {
+		if queued.RequestID != command.requestID {
+			continue
+		}
+		state.queue = append(state.queue[:index], state.queue[index+1:]...)
+		c.syncQueue(state)
+		command.response <- nil
+		return
+	}
+	command.response <- ErrRequestNotQueued
+}
+
+// clearPendingAction is the single teardown path for a pending action. Every
+// Turn or Session ending must go through it, so no callback is ever abandoned.
+func (c *Controller) clearPendingAction(state *actorState, decision projectclaude.ActionDecision) {
+	if state.pendingAction != nil {
+		state.pendingAction.Resolve(decision)
+	}
+	state.pendingAction = nil
+	state.pendingActionID = ""
+	state.snapshot.Turn.PendingAction = nil
 }
 
 func (c *Controller) handleSubmit(state *actorState, command submitCommand) {
@@ -472,7 +885,7 @@ func (c *Controller) handleSubmit(state *actorState, command submitCommand) {
 		return
 	}
 	state.queue = append(state.queue, queuedInput{RequestID: requestID, Input: input})
-	state.snapshot.QueueDepth = len(state.queue)
+	c.syncQueue(state)
 
 	// This synchronous unbuffered handoff delivers the acceptance result to the
 	// Submit goroutine before startNext. It does not promise that caller code
@@ -490,11 +903,12 @@ func (c *Controller) startNext(state *actorState) {
 	next := state.queue[0]
 	state.queue[0] = queuedInput{}
 	state.queue = state.queue[1:]
-	state.snapshot.QueueDepth = len(state.queue)
+	c.syncQueue(state)
 	state.current = &next
 	turnContext, cancel := context.WithCancel(context.Background())
 	state.currentCancel = cancel
 	state.currentTerminal = false
+	state.currentCancelled = false
 	state.turnStartedPublished = false
 	state.snapshot.Turn = TurnSnapshot{
 		Status:        TurnRunning,
@@ -608,18 +1022,20 @@ func (c *Controller) handleWorkerEvent(state *actorState, event workerEvent) {
 		buffered := state.preSessionEvents
 		state.preSessionEvents = nil
 		for _, bufferedEvent := range buffered {
-			c.appendText(state, bufferedEvent)
+			c.publishAdapterOutput(state, bufferedEvent)
 		}
-	case projectclaude.EventText:
+	case projectclaude.EventText, projectclaude.EventContentBlock, projectclaude.EventUnsupported:
 		if !state.sessionConfirmed {
 			state.preSessionEvents = append(state.preSessionEvents, event)
 			return
 		}
-		c.appendText(state, event)
+		c.publishAdapterOutput(state, event)
 	case projectclaude.EventTurnCompleted:
 		state.snapshot.Turn.Status = TurnCompleted
 		state.snapshot.Turn.Error = nil
-		state.snapshot.Turn.PendingAction = nil
+		c.clearPendingAction(state, projectclaude.ActionDecision{
+			Kind: projectclaude.DecisionDeny, Reason: denyReasonTerminated,
+		})
 		state.currentTerminal = true
 		state.preSessionEvents = nil
 		c.publish(state, Event{
@@ -643,7 +1059,10 @@ func (c *Controller) handleWorkerResult(state *actorState, result workerResult) 
 		return
 	}
 
-	if !state.stopping {
+	// A Turn the Controller itself cancelled reports context.Canceled, which is
+	// Session-scoped by default; treating it as a Session failure would end the
+	// Session that cancel_turn is explicitly meant to keep alive.
+	if !state.stopping && !state.currentCancelled {
 		switch {
 		case result.Err == nil && !state.currentTerminal:
 			c.failSession(state, errors.New("Host returned without a terminal event"))
@@ -660,9 +1079,12 @@ func (c *Controller) handleWorkerResult(state *actorState, result workerResult) 
 	state.currentCancel = nil
 	state.current = nil
 	state.currentTerminal = false
+	state.currentCancelled = false
 	state.turnStartedPublished = false
 	state.preSessionEvents = nil
-	state.snapshot.Turn.PendingAction = nil
+	c.clearPendingAction(state, projectclaude.ActionDecision{
+		Kind: projectclaude.DecisionDeny, Reason: denyReasonTerminated,
+	})
 	if state.stopping {
 		c.stopWorker()
 	} else if state.snapshot.SessionStatus == SessionStarting || state.snapshot.SessionStatus == SessionReady {
@@ -687,6 +1109,84 @@ func (c *Controller) appendText(state *actorState, event workerEvent) {
 	})
 }
 
+// publishAdapterOutput forwards one streamed Adapter output. Text, structured
+// blocks and degradation notices share the correlation guard and the
+// pre-session buffering rule, so they also share this entry point.
+func (c *Controller) publishAdapterOutput(state *actorState, event workerEvent) {
+	switch event.Adapter.Kind {
+	case projectclaude.EventText:
+		c.appendText(state, event)
+	case projectclaude.EventContentBlock:
+		c.publishContentBlock(state, event)
+	case projectclaude.EventUnsupported:
+		if state.current == nil || state.current.RequestID != event.RequestID || state.currentTerminal {
+			return
+		}
+		c.publish(state, Event{
+			Kind:      EventUnsupported,
+			SessionID: state.snapshot.SessionID,
+			RequestID: state.current.RequestID,
+			Source:    state.current.Input.Source,
+			Code:      UnsupportedCode(event.Adapter.Code),
+		})
+	}
+}
+
+// publishContentBlock assigns the client-facing block ID. Like actionId the ID is
+// derived from actor state instead of coming from the Adapter, because the
+// Controller is the only holder of seq and therefore of the order clients
+// correlate against (B2 §4.2). A structured block never enters the snapshot: the
+// design keeps it event-only, so a reconnecting client is not replayed history.
+func (c *Controller) publishContentBlock(state *actorState, event workerEvent) {
+	if state.current == nil || state.current.RequestID != event.RequestID || state.currentTerminal {
+		return
+	}
+	if event.Adapter.Block == nil {
+		// An Adapter that reports a block without one has nothing to present; the
+		// safety notice is the only honest thing left to send.
+		c.publish(state, Event{
+			Kind:      EventUnsupported,
+			SessionID: state.snapshot.SessionID,
+			RequestID: state.current.RequestID,
+			Source:    state.current.Input.Source,
+			Code:      UnsupportedUnknownBlock,
+		})
+		return
+	}
+	state.nextBlockSeq++
+	blockID := fmt.Sprintf("%s-block-%d", state.current.RequestID, state.nextBlockSeq)
+	c.publish(state, Event{
+		Kind:      EventContentBlock,
+		SessionID: state.snapshot.SessionID,
+		RequestID: state.current.RequestID,
+		Source:    state.current.Input.Source,
+		Block:     newContentBlock(blockID, *event.Adapter.Block),
+	})
+}
+
+// newContentBlock copies the Adapter view into the client view field by field
+// rather than by struct conversion, so a future Adapter field cannot reach
+// clients without passing the B2 §4.2 whitelist review first.
+func newContentBlock(blockID string, block projectclaude.ContentBlock) *ContentBlock {
+	converted := &ContentBlock{
+		ID:        blockID,
+		Kind:      BlockKind(block.Kind),
+		Thinking:  block.Thinking,
+		ToolUseID: block.ToolUseID,
+		ToolClass: ToolClass(block.ToolClass),
+		MCPServer: block.MCPServer,
+		ToolName:  block.ToolName,
+		Preview:   block.Preview,
+	}
+	if block.IsError != nil {
+		// Copy the value instead of the pointer: the published event outlives the
+		// Adapter event and must not share mutable state across layers.
+		isError := *block.IsError
+		converted.IsError = &isError
+	}
+	return converted
+}
+
 func (c *Controller) failTurn(state *actorState, err error) {
 	c.recordTurnFailure(state, err.Error())
 }
@@ -698,7 +1198,9 @@ func (c *Controller) recordTurnFailure(state *actorState, message string) {
 	errorInfo := &ErrorInfo{Code: "turn_failed", Message: message}
 	state.snapshot.Turn.Status = TurnFailed
 	state.snapshot.Turn.Error = errorInfo
-	state.snapshot.Turn.PendingAction = nil
+	c.clearPendingAction(state, projectclaude.ActionDecision{
+		Kind: projectclaude.DecisionDeny, Reason: denyReasonTerminated,
+	})
 	state.currentTerminal = true
 	state.preSessionEvents = nil
 	c.publish(state, Event{
@@ -718,10 +1220,15 @@ func (c *Controller) failSession(state *actorState, err error) {
 	if state.current != nil && !state.currentTerminal {
 		c.failTurn(state, err)
 	}
+	// Defensive: failSession can be reached without a running Turn, so the
+	// teardown inside failTurn is not guaranteed to have run.
+	c.clearPendingAction(state, projectclaude.ActionDecision{
+		Kind: projectclaude.DecisionDeny, Reason: denyReasonTerminated,
+	})
 	state.snapshot.SessionStatus = SessionFailed
 	state.snapshot.SessionError = &ErrorInfo{Code: "session_failed", Message: err.Error()}
 	state.queue = nil
-	state.snapshot.QueueDepth = 0
+	c.syncQueue(state)
 	state.preSessionEvents = nil
 	if state.currentCancel != nil {
 		state.currentCancel()
@@ -740,6 +1247,11 @@ func (c *Controller) publish(state *actorState, event Event) {
 	for subscriberID, subscriber := range state.subscribers {
 		published := event
 		published.Error = cloneErrorInfo(event.Error)
+		published.PendingAction = clonePendingAction(event.PendingAction)
+		if event.Block != nil {
+			block := *event.Block
+			published.Block = &block
+		}
 		select {
 		case <-subscriber.cancelled:
 			c.removeSubscriber(state, subscriberID)
@@ -761,15 +1273,50 @@ func (c *Controller) removeSubscriber(state *actorState, subscriberID uint64) {
 	}
 }
 
+// syncQueue republishes the whole FIFO view after any queue mutation. Routing it
+// through setQueuedRequests keeps queueDepth and queuedRequests written together,
+// so the two views can never disagree (B2 §4.4).
+func (c *Controller) syncQueue(state *actorState) {
+	if len(state.queue) == 0 {
+		state.snapshot.setQueuedRequests(nil)
+		return
+	}
+	items := make([]QueuedRequest, 0, len(state.queue))
+	for _, queued := range state.queue {
+		items = append(items, newQueuedRequest(c.config, queued.RequestID, queued.Input))
+	}
+	state.snapshot.setQueuedRequests(items)
+}
+
 func cloneSnapshot(snapshot Snapshot) Snapshot {
 	cloned := snapshot
 	cloned.SessionError = cloneErrorInfo(snapshot.SessionError)
 	cloned.Turn.Error = cloneErrorInfo(snapshot.Turn.Error)
-	if snapshot.Turn.PendingAction != nil {
-		pendingAction := *snapshot.Turn.PendingAction
-		cloned.Turn.PendingAction = &pendingAction
+	cloned.Turn.PendingAction = clonePendingAction(snapshot.Turn.PendingAction)
+	if snapshot.QueuedRequests != nil {
+		cloned.QueuedRequests = append([]QueuedRequest(nil), snapshot.QueuedRequests...)
 	}
 	return cloned
+}
+
+// clonePendingAction deep-copies the questions and options as well, so a
+// subscriber can never mutate the state the actor is still holding.
+func clonePendingAction(action *PendingAction) *PendingAction {
+	if action == nil {
+		return nil
+	}
+	cloned := *action
+	if action.Questions == nil {
+		return &cloned
+	}
+	cloned.Questions = make([]Question, len(action.Questions))
+	for index, question := range action.Questions {
+		cloned.Questions[index] = question
+		if question.Options != nil {
+			cloned.Questions[index].Options = append([]QuestionOption(nil), question.Options...)
+		}
+	}
+	return &cloned
 }
 
 func cloneErrorInfo(errorInfo *ErrorInfo) *ErrorInfo {
@@ -783,9 +1330,13 @@ func cloneErrorInfo(errorInfo *ErrorInfo) *ErrorInfo {
 func (c *Controller) beginStop(state *actorState) {
 	state.stopping = true
 	state.queue = nil
-	state.snapshot.QueueDepth = 0
+	c.syncQueue(state)
 	state.preSessionEvents = nil
-	state.snapshot.Turn.PendingAction = nil
+	// Stopping releases the callback with Interrupt set: the Turn is going away,
+	// and the SDK read loop must unwind rather than wait for a new decision.
+	c.clearPendingAction(state, projectclaude.ActionDecision{
+		Kind: projectclaude.DecisionDeny, Reason: denyReasonTerminated, Interrupt: true,
+	})
 	if state.current != nil {
 		if !state.currentTerminal {
 			state.snapshot.Turn.Status = TurnCancelled

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -19,12 +20,74 @@ import (
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 )
 
+type transportResolveCall struct {
+	actionID string
+	decision projectsession.ActionDecision
+	answers  []projectsession.QuestionAnswer
+}
+
 type transportFakeController struct {
 	mu          sync.Mutex
 	snapshot    projectsession.Snapshot
 	inputs      []projectsession.Input
 	submit      func(projectsession.Input) (string, error)
 	subscribers map[chan projectsession.Event]<-chan struct{}
+
+	resolves   []transportResolveCall
+	cancelled  []string
+	dequeued   []string
+	resolve    func(string) error
+	resolveErr error
+	cancelErr  error
+	dequeueErr error
+}
+
+func (f *transportFakeController) Snapshot(context.Context) (projectsession.Snapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.snapshot, nil
+}
+
+func (f *transportFakeController) ResolveAction(_ context.Context, actionID string, decision projectsession.ActionDecision, answers []projectsession.QuestionAnswer) error {
+	f.mu.Lock()
+	f.resolves = append(f.resolves, transportResolveCall{actionID: actionID, decision: decision, answers: answers})
+	hook := f.resolve
+	err := f.resolveErr
+	f.mu.Unlock()
+	if hook != nil {
+		return hook(actionID)
+	}
+	return err
+}
+
+func (f *transportFakeController) CancelTurn(_ context.Context, requestID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancelled = append(f.cancelled, requestID)
+	return f.cancelErr
+}
+
+func (f *transportFakeController) CancelQueued(_ context.Context, requestID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.dequeued = append(f.dequeued, requestID)
+	return f.dequeueErr
+}
+
+func (f *transportFakeController) resolutions() []transportResolveCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]transportResolveCall(nil), f.resolves...)
+}
+
+func (f *transportFakeController) setPendingAction(action *projectsession.PendingAction) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.snapshot.Turn.Status = projectsession.TurnWaiting
+	f.snapshot.Turn.PendingAction = action
+	if action != nil {
+		f.snapshot.Turn.RequestID = action.RequestID
+	}
 }
 
 func (f *transportFakeController) Submit(_ context.Context, input projectsession.Input) (string, error) {
@@ -666,8 +729,12 @@ func TestWebSocketPreTurnSubscribeReceivesStartingSnapshot(t *testing.T) {
 	if payload.Snapshot.Seq != 0 || payload.Snapshot.QueueDepth != 0 || payload.Snapshot.SessionError != nil {
 		t.Fatalf("pre-turn snapshot = %#v, want seq 0, empty queue, no error", payload.Snapshot)
 	}
+	if payload.Snapshot.QueuedRequests != nil {
+		t.Fatalf("pre-turn queuedRequests = %#v, want none", payload.Snapshot.QueuedRequests)
+	}
 
 	// 三端共用契约：首轮前 snapshot 不得新增字段或浏览器特有分支。
+	// B2 §4.4 新增 queuedRequests，它与 queueDepth 一起构成同一 FIFO 视图。
 	var object map[string]any
 	if err := json.Unmarshal(snapshot.Payload, &object); err != nil {
 		t.Fatal(err)
@@ -678,7 +745,7 @@ func TestWebSocketPreTurnSubscribeReceivesStartingSnapshot(t *testing.T) {
 	}
 	wantKeys := map[string]bool{
 		"sessionId": true, "sessionStatus": true, "sessionError": true,
-		"seq": true, "turn": true, "queueDepth": true,
+		"seq": true, "turn": true, "queueDepth": true, "queuedRequests": true,
 	}
 	if len(inner) != len(wantKeys) {
 		t.Fatalf("snapshot keys = %#v, want exactly %#v", inner, wantKeys)
@@ -776,5 +843,517 @@ func TestWebSocketPreTurnMobileFirstCommandStreamsToAllSubscribers(t *testing.T)
 	defer fixture.controller.mu.Unlock()
 	if len(fixture.controller.inputs) != 1 || fixture.controller.inputs[0].Source != projectsession.InputMobile {
 		t.Fatalf("submitted inputs = %#v, want one mobile input", fixture.controller.inputs)
+	}
+}
+
+func approvalAction(allowSession bool) *projectsession.PendingAction {
+	return &projectsession.PendingAction{
+		ActionID:              "request-1-action-1",
+		RequestID:             "request-1",
+		Kind:                  projectsession.ActionToolApproval,
+		ToolName:              "Bash",
+		Preview:               "echo hi",
+		AllowSessionAvailable: allowSession,
+	}
+}
+
+func questionAction() *projectsession.PendingAction {
+	return &projectsession.PendingAction{
+		ActionID:  "request-1-action-1",
+		RequestID: "request-1",
+		Kind:      projectsession.ActionAskUserQuestion,
+		ToolName:  projectsession.AskUserQuestionToolName,
+		Questions: []projectsession.Question{
+			{
+				QuestionID: "request-1-action-1-q1", Header: "Approach", Question: "Which one?",
+				InputType: projectsession.QuestionChoice,
+				Options:   []projectsession.QuestionOption{{Label: "A"}, {Label: "B"}},
+			},
+			{
+				QuestionID: "request-1-action-1-q2", Header: "Checks", Question: "Which checks?",
+				InputType: projectsession.QuestionChoice, MultiSelect: true,
+				Options: []projectsession.QuestionOption{{Label: "X"}, {Label: "Y"}},
+			},
+		},
+	}
+}
+
+// readCommandResult reads the next message and requires it to be the result of
+// the named command, so ordering mistakes surface as test failures instead of
+// being skipped over.
+func readCommandResult(t *testing.T, connection *websocket.Conn, commandID string) (Envelope, CommandResultPayload) {
+	t.Helper()
+	envelope := readTestEnvelope(t, connection)
+	var payload CommandResultPayload
+	if envelope.Type != TypeCommandResult || envelope.CommandID != commandID || DecodePayload(envelope, &payload) != nil {
+		t.Fatalf("command response = %#v, want the result of %q", envelope, commandID)
+	}
+	return envelope, payload
+}
+
+// TestWebSocketResolveActionRoutesThroughTheController pins that an approval
+// decision reaches the Controller and that the accepted result correlates with
+// the request the action belongs to.
+func TestWebSocketResolveActionRoutesThroughTheController(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	fixture.controller.setPendingAction(approvalAction(true))
+	connection := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, connection)
+
+	writeTestEnvelope(t, connection, TypeCommand, "session-1", "command-1", "", 0, CommandPayload{
+		Kind: CommandResolveAction, ActionID: "request-1-action-1", Decision: DecisionAllowSession,
+	})
+	envelope, payload := readCommandResult(t, connection, "command-1")
+	if !payload.Accepted || payload.Code != "" || envelope.RequestID != "request-1" {
+		t.Fatalf("resolve result = %#v, payload = %#v", envelope, payload)
+	}
+	want := []transportResolveCall{{actionID: "request-1-action-1", decision: projectsession.DecisionAllowSession}}
+	if got := fixture.controller.resolutions(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("controller resolutions = %#v, want %#v", got, want)
+	}
+}
+
+// TestWebSocketResolveActionAcceptsQuestionAnswers checks the answer form of the
+// same command, including the multi-select question, and that the values reach
+// the Controller unchanged.
+func TestWebSocketResolveActionAcceptsQuestionAnswers(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	fixture.controller.setPendingAction(questionAction())
+	connection := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, connection)
+
+	writeTestEnvelope(t, connection, TypeCommand, "session-1", "command-1", "", 0, CommandPayload{
+		Kind: CommandResolveAction, ActionID: "request-1-action-1",
+		Answers: []QuestionAnswer{
+			{QuestionID: "request-1-action-1-q1", Values: []string{"A"}},
+			{QuestionID: "request-1-action-1-q2", Values: []string{"X", "Y"}},
+		},
+	})
+	envelope, payload := readCommandResult(t, connection, "command-1")
+	if !payload.Accepted || envelope.RequestID != "request-1" {
+		t.Fatalf("resolve result = %#v, payload = %#v", envelope, payload)
+	}
+	want := []transportResolveCall{{
+		actionID: "request-1-action-1",
+		answers: []projectsession.QuestionAnswer{
+			{QuestionID: "request-1-action-1-q1", Values: []string{"A"}},
+			{QuestionID: "request-1-action-1-q2", Values: []string{"X", "Y"}},
+		},
+	}}
+	if got := fixture.controller.resolutions(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("controller resolutions = %#v, want %#v", got, want)
+	}
+}
+
+// TestWebSocketResolveActionRejectionsNeverReachTheController keeps the pending
+// action the single authority for what a decision may say. Every rejection is a
+// business outcome: it answers with a stable code and leaves the Session alone.
+func TestWebSocketResolveActionRejectionsNeverReachTheController(t *testing.T) {
+	tests := []struct {
+		name     string
+		action   *projectsession.PendingAction
+		payload  CommandPayload
+		wantCode string
+	}{
+		{
+			name:     "allow_session was not offered",
+			action:   approvalAction(false),
+			payload:  CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Decision: DecisionAllowSession},
+			wantCode: CodeInvalidAction,
+		},
+		{
+			name:     "no action is pending",
+			action:   nil,
+			payload:  CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Decision: DecisionAllowOnce},
+			wantCode: CodeActionNotPending,
+		},
+		{
+			name:     "another action is pending",
+			action:   approvalAction(true),
+			payload:  CommandPayload{Kind: CommandResolveAction, ActionID: "request-9-action-9", Decision: DecisionAllowOnce},
+			wantCode: CodeActionNotPending,
+		},
+		{
+			name:     "approval answered with question answers",
+			action:   approvalAction(true),
+			payload:  CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Answers: []QuestionAnswer{{QuestionID: "request-1-action-1-q1", Values: []string{"A"}}}},
+			wantCode: CodeInvalidAction,
+		},
+		{
+			name:     "question answered with an approval decision",
+			action:   questionAction(),
+			payload:  CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Decision: DecisionAllowOnce},
+			wantCode: CodeInvalidAction,
+		},
+		{
+			name:    "partial answers",
+			action:  questionAction(),
+			payload: CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Answers: []QuestionAnswer{{QuestionID: "request-1-action-1-q1", Values: []string{"A"}}}},
+
+			wantCode: CodeInvalidAnswer,
+		},
+		{
+			name:   "option was not offered",
+			action: questionAction(),
+			payload: CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Answers: []QuestionAnswer{
+				{QuestionID: "request-1-action-1-q1", Values: []string{"Z"}},
+				{QuestionID: "request-1-action-1-q2", Values: []string{"X"}},
+			}},
+			wantCode: CodeInvalidAnswer,
+		},
+		{
+			name:   "single select answered twice",
+			action: questionAction(),
+			payload: CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Answers: []QuestionAnswer{
+				{QuestionID: "request-1-action-1-q1", Values: []string{"A", "B"}},
+				{QuestionID: "request-1-action-1-q2", Values: []string{"X"}},
+			}},
+			wantCode: CodeInvalidAnswer,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServerFixture(t, nil)
+			fixture.controller.setPendingAction(test.action)
+			connection := fixture.dial(t)
+			_ = authenticateAndSubscribe(t, fixture, connection)
+
+			writeTestEnvelope(t, connection, TypeCommand, "session-1", "command-1", "", 0, test.payload)
+			envelope, payload := readCommandResult(t, connection, "command-1")
+			if payload.Accepted || payload.Code != test.wantCode || envelope.RequestID != "" {
+				t.Fatalf("result = %#v, payload = %#v, want code %q", envelope, payload, test.wantCode)
+			}
+			if got := fixture.controller.resolutions(); len(got) != 0 {
+				t.Fatalf("rejected resolution reached the Controller: %#v", got)
+			}
+		})
+	}
+}
+
+// TestWebSocketCancelCommandsAcknowledgeTheTargetRequest checks both cancel
+// kinds: the Controller receives the named request and the accepted result
+// correlates with it, which is the only acknowledgement cancel_queued gets.
+func TestWebSocketCancelCommandsAcknowledgeTheTargetRequest(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	connection := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, connection)
+
+	writeTestEnvelope(t, connection, TypeCommand, "session-1", "command-1", "", 0, CommandPayload{Kind: CommandCancelTurn, RequestID: "request-1"})
+	envelope, payload := readCommandResult(t, connection, "command-1")
+	if !payload.Accepted || envelope.RequestID != "request-1" {
+		t.Fatalf("cancel_turn result = %#v, payload = %#v", envelope, payload)
+	}
+	writeTestEnvelope(t, connection, TypeCommand, "session-1", "command-2", "", 0, CommandPayload{Kind: CommandCancelQueued, RequestID: "request-2"})
+	envelope, payload = readCommandResult(t, connection, "command-2")
+	if !payload.Accepted || envelope.RequestID != "request-2" {
+		t.Fatalf("cancel_queued result = %#v, payload = %#v", envelope, payload)
+	}
+
+	fixture.controller.mu.Lock()
+	defer fixture.controller.mu.Unlock()
+	if !reflect.DeepEqual(fixture.controller.cancelled, []string{"request-1"}) ||
+		!reflect.DeepEqual(fixture.controller.dequeued, []string{"request-2"}) {
+		t.Fatalf("cancel targets = %v / %v", fixture.controller.cancelled, fixture.controller.dequeued)
+	}
+}
+
+// TestWebSocketControlCommandsMapControllerVerdicts pins the Controller's
+// sentinels onto the stable §4.5 codes. The race is decided inside the actor, so
+// Transport must report its verdict rather than guess a code of its own.
+func TestWebSocketControlCommandsMapControllerVerdicts(t *testing.T) {
+	tests := []struct {
+		name     string
+		prepare  func(*transportFakeController)
+		payload  CommandPayload
+		wantCode string
+	}{
+		{
+			name:     "late resolution",
+			prepare:  func(c *transportFakeController) { c.resolveErr = projectsession.ErrActionNotPending },
+			payload:  CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Decision: DecisionDeny},
+			wantCode: CodeActionNotPending,
+		},
+		{
+			name:     "controller refuses the shape",
+			prepare:  func(c *transportFakeController) { c.resolveErr = projectsession.ErrInvalidAction },
+			payload:  CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Decision: DecisionDeny},
+			wantCode: CodeInvalidAction,
+		},
+		{
+			name:     "controller refuses the answers",
+			prepare:  func(c *transportFakeController) { c.resolveErr = projectsession.ErrInvalidAnswer },
+			payload:  CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Decision: DecisionDeny},
+			wantCode: CodeInvalidAnswer,
+		},
+		{
+			name:     "turn is not the running one",
+			prepare:  func(c *transportFakeController) { c.cancelErr = projectsession.ErrTurnNotCancellable },
+			payload:  CommandPayload{Kind: CommandCancelTurn, RequestID: "request-1"},
+			wantCode: CodeTurnNotCancellable,
+		},
+		{
+			name:     "request already left the queue",
+			prepare:  func(c *transportFakeController) { c.dequeueErr = projectsession.ErrRequestNotQueued },
+			payload:  CommandPayload{Kind: CommandCancelQueued, RequestID: "request-2"},
+			wantCode: CodeRequestNotQueued,
+		},
+		{
+			name:     "session is gone",
+			prepare:  func(c *transportFakeController) { c.cancelErr = projectsession.ErrSessionUnavailable },
+			payload:  CommandPayload{Kind: CommandCancelTurn, RequestID: "request-1"},
+			wantCode: CodeSessionUnavailable,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServerFixture(t, nil)
+			fixture.controller.setPendingAction(approvalAction(true))
+			test.prepare(fixture.controller)
+			connection := fixture.dial(t)
+			_ = authenticateAndSubscribe(t, fixture, connection)
+
+			writeTestEnvelope(t, connection, TypeCommand, "session-1", "command-1", "", 0, test.payload)
+			envelope, payload := readCommandResult(t, connection, "command-1")
+			if payload.Accepted || payload.Code != test.wantCode || envelope.RequestID != "" {
+				t.Fatalf("result = %#v, payload = %#v, want code %q", envelope, payload, test.wantCode)
+			}
+		})
+	}
+}
+
+// TestWebSocketCommandResultPrecedesResolutionEvents extends the A4 ordering gate
+// to the control commands: events produced by the resolution must not overtake
+// the acknowledgement of the command that caused them.
+func TestWebSocketCommandResultPrecedesResolutionEvents(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	fixture.controller.setPendingAction(approvalAction(false))
+	connection := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, connection)
+
+	fixture.controller.resolve = func(string) error {
+		fixture.controller.emit(projectsession.Event{
+			SessionID: "session-1", RequestID: "request-1", Seq: 8,
+			Kind: projectsession.EventActionResolved, TurnStatus: projectsession.TurnRunning,
+		})
+		return nil
+	}
+	writeTestEnvelope(t, connection, TypeCommand, "session-1", "command-1", "", 0, CommandPayload{
+		Kind: CommandResolveAction, ActionID: "request-1-action-1", Decision: DecisionAllowOnce,
+	})
+	if envelope, payload := readCommandResult(t, connection, "command-1"); !payload.Accepted || envelope.RequestID != "request-1" {
+		t.Fatalf("first message = %#v, payload = %#v", envelope, payload)
+	}
+	event := readTestEnvelope(t, connection)
+	var eventPayload EventPayload
+	if event.Type != TypeEvent || DecodePayload(event, &eventPayload) != nil ||
+		eventPayload.Event.Kind != projectsession.EventActionResolved || event.Seq != 8 {
+		t.Fatalf("second message = %#v, payload = %#v", event, eventPayload)
+	}
+}
+
+// TestWebSocketStructuredEventsKeepSeqMonotonic checks that the B2 event kinds
+// travel on the same monotonic sequence as the A4 lifecycle events, so a client
+// can still detect a gap without knowing the new kinds.
+func TestWebSocketStructuredEventsKeepSeqMonotonic(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	connection := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, connection)
+
+	falseValue := false
+	sent := []projectsession.Event{
+		{
+			SessionID: "session-1", RequestID: "request-1", Seq: 8, Kind: projectsession.EventContentBlock,
+			TurnStatus: projectsession.TurnRunning,
+			Block:      &projectsession.ContentBlock{ID: "block-1", Kind: projectsession.BlockThinking, Thinking: "plan first"},
+		},
+		{
+			SessionID: "session-1", RequestID: "request-1", Seq: 9, Kind: projectsession.EventContentBlock,
+			TurnStatus: projectsession.TurnRunning,
+			Block: &projectsession.ContentBlock{
+				ID: "block-2", Kind: projectsession.BlockToolUse, ToolUseID: "tool-1",
+				ToolClass: projectsession.ToolBuiltin, ToolName: "Bash",
+			},
+		},
+		{
+			SessionID: "session-1", RequestID: "request-1", Seq: 10, Kind: projectsession.EventActionRequired,
+			TurnStatus: projectsession.TurnWaiting, PendingAction: approvalAction(true),
+		},
+		{
+			SessionID: "session-1", RequestID: "request-1", Seq: 11, Kind: projectsession.EventContentBlock,
+			TurnStatus: projectsession.TurnRunning,
+			Block: &projectsession.ContentBlock{
+				ID: "block-3", Kind: projectsession.BlockToolResult, ToolUseID: "tool-1", IsError: &falseValue,
+			},
+		},
+	}
+	for _, event := range sent {
+		fixture.controller.emit(event)
+	}
+
+	lastSeq := uint64(7)
+	for index, want := range sent {
+		envelope := readTestEnvelope(t, connection)
+		var payload EventPayload
+		if envelope.Type != TypeEvent || DecodePayload(envelope, &payload) != nil {
+			t.Fatalf("message %d = %#v, want event", index, envelope)
+		}
+		if envelope.Seq <= lastSeq || envelope.Seq != payload.Event.Seq || payload.Event.Kind != want.Kind {
+			t.Fatalf("event %d = seq %d kind %q, want seq > %d kind %q", index, envelope.Seq, payload.Event.Kind, lastSeq, want.Kind)
+		}
+		lastSeq = envelope.Seq
+	}
+}
+
+// TestWebSocketUnsupportedNoticeTravelsAsItsOwnType covers the one domain event
+// the Controller publishes but §4.2 forbids on the ordinary event path. The
+// notice has to reach the client as type=unsupported carrying nothing but the
+// fixed code, and the connection must survive it: an unmappable SDK block is a
+// safety notice, not a protocol violation.
+func TestWebSocketUnsupportedNoticeTravelsAsItsOwnType(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	connection := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, connection)
+
+	fixture.controller.emit(projectsession.Event{
+		SessionID: "session-1", RequestID: "request-1", Seq: 8,
+		Kind: projectsession.EventUnsupported, Source: projectsession.InputMobile,
+		Code: projectsession.UnsupportedUnknownBlock,
+	})
+
+	envelope := readTestEnvelope(t, connection)
+	var payload UnsupportedPayload
+	if envelope.Type != TypeUnsupported || DecodePayload(envelope, &payload) != nil {
+		t.Fatalf("message = %#v, want an unsupported notice", envelope)
+	}
+	if payload.Code != projectsession.UnsupportedUnknownBlock {
+		t.Fatalf("code = %q, want %q", payload.Code, projectsession.UnsupportedUnknownBlock)
+	}
+	if envelope.RequestID != "request-1" || envelope.Seq != 8 {
+		t.Fatalf("correlation = requestId %q seq %d, want request-1 and 8", envelope.RequestID, envelope.Seq)
+	}
+	// The notice must not smuggle the session data an ordinary event carries.
+	if err := ValidateEnvelope(envelope); err != nil {
+		t.Fatalf("ValidateEnvelope() error = %v", err)
+	}
+
+	// The stream continues: the client keeps receiving later events in order.
+	fixture.controller.emit(projectsession.Event{
+		SessionID: "session-1", RequestID: "request-1", Seq: 9,
+		Kind: projectsession.EventTextDelta, Text: "still here",
+	})
+	next := readTestEnvelope(t, connection)
+	var eventPayload EventPayload
+	if next.Type != TypeEvent || DecodePayload(next, &eventPayload) != nil ||
+		eventPayload.Event.Kind != projectsession.EventTextDelta {
+		t.Fatalf("message after the notice = %#v, want a text_delta event", next)
+	}
+}
+
+// TestWebSocketRejectsCommandForAnotherSession keeps a subscribed connection
+// bound to the session it authenticated for: a command naming another session is
+// a protocol violation and must never reach a Controller.
+func TestWebSocketRejectsCommandForAnotherSession(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	connection := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, connection)
+
+	writeTestEnvelope(t, connection, TypeCommand, "session-2", "command-1", "", 0, CommandPayload{Kind: CommandSendText, Text: "hello"})
+	response := readTestEnvelope(t, connection)
+	var payload ErrorPayload
+	if response.Type != TypeError || DecodePayload(response, &payload) != nil || payload.Code != CodeInvalidState {
+		t.Fatalf("response = %#v, payload = %#v, want an invalid_state error", response, payload)
+	}
+	if _, _, err := connection.ReadMessage(); err == nil {
+		t.Fatal("connection stayed open after a cross-session command")
+	}
+	fixture.controller.mu.Lock()
+	defer fixture.controller.mu.Unlock()
+	if len(fixture.controller.inputs) != 0 {
+		t.Fatalf("cross-session command reached the Controller: %#v", fixture.controller.inputs)
+	}
+}
+
+// TestWebSocketRejectsStaleProtocolVersionWithoutSessionData refuses an A4/B1
+// client outright. The answer names the expected version so the client can
+// report an upgrade, and carries no Session state of any kind.
+func TestWebSocketRejectsStaleProtocolVersionWithoutSessionData(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	connection := fixture.dial(t)
+
+	stale := `{"version":1,"type":"hello","sessionId":"session-1","commandId":"","requestId":"","seq":0,"payload":{"pairToken":"` + fixture.token + `"}}`
+	if err := connection.WriteMessage(websocket.TextMessage, []byte(stale)); err != nil {
+		t.Fatalf("WriteMessage() error = %v", err)
+	}
+	_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+	_, data, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage() error = %v", err)
+	}
+	envelope, err := DecodeEnvelope(data)
+	if err != nil {
+		t.Fatalf("DecodeEnvelope() error = %v", err)
+	}
+	var payload ErrorPayload
+	if envelope.Type != TypeError || DecodePayload(envelope, &payload) != nil {
+		t.Fatalf("response = %#v, want an error", envelope)
+	}
+	if payload.Code != CodeUnsupportedVersion || payload.ExpectedVersion != Version {
+		t.Fatalf("error payload = %#v, want %q with expectedVersion %d", payload, CodeUnsupportedVersion, Version)
+	}
+	if envelope.SessionID != "" || envelope.RequestID != "" || envelope.Seq != 0 {
+		t.Fatalf("refusal carried session data: %#v", envelope)
+	}
+	if strings.Contains(string(data), fixture.token) {
+		t.Fatal("refusal echoed the pair token")
+	}
+}
+
+// TestWebSocketRejectsMalformedControlCommands keeps each command kind to its own
+// field subset over the wire: an extra, missing or misplaced field closes the
+// connection instead of being read as a different command.
+func TestWebSocketRejectsMalformedControlCommands(t *testing.T) {
+	tests := []struct {
+		name      string
+		requestID string
+		payload   CommandPayload
+	}{
+		{name: "resolve_action without an action", payload: CommandPayload{Kind: CommandResolveAction, Decision: DecisionAllowOnce}},
+		{name: "resolve_action with both forms", payload: CommandPayload{
+			Kind: CommandResolveAction, ActionID: "request-1-action-1", Decision: DecisionAllowOnce,
+			Answers: []QuestionAnswer{{QuestionID: "request-1-action-1-q1", Values: []string{"A"}}},
+		}},
+		{name: "resolve_action with neither form", payload: CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1"}},
+		{name: "unknown decision", payload: CommandPayload{Kind: CommandResolveAction, ActionID: "request-1-action-1", Decision: "allow_forever"}},
+		{name: "cancel_turn carrying an action", payload: CommandPayload{Kind: CommandCancelTurn, RequestID: "request-1", ActionID: "request-1-action-1"}},
+		{name: "cancel_queued without a request", payload: CommandPayload{Kind: CommandCancelQueued}},
+		{name: "send_text carrying a decision", payload: CommandPayload{Kind: CommandSendText, Text: "hello", Decision: DecisionDeny}},
+		{name: "unknown kind", payload: CommandPayload{Kind: "approve_everything", Text: "hello"}},
+		{name: "blank answer value", payload: CommandPayload{
+			Kind: CommandResolveAction, ActionID: "request-1-action-1",
+			Answers: []QuestionAnswer{{QuestionID: "request-1-action-1-q1", Values: []string{"  "}}},
+		}},
+		{
+			name:      "command correlated with a request",
+			requestID: "request-1",
+			payload:   CommandPayload{Kind: CommandCancelTurn, RequestID: "request-1"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServerFixture(t, nil)
+			fixture.controller.setPendingAction(questionAction())
+			connection := fixture.dial(t)
+			_ = authenticateAndSubscribe(t, fixture, connection)
+
+			writeTestEnvelope(t, connection, TypeCommand, "session-1", "command-1", test.requestID, 0, test.payload)
+			response := readTestEnvelope(t, connection)
+			var payload ErrorPayload
+			if response.Type != TypeError || DecodePayload(response, &payload) != nil || payload.Code != CodeInvalidMessage {
+				t.Fatalf("response = %#v, payload = %#v, want an invalid_message error", response, payload)
+			}
+			if got := fixture.controller.resolutions(); len(got) != 0 {
+				t.Fatalf("malformed command reached the Controller: %#v", got)
+			}
+		})
 	}
 }

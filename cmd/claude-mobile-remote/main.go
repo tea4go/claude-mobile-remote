@@ -44,23 +44,9 @@ func runMain(ctx context.Context, arguments []string, input io.Reader, output, e
 }
 
 func buildRuntime(config cliConfig) (sessionController, remoteService, error) {
-	// A5.2 §5：新会话预生成 UUID v4 并经 --session-id 指定为真实 ID；
-	// resume 直接使用已有 ID。两者都在创建 Host 前确定。
-	var host *projectclaude.Host
-	var reservedID string
-	if config.resumeSessionID != "" {
-		resumed, err := projectclaude.NewHostForResume(config.resumeSessionID)
-		if err != nil {
-			return nil, nil, err
-		}
-		host = resumed
-		reservedID = config.resumeSessionID
-	} else {
-		host = projectclaude.NewHost()
-		if err := host.PrepareNewSession(); err != nil {
-			return nil, nil, err
-		}
-		reservedID = host.SessionID()
+	host, reservedID, err := buildHost(config)
+	if err != nil {
+		return nil, nil, err
 	}
 	controller := projectsession.NewController(host, projectsession.WithReservedSessionID(reservedID))
 	manager, err := pairing.NewManager(config.advertiseURL, config.pairTokenTTL)
@@ -77,4 +63,30 @@ func buildRuntime(config cliConfig) (sessionController, remoteService, error) {
 	}
 	remote := newRemoteRuntime(manager, registry, server, controller)
 	return controller, remote, nil
+}
+
+// buildHost 选择 Claude 接入实现，并返回会话的预留 ID。
+// A5.2 §5：新会话预生成 UUID v4 并经 --session-id 指定为真实 ID；
+// resume 直接使用已有 ID。两者都在创建 Host 前确定。
+func buildHost(config cliConfig) (projectsession.Host, string, error) {
+	if config.fakeHostScenario != "" {
+		// 桩模式只替换 Claude 接入层：会话、通道、传输和配对全部走同一套代码路径。
+		fake, err := projectclaude.NewFakeHost(config.fakeHostScenario)
+		if err != nil {
+			return nil, "", err
+		}
+		return fake, fake.SessionID(), nil
+	}
+	if config.resumeSessionID != "" {
+		resumed, err := projectclaude.NewHostForResume(config.resumeSessionID)
+		if err != nil {
+			return nil, "", err
+		}
+		return resumed, config.resumeSessionID, nil
+	}
+	host := projectclaude.NewHost()
+	if err := host.PrepareNewSession(); err != nil {
+		return nil, "", err
+	}
+	return host, host.SessionID(), nil
 }

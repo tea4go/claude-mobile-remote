@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import App from './App'
+import { PROTOCOL_VERSION } from './protocol/types'
 
 // 可编程假 WebSocket（与 client.test 相同形状）。
 class FakeWebSocket {
@@ -45,6 +46,7 @@ class FakeWebSocket {
 }
 
 const PAIRING = {
+  // 配对负载版本独立于传输层协议版本，固定为 1。
   version: 1,
   wsUrl: 'ws://127.0.0.1:8765/ws',
   sessionId: 'session-1',
@@ -53,7 +55,7 @@ const PAIRING = {
 }
 
 const SNAPSHOT = {
-  version: 1,
+  version: PROTOCOL_VERSION,
   type: 'snapshot',
   sessionId: 'session-1',
   commandId: '',
@@ -75,6 +77,7 @@ const SNAPSHOT = {
         pendingAction: null,
       },
       queueDepth: 0,
+      queuedRequests: [],
     },
   },
 }
@@ -96,10 +99,10 @@ afterEach(() => {
 function completeHandshake(socket: FakeWebSocket) {
   socket.serverOpen()
   socket.serverMessage({
-    version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
+    version: PROTOCOL_VERSION, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
   })
   socket.serverMessage({
-    version: 1, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {},
+    version: PROTOCOL_VERSION, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {},
   })
   socket.serverMessage(SNAPSHOT)
 }
@@ -137,7 +140,7 @@ describe('App：自动连接与发送', () => {
     })
 
     socket.serverMessage({
-      version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
+      version: PROTOCOL_VERSION, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
     })
     await waitFor(() => {
       expect(screen.getByText('订阅中')).toBeInTheDocument()
@@ -178,7 +181,7 @@ describe('App：自动连接与发送', () => {
 
     // 接受结果后显示已接收
     socket.serverMessage({
-      version: 1,
+      version: PROTOCOL_VERSION,
       type: 'command_result',
       sessionId: 'session-1',
       commandId: command.commandId,
@@ -390,7 +393,7 @@ describe('App：unauthorized 配对失效', () => {
     const socket = FakeWebSocket.instances[0]!
     socket.serverOpen()
     socket.serverMessage({
-      version: 1,
+      version: PROTOCOL_VERSION,
       type: 'error',
       sessionId: '',
       commandId: '',
@@ -418,7 +421,7 @@ describe('App：unauthorized 配对失效', () => {
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '未决消息' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
     socket.serverMessage({
-      version: 1,
+      version: PROTOCOL_VERSION,
       type: 'error',
       sessionId: '',
       commandId: '',
@@ -448,11 +451,11 @@ describe('App：A5.1 PC 输入与去重', () => {
     })
 
     socket.serverMessage({
-      version: 1, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq: 8,
+      version: PROTOCOL_VERSION, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq: 8,
       payload: { event: { seq: 8, kind: 'turn_started', sessionId: 'session-1', requestId: 'req-pc', source: 'terminal', text: '来自电脑的问题', sessionStatus: '', turnStatus: 'running', error: null } },
     })
     socket.serverMessage({
-      version: 1, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq: 9,
+      version: PROTOCOL_VERSION, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq: 9,
       payload: { event: { seq: 9, kind: 'text_delta', sessionId: 'session-1', requestId: 'req-pc', source: 'terminal', text: '电脑的回答', sessionStatus: '', turnStatus: '', error: null } },
     })
 
@@ -477,16 +480,16 @@ describe('App：A5.1 PC 输入与去重', () => {
     const command = socket.sent.map((s) => JSON.parse(s)).find((m) => m.type === 'command')
 
     socket.serverMessage({
-      version: 1, type: 'command_result', sessionId: 'session-1',
+      version: PROTOCOL_VERSION, type: 'command_result', sessionId: 'session-1',
       commandId: command.commandId, requestId: 'req-m', seq: 0,
       payload: { accepted: true, code: '', message: '' },
     })
     socket.serverMessage({
-      version: 1, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-m', seq: 8,
+      version: PROTOCOL_VERSION, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-m', seq: 8,
       payload: { event: { seq: 8, kind: 'turn_started', sessionId: 'session-1', requestId: 'req-m', source: 'mobile', text: '手机提问', sessionStatus: '', turnStatus: 'running', error: null } },
     })
     socket.serverMessage({
-      version: 1, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-m', seq: 9,
+      version: PROTOCOL_VERSION, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-m', seq: 9,
       payload: { event: { seq: 9, kind: 'text_delta', sessionId: 'session-1', requestId: 'req-m', source: 'mobile', text: '答', sessionStatus: '', turnStatus: '', error: null } },
     })
 
@@ -495,5 +498,283 @@ describe('App：A5.1 PC 输入与去重', () => {
     })
     expect(screen.getAllByText('手机提问')).toHaveLength(1)
     expect(screen.getByText(/已接收/)).toBeInTheDocument()
+  })
+})
+
+// ---- B2：结构化内容、待处理事项与取消 ----
+
+const APPROVAL = {
+  actionId: 'act-1',
+  requestId: 'req-pc',
+  kind: 'tool_approval',
+  toolName: 'Bash',
+  preview: 'go test ./...',
+  allowSessionAvailable: true,
+}
+
+function turnStartedAt(seq: number) {
+  return {
+    version: PROTOCOL_VERSION, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq,
+    payload: { event: { seq, kind: 'turn_started', sessionId: 'session-1', requestId: 'req-pc', source: 'terminal', text: '跑一次测试', sessionStatus: '', turnStatus: 'running', error: null } },
+  }
+}
+
+function actionRequiredAt(seq: number) {
+  return {
+    version: PROTOCOL_VERSION, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq,
+    payload: { event: { seq, kind: 'action_required', sessionId: 'session-1', requestId: 'req-pc', source: '', text: '', sessionStatus: '', turnStatus: 'waiting', error: null, pendingAction: APPROVAL } },
+  }
+}
+
+function lastCommand(socket: FakeWebSocket) {
+  const commands = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.type === 'command')
+  return commands[commands.length - 1]
+}
+
+async function connected() {
+  window.location.hash = fragmentOf(PAIRING)
+  render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+  const socket = FakeWebSocket.instances[0]!
+  completeHandshake(socket)
+  await waitFor(() => {
+    expect(screen.getByText('已连接')).toBeInTheDocument()
+  })
+  return socket
+}
+
+describe('App：B2 结构化内容块', () => {
+  test('content_block 事件渲染为摘要行，不再显示只读占位', async () => {
+    const socket = await connected()
+    socket.serverMessage(turnStartedAt(8))
+    socket.serverMessage({
+      version: PROTOCOL_VERSION, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq: 9,
+      payload: { event: { seq: 9, kind: 'content_block', sessionId: 'session-1', requestId: 'req-pc', source: '', text: '', sessionStatus: '', turnStatus: '', error: null, block: { id: 'b1', kind: 'tool_use', toolUseId: 'tu-1', toolClass: 'builtin', toolName: 'Bash', mcpServer: '' } } },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('工具调用（1）')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('工具调用（1）'))
+    expect(screen.getByText(/工具：Bash/)).toBeInTheDocument()
+    expect(screen.queryByText('只读占位')).not.toBeInTheDocument()
+  })
+})
+
+describe('App：B2 工具审批', () => {
+  test('action_required 展示审批卡片、禁用文本输入，决议发出 resolve_action', async () => {
+    const socket = await connected()
+    socket.serverMessage(turnStartedAt(8))
+    socket.serverMessage(actionRequiredAt(9))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-action-card')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('action-preview').textContent).toBe('go test ./...')
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    // 自由文本输入框本身也禁用（B2 §6），不只禁用发送按钮。
+    expect(screen.getByRole('textbox')).toBeDisabled()
+    expect(screen.getByText(/Turn：等待中/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '本次允许' }))
+    expect(lastCommand(socket)).toMatchObject({
+      sessionId: 'session-1',
+      payload: { kind: 'resolve_action', actionId: 'act-1', decision: 'allow_once' },
+    })
+
+    // 决议被接受后卡片消失，文本输入恢复。
+    socket.serverMessage({
+      version: PROTOCOL_VERSION, type: 'command_result', sessionId: 'session-1',
+      commandId: lastCommand(socket).commandId, requestId: 'req-pc', seq: 0,
+      payload: { accepted: true, code: '', message: '' },
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('pending-action-card')).not.toBeInTheDocument()
+    })
+  })
+
+  test('竞态失败时提示已由其他客户端处理并清除卡片', async () => {
+    const socket = await connected()
+    socket.serverMessage(turnStartedAt(8))
+    socket.serverMessage(actionRequiredAt(9))
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-action-card')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '拒绝' }))
+    socket.serverMessage({
+      version: PROTOCOL_VERSION, type: 'command_result', sessionId: 'session-1',
+      commandId: lastCommand(socket).commandId, requestId: '', seq: 0,
+      payload: { accepted: false, code: 'action_not_pending', message: 'already resolved' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/已由其他客户端处理/)).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('pending-action-card')).not.toBeInTheDocument()
+  })
+
+  test('重连后从 snapshot 恢复审批卡片，不伪造历史内容块', async () => {
+    const socket = await connected()
+    socket.serverClose()
+    await waitFor(() => {
+      expect(screen.getByText('已断开')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '重新连接' }))
+    await waitFor(() => {
+      expect(FakeWebSocket.instances).toHaveLength(2)
+    })
+
+    const second = FakeWebSocket.instances[1]!
+    second.serverOpen()
+    second.serverMessage({
+      version: PROTOCOL_VERSION, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
+    })
+    second.serverMessage({
+      version: PROTOCOL_VERSION, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {},
+    })
+    second.serverMessage({
+      ...SNAPSHOT,
+      payload: {
+        connectionStatus: 'subscribed',
+        snapshot: {
+          ...SNAPSHOT.payload.snapshot,
+          turn: {
+            status: 'waiting',
+            requestId: 'req-pc',
+            source: 'terminal',
+            message: '',
+            error: null,
+            pendingAction: APPROVAL,
+          },
+        },
+      },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-action-card')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: '本会话允许' })).toBeInTheDocument()
+    expect(screen.getByTestId('message-feed').textContent).not.toContain('工具')
+  })
+})
+
+describe('App：B2 取消与排队', () => {
+  test('运行中 Turn 可取消，取消生效后显示已取消', async () => {
+    const socket = await connected()
+    socket.serverMessage(turnStartedAt(8))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '取消当前 Turn' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '取消当前 Turn' }))
+    expect(lastCommand(socket)).toMatchObject({
+      payload: { kind: 'cancel_turn', requestId: 'req-pc' },
+    })
+    // 发出取消请求与已取消是两个状态（§7）。
+    expect(screen.getByText(/已请求取消/)).toBeInTheDocument()
+
+    socket.serverMessage({
+      version: PROTOCOL_VERSION, type: 'command_result', sessionId: 'session-1',
+      commandId: lastCommand(socket).commandId, requestId: 'req-pc', seq: 0,
+      payload: { accepted: true, code: '', message: '' },
+    })
+    socket.serverMessage({
+      version: PROTOCOL_VERSION, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq: 9,
+      payload: { event: { seq: 9, kind: 'turn_completed', sessionId: 'session-1', requestId: 'req-pc', source: 'terminal', text: '', sessionStatus: '', turnStatus: 'cancelled', error: null } },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Turn：已取消/)).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: '取消当前 Turn' })).not.toBeInTheDocument()
+  })
+
+  test('waiting 期间仍可取消当前 Turn', async () => {
+    const socket = await connected()
+    socket.serverMessage(turnStartedAt(8))
+    socket.serverMessage(actionRequiredAt(9))
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-action-card')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '取消当前 Turn' }))
+    expect(lastCommand(socket)).toMatchObject({
+      payload: { kind: 'cancel_turn', requestId: 'req-pc' },
+    })
+  })
+
+  test('排队列表按 snapshot 渲染，逐项取消后本地移除', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const socket = FakeWebSocket.instances[0]!
+    socket.serverOpen()
+    socket.serverMessage({
+      version: PROTOCOL_VERSION, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
+    })
+    socket.serverMessage({
+      version: PROTOCOL_VERSION, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {},
+    })
+    socket.serverMessage({
+      ...SNAPSHOT,
+      payload: {
+        connectionStatus: 'subscribed',
+        snapshot: {
+          ...SNAPSHOT.payload.snapshot,
+          turn: { status: 'running', requestId: 'req-pc', source: 'terminal', message: '', error: null, pendingAction: null },
+          queueDepth: 1,
+          queuedRequests: [{ requestId: 'req-q1', source: 'mobile', preview: '排队中的输入' }],
+        },
+      },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('排队中的输入')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(lastCommand(socket)).toMatchObject({
+      payload: { kind: 'cancel_queued', requestId: 'req-q1' },
+    })
+
+    socket.serverMessage({
+      version: PROTOCOL_VERSION, type: 'command_result', sessionId: 'session-1',
+      commandId: lastCommand(socket).commandId, requestId: 'req-q1', seq: 0,
+      payload: { accepted: true, code: '', message: '' },
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('排队中的输入')).not.toBeInTheDocument()
+    })
+  })
+})
+
+describe('App：B2 终态与不支持通知', () => {
+  test('session_stopped 显示终态横幅、禁用输入并保留已收内容', async () => {
+    const socket = await connected()
+    socket.serverMessage(turnStartedAt(8))
+    socket.serverMessage({
+      version: PROTOCOL_VERSION, type: 'event', sessionId: 'session-1', commandId: '', requestId: '', seq: 9,
+      payload: { event: { seq: 9, kind: 'session_stopped', sessionId: 'session-1', requestId: '', source: '', text: '', sessionStatus: 'stopped', turnStatus: '', error: null } },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-terminal-banner').textContent).toContain('会话已结束')
+    })
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    // 已收到的内容保留。
+    expect(screen.getByText('跑一次测试')).toBeInTheDocument()
+  })
+
+  test('unsupported 通知转为可读提示且不断开连接', async () => {
+    const socket = await connected()
+    socket.serverMessage({
+      version: PROTOCOL_VERSION, type: 'unsupported', sessionId: 'session-1', commandId: '', requestId: '', seq: 8,
+      payload: { code: 'unknown_block' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-notice').textContent).toContain('电脑端')
+    })
+    expect(screen.getByText('已连接')).toBeInTheDocument()
+    expect(socket.closed).toBe(false)
   })
 })

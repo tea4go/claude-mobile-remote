@@ -20,6 +20,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/tea4go/claude-mobile-remote/internal/pairing"
+	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 	"github.com/tea4go/claude-mobile-remote/internal/transport"
 )
 
@@ -71,6 +72,11 @@ func runClient(ctx context.Context, arguments []string, input io.Reader, output,
 		return 1
 	}
 	fmt.Fprintf(output, "snapshot seq=%d state=%s\n", snapshot.Seq, snapshotPayload.Snapshot.SessionStatus)
+	var state clientState
+	state.observeSnapshot(snapshotPayload.Snapshot)
+	if snapshotPayload.Snapshot.Turn.PendingAction != nil {
+		printPendingAction(output, *snapshotPayload.Snapshot.Turn.PendingAction)
+	}
 
 	clientContext, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -102,12 +108,18 @@ func runClient(ctx context.Context, arguments []string, input io.Reader, output,
 			if text == ":quit" {
 				return 0
 			}
+			commandPayload, err := buildCommand(state, text)
+			if err != nil {
+				// 行命令输错只影响这一行，不断开会话。
+				fmt.Fprintf(errorOutput, "命令无法发送: %v\n", err)
+				continue
+			}
 			commandID, err := randomCommandID()
 			if err != nil {
 				fmt.Fprintln(errorOutput, "命令 ID 生成失败")
 				return 1
 			}
-			envelope, err := transport.NewEnvelope(transport.TypeCommand, payload.SessionID, commandID, "", 0, transport.CommandPayload{Kind: transport.CommandSendText, Text: text})
+			envelope, err := transport.NewEnvelope(transport.TypeCommand, payload.SessionID, commandID, "", 0, commandPayload)
 			if err != nil {
 				fmt.Fprintln(errorOutput, "命令编码失败")
 				return 1
@@ -147,8 +159,24 @@ func runClient(ctx context.Context, arguments []string, input io.Reader, output,
 					return 1
 				}
 				fmt.Fprintf(output, "event seq=%d type=%s requestId=%s\n", envelope.Seq, event.Event.Kind, envelope.RequestID)
+				state.observeEvent(event.Event)
+				if event.Event.Block != nil {
+					printContentBlock(output, *event.Event.Block)
+				}
+				if event.Event.Kind == projectsession.EventActionRequired && event.Event.PendingAction != nil {
+					printPendingAction(output, *event.Event.PendingAction)
+				}
 			case transport.TypeSnapshot:
+				var refreshed transport.SnapshotPayload
+				if transport.DecodePayload(envelope, &refreshed) != nil {
+					fmt.Fprintln(errorOutput, "snapshot 无效")
+					return 1
+				}
+				state.observeSnapshot(refreshed.Snapshot)
 				fmt.Fprintf(output, "snapshot seq=%d\n", envelope.Seq)
+				if refreshed.Snapshot.Turn.PendingAction != nil {
+					printPendingAction(output, *refreshed.Snapshot.Turn.PendingAction)
+				}
 			case transport.TypeError:
 				var protocolError transport.ErrorPayload
 				_ = transport.DecodePayload(envelope, &protocolError)

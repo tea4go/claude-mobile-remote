@@ -15,6 +15,10 @@ function claude(overrides: Partial<Extract<Message, { kind: 'claude' }>> = {}): 
   }
 }
 
+function block(b: Extract<Message, { kind: 'block' }>['block']): Message {
+  return { kind: 'block', requestId: 'req-1', block: b }
+}
+
 function input(overrides: Partial<Extract<Message, { kind: 'input' }>> = {}): Message {
   return {
     kind: 'input',
@@ -140,5 +144,93 @@ describe('MessageFeed：Markdown 渲染边界（B1）', () => {
   test('空 Claude 文本不渲染消息气泡', () => {
     const { container } = render(<MessageFeed messages={[claude({ text: '' })]} />)
     expect(container.querySelector('p')).toBeNull()
+  })
+})
+
+describe('MessageFeed：结构化内容块（B2 §6）', () => {
+  test('结构化块渲染为默认折叠的摘要行，不再出现只读占位', () => {
+    const { container } = render(
+      <MessageFeed
+        messages={[block({ id: 'b1', kind: 'thinking', thinking: '先看现有实现' })]}
+      />,
+    )
+    expect(screen.getByText('思考过程')).toBeInTheDocument()
+    expect(screen.queryByText('先看现有实现')).not.toBeInTheDocument()
+    expect(container.textContent).not.toContain('只读占位')
+  })
+
+  test('工具调用与文本按到达顺序混排', () => {
+    const { container } = render(
+      <MessageFeed
+        messages={[
+          claude({ text: '开始处理' }),
+          block({
+            id: 'b2',
+            kind: 'tool_use',
+            toolUseId: 'tu-1',
+            toolClass: 'builtin',
+            toolName: 'Bash',
+            mcpServer: '',
+          }),
+          claude({ requestId: 'req-2', text: '处理完成' }),
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByText('工具调用（1）'))
+    const text = container.textContent ?? ''
+    expect(text.indexOf('开始处理')).toBeLessThan(text.indexOf('Bash'))
+    expect(text.indexOf('Bash')).toBeLessThan(text.indexOf('处理完成'))
+  })
+
+  test('工具结果关联同一 toolUseId 的工具名', () => {
+    render(
+      <MessageFeed
+        messages={[
+          block({
+            id: 'b3',
+            kind: 'tool_use',
+            toolUseId: 'tu-9',
+            toolClass: 'builtin',
+            toolName: 'Grep',
+            mcpServer: '',
+          }),
+          block({ id: 'b4', kind: 'tool_result', toolUseId: 'tu-9', isError: false }),
+        ]}
+      />,
+    )
+    expect(screen.getByText('工具调用（1）')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('工具调用（1）'))
+    expect(screen.getByText(/工具：Grep/)).toBeInTheDocument()
+    expect(screen.getByText('成功')).toBeInTheDocument()
+  })
+
+  test('连续工具合并为一个默认折叠的分组', () => {
+    render(
+      <MessageFeed
+        messages={[
+          block({ id: 'b6', kind: 'tool_use', toolUseId: 'tu-6', toolClass: 'builtin', toolName: 'Bash', mcpServer: '', preview: 'ls' }),
+          block({ id: 'b7', kind: 'tool_result', toolUseId: 'tu-6', isError: false }),
+          block({ id: 'b8', kind: 'tool_use', toolUseId: 'tu-8', toolClass: 'builtin', toolName: 'Read', mcpServer: '', preview: 'README.md' }),
+        ]}
+      />,
+    )
+    expect(screen.getByText('工具调用（2）')).toBeInTheDocument()
+    expect(screen.queryByText(/工具：Bash/)).not.toBeInTheDocument()
+  })
+
+  test('孤立工具结果不编造工具名', () => {
+    render(
+      <MessageFeed
+        messages={[block({ id: 'b5', kind: 'tool_result', toolUseId: 'tu-x', isError: true })]}
+      />,
+    )
+    expect(screen.getByText('工具结果')).toBeInTheDocument()
+    expect(screen.getByText('失败')).toBeInTheDocument()
+  })
+
+  test('已取消的 Turn 显示已取消标记（区分于取消请求）', () => {
+    render(<MessageFeed messages={[claude({ status: 'cancelled', text: '已输出一半' })]} />)
+    expect(screen.getByText('已取消')).toBeInTheDocument()
+    expect(screen.getByText('已输出一半')).toBeInTheDocument()
   })
 })

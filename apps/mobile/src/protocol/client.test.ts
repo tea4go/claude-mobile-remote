@@ -49,6 +49,8 @@ class FakeWebSocket {
 
 function pairing(): PairingPayload {
   return {
+    // 配对负载版本与传输层协议版本相互独立（internal/pairing/payload.go
+    // 的 PayloadVersion 仍为 1），不得随协议升级而变。
     version: 1,
     wsUrl: 'ws://127.0.0.1:8765/ws',
     sessionId: 'session-1',
@@ -59,7 +61,7 @@ function pairing(): PairingPayload {
 
 function snapshotMessage(seq = 7) {
   return {
-    version: 1,
+    version: 2,
     type: 'snapshot',
     sessionId: 'session-1',
     commandId: '',
@@ -81,6 +83,7 @@ function snapshotMessage(seq = 7) {
           pendingAction: null,
         },
         queueDepth: 0,
+        queuedRequests: [],
       },
     },
   }
@@ -90,7 +93,7 @@ function snapshotMessage(seq = 7) {
 // 尚无任何 Turn，因此 turn.requestId 与 turn.source 均为空串。
 function preTurnSnapshotMessage() {
   return {
-    version: 1,
+    version: 2,
     type: 'snapshot',
     sessionId: 'session-1',
     commandId: '',
@@ -112,6 +115,7 @@ function preTurnSnapshotMessage() {
           pendingAction: null,
         },
         queueDepth: 0,
+        queuedRequests: null,
       },
     },
   }
@@ -135,7 +139,7 @@ describe('握手流程', () => {
     socket.serverOpen()
     expect(socket.sent).toHaveLength(1)
     expect(JSON.parse(socket.sent[0]!)).toEqual({
-      version: 1,
+      version: 2,
       type: 'hello',
       sessionId: 'session-1',
       commandId: '',
@@ -152,7 +156,7 @@ describe('握手流程', () => {
     const socket = FakeWebSocket.instances[0]!
     socket.serverOpen()
     socket.serverMessage({
-      version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
+      version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
     })
     expect(JSON.parse(socket.sent[1]!)).toMatchObject({
       type: 'subscribe',
@@ -168,8 +172,8 @@ describe('握手流程', () => {
     client.connect()
     const socket = FakeWebSocket.instances[0]!
     socket.serverOpen()
-    socket.serverMessage({ version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
-    socket.serverMessage({ version: 1, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
     socket.serverMessage(snapshotMessage())
     expect(events).toContain('snapshot')
     expect(client.isReady()).toBe(true)
@@ -187,8 +191,8 @@ describe('握手流程', () => {
     client.connect()
     const socket = FakeWebSocket.instances[0]!
     socket.serverOpen()
-    socket.serverMessage({ version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
-    socket.serverMessage({ version: 1, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
     socket.serverMessage(preTurnSnapshotMessage())
     expect(closes).toEqual([])
     expect(events).toContain('snapshot')
@@ -201,8 +205,8 @@ describe('握手流程', () => {
     client.connect()
     const socket = FakeWebSocket.instances[0]!
     socket.serverOpen()
-    socket.serverMessage({ version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
-    socket.serverMessage({ version: 1, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
     const result = client.sendText('hi', 'cmd-1')
     expect(result.ok).toBe(false)
     expect(socket.sent.filter((m) => JSON.parse(m).type === 'command')).toHaveLength(0)
@@ -216,8 +220,8 @@ describe('命令与事件', () => {
     client.connect()
     const socket = FakeWebSocket.instances[0]!
     socket.serverOpen()
-    socket.serverMessage({ version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
-    socket.serverMessage({ version: 1, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
     socket.serverMessage(snapshotMessage())
     return { client, socket }
   }
@@ -250,12 +254,106 @@ describe('命令与事件', () => {
       if (e.kind === 'commandResult') results.push(e)
     }
     socket.serverMessage({
-      version: 1, type: 'command_result', sessionId: 'session-1', commandId: 'cmd-1', requestId: 'req-9', seq: 0,
+      version: 2, type: 'command_result', sessionId: 'session-1', commandId: 'cmd-1', requestId: 'req-9', seq: 0,
       payload: { accepted: true, code: '', message: '' },
     })
     expect(results).toEqual([{ kind: 'commandResult', commandId: 'cmd-1', requestId: 'req-9', accepted: true, code: '', message: '' }])
     expect(client.sendText('again', 'cmd-2').ok).toBe(true)
     client.close()
+  })
+
+  test('resolveAction 发出审批决议命令', () => {
+    const { client, socket } = connectedClient()
+    const result = client.resolveAction({ actionId: 'act-1', decision: 'allow_once' }, 'cmd-1')
+    expect(result.ok).toBe(true)
+    expect(JSON.parse(socket.sent[2]!)).toMatchObject({
+      type: 'command',
+      commandId: 'cmd-1',
+      payload: { kind: 'resolve_action', actionId: 'act-1', decision: 'allow_once' },
+    })
+    client.close()
+  })
+
+  test('resolveAction 发出问答答案命令且不携带 decision', () => {
+    const { client, socket } = connectedClient()
+    const answers = [{ questionId: 'q-1', values: ['src'] }]
+    expect(client.resolveAction({ actionId: 'act-2', answers }, 'cmd-1').ok).toBe(true)
+    const sent = JSON.parse(socket.sent[2]!)
+    expect(sent.payload).toEqual({ kind: 'resolve_action', actionId: 'act-2', answers })
+    client.close()
+  })
+
+  test('cancelTurn 与 cancelQueued 按 requestId 发出命令', () => {
+    const { client, socket } = connectedClient()
+    expect(client.cancelTurn('req-9', 'cmd-1').ok).toBe(true)
+    expect(JSON.parse(socket.sent[2]!).payload).toEqual({
+      kind: 'cancel_turn',
+      requestId: 'req-9',
+    })
+    socket.serverMessage({
+      version: 2, type: 'command_result', sessionId: 'session-1', commandId: 'cmd-1', requestId: 'req-9', seq: 0,
+      payload: { accepted: true, code: '', message: '' },
+    })
+    expect(client.cancelQueued('req-10', 'cmd-2').ok).toBe(true)
+    expect(JSON.parse(socket.sent[3]!).payload).toEqual({
+      kind: 'cancel_queued',
+      requestId: 'req-10',
+    })
+    client.close()
+  })
+
+  // 控制命令与文本命令共用同一个单在途门控：服务端按 commandId 单次应答。
+  test('控制命令与 sendText 共用单飞门控', () => {
+    const { client } = connectedClient()
+    expect(client.resolveAction({ actionId: 'act-1', decision: 'deny' }, 'cmd-1').ok).toBe(true)
+    expect(client.sendText('hi', 'cmd-2')).toEqual({ ok: false, reason: 'busy' })
+    expect(client.cancelTurn('req-9', 'cmd-3')).toEqual({ ok: false, reason: 'busy' })
+    expect(client.cancelQueued('req-10', 'cmd-4')).toEqual({ ok: false, reason: 'busy' })
+    client.close()
+  })
+
+  test('未就绪时控制命令返回 notReady 且不发帧', () => {
+    const { client } = makeClient()
+    client.connect()
+    const socket = FakeWebSocket.instances[0]!
+    socket.serverOpen()
+    expect(client.resolveAction({ actionId: 'act-1', decision: 'deny' }, 'cmd-1')).toEqual({
+      ok: false,
+      reason: 'notReady',
+    })
+    expect(client.cancelTurn('req-9', 'cmd-2')).toEqual({ ok: false, reason: 'notReady' })
+    expect(socket.sent.filter((m) => JSON.parse(m).type === 'command')).toHaveLength(0)
+    client.close()
+  })
+
+  // unsupported 是服务端通知，不是错误：必须上报观察者且不终止连接。
+  test('unsupported 通知上报且保持连接', () => {
+    const { client, socket } = connectedClient()
+    const events: unknown[] = []
+    const closes: unknown[] = []
+    client.onEvent = (e) => events.push(e)
+    client.onClose = (info) => closes.push(info)
+    socket.serverMessage({
+      version: 2, type: 'unsupported', sessionId: 'session-1', commandId: '', requestId: '', seq: 0,
+      payload: { code: 'concurrent_action' },
+    })
+    expect(events).toEqual([{ kind: 'unsupported', code: 'concurrent_action', seq: 0 }])
+    expect(closes).toEqual([])
+    expect(socket.closed).toBe(false)
+    expect(client.isReady()).toBe(true)
+    client.close()
+  })
+
+  test('其他 Session 的 unsupported 通知按协议错误关闭连接', () => {
+    const { client, socket } = connectedClient()
+    const closes: unknown[] = []
+    client.onClose = (info) => closes.push(info)
+    socket.serverMessage({
+      version: 2, type: 'unsupported', sessionId: 'other-session', commandId: '', requestId: '', seq: 0,
+      payload: { code: 'unknown_block' },
+    })
+    expect(closes).toEqual([{ kind: 'protocolError', pendingCommandId: null }])
+    expect(socket.closed).toBe(true)
   })
 
   test('未知 commandId 的 command_result 按协议错误关闭连接', () => {
@@ -265,7 +363,7 @@ describe('命令与事件', () => {
     client.sendText('hello', 'cmd-1')
 
     socket.serverMessage({
-      version: 1, type: 'command_result', sessionId: 'session-1', commandId: 'other-command', requestId: 'req-9', seq: 0,
+      version: 2, type: 'command_result', sessionId: 'session-1', commandId: 'other-command', requestId: 'req-9', seq: 0,
       payload: { accepted: true, code: '', message: '' },
     })
 
@@ -278,7 +376,7 @@ describe('命令与事件', () => {
     client.connect()
     const socket = FakeWebSocket.instances[0]!
     socket.serverOpen()
-    socket.serverMessage({ version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
     const closes: unknown[] = []
     client.onClose = (info) => closes.push(info)
     socket.serverMessage({
@@ -294,7 +392,7 @@ describe('命令与事件', () => {
     const events: unknown[] = []
     client.onEvent = (e) => events.push(e)
     socket.serverMessage({
-      version: 1, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-9', seq: 8,
+      version: 2, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-9', seq: 8,
       payload: { event: { seq: 8, kind: 'turn_started', sessionId: 'session-1', requestId: 'req-9', source: 'mobile', text: 'from phone', sessionStatus: '', turnStatus: 'running', error: null } },
     })
     expect(events).toEqual([{
@@ -311,8 +409,8 @@ describe('断线与失效', () => {
     client.connect()
     const socket = FakeWebSocket.instances[0]!
     socket.serverOpen()
-    socket.serverMessage({ version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
-    socket.serverMessage({ version: 1, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ version: 2, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
     socket.serverMessage(snapshotMessage())
     return { client, socket }
   }
@@ -331,7 +429,7 @@ describe('断线与失效', () => {
     const closes: unknown[] = []
     client.onClose = (info) => closes.push(info)
     socket.serverMessage({
-      version: 1, type: 'error', sessionId: '', commandId: '', requestId: '', seq: 0,
+      version: 2, type: 'error', sessionId: '', commandId: '', requestId: '', seq: 0,
       payload: { code: 'unauthorized', message: 'invalid pair token' },
     })
     expect(closes).toEqual([{ kind: 'pairingInvalid', pendingCommandId: null }])
@@ -363,8 +461,8 @@ describe('断线与失效', () => {
     const second = FakeWebSocket.instances[1]!
     expect(second).toBeDefined()
     second.serverOpen()
-    second.serverMessage({ version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
-    second.serverMessage({ version: 1, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
+    second.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+    second.serverMessage({ version: 2, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
     second.serverMessage(snapshotMessage())
 
     // 旧 socket 的迟到消息与关闭都不得影响当前状态
@@ -417,7 +515,7 @@ describe('构造与输入校验', () => {
     const socket = FakeWebSocket.instances[0]!
     socket.serverOpen()
     expect(() =>
-      socket.serverMessage({ version: 1, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} }),
+      socket.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} }),
     ).not.toThrow()
     client.close()
   })

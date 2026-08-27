@@ -3,15 +3,29 @@
 
 import { decodeServerMessage } from './decode'
 import type { PairingPayload } from './pairing'
+import type {
+  ActionDecision,
+  CommandPayload,
+  QuestionAnswer,
+  UnsupportedCode,
+} from './types'
 import { PROTOCOL_VERSION } from './types'
 
 // 连接内部阶段；onEvent 通过 connectionStateChanged 导出给 reducer。
 type Stage = 'connecting' | 'authenticating' | 'subscribing' | 'ready'
 
+// 两种决议形态（B2 §5）：工具审批只带 decision，问答只带 answers。
+export type ActionResolution =
+  | { actionId: string; decision: ActionDecision }
+  | { actionId: string; answers: QuestionAnswer[] }
+
 export type ClientEvent =
   | { kind: 'connectionStateChanged'; connection: 'connecting' | 'authenticating' | 'subscribing' | 'connected' }
   | { kind: 'snapshot'; snapshot: import('./types').SessionSnapshot }
   | { kind: 'event'; event: import('./types').DomainEvent }
+  // 服务端不支持通知（B2 §4.4）：属于提示，不终止连接。通知经服务端
+  // publish 递增并占用一个 seq，必须透传给 reducer 推进 seqBase。
+  | { kind: 'unsupported'; code: UnsupportedCode; seq: number }
   | {
       kind: 'commandResult'
       commandId: string
@@ -144,6 +158,28 @@ export class ProtocolClient {
   }
 
   sendText(text: string, commandId: string): SendResult {
+    return this.sendCommand(commandId, { kind: 'send_text', text })
+  }
+
+  // 审批或问答决议（B2 §5）：与文本命令共用同一个单在途门控。
+  resolveAction(resolution: ActionResolution, commandId: string): SendResult {
+    const payload: CommandPayload =
+      'decision' in resolution
+        ? { kind: 'resolve_action', actionId: resolution.actionId, decision: resolution.decision }
+        : { kind: 'resolve_action', actionId: resolution.actionId, answers: resolution.answers }
+    return this.sendCommand(commandId, payload)
+  }
+
+  cancelTurn(requestId: string, commandId: string): SendResult {
+    return this.sendCommand(commandId, { kind: 'cancel_turn', requestId })
+  }
+
+  cancelQueued(requestId: string, commandId: string): SendResult {
+    return this.sendCommand(commandId, { kind: 'cancel_queued', requestId })
+  }
+
+  // 所有命令共用单在途门控：服务端按 commandId 单次应答，并行发送无法对应结果。
+  private sendCommand(commandId: string, payload: CommandPayload): SendResult {
     if (this.stage !== 'ready' || this.socket === null) {
       return { ok: false, reason: 'notReady' }
     }
@@ -152,10 +188,7 @@ export class ProtocolClient {
     }
     this.pendingCommandId = commandId
     this.socket.send(
-      envelope('command', this.payload.sessionId, commandId, '', 0, {
-        kind: 'send_text',
-        text,
-      }),
+      envelope('command', this.payload.sessionId, commandId, '', 0, payload),
     )
     return { ok: true }
   }
@@ -194,7 +227,10 @@ export class ProtocolClient {
     }
 
     if (
-      (message.type === 'snapshot' || message.type === 'event' || message.type === 'command_result') &&
+      (message.type === 'snapshot' ||
+        message.type === 'event' ||
+        message.type === 'unsupported' ||
+        message.type === 'command_result') &&
       message.sessionId !== this.payload.sessionId
     ) {
       this.terminate('protocolError')
@@ -254,6 +290,15 @@ export class ProtocolClient {
           code: message.payload.code,
           message: message.payload.message,
         })
+        return
+      case 'unsupported':
+        if (this.stage !== 'ready') {
+          this.terminate('protocolError')
+          return
+        }
+        // 通知而非错误：上报观察者后继续使用当前连接。seq 随通知上报，
+        // 供 reducer 做与普通事件一致的连续性校验。
+        this.emit({ kind: 'unsupported', code: message.payload.code, seq: message.seq })
         return
       case 'error':
         if (message.payload.code === 'unauthorized') {

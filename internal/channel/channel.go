@@ -9,10 +9,16 @@ import (
 
 var ErrInvalidSequence = errors.New("invalid event sequence")
 
-// Controller is the A3 boundary required by a network Session Channel.
+// Controller is the A3/B2 boundary required by a network Session Channel. Every
+// command a remote client can issue has to travel through this interface so the
+// Channel never reaches the SDK on its own.
 type Controller interface {
 	Submit(context.Context, projectsession.Input) (string, error)
 	Subscribe(context.Context, int) (projectsession.Snapshot, <-chan projectsession.Event, error)
+	Snapshot(context.Context) (projectsession.Snapshot, error)
+	ResolveAction(context.Context, string, projectsession.ActionDecision, []projectsession.QuestionAnswer) error
+	CancelTurn(context.Context, string) error
+	CancelQueued(context.Context, string) error
 }
 
 // Channel routes one exact session ID to its Controller.
@@ -32,12 +38,67 @@ func (c *Channel) SessionID() string {
 	return c.sessionID
 }
 
-func (c *Channel) SubmitText(ctx context.Context, text string) (string, error) {
+// guard rejects any command addressed to a different session before the
+// Controller is touched, keeping session isolation independent of the caller.
+func (c *Channel) guard(sessionID string) error {
+	if sessionID != c.sessionID {
+		return projectsession.ErrSessionMismatch
+	}
+	return nil
+}
+
+func (c *Channel) SubmitText(ctx context.Context, sessionID, text string) (string, error) {
+	if err := c.guard(sessionID); err != nil {
+		return "", err
+	}
 	return c.controller.Submit(ctx, projectsession.Input{
 		SessionID: c.sessionID,
 		Source:    projectsession.InputMobile,
 		Text:      text,
 	})
+}
+
+// Snapshot exposes the current state so a caller can validate a resolution
+// against the pending action before asking the Controller to apply it.
+func (c *Channel) Snapshot(ctx context.Context, sessionID string) (projectsession.Snapshot, error) {
+	if err := c.guard(sessionID); err != nil {
+		return projectsession.Snapshot{}, err
+	}
+	snapshot, err := c.controller.Snapshot(ctx)
+	if err != nil {
+		return projectsession.Snapshot{}, err
+	}
+	if snapshot.SessionID != c.sessionID {
+		return projectsession.Snapshot{}, projectsession.ErrSessionMismatch
+	}
+	return snapshot, nil
+}
+
+func (c *Channel) ResolveAction(
+	ctx context.Context,
+	sessionID string,
+	actionID string,
+	decision projectsession.ActionDecision,
+	answers []projectsession.QuestionAnswer,
+) error {
+	if err := c.guard(sessionID); err != nil {
+		return err
+	}
+	return c.controller.ResolveAction(ctx, actionID, decision, answers)
+}
+
+func (c *Channel) CancelTurn(ctx context.Context, sessionID, requestID string) error {
+	if err := c.guard(sessionID); err != nil {
+		return err
+	}
+	return c.controller.CancelTurn(ctx, requestID)
+}
+
+func (c *Channel) CancelQueued(ctx context.Context, sessionID, requestID string) error {
+	if err := c.guard(sessionID); err != nil {
+		return err
+	}
+	return c.controller.CancelQueued(ctx, requestID)
 }
 
 type Subscription struct {
