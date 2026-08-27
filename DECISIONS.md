@@ -393,3 +393,11 @@
 - **理由**：只靠快照差异比较会丢掉审批发生的时间点，客户端无法区分“新审批到达”与“重连后看到既有审批”，也无法在 action 被其他客户端抢先决议时给出明确反馈；`cancel_queued` 需要客户端先看到可取消的 `requestId`，仅有深度数字无法定位目标。
 - **影响（三端可实现性核对结论）**：两个事件与新增快照字段只使用字符串、布尔、数组和对象，走与其它事件同一条按 `seq` 单调有序的管道，不依赖任何浏览器特有能力，React / Capacitor iOS·Android / HarmonyOS ArkTS 均可实现。`queuedRequests` 只下发截断预览，不下发完整输入正文。本条在 D46 之下细化，不替代 D46 任何决策。
 - **状态**：已定
+
+## D49 · Android 壳使用 http scheme 以连接局域网明文 WebSocket
+
+- **日期**：2026-08-27
+- **决策**：Capacitor Android 工程在 `capacitor.config.ts` 设 `server.androidScheme: 'http'`，使壳内页面以 `http://localhost` 加载本地 `dist`，而非 Capacitor 8 默认的 `https://localhost`。
+- **理由**：Capacitor 8 Android WebView 默认 `androidScheme = https`（`CapConfig.java` 源码确认），页面为 `https://localhost` 时浏览器混合内容策略会拦截一切 `ws://` 明文连接，配对后 `new WebSocket('ws://…')` 抛 `SecurityError`，React 组件树崩溃为空白。D44 只放行局域网明文（cleartext），未预见 `https` scheme 额外触发混合内容拦截这一层。`http` 是 Capacitor 官方 `validateScheme` 允许的合法值，与产品「局域网明文直连」定位一致；`http://localhost` 加载的是本地 `dist` 资源（无中间人风险），唯一明文是到 PC 的 `ws://`，本就属 D44 放行范围。
+- **影响**：iOS 默认 `capacitor://` scheme 不触发此拦截，无需改动，仅 Android 调整。协议、状态、配对负载与 `sessionId`/request ID/`seq` 语义均不变，三端共用契约不变；属端内平台配置，HarmonyOS NEXT 可自行实现等价策略。本条补充 D44 的平台网络策略，不替代 D44。遗留关联：原生壳页面 Origin 为 `http://localhost`（无端口），是否加入 Service 默认 Origin 白名单待 C2 决定（见 `docs/testing/C1-result.md` §7 发现 2）。
+- **状态**：已定

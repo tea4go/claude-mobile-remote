@@ -4,11 +4,20 @@
 
 ## 0. 一句话现状
 
-A1–A6 已提交；B1 已完成并通过门禁；B2 Task 1–Task 7 已实施，三个 Mobile Web 展示问题已按用户测试通过；前端全量自动化 16 files / 376 tests、lint、build 通过；Go 侧相关包测试通过；全量 Go 集成测试仍受当前沙箱禁止绑定 `[::1]:0` 影响。B2 暂停，剩余人工浏览器验收与真实 Claude 端到端验证后置；C1 因用户已准备好 AVD 环境，提升为下一优先阶段，先进入 Android 模拟器调试。
+A1–A6 已提交；B1 已完成并通过门禁；B2 Task 1–Task 7 已实施（剩余人工浏览器验收与真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁（Capacitor iOS/Android 工程 + Web 接入 + 局域网明文放行 + Android 模拟器壳内连通验证通过）；下一步进入 C2 设计（真机/VPN/扫码/安全存储），或回补 B2 人工验收。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：B2 暂停，切换前置 C1 Android 模拟器调试
+- **子阶段**：C1 已完成，待定下一步（C2 设计 或 B2 人工验收回补）
+- **C1 完成项（2026-08-27）**：
+  - 环境前置：JDK 21（用户自行升级）+ Android SDK（platform-tools 37.0.1 / platforms 36 / build-tools 36.0.0 / emulator 37.1.11 / arm64-v8a 镜像）+ AVD pixel7；
+  - Task 1–6 全部执行：Capacitor 8.5.0 同主版本安装、`cap init` + `cap add ios/android`、`sync:native` 脚本、iOS/Android 平台工程创建、`Info.plist` ATS 局域网放行、Android `network_security_config.xml`、`server.url` 默认关闭的 live reload、`./gradlew assembleDebug` 构建门禁、Android 模拟器壳内连通验证；
+  - 壳内连通实测：页面正常渲染 → 配对成功 → 发送消息 → 收到 fake-host 结构化回显（思考/工具/权限卡片），非空布局，远超门禁最低要求；
+  - 验证记录已写 `docs/testing/C1-result.md`。
+- **C1 两个超出 D44 的实测发现**：
+  1. **Capacitor 8 Android 默认 `https` scheme 拦截 `ws://`**（混合内容策略），已按用户确认方案 A 在 `capacitor.config.ts` 设 `server.androidScheme: 'http'` 解决，需补记 DECISIONS；
+  2. **原生壳 Origin 为 `http://localhost`（无端口）**，不在默认白名单；本轮用 `--allowed-origin http://localhost` 显式 flag 联调，是否加入默认值用户决定暂不决策、留待 C2。
+- **范围**：C1 只做原生壳 + Web 接入 + 局域网明文，不涉及扫码、安全存储、NativeBridge、生命周期、VPN 真机（均属 C2）；未修改协议/状态/配对负载。
 - **本次会话（2026-08-27，B2 人工测试发现的三个 UI 缺陷，已修复并通过用户复测）**：
   1. Claude 文本在 reducer 中按 `requestId` 聚合为单条消息，而结构化 block 追加到消息尾部；现已让文本片段与 block 共用有序消息流。
   2. `tool_use` 和 `tool_result` 分开展示；现已按 `toolUseId` 合并为一条工具项，并在结果到达后显示最终状态。
@@ -201,12 +210,14 @@ B2 设计与实施计划已确认，Task 1–Task 7 已实施（Go 侧协议 v2 
 | B2 实施计划 | ✅ Task 1–6 已执行 | `docs/plans/2026-08-26-B2-interaction-control.md` |
 | C1 分阶段设计 | ✅ 用户已确认（已按 D44/D45 修订） | `docs/specs/2026-08-26-C1-capacitor-shell-design.md` |
 | C1 实施计划 | ✅ 用户已确认（已按 D44/D45 修订为 6 个 Task） | `docs/plans/2026-08-26-C1-capacitor-shell.md` |
+| C1 门禁记录 | ✅ 自动门禁与 Android 模拟器壳内连通通过 | `docs/testing/C1-result.md` |
 | 业务代码 | ✅ B1 及之前已提交（本地，未推送） | 薄 SDK Adapter + Session Core + Channel/Transport + 配对与测试客户端 + Mobile Web（B1 新增列表/详情/Markdown/占位） |
 
 ## 4. 下一步
 
-1. B2 暂停：剩余人工浏览器验收、真实 Claude 端到端验证和 UI 细节调整后置，不阻塞当前 C1；
-2. 按 `docs/plans/2026-08-26-C1-capacitor-shell.md` 优先执行 Task 1→6，先验证 Android 模拟器启动、WebView 加载、调试和核心页面回归；
+1. C1 已完成并通过门禁；下一步进入 C2 设计（扫码、安全存储、多配对列表、两端真机、VPN 与生命周期）或回补 B2 人工浏览器验收，待用户定序；
+2. B2 暂停项保留：人工浏览器验收、真实 Claude 端到端验证、UI 细节调整，不阻塞 C1 后续；
+3. C1 遗留一个待办：发现 2（Origin 默认值是否加 `http://localhost`）用户决定留待 C2；发现 1（`androidScheme: 'http'`）已补记 D49；
 4. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
 5. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
 6. 行内代码当前为 `wordBreak: 'break-all'`，会在任意字符处切断标识符（见 B1-result §8.3），待确认是否改为 `break-word`；
@@ -225,9 +236,10 @@ B2 设计与实施计划已确认，Task 1–Task 7 已实施（Go 侧协议 v2 
 ## 6. 环境与已知事项
 
 - 本机已具备 Go、Node.js 和 Xcode；
-- Android SDK / Android Studio 尚未安装，按 D44 属于 C1 环境前置，需在 C1 开始前完成（Apple Silicon 选 arm64-v8a 系统镜像）；DevEco Studio 在 D1 前准备；
+- Android SDK 已就绪（C1 已装）：platform-tools 37.0.1 / platforms 36 / build-tools 36.0.0 / emulator 37.1.11 / system-images android-36 arm64-v8a，AVD `pixel7`；`ANDROID_HOME=~/Library/Android/sdk` 已写入 `~/.zshrc`；JDK 21 由用户 JVMS 管理；
 - 模拟器只用于界面适配与构建验证；其网络经 NAT（宿主机为 `10.0.2.2`），不能代替 C2 的真机与 VPN 验证；
 - antd-mobile 5.42.3 的部分传递依赖与 React 19 peer 范围不一致；用户已评估为当前可忽略，A1 测试、构建和 lint 均通过；
+- **C1 两个平台实测结论**（详见 `docs/testing/C1-result.md` §7）：① Android 壳需 `server.androidScheme: 'http'` 才能连 `ws://` 明文（默认 https 会混合内容拦截）；② 原生壳 Origin 为 `http://localhost`（无端口），联调需 `--allowed-origin http://localhost`；
 - **B2 中间态已解除：移动端配对已随 Task 6 恢复（待浏览器验证）**。Task 1 把 `transport.Version` 升到 2 后，移动端 `PROTOCOL_VERSION` 一度停留在 1，手机 `hello` 被服务端按 `unsupported_version` 拒绝；Task 6 已把移动端升到 2 并完成新事件/字段的解码，理论上配对已可用，但**尚未在真实浏览器里验证**（人工验收建议在 Task 7 UI 就绪后一并做）。二维码里的 `"version":1` 属独立常量 `pairing.PayloadVersion`，本来就无需改动；
 - **已修的版本混淆缺陷**（Task 6 已处理）：`apps/mobile/src/protocol/pairing.ts` 原本用 `PROTOCOL_VERSION` 校验**配对负载**的 `version`，把传输协议版本与配对负载版本混为一谈（两者同为 1 时巧合通过）。现已拆出 `PAIRING_PAYLOAD_VERSION = 1`，并同步修正了 `App.tsx` 里同类的误用；`pairing.test.ts` 新增一组用例钉住「两个版本契约相互独立」；
 - Task 6 已把新事件与新字段全部接入移动端解码：`content_block`/`action_required`/`action_resolved` 已在事件白名单内，`unsupported` 走独立 envelope，`pendingAction` 按真实字段严格校验（不再要求空对象）。
