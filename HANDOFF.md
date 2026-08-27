@@ -4,11 +4,11 @@
 
 ## 0. 一句话现状
 
-A1–A6 已提交；B1 已完成并通过门禁；B2 Task 1–Task 7 已实施（剩余人工浏览器验收与真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁（Capacitor iOS/Android 工程 + Web 接入 + 局域网明文放行 + Android 模拟器壳内连通验证通过）；下一步进入 C2 设计（真机/VPN/扫码/安全存储），或回补 B2 人工验收。
+A1–A6 已提交；B1 已完成并通过门禁；B2 Task 1–Task 7 已实施（剩余人工浏览器验收与真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁（Capacitor iOS/Android 工程 + Web 接入 + 局域网明文放行 + Android 模拟器壳内连通验证通过）。当前回到 B2 验收，修复服务重启后旧配对无法恢复的问题；C2 后置。
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：C1 已完成，待定下一步（C2 设计 或 B2 人工验收回补）
+- **子阶段**：B2 验收 / 服务重启后的配对恢复
 - **C1 完成项（2026-08-27）**：
   - 环境前置：JDK 21（用户自行升级）+ Android SDK（platform-tools 37.0.1 / platforms 36 / build-tools 36.0.0 / emulator 37.1.11 / arm64-v8a 镜像）+ AVD pixel7；
   - Task 1–6 全部执行：Capacitor 8.5.0 同主版本安装、`cap init` + `cap add ios/android`、`sync:native` 脚本、iOS/Android 平台工程创建、`Info.plist` ATS 局域网放行、Android `network_security_config.xml`、`server.url` 默认关闭的 live reload、`./gradlew assembleDebug` 构建门禁、Android 模拟器壳内连通验证；
@@ -22,7 +22,15 @@ A1–A6 已提交；B1 已完成并通过门禁；B2 Task 1–Task 7 已实施�
   1. Claude 文本在 reducer 中按 `requestId` 聚合为单条消息，而结构化 block 追加到消息尾部；现已让文本片段与 block 共用有序消息流。
   2. `tool_use` 和 `tool_result` 分开展示；现已按 `toolUseId` 合并为一条工具项，并在结果到达后显示最终状态。
   3. 工具标题只有 `工具：Bash`；现已通过安全的服务端 preview 展示命令/路径摘要，并将连续工具项归入默认折叠面板。
-- **当前任务**：B2 当前修复已由用户测试通过，暂不继续扩展 B2 UI；保留后置人工浏览器验收和真实 Claude 端到端验证。下一阶段优先执行 C1，将现有 React/Vite Mobile Web 封装进 Capacitor，并在已安装的 Android AVD/模拟器内启动、调试和验证；不提前引入 C2 真机、推送或 HarmonyOS。
+- **当前任务**：保留 `sessionId` 作为会话身份，但不把它单独当作授权依据；为每个 CLI Session 增加本地小型 pairing 文件，服务重启后在 token 未过期时恢复原 `pairToken`，过期/撤销才重新配对。Relay 继续无状态转发，不改协议。
+- **本次修复完成项（2026-08-27）**：`internal/pairing.Manager` 支持按 Session 文件恢复未过期 Pair Token；CLI 默认写入用户配置目录下的 `claude-mobile-remote/pairings/<sessionId>.json`，目录权限 `0700`、文件权限 `0600`；过期、Session 不匹配或配对文件不可用时重新生成凭证；新增重启恢复、过期替换、跨 Session 隔离和文件权限测试。未修改 envelope、Channel、Relay 或移动端连接协议。
+- **本次修复验证**：`go test ./internal/pairing ./cmd/claude-mobile-remote` 通过；全量 `go test ./...` 中其余包通过，`cmd/channel-test-client` 与 `internal/transport` 的既有 httptest 用例仍因当前沙箱禁止绑定 `[::1]:0` 失败；`git diff --check` 通过。本轮未执行 Git 提交。
+- **复审修复（2026-08-27，已完成）**：AI 复审上述持久化改动后由用户确认的 5 项。任务：(1) pairing 文件的读写 I/O 失败降级为「本次不恢复/不保存」，不再阻断 Claude 会话启动（原实现会 `exit 1`）；(2) 默认 `--pair-token-ttl` 由 12 小时改为 30 天，理由是滑动续期会让服务端与客户端持有的 `expiresAt` 分歧、被 `apps/mobile/src/protocol/pairing.ts` 的本地过期校验拦下，续期方案推迟到 C2 随移动端缓存一并设计；(3) `--fake-host` 不启用持久化，避免固定桩 UUID 让多个进程共用同一凭证文件；(4) 修正 D50/REQUIREMENTS 中「撤销即删除配对文件」的失实措辞（`Invalidate`/`Revoke` 并未触碰文件），并把验收表述拆为「服务端已支持 / 客户端跨重启恢复待 C2」；(5) 启动时清理过期配对文件、补换 `--advertise-url` 的恢复测试。
+- **复审修复范围**：只改 `internal/pairing/manager.go`、`cmd/claude-mobile-remote/{main.go,config.go}` 及其测试与上述文档；不改协议、状态模型、配对负载字段、Channel、Transport 或移动端代码。移动端列表持久化（`apps/mobile/src/session/store.ts` 仍为纯内存）属 C2 缓存范围，本轮不动，硬约束 7 的浏览器存储约束不变。
+- **复审修复通过条件**：`gofmt -l internal cmd` 无输出、`GOFLAGS=-buildvcs=false go vet ./...` 无输出、`go test ./internal/pairing/... ./cmd/...` 全绿；持久化失败不再导致启动失败须有测试覆盖；不修改 `go.mod`/`go.sum`。
+- **复审修复完成项**：`issueLocked` 不再向上传递持久化错误（`loadPersistedLocked` 降为 `(Payload, bool)`、save 失败只丢弃）；新增 `pairing.PruneExpired` 并在 `buildRuntime` 启动时清理同目录过期记录（不碰未过期、不可读、非 JSON 和非 `.json` 文件）；`--fake-host` 不再传入 `WithPersistenceFile`；默认 `pairTokenTTL` 12h → 30 天；D50 去掉不存在的“撤销删文件”行为并新增 D51；同步修正两份设计文档中与 D50 矛盾的“停止服务/撤销即失效”措辞与 TTL 数值、REQUIREMENTS 风险行、本文件§2 已确认事项与§4 序号重复。新增 3 个测试：持久化路径不可用时仍能签发并鉴权且不泄漏临时文件、恢复时使用当前 `--advertise-url`、`PruneExpired` 只删过期记录。未修改协议、状态模型、配对负载字段或移动端代码。
+- **复审修复验证**：`gofmt -l internal cmd` 无输出、`GOFLAGS=-buildvcs=false go vet ./...` 无输出、`go test ./internal/pairing/... ./cmd/...` 三个包全部 ok（本轮沙箱下 `cmd/channel-test-client` 也通过）。人工实测：用户执行真实 Claude + `--resume` 下的重启直连验证并反馈通过（未逐条报告操作细节），已记入 `docs/testing/B2-result.md` §3。人工验证通过后经用户明确授权（AGENTS.md 硬约束 9）提交本轮改动，未推送。
+- **验收边界（避免后续会话误认为已闭环）**：服务端重启后恢复未过期 token 已支持✅（自动门禁 + 用户人工实测均通过）；客户端跨重启/跨标签页恢复配对记录待 C2 移动端缓存⏳。不得描述为“扫码一次后可持续使用”已整条链路打通。
 - **Task 5 状态更正（本次会话开工前复核）**：上一次会话在写入 HANDOFF 前中断，导致「Task 5 待开始」记录失真。实际 Task 5 代码已完整落地：`internal/channel/channel.go` 命令面、`internal/transport/connection.go` 命令路由与 `resolveAction` 前置校验、`cmd/channel-test-client/command.go` 联调命令；并修复了 unsupported 通知的下行路由缺陷（`connection.go` 新增 `outboundEvent`，把 `EventUnsupported` 转为独立的 `TypeUnsupported` envelope，避开 `validateEvent` 失败后 `shutdown()` 强杀订阅连接）。已按 AGENTS.md「异常中断」条款复核并重跑门禁确认通过（本轮又一次全量重跑：`go vet ./...` 无输出、`go test ./internal/... ./cmd/...` 8 个包 ok）。
 - **范围**：设计真实 Thinking/Tool、MCP 工具自动放行与展示、工具权限审批（白名单 `preview`）、`AskUserQuestion` 单选/多选（自由文本 CLI 实证已通过，默认仍关闭）、当前 Turn 取消、排队输入取消、假 Host 桩模式，以及 Session 终态的移动端呈现；统一设计 Go SDK Adapter、Session Controller/worker、Channel、WebSocket 协议和 Mobile Web 的边界；Task 按普通工具展示，不做任务聚合；不涉及 Capacitor、扫码、安全存储、VPN 真机或系统推送实现。
 - **通过条件**：按 Task 顶部的 `**Files:**` 边界实施；`gofmt -l internal cmd` 无输出、`GOFLAGS=-buildvcs=false go vet ./...` 与 `go test ./...` 全绿（含旁路通道死锁不变量与取消顺序）；`cd apps/mobile && npm test && npm run lint && npm run build` 全绿；协议类型只在 `internal/transport/protocol.go` 与 `apps/mobile/src/protocol/types.ts` 两处定义；不修改 `go.mod`/`go.sum`；不执行 Git 写操作。
@@ -162,7 +170,7 @@ B2 设计与实施计划已确认，Task 1–Task 7 已实施（Go 侧协议 v2 
 - 手机不展示扫码前完整历史，只展示当前状态和后续消息；
 - Claude 的一轮输出完成只结束 Turn，不结束 Session；Session 可继续接收下一条消息；
 - 里程碑 A 的手机端只收发文本消息，审批、回答和取消在 B2 实现；
-- Pair Token 默认有效期调整为 12 小时；原生 App 使用系统安全存储，浏览器不写 `localStorage`，过期或 Remote Server 重启后重新扫码；
+- Pair Token 默认有效期 30 天（D51）；原生 App 使用系统安全存储，浏览器不写 `localStorage`；服务重启时恢复本地 pairing 文件中的未过期 token（D50），过期或删除该文件后重新扫码；服务端不做滑动续期；
 - A6 改为 LAN 跨机器桌面浏览器门禁；手机仍默认通过 VPN 直连 PC，并在 C2 做真机验收；
 - iOS / Android 使用 Capacitor，HarmonyOS NEXT 独立开发；
 - C1 在 A6 后可与 B 并行；C2 依赖 C1/B2，W1 依赖 B3；B3 是单 Session Remote Server 组件化，不再建设 B4 持久恢复阶段；
@@ -215,13 +223,17 @@ B2 设计与实施计划已确认，Task 1–Task 7 已实施（Go 侧协议 v2 
 
 ## 4. 下一步
 
-1. C1 已完成并通过门禁；下一步进入 C2 设计（扫码、安全存储、多配对列表、两端真机、VPN 与生命周期）或回补 B2 人工浏览器验收，待用户定序；
-2. B2 暂停项保留：人工浏览器验收、真实 Claude 端到端验证、UI 细节调整，不阻塞 C1 后续；
-3. C1 遗留一个待办：发现 2（Origin 默认值是否加 `http://localhost`）用户决定留待 C2；发现 1（`androidScheme: 'http'`）已补记 D49；
-4. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
-5. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
-6. 行内代码当前为 `wordBreak: 'break-all'`，会在任意字符处切断标识符（见 B1-result §8.3），待确认是否改为 `break-word`；
-7. SDK `WithSessionID` 发布正式版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`。
+1. ✅ 完成本地 pairing 文件持久化、服务重启恢复和过期/损坏测试；
+2. ✅ 更新配对设计、D41/D50、需求与交接记录，明确 Relay 无状态兼容性；
+3. ✅ 复审修复：持久化 I/O 失败降级、默认 TTL 30 天（D51）、`--fake-host` 不落盘、过期文件清理、撤销措辞修正；
+4. 移动端会话列表持久化（当前 `store.ts` 仅内存，刷新即清空）留待 C2 缓存实现；届时需连同硬约束 7、D41 的浏览器存储约束和 `store.test.ts` 的「不写 Storage」护栏一并正面修改，并重新评估是否引入 `expiresAt` 下发/续期（D51 已记原因）；
+5. 继续 B2 剩余人工浏览器验收与真实 Claude 端到端验证；
+6. B2 验收闭环后再进入 C2 设计（扫码、安全存储、多配对列表、两端真机、VPN 与生命周期）；
+7. C1 遗留一个待办：发现 2（Origin 默认值是否加 `http://localhost`）用户决定留待 C2；发现 1（`androidScheme: 'http'`）已补记 D49；
+8. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID；
+9. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
+10. 行内代码当前为 `wordBreak: 'break-all'`，会在任意字符处切断标识符（见 B1-result §8.3），待确认是否改为 `break-word`；
+11. SDK `WithSessionID` 发布正式版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`。
 
 ## 5. 首期关键验证
 

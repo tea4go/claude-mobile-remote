@@ -202,7 +202,7 @@ flowchart TD
 | --- | --- | --- |
 | 双端输入并发 | 消息重复或顺序错误 | 所有输入由 Session Controller 串行处理 |
 | iOS / Android 生命周期 | 后台连接中断 | 原生阶段补状态恢复和系统通知 |
-| 原生多配对凭证泄露 | 未过期 Token 被滥用 | Pair Token 使用系统安全存储，过期/撤销/Remote Server 重启后重新扫码；浏览器不写 localStorage |
+| 配对凭证泄露或本地文件泄露 | 未过期 Token 被滥用 | Pair Token 仍按 `sessionId` 精确绑定并在服务端校验；PC 侧 pairing 文件仅当前用户可读写，过期后失效并在下次启动时清理，需提前失效时删除该文件；原生端使用系统安全存储，浏览器不写 localStorage |
 | HarmonyOS NEXT 成本 | 独立开发、调试和上架周期长 | 后置实施并复用统一协议与验收用例 |
 | WebView 套壳兼容（C1） | 明文 WebSocket 被 iOS ATS / Android cleartext 策略拦截，壳子只能显示空布局 | C1 只放行局域网明文（D44）：iOS Info.plist 使用 `NSAllowsLocalNetworking` 并提供 `NSLocalNetworkUsageDescription`（iOS 14+ 本地网络权限），Android 使用 cleartext 放行；不使用 `NSAllowsArbitraryLoads`，不放行公网明文；移动 Web 路由自 A5 起约束为 hash / 内存路由，规避自定义 scheme 路径解析问题 |
 | 共用契约被单端污染 | 前两端收尾后 HarmonyOS NEXT 无法实现，被迫换方案 | 协议与状态变更强制核对三端可实现性（硬约束 11 / 设计 §8.1），核对结论记入 DECISIONS |

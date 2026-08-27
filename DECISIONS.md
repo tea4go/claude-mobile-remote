@@ -401,3 +401,19 @@
 - **理由**：Capacitor 8 Android WebView 默认 `androidScheme = https`（`CapConfig.java` 源码确认），页面为 `https://localhost` 时浏览器混合内容策略会拦截一切 `ws://` 明文连接，配对后 `new WebSocket('ws://…')` 抛 `SecurityError`，React 组件树崩溃为空白。D44 只放行局域网明文（cleartext），未预见 `https` scheme 额外触发混合内容拦截这一层。`http` 是 Capacitor 官方 `validateScheme` 允许的合法值，与产品「局域网明文直连」定位一致；`http://localhost` 加载的是本地 `dist` 资源（无中间人风险），唯一明文是到 PC 的 `ws://`，本就属 D44 放行范围。
 - **影响**：iOS 默认 `capacitor://` scheme 不触发此拦截，无需改动，仅 Android 调整。协议、状态、配对负载与 `sessionId`/request ID/`seq` 语义均不变，三端共用契约不变；属端内平台配置，HarmonyOS NEXT 可自行实现等价策略。本条补充 D44 的平台网络策略，不替代 D44。遗留关联：原生壳页面 Origin 为 `http://localhost`（无端口），是否加入 Service 默认 Origin 白名单待 C2 决定（见 `docs/testing/C1-result.md` §7 发现 2）。
 - **状态**：已定
+
+## D50 · Pair Token 通过本地小文件跨 Remote Server 重启恢复
+
+- **日期**：2026-08-27
+- **决策**：移动端列表中的 `sessionId` 继续作为会话逻辑身份，但不得单独作为授权依据。每个 Standalone CLI Session 在 PC 本地使用一个仅当前用户可读写的小型 pairing 文件保存当前 Pair Token、绑定的 `sessionId` 和 `expiresAt`；Remote Server 重启后，若 Session ID 相同且凭证未过期，则恢复原 Pair Token。过期、主动撤销或配对文件损坏时才生成新 token 并要求重新扫码。无需数据库、服务器端 Session 中心或新协议字段。
+- **理由**：当前列表按 `sessionId` 管理记录，但 Remote Server 重启会让内存中的 Pair Token 丢失，导致列表记录无法继续连接，违背“扫码一次后可继续使用”的预期。只比较 `sessionId` 会把身份识别误当成授权，不能接受；本地文件能以最小复杂度保持 token 授权边界。
+- **影响**：配对负载、`hello` 鉴权、Channel、WebSocket 和 `sessionId` 订阅语义不变；Relay 仍只维护易失的隧道映射并透明转发，不保存 pairing 状态。永久设备授权不在本阶段实现。Standalone CLI 的每个 Session 使用独立文件路径，退出时不删除配对文件；下次启动时清理同目录下已过期的记录。过期、Session 不匹配或文件损坏时以新 token 覆盖该文件；pairing 文件的读写 I/O 失败只降级为「本次不恢复/不保存」，不得阻断 Session 启动。本阶段不提供主动撤销入口（`Invalidate`/`Revoke` 只影响当前进程内存中的凭证与已建立连接，不删除文件）；需要彻底失效时由用户删除对应文件。文件不得进入日志、Git 或测试快照。
+- **状态**：已定；替代 D41 中“Remote Server 重启后重新扫码”的旧行为，不改变 D41 的移动端安全存储和浏览器不写 `localStorage` 约束；默认 TTL 另见 D51。
+
+## D51 · Pair Token 默认有效期调为 30 天，不引入续期协议
+
+- **日期**：2026-08-27
+- **决策**：Pair Token 默认有效期由 12 小时调为 30 天，仍可用 `--pair-token-ttl` 收紧。不引入服务端滑动续期，也不新增下发新 `expiresAt` 的协议字段；若后续确定需要续期，在 C2 随移动端缓存一并设计。
+- **理由**：D50 让凭证能跨重启恢复，但 12 小时 TTL 仍使「隔几天接着用」必然重扫，使恢复能力失去意义。`expiresAt` 是写入配对负载、三端共同持有的绝对时间，服务端单方面续期会使客户端那份 `expiresAt` 失真，并被客户端的本地过期校验（`apps/mobile/src/protocol/pairing.ts`）在建连前拦下；要消除分歧必须要么放弃客户端过期校验（正面修改 D30/D34），要么新增下发字段（触发三端契约改动），均超出本轮修复范围。调大默认值只改一个默认参数，三端对绝对过期时间的理解保持一致。
+- **影响**：单个 token 的绝对寿命延长到 30 天，属已接受的内部使用权衡；到期仍会自然轮换，不变成永不过期。配对负载字段、`hello` 鉴权、Channel、Relay 和移动端代码均不变，无需三端同步实现；三端可实现性核对通过。
+- **状态**：已定；替代 D41 与 D28 的 12 小时默认 TTL，其余约束不变。
