@@ -181,12 +181,12 @@ B1 后移动端可以保存多个已扫描 Session，并在列表和会话详情
 安全规则：
 
 - Remote Server 由用户显式启动；
-- token 使用 256-bit 安全随机数，默认有效期为 12 小时且可配置收紧，只与当前 Remote Server/Session 生命周期关联；
-- 停止 Remote Server 或撤销配对后立即失效；自然过期只拒绝新认证；
+- token 使用 256-bit 安全随机数，默认有效期为 30 天且可配置收紧，只与当前 Remote Server/Session 生命周期关联；
+- 停止 Remote Server 只中断已有连接，未过期 token 在下次启动同一 Session 时恢复（D50）；删除本地 pairing 文件后彻底失效；自然过期只拒绝新认证；
 - token 不出现在普通日志、文档和测试快照；
 - 原生 App 需要跨重启保留时使用系统安全存储；浏览器不得写入 `localStorage`；
 - 认证完成前不返回任何会话数据；
-- 手机首期以 VPN 网络为传输边界，应用层仍必须完成 Session 与 Token 鉴权；12 小时不保证覆盖任意长度的 Session，过期或 Remote Server 重启后重新扫码。
+- 手机首期以 VPN 网络为传输边界，应用层仍必须完成 Session 与 Token 鉴权；30 天不保证覆盖任意长度的 Session，凭证过期后重新扫码；Remote Server 重启则恢复本地保存的未过期 token（D50）。
 
 后期 Relay 模式中，CLI 到 Relay 的宿主凭证与手机 Pair Token 分离；Pair Token 仍由 Session Host 验证。可信 Relay 可以转发并看到协议流量，但不得存储内容。若未来要求 Relay 无法看到消息，再独立设计端到端加密，不提前修改当前配对负载。
 
@@ -200,7 +200,7 @@ B1 后移动端可以保存多个已扫描 Session，并在列表和会话详情
 | 手机凭证错误 | 拒绝连接，不返回状态 |
 | Channel 不存在或无权订阅 | 返回错误，不加入订阅者集合 |
 | 手机短暂断线 | 重新鉴权后返回最新 snapshot |
-| Pair Token 过期或 Remote Server 重启 | 移动端保留列表元数据并标记需要重新扫码，不尝试持久续期 |
+| Pair Token 过期、撤销或 pairing 文件损坏 | 移动端保留列表元数据并标记需要重新扫码；Remote Server 重启时恢复 PC 本地保存的未过期 token |
 | 终端与手机同时输入 | Channel 将操作转给同一输入队列，按接收顺序处理 |
 | 当前 Turn 完成 | 广播 Turn 结果，Session 回到 `ready` 并接受下一条消息 |
 | Session 失败或停止 | 广播最终状态，拒绝新的执行命令 |

@@ -47,7 +47,10 @@ func parseConfig(arguments []string) (cliConfig, error) {
 	config := cliConfig{
 		listen:       "127.0.0.1:8765",
 		advertiseURL: "ws://127.0.0.1:8765/ws",
-		pairTokenTTL: 12 * time.Hour,
+		// 配对凭证可跨重启恢复，但 expiresAt 是三端共识的绝对时间，服务端
+		// 单方面续期会被客户端的本地过期校验拦下；因此用较长的默认有效期
+		// 覆盖「隔几天接着用」，仍可用 --pair-token-ttl 收紧。
+		pairTokenTTL: 30 * 24 * time.Hour,
 	}
 	var extraOrigins stringListFlag
 	var fakeHost string

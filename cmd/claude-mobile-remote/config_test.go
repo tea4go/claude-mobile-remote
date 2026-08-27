@@ -33,7 +33,7 @@ func TestParseConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseConfig(defaults) error = %v", err)
 	}
-	if got.listen != "127.0.0.1:8765" || got.advertiseURL != "ws://127.0.0.1:8765/ws" || got.pairTokenTTL != 12*time.Hour {
+	if got.listen != "127.0.0.1:8765" || got.advertiseURL != "ws://127.0.0.1:8765/ws" || got.pairTokenTTL != 30*24*time.Hour {
 		t.Fatalf("defaults = %#v", got)
 	}
 	defaultOrigins := []string{"http://127.0.0.1:5173", "http://localhost:5173"}

@@ -14,10 +14,10 @@
 3. 少量并行 Session 通过启动多个 CLI 进程并配置不同端口解决；
 4. 移动端可以保存多个已扫描 Session，进入一个 Session 对话后可返回列表并切换；首期一次只连接当前进入的 Session；
 5. WhaleTerm 后续为其已持有的一个 Claude Session 在进程内启动 Remote Server，不创建第二个 SDK Client；
-6. Pair Token 默认覆盖典型远程接力窗口，客户端可在有效期内重连；Remote Server 重启后重新扫码；
+6. Pair Token 默认覆盖典型远程接力窗口；Remote Server 重启时恢复本地 pairing 文件中的未过期 token，不需要重复扫码；
 7. 后期公网访问采用“每个 CLI 一条可信 Relay 出站隧道”，不建设 PC 多 Session daemon 或云端会话中心。
 
-不建设常驻多 Session daemon、Local Control API、跨进程 Runtime Registry、PC Claude TUI、持久 device grant 或 remote journal。
+不建设常驻多 Session daemon、Local Control API、跨进程 Runtime Registry、PC Claude TUI、持久 device grant 或 remote journal；PC 侧仅允许每个 CLI Session 保存一个最小 pairing 文件。
 
 ## 2. 单 Session 所有权模型
 
@@ -87,7 +87,7 @@ CLI C → Session C → Pairing C ┘
 - iOS / Android 使用系统安全存储保存 Pair Token，普通元数据可保存于本地应用存储；
 - HarmonyOS NEXT 使用等价的系统安全存储；
 - 浏览器阶段继续使用当前 Fragment / 内存模型，不把 Pair Token 写入 `localStorage`；
-- Pair Token 过期、被撤销，或 Remote Server 重启后认证失败时，保留列表元数据并标记“需要重新扫码”；
+- Pair Token 过期、被撤销或 pairing 文件损坏时，保留列表元数据并标记“需要重新扫码”；Remote Server 重启不再自动导致旧 token 失效；
 - 本地列表不是长期 device grant，也不是服务器端 Session 管理中心。
 
 B1 设计列表与对话详情的共享 UI；C1 创建 Capacitor 壳、接入 Web UI 并放行局域网明文；C2 接入原生扫码和安全存储，并在真机上验证持久化、切换和失效行为。
@@ -102,15 +102,15 @@ version / wsUrl / sessionId / pairToken / expiresAt
 
 Pair Token 规则：
 
-- 256-bit 安全随机值，默认有效期由 10 分钟调整为 12 小时，用于覆盖典型远程接力窗口；可用 `--pair-token-ttl` 收紧；
+- 256-bit 安全随机值，默认有效期 30 天（D51，替代早期的 10 分钟与 12 小时），用于让扫码一次后能跨天继续使用；可用 `--pair-token-ttl` 收紧；
 - 精确绑定当前 Remote Server 的 `sessionId`；
 - 在 WebSocket 首条 `hello` 中提交，不放入 URL query；
 - 有效期内可由多个客户端重复认证并重取最新 snapshot；
 - 自然过期只拒绝新认证，不主动断开已认证连接；
-- 撤销或 Remote Server 停止时立即失效并关闭相关连接；
+- Remote Server 停止时关闭相关连接，但未过期 token 保留于本地 pairing 文件以便下次启动恢复（D50）；进程内撤销只影响当前进程的凭证与连接；
 - 不写入普通日志、文档、测试快照或 Git。
 
-12 小时不保证覆盖任意长度的 Claude Session。凭证过期或 Remote Server 重启后重新扫码，不因此增加设备身份、续期协议、持久授权或事件回放。
+30 天不保证覆盖任意长度的 Claude Session。凭证过期或本地 pairing 文件被删除后重新扫码；服务重启只恢复本地保存的未过期 token，不因此增加设备身份、续期协议、持久授权或事件回放。服务端不做滑动续期：`expiresAt` 是三端共同持有的绝对时间，单方面续期会被客户端本地过期校验拦下（D51）。
 
 ## 5. A6：局域网跨机器浏览器联调
 
@@ -193,7 +193,7 @@ CLI B / Session B ──出站 WSS──> Relay ──WSS──> 手机
 - CLI 到 Relay 的宿主凭证与手机到 Session 的 Pair Token 分离；
 - Pair Token 仍由对应 Session 宿主验证，Relay 不获得 Claude 控制权；
 - Relay 可以转发并看到协议流量，但不存储消息、snapshot、Claude 上下文或 Session 历史；
-- CLI 或隧道重启后旧 route 和 Pair Token 失效，用户重新扫码；首版不提供永久公网地址或跨重启自动恢复；
+- CLI 或隧道重启后旧 route 需要重新建立；CLI 会恢复本地保存的未过期 Pair Token，Relay 仍不保存 pairing 状态；首版不提供永久公网地址或永久设备授权；
 - 不建设 PC 聚合 daemon、云端 Session 列表、云端状态机、历史回放或账号驱动的多 Session 管理平台。
 
 若后续要求 Relay 无法看到消息内容，需独立设计端到端加密并按三端共用契约变更流程处理；当前阶段不提前增加公钥字段或加密抽象。

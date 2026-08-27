@@ -5,10 +5,13 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +46,15 @@ func WithRandom(reader io.Reader) Option {
 	}
 }
 
+// WithPersistenceFile enables restart recovery for the current Session.
+// The file contains only this Session's pairing record and must be protected
+// by the caller's local filesystem permissions.
+func WithPersistenceFile(path string) Option {
+	return func(manager *Manager) {
+		manager.persistenceFile = strings.TrimSpace(path)
+	}
+}
+
 type credential struct {
 	sessionID string
 	digest    [sha256.Size]byte
@@ -56,15 +68,16 @@ type leaseState struct {
 
 // Manager owns the current short-lived pairing credential and authenticated leases.
 type Manager struct {
-	mu          sync.Mutex
-	wsURL       string
-	ttl         time.Duration
-	clock       Clock
-	random      io.Reader
-	current     *credential
-	invalidated bool
-	leases      map[uint64]*leaseState
-	nextLeaseID uint64
+	mu              sync.Mutex
+	wsURL           string
+	ttl             time.Duration
+	clock           Clock
+	random          io.Reader
+	persistenceFile string
+	current         *credential
+	invalidated     bool
+	leases          map[uint64]*leaseState
+	nextLeaseID     uint64
 }
 
 // Lease represents one established authenticated connection.
@@ -108,25 +121,151 @@ func (m *Manager) Issue(sessionID string) (Payload, error) {
 	return m.issueLocked(sessionID)
 }
 
+// issueLocked reuses the persisted credential when it still covers sessionID so
+// a restart keeps the previously scanned QR code valid. Persistence is only a
+// convenience: every I/O failure degrades to "no recovery, no save" and never
+// prevents the Session from starting.
 func (m *Manager) issueLocked(sessionID string) (Payload, error) {
+	if m.persistenceFile != "" {
+		if payload, ok := m.loadPersistedLocked(sessionID); ok {
+			m.current = credentialFromPayload(payload)
+			m.invalidated = false
+			return payload, nil
+		}
+	}
 	var raw [32]byte
 	if _, err := io.ReadFull(m.random, raw[:]); err != nil {
 		return Payload{}, fmt.Errorf("generate pair credential: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw[:])
-	digest := sha256.Sum256([]byte(token))
 
 	expiresAt := m.clock().Add(m.ttl)
-	m.current = &credential{sessionID: sessionID, digest: digest, expiresAt: expiresAt}
-	m.invalidated = false
-
-	return Payload{
+	payload := Payload{
 		Version:   PayloadVersion,
-		WSURL:     m.wsURL,
 		SessionID: sessionID,
 		PairToken: token,
 		ExpiresAt: expiresAt,
-	}, nil
+	}
+	if m.persistenceFile != "" {
+		// A failed save only costs restart recovery; the credential below still
+		// authorizes clients for the current run.
+		_ = m.savePersistedLocked(payload)
+	}
+	m.current = credentialFromPayload(payload)
+	m.invalidated = false
+
+	payload.WSURL = m.wsURL
+	return payload, nil
+}
+
+func credentialFromPayload(payload Payload) *credential {
+	return &credential{
+		sessionID: payload.SessionID,
+		digest:    sha256.Sum256([]byte(payload.PairToken)),
+		expiresAt: payload.ExpiresAt,
+	}
+}
+
+type persistedPayload struct {
+	SessionID string    `json:"sessionId"`
+	PairToken string    `json:"pairToken"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// loadPersistedLocked reports whether the stored record can still authorize
+// sessionID. An unreadable, damaged, mismatched or expired record simply yields
+// false so the caller issues a fresh credential.
+func (m *Manager) loadPersistedLocked(sessionID string) (Payload, bool) {
+	data, err := os.ReadFile(m.persistenceFile)
+	if err != nil {
+		return Payload{}, false
+	}
+	var stored persistedPayload
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return Payload{}, false
+	}
+	if stored.SessionID != sessionID || stored.PairToken == "" || !m.clock().Before(stored.ExpiresAt) {
+		return Payload{}, false
+	}
+	// WSURL always comes from the current process so a restart on a new
+	// listen/advertise address still hands out a reachable endpoint.
+	return Payload{
+		Version:   PayloadVersion,
+		WSURL:     m.wsURL,
+		SessionID: stored.SessionID,
+		PairToken: stored.PairToken,
+		ExpiresAt: stored.ExpiresAt,
+	}, true
+}
+
+// PruneExpired removes pairing records under dir whose credential already
+// expired. Records that are unreadable, unparsable or still valid are left
+// untouched so a concurrent Session never loses its credential.
+func PruneExpired(dir string, now time.Time) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read pairing directory: %w", err)
+	}
+	var failures []error
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var stored persistedPayload
+		if err := json.Unmarshal(data, &stored); err != nil {
+			continue
+		}
+		if now.Before(stored.ExpiresAt) {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
+}
+
+func (m *Manager) savePersistedLocked(payload Payload) error {
+	if err := os.MkdirAll(filepath.Dir(m.persistenceFile), 0o700); err != nil {
+		return fmt.Errorf("create pairing directory: %w", err)
+	}
+	data, err := json.Marshal(persistedPayload{
+		SessionID: payload.SessionID,
+		PairToken: payload.PairToken,
+		ExpiresAt: payload.ExpiresAt,
+	})
+	if err != nil {
+		return fmt.Errorf("encode pairing file: %w", err)
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(m.persistenceFile), ".pairing-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create pairing file: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("protect pairing file: %w", err)
+	}
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("write pairing file: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close pairing file: %w", err)
+	}
+	if err := os.Rename(temporaryName, m.persistenceFile); err != nil {
+		return fmt.Errorf("replace pairing file: %w", err)
+	}
+	return nil
 }
 
 // RotateIfExpired replaces an expired credential without disturbing established leases.

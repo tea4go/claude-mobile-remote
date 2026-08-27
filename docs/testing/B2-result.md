@@ -37,7 +37,21 @@
 - **前端**（`apps/mobile`）：`npm test` → 16 files / 371 tests 全绿；`npm run lint`（oxlint）→ 0 warnings / 0 errors；`npm run build`（`tsc -b && vite build`）→ 通过（`dist/assets/index-*.js` 460.07 kB / gzip 145.19 kB）。
 - **敏感信息与产物**（Step 5）：`git diff --check` 无空白错误；`go.mod`/`go.sum`/`apps/mobile/dist` 均未入库；对全部变更与新增文件扫描 `sk-ant`/`Bearer`/`eyJ`/私钥头/`password=`/`secret=` 无真实凭证命中（仅有描述扫描动作本身的文字与断言“不得出现这些字符串”的守卫测试）。
 
-## 3. B2 未在本阶段验证的项（明确不宣称）
+## 3. B2 验收阶段 · 服务重启后的配对恢复（D50 / D51）
+
+- **日期**：2026-08-27
+- **背景**：B2 人工验收发现已配对会话在 server 重启后无法直连，只能重新扫码，与「扫码一次后可继续使用」预期不符。修复分两批：先落地本地 pairing 文件持久化（D50），再按 AI 复审结论修正 5 项（含 D51 默认 TTL）。
+- **自动门禁**：`gofmt -l internal cmd` 无输出；`GOFLAGS=-buildvcs=false go vet ./...` 无输出；`go test ./internal/pairing/... ./cmd/...` → pairing、claude-mobile-remote、channel-test-client 三个包 ok；`git diff --check` 无空白错误。
+- **新增自动用例**：重启后恢复未过期凭证（含文件权限 `0600` 断言）、过期/跨 Session 不复用、损坏文件降级重发、持久化路径不可用时仍能签发并鉴权且不泄漏临时文件、恢复时使用当前 `--advertise-url`、`PruneExpired` 只删过期记录。
+- **人工验证**：用户执行并反馈通过（本轮未逐条报告操作细节）；验证对象为真实 Claude + `--resume` 下重启 Remote Server 后仍能直连原 `sessionId`，不需重新配对。
+- **本项的验收边界（不宣称超过的部分）**：
+  - 服务端重启后恢复未过期 token✅；适用于浏览器保持打开或同标签页刷新（Fragment 仍在）+ server 重启的场景；
+  - 客户端跨重启/跨标签页恢复配对记录⏳：`apps/mobile/src/session/store.ts` 仍为纯内存，新开标签页或 hash 被清后列表为空，归 C2 移动端缓存；
+  - 不得概括为「扫码一次后可持续使用」整条链路已打通；
+  - 无主动撤销入口：`Invalidate`/`Revoke` 只影响当前进程内存与已建立连接，彻底失效需用户删除 pairing 文件；
+  - TTL 调大只影响新签发的凭证，已落盘的 12 小时记录仍按原 `expiresAt` 过期，首次重扫后才享受 30 天。
+
+## 4. B2 未在本阶段验证的项（明确不宣称）
 
 - **人工浏览器验收（Step 2）待做**：新增的结构化内容块、审批卡片、问答表单、取消按钮、排队列表与终态横幅只经 jsdom 验证，尚未在真实浏览器里比对参考图布局与手势；
 - **真实 Claude 端到端（Step 3）待做**：工具审批放行/拒绝后 Turn 继续、一次真实工具调用尚未用真实 CLI 端到端验证（`AskUserQuestion` 自由文本已单独实证，见 §1）；

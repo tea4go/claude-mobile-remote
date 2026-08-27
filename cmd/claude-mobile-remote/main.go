@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/tea4go/claude-mobile-remote/internal/channel"
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
@@ -49,7 +51,19 @@ func buildRuntime(config cliConfig) (sessionController, remoteService, error) {
 		return nil, nil, err
 	}
 	controller := projectsession.NewController(host, projectsession.WithReservedSessionID(reservedID))
-	manager, err := pairing.NewManager(config.advertiseURL, config.pairTokenTTL)
+	// 桩模式的 Session ID 是固定常量，多个 --fake-host 进程会共用同一个凭证文件，
+	// 因此只有真实 Session 才启用跨重启恢复。
+	var pairingOptions []pairing.Option
+	if config.fakeHostScenario == "" && reservedID != "" {
+		pairingFile, err := defaultPairingFile(reservedID)
+		if err != nil {
+			return nil, nil, err
+		}
+		// 已过期的凭证不再能授权任何客户端，启动时顺手清理，避免目录只增不减。
+		_ = pairing.PruneExpired(filepath.Dir(pairingFile), time.Now())
+		pairingOptions = append(pairingOptions, pairing.WithPersistenceFile(pairingFile))
+	}
+	manager, err := pairing.NewManager(config.advertiseURL, config.pairTokenTTL, pairingOptions...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -63,6 +77,14 @@ func buildRuntime(config cliConfig) (sessionController, remoteService, error) {
 	}
 	remote := newRemoteRuntime(manager, registry, server, controller)
 	return controller, remote, nil
+}
+
+func defaultPairingFile(sessionID string) (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user config directory: %w", err)
+	}
+	return filepath.Join(configDir, "claude-mobile-remote", "pairings", sessionID+".json"), nil
 }
 
 // buildHost 选择 Claude 接入实现，并返回会话的预留 ID。
