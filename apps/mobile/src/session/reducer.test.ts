@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'vitest'
-import type { DomainEvent, SessionSnapshot } from '../protocol/types'
+import type {
+  DomainEvent,
+  PendingAction,
+  QueuedRequest,
+  SessionSnapshot,
+} from '../protocol/types'
 import {
+  actionResolutionSent,
   commandAccepted,
   commandRejected,
   commandSent,
@@ -8,16 +14,61 @@ import {
   connectionFailed,
   createInitialState,
   eventReceived,
+  noticeReceived,
   pairLoaded,
+  queuedCancelSent,
   reducer,
   reset,
   snapshotReceived,
+  turnCancelSent,
   type ConnectionState,
   type MobileState,
 } from './reducer'
 
-function snapshot(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
+// 队列夹具：保证 queueDepth 与 queuedRequests 长度一致（B2 §4.3）。
+function queuedFixture(count: number): QueuedRequest[] {
+  return Array.from({ length: count }, (_, index) => ({
+    requestId: `req-q${index + 1}`,
+    source: 'mobile' as const,
+    preview: `排队输入 ${index + 1}`,
+  }))
+}
+
+function approvalAction(overrides: Partial<PendingAction> = {}): PendingAction {
   return {
+    actionId: 'act-1',
+    requestId: 'req-9',
+    kind: 'tool_approval',
+    toolName: 'Bash',
+    preview: 'ls -al',
+    allowSessionAvailable: true,
+    ...overrides,
+  } as PendingAction
+}
+
+function questionAction(overrides: Partial<PendingAction> = {}): PendingAction {
+  return {
+    actionId: 'act-2',
+    requestId: 'req-9',
+    kind: 'ask_user_question',
+    toolName: 'AskUserQuestion',
+    allowSessionAvailable: false,
+    questions: [
+      {
+        questionId: 'q-1',
+        header: '范围',
+        question: '选一个目录',
+        inputType: 'choice',
+        multiSelect: false,
+        options: [{ label: 'src', description: '' }],
+      },
+    ],
+    ...overrides,
+  } as PendingAction
+}
+
+function snapshot(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
+  const merged: SessionSnapshot = {
     sessionId: 'session-1',
     sessionStatus: 'ready',
     sessionError: null,
@@ -31,8 +82,14 @@ function snapshot(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
       pendingAction: null,
     },
     queueDepth: 0,
+    queuedRequests: [],
     ...overrides,
   }
+  // 只覆盖 queueDepth 时自动补齐列表，避免夹具自身违反协议不变量。
+  if (merged.queuedRequests.length !== merged.queueDepth) {
+    merged.queuedRequests = queuedFixture(merged.queueDepth)
+  }
+  return merged
 }
 
 function stateWithSnapshot(overrides: Partial<SessionSnapshot> = {}): MobileState {
@@ -545,5 +602,381 @@ describe('Turn 运行中订阅的 snapshot 归并（A5.1 验收回归）', () =>
       },
     })
     expect(state.messages).toEqual([])
+  })
+})
+
+// ---- B2：结构化内容块归并（§4.1）----
+
+describe('B2 结构化内容块', () => {
+  function blockEvent(seq: number, block: Record<string, unknown>): DomainEvent {
+    return event('content_block', seq, { requestId: 'req-9', block } as Partial<DomainEvent>)
+  }
+
+  test('content_block 按到达顺序追加块消息', () => {
+    let state = stateWithSnapshot()
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-9' })))
+    state = reducer(state, eventReceived(blockEvent(12, { id: 'b1', kind: 'thinking', thinking: '先看目录' })))
+    state = reducer(
+      state,
+      eventReceived(
+        blockEvent(13, {
+          id: 'b2',
+          kind: 'tool_use',
+          toolUseId: 'tu-1',
+          toolClass: 'builtin',
+          toolName: 'Bash',
+          mcpServer: '',
+        }),
+      ),
+    )
+    state = reducer(
+      state,
+      eventReceived(blockEvent(14, { id: 'b3', kind: 'tool_result', toolUseId: 'tu-1', isError: false })),
+    )
+
+    const blocks = state.messages.filter((m) => m.kind === 'block')
+    expect(blocks.map((m) => m.block.kind)).toEqual(['thinking', 'tool_use', 'tool_result'])
+    expect(blocks.every((m) => m.requestId === 'req-9')).toBe(true)
+    expect(state.phase).toBe('connected')
+  })
+
+  test('content_block 后的文本新建片段但不丢失同 Turn 文本', () => {
+    let state = stateWithSnapshot()
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-9' })))
+    state = reducer(state, eventReceived(event('text_delta', 12, { requestId: 'req-9', text: '一' })))
+    state = reducer(state, eventReceived(blockEvent(13, { id: 'b1', kind: 'thinking', thinking: 'x' })))
+    state = reducer(state, eventReceived(event('text_delta', 14, { requestId: 'req-9', text: '二' })))
+
+    expect(state.messages.filter((m) => m.kind === 'claude').map((m) => m.text)).toEqual(['一', '二'])
+  })
+
+  test('文本、工具、后续文本保持事件到达顺序', () => {
+    let state = stateWithSnapshot({
+      turn: { status: 'running', requestId: 'req-9', source: 'terminal', message: '', error: null, pendingAction: null },
+    })
+    state = reducer(state, eventReceived(event('text_delta', 11, { requestId: 'req-9', text: '前置文本' })))
+    state = reducer(state, eventReceived(event('content_block', 12, {
+      requestId: 'req-9',
+      block: { id: 'b-1', kind: 'tool_use', toolUseId: 'tu-1', toolClass: 'builtin', toolName: 'Bash', mcpServer: '', preview: 'ls' },
+    })))
+    state = reducer(state, eventReceived(event('text_delta', 13, { requestId: 'req-9', text: '后置文本' })))
+    expect(state.messages.map((message) => message.kind === 'claude' ? message.text : message.kind)).toEqual([
+      '前置文本',
+      'block',
+      '后置文本',
+    ])
+  })
+
+  test('重连 snapshot 不伪造历史内容块', () => {
+    let state = stateWithSnapshot()
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-9' })))
+    state = reducer(state, eventReceived(blockEvent(12, { id: 'b1', kind: 'thinking', thinking: 'x' })))
+    state = reducer(state, pairLoaded())
+    state = reducer(
+      state,
+      snapshotReceived(
+        snapshot({
+          seq: 30,
+          turn: {
+            status: 'running',
+            requestId: 'req-9',
+            source: 'terminal',
+            message: '已有输出',
+            error: null,
+            pendingAction: null,
+          },
+        }),
+      ),
+    )
+    expect(state.messages.filter((m) => m.kind === 'block')).toHaveLength(0)
+    expect(state.messages.filter((m) => m.kind === 'claude')).toHaveLength(1)
+  })
+})
+
+// ---- B2：pending action 与决议（§4.2 / §6）----
+
+describe('B2 pending action', () => {
+  function actionRequired(seq: number, action: PendingAction): DomainEvent {
+    return event('action_required', seq, {
+      requestId: 'req-9',
+      turnStatus: 'waiting',
+      pendingAction: action,
+    } as Partial<DomainEvent>)
+  }
+
+  function waitingState(action: PendingAction = approvalAction()): MobileState {
+    let state = stateWithSnapshot()
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-9' })))
+    return reducer(state, eventReceived(actionRequired(12, action)))
+  }
+
+  test('action_required 设置 pending action 并禁用文本输入', () => {
+    const state = waitingState()
+    expect(state.pendingAction).toMatchObject({ actionId: 'act-1', kind: 'tool_approval' })
+    expect(state.canSend).toBe(false)
+    expect(state.canResolveAction).toBe(true)
+  })
+
+  test('ask_user_question 的 pending action 保留问题列表', () => {
+    const state = waitingState(questionAction())
+    if (state.pendingAction === null || state.pendingAction.kind !== 'ask_user_question') {
+      throw new Error('unexpected action')
+    }
+    expect(state.pendingAction.questions).toHaveLength(1)
+  })
+
+  test('action_resolved 清除 pending action 并恢复输入', () => {
+    let state = waitingState()
+    state = reducer(
+      state,
+      eventReceived(event('action_resolved', 13, { requestId: 'req-9', turnStatus: 'running' })),
+    )
+    expect(state.pendingAction).toBeNull()
+    expect(state.canSend).toBe(true)
+    expect(state.canResolveAction).toBe(false)
+  })
+
+  test('决议在途时禁用重复提交', () => {
+    let state = waitingState()
+    state = reducer(state, actionResolutionSent({ commandId: 'cmd-1', actionId: 'act-1' }))
+    expect(state.canResolveAction).toBe(false)
+    expect(state.canSend).toBe(false)
+    expect(state.pendingCommand).toMatchObject({ commandId: 'cmd-1', kind: 'resolve_action' })
+  })
+
+  test('决议被接受后清除 pending action，且不把决议当作输入正文', () => {
+    let state = waitingState()
+    state = reducer(state, actionResolutionSent({ commandId: 'cmd-1', actionId: 'act-1' }))
+    state = reducer(state, commandAccepted({ commandId: 'cmd-1', requestId: 'req-9' }))
+    expect(state.pendingAction).toBeNull()
+    expect(state.pendingCommand).toBeNull()
+    // 夹具里的终端输入来自 turn_started（A5.1 契约），决议本身不得再产生
+    // 任何手机输入正文。
+    expect(
+      state.messages.filter((m) => m.kind === 'input' && m.source === 'mobile'),
+    ).toHaveLength(0)
+  })
+
+  // 双客户端竞态：另一端已完成决议，本端必须明确提示而不是一直等。
+  test('action_not_pending 拒绝显示“已由其他客户端处理”并清除 action', () => {
+    let state = waitingState()
+    state = reducer(state, actionResolutionSent({ commandId: 'cmd-1', actionId: 'act-1' }))
+    state = reducer(
+      state,
+      commandRejected({ commandId: 'cmd-1', code: 'action_not_pending', message: '' }),
+    )
+    expect(state.pendingAction).toBeNull()
+    expect(state.lastError?.code).toBe('action_not_pending')
+    expect(state.lastError?.message).toContain('已由其他客户端处理')
+  })
+
+  test('invalid_answer 拒绝保留 pending action 供重填', () => {
+    let state = waitingState(questionAction())
+    state = reducer(state, actionResolutionSent({ commandId: 'cmd-1', actionId: 'act-2' }))
+    state = reducer(
+      state,
+      commandRejected({ commandId: 'cmd-1', code: 'invalid_answer', message: '' }),
+    )
+    expect(state.pendingAction).not.toBeNull()
+    expect(state.canResolveAction).toBe(true)
+    expect(state.lastError?.code).toBe('invalid_answer')
+  })
+
+  test('action_timeout 拒绝清除 action', () => {
+    let state = waitingState()
+    state = reducer(state, actionResolutionSent({ commandId: 'cmd-1', actionId: 'act-1' }))
+    state = reducer(
+      state,
+      commandRejected({ commandId: 'cmd-1', code: 'action_timeout', message: '' }),
+    )
+    expect(state.pendingAction).toBeNull()
+    expect(state.lastError?.code).toBe('action_timeout')
+  })
+
+  test('waiting snapshot 恢复 pending action，且重连后仍禁用输入', () => {
+    const state = stateWithSnapshot({
+      seq: 12,
+      turn: {
+        status: 'waiting',
+        requestId: 'req-9',
+        source: 'terminal',
+        message: '已有输出',
+        error: null,
+        pendingAction: approvalAction(),
+      },
+    })
+    expect(state.pendingAction).toMatchObject({ actionId: 'act-1' })
+    expect(state.canSend).toBe(false)
+    expect(state.canResolveAction).toBe(true)
+    expect(state.messages.find((m) => m.kind === 'claude')).toMatchObject({ status: 'streaming' })
+  })
+
+  test('turn_completed 清除未决 action', () => {
+    let state = waitingState()
+    state = reducer(
+      state,
+      eventReceived(event('turn_completed', 13, { requestId: 'req-9', turnStatus: 'completed' })),
+    )
+    expect(state.pendingAction).toBeNull()
+  })
+
+  test('session_failed 清除未决 action 并禁用一切输入', () => {
+    let state = waitingState()
+    state = reducer(
+      state,
+      eventReceived(
+        event('session_failed', 13, {
+          sessionStatus: 'failed',
+          error: { code: 'internal', message: 'boom' },
+        }),
+      ),
+    )
+    expect(state.pendingAction).toBeNull()
+    expect(state.canSend).toBe(false)
+    expect(state.canResolveAction).toBe(false)
+  })
+
+  test('session_stopped 清除未决 action 与队列但保留已收内容', () => {
+    let state = stateWithSnapshot({ queueDepth: 2 })
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-9' })))
+    state = reducer(state, eventReceived(event('text_delta', 12, { requestId: 'req-9', text: '已收' })))
+    state = reducer(
+      state,
+      eventReceived(event('session_stopped', 13, { sessionStatus: 'stopped' })),
+    )
+    expect(state.pendingAction).toBeNull()
+    expect(state.queuedRequests).toEqual([])
+    expect(state.queueDepthHint).toBe(0)
+    expect(state.messages.find((m) => m.kind === 'claude')).toMatchObject({ text: '已收' })
+  })
+})
+
+// ---- B2：取消与排队（§4.3 / §5）----
+
+describe('B2 取消与排队', () => {
+  test('snapshot 恢复排队列表与深度', () => {
+    const state = stateWithSnapshot({ queueDepth: 2 })
+    expect(state.queuedRequests).toHaveLength(2)
+    expect(state.queueDepthHint).toBe(2)
+    expect(state.queuedRequests[0]).toMatchObject({ requestId: 'req-q1', source: 'mobile' })
+  })
+
+  test('排队项转为运行中 Turn 后移出列表', () => {
+    let state = stateWithSnapshot({ queueDepth: 2 })
+    state = reducer(
+      state,
+      eventReceived(event('turn_started', 11, { requestId: 'req-q1', source: 'mobile' })),
+    )
+    expect(state.queuedRequests.map((q) => q.requestId)).toEqual(['req-q2'])
+    expect(state.queueDepthHint).toBe(1)
+  })
+
+  test('cancel_queued 被接受后本地移除队列项（服务端不发事件）', () => {
+    let state = stateWithSnapshot({ queueDepth: 2 })
+    state = reducer(state, queuedCancelSent({ commandId: 'cmd-1', requestId: 'req-q1' }))
+    expect(state.canSend).toBe(false)
+    state = reducer(state, commandAccepted({ commandId: 'cmd-1', requestId: 'req-q1' }))
+    expect(state.queuedRequests.map((q) => q.requestId)).toEqual(['req-q2'])
+    expect(state.queueDepthHint).toBe(1)
+    expect(state.messages.filter((m) => m.kind === 'input')).toHaveLength(0)
+    expect(state.canSend).toBe(true)
+  })
+
+  test('request_not_queued 拒绝时清除陈旧队列项', () => {
+    let state = stateWithSnapshot({ queueDepth: 2 })
+    state = reducer(state, queuedCancelSent({ commandId: 'cmd-1', requestId: 'req-q1' }))
+    state = reducer(
+      state,
+      commandRejected({ commandId: 'cmd-1', code: 'request_not_queued', message: '' }),
+    )
+    expect(state.queuedRequests.map((q) => q.requestId)).toEqual(['req-q2'])
+    expect(state.lastError?.code).toBe('request_not_queued')
+  })
+
+  test('cancel_turn 在途时禁用发送，完成后恢复', () => {
+    let state = stateWithSnapshot()
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-9' })))
+    state = reducer(state, turnCancelSent({ commandId: 'cmd-1', requestId: 'req-9' }))
+    expect(state.canSend).toBe(false)
+    expect(state.pendingCommand).toMatchObject({ kind: 'cancel_turn', targetId: 'req-9' })
+    state = reducer(state, commandAccepted({ commandId: 'cmd-1', requestId: 'req-9' }))
+    // 取消命令不是输入正文：终端输入仍只有 turn_started 创建的那一条。
+    expect(
+      state.messages.filter((m) => m.kind === 'input' && m.source === 'mobile'),
+    ).toHaveLength(0)
+    expect(state.canSend).toBe(true)
+  })
+
+  // cancel_turn 在服务端复用 turn_completed 事件，只靠 turnStatus 区分。
+  test('turn_completed + turnStatus=cancelled 显示为已取消', () => {
+    let state = stateWithSnapshot()
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-9' })))
+    state = reducer(state, eventReceived(event('text_delta', 12, { requestId: 'req-9', text: '半句' })))
+    state = reducer(
+      state,
+      eventReceived(event('turn_completed', 13, { requestId: 'req-9', turnStatus: 'cancelled' })),
+    )
+    expect(state.messages.find((m) => m.kind === 'claude')).toMatchObject({
+      text: '半句',
+      status: 'cancelled',
+    })
+  })
+
+  test('turn_not_cancellable 拒绝给出安全文案', () => {
+    let state = stateWithSnapshot()
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-9' })))
+    state = reducer(state, turnCancelSent({ commandId: 'cmd-1', requestId: 'req-9' }))
+    state = reducer(
+      state,
+      commandRejected({ commandId: 'cmd-1', code: 'turn_not_cancellable', message: '' }),
+    )
+    expect(state.lastError?.code).toBe('turn_not_cancellable')
+    expect(state.lastError?.message).not.toBe('')
+  })
+})
+
+// ---- B2：unsupported 通知（§4.4）----
+
+describe('B2 unsupported 通知', () => {
+  test('四类 code 均转为可读提示且不改变连接阶段', () => {
+    for (const code of [
+      'unknown_block',
+      'unknown_subtype',
+      'concurrent_action',
+      'text_input_disabled',
+    ] as const) {
+      const state = reducer(stateWithSnapshot(), noticeReceived(code, 11))
+      expect(state.lastNotice).not.toBeNull()
+      expect(state.lastNotice?.code).toBe(code)
+      expect(state.lastNotice?.message).not.toBe('')
+      expect(state.phase).toBe('connected')
+      expect(state.canSend).toBe(true)
+    }
+  })
+
+  // 服务端 unsupported 通知经 publish 递增并占用一个 seq：通知必须像普通
+  // 事件一样推进 seqBase，否则其后事件会被误判为缺口而断连（真实 Claude
+  // 复测缺陷）。
+  test('通知消费 seq 并推进 seqBase，其后事件不缺口', () => {
+    let state = stateWithSnapshot()
+    state = reducer(state, noticeReceived('unknown_subtype', 11))
+    expect(state.seqBase).toBe(11)
+    expect(state.phase).toBe('connected')
+    state = reducer(state, eventReceived(event('turn_started', 12, { requestId: 'req-9' })))
+    expect(state.phase).toBe('connected')
+    expect(state.seqBase).toBe(12)
+  })
+
+  test('通知 seq 缺口按协议错误处理', () => {
+    const state = reducer(stateWithSnapshot(), noticeReceived('unknown_subtype', 13))
+    expect(state.phase).toBe('protocolError')
+    expect(state.canSend).toBe(false)
+  })
+
+  test('新 snapshot 清除陈旧通知', () => {
+    let state = reducer(stateWithSnapshot(), noticeReceived('concurrent_action', 11))
+    state = reducer(state, pairLoaded())
+    state = reducer(state, snapshotReceived(snapshot({ seq: 20 })))
+    expect(state.lastNotice).toBeNull()
   })
 })

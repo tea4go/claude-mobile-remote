@@ -18,15 +18,18 @@ type runControl struct {
 }
 
 type workerFakeHost struct {
-	connectErr error
-	closeErr   error
+	connectErr   error
+	closeErr     error
+	interruptErr error
 
 	starts   chan string
 	controls chan runControl
+	actions  chan *projectclaude.ActionRequest
 
 	mu           sync.Mutex
 	connectCalls int
 	closeCalls   int
+	interrupts   int
 	active       int
 	maxActive    int
 }
@@ -35,6 +38,7 @@ func newWorkerFakeHost() *workerFakeHost {
 	return &workerFakeHost{
 		starts:   make(chan string, 2),
 		controls: make(chan runControl, 2),
+		actions:  make(chan *projectclaude.ActionRequest, 1),
 	}
 }
 
@@ -71,6 +75,23 @@ func (f *workerFakeHost) Close() error {
 	f.closeCalls++
 	f.mu.Unlock()
 	return f.closeErr
+}
+
+func (f *workerFakeHost) Actions() <-chan *projectclaude.ActionRequest {
+	return f.actions
+}
+
+func (f *workerFakeHost) Interrupt(context.Context) error {
+	f.mu.Lock()
+	f.interrupts++
+	f.mu.Unlock()
+	return f.interruptErr
+}
+
+func (f *workerFakeHost) interruptCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.interrupts
 }
 
 func (f *workerFakeHost) finish(t *testing.T, control runControl) {
@@ -243,5 +264,33 @@ func TestWorkerPreservesRunTurnErrorAndRequestID(t *testing.T) {
 	}
 	if err := stopWorker(t, worker); err != nil {
 		t.Fatalf("Close error = %v, want nil", err)
+	}
+}
+
+// TestWorkerForwardsActionChannelAndInterrupt pins the two Host capabilities the
+// Controller needs outside the request/result path: the action side channel must
+// bypass the serialized run loop, and Interrupt must reach the Host directly.
+func TestWorkerForwardsActionChannelAndInterrupt(t *testing.T) {
+	host := newWorkerFakeHost()
+	worker := newHostWorker(host)
+
+	request := projectclaude.NewActionRequest(projectclaude.ActionSpec{
+		Kind: projectclaude.ActionToolApproval, ToolName: "Bash",
+	})
+	host.actions <- request
+	select {
+	case forwarded := <-worker.actions():
+		if forwarded != request {
+			t.Fatalf("forwarded action = %p, want %p", forwarded, request)
+		}
+	case <-time.After(workerTestTimeout):
+		t.Fatal("timed out reading the Host action channel through the worker")
+	}
+
+	if err := worker.interrupt(context.Background()); err != nil {
+		t.Fatalf("interrupt() error = %v, want nil", err)
+	}
+	if host.interruptCount() != 1 {
+		t.Fatalf("Interrupt calls = %d, want 1", host.interruptCount())
 	}
 }

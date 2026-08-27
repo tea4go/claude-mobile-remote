@@ -180,6 +180,10 @@ func (c *connection) handleUnsubscribe(envelope Envelope) bool {
 }
 
 func (c *connection) handleCommand(envelope Envelope) bool {
+	if envelope.SessionID != c.sessionID {
+		c.fail(CodeInvalidState, "invalid connection state")
+		return false
+	}
 	var payload CommandPayload
 	if err := DecodePayload(envelope, &payload); err != nil {
 		c.fail(CodeInvalidCommand, "invalid command")
@@ -205,12 +209,12 @@ func (c *connection) handleCommand(envelope Envelope) bool {
 		return false
 	}
 
-	requestID, submitErr := c.subscriptionChannel.SubmitText(c.context, payload.Text)
-	resultPayload := CommandResultPayload{Accepted: submitErr == nil}
+	requestID, commandErr := c.dispatchCommand(payload)
+	resultPayload := CommandResultPayload{Accepted: commandErr == nil}
 	resultRequestID := requestID
-	if submitErr != nil {
+	if commandErr != nil {
 		resultRequestID = ""
-		resultPayload.Code, resultPayload.Message = commandError(submitErr)
+		resultPayload.Code, resultPayload.Message = commandError(commandErr)
 	}
 	envelopeResult, err := NewEnvelope(TypeCommandResult, c.sessionID, envelope.CommandID, resultRequestID, 0, resultPayload)
 	if err != nil {
@@ -225,12 +229,91 @@ func (c *connection) handleCommand(envelope Envelope) bool {
 	return true
 }
 
+// dispatchCommand turns one validated command into exactly one Channel call and
+// reports the request ID an accepted result has to acknowledge. Every branch
+// goes through the Channel, so the transport never touches the SDK or the
+// pending permission callback itself.
+func (c *connection) dispatchCommand(payload CommandPayload) (string, error) {
+	switch payload.Kind {
+	case CommandSendText:
+		return c.subscriptionChannel.SubmitText(c.context, c.sessionID, payload.Text)
+	case CommandResolveAction:
+		return c.resolveAction(payload)
+	case CommandCancelTurn:
+		return payload.RequestID, c.subscriptionChannel.CancelTurn(c.context, c.sessionID, payload.RequestID)
+	case CommandCancelQueued:
+		return payload.RequestID, c.subscriptionChannel.CancelQueued(c.context, c.sessionID, payload.RequestID)
+	default:
+		return "", protocolError(CodeInvalidCommand, "unknown command kind")
+	}
+}
+
+// resolveAction matches the resolution against the action currently pending in
+// the session before handing it to the Controller, as required by design §4.5.
+// The Controller still re-checks atomically: this pass only keeps malformed or
+// stale resolutions away from the permission callback, and it decides which
+// request ID the acknowledgement carries.
+func (c *connection) resolveAction(payload CommandPayload) (string, error) {
+	snapshot, err := c.subscriptionChannel.Snapshot(c.context, c.sessionID)
+	if err != nil {
+		return "", err
+	}
+	action := snapshot.Turn.PendingAction
+	if action == nil {
+		return "", protocolError(CodeActionNotPending, "action is no longer pending")
+	}
+	if err := ValidateActionResolution(*action, c.server.config.ServiceConfig, payload); err != nil {
+		return "", err
+	}
+	decision, answers := sessionResolution(payload)
+	if err := c.subscriptionChannel.ResolveAction(c.context, c.sessionID, payload.ActionID, decision, answers); err != nil {
+		return "", err
+	}
+	return action.RequestID, nil
+}
+
+// sessionResolution converts the wire vocabulary into the session vocabulary.
+// The two enums are deliberately separate types so the session package never
+// imports the transport, which makes this the only translation point.
+func sessionResolution(payload CommandPayload) (projectsession.ActionDecision, []projectsession.QuestionAnswer) {
+	if payload.Decision != "" {
+		return projectsession.ActionDecision(payload.Decision), nil
+	}
+	if len(payload.Answers) == 0 {
+		return "", nil
+	}
+	answers := make([]projectsession.QuestionAnswer, 0, len(payload.Answers))
+	for _, answer := range payload.Answers {
+		answers = append(answers, projectsession.QuestionAnswer{
+			QuestionID: answer.QuestionID,
+			Values:     append([]string(nil), answer.Values...),
+		})
+	}
+	return "", answers
+}
+
 func commandError(err error) (string, string) {
+	// A ProtocolError already carries the exact §4.5 code decided upstream, so it
+	// must win over the sentinel mapping below.
+	var protocol *ProtocolError
+	if errors.As(err, &protocol) {
+		return protocol.Code, protocol.Message
+	}
 	switch {
 	case errors.Is(err, projectsession.ErrInvalidInput):
 		return CodeInvalidCommand, "invalid command"
 	case errors.Is(err, projectsession.ErrQueueFull):
 		return CodeQueueFull, "input queue full"
+	case errors.Is(err, projectsession.ErrActionNotPending):
+		return CodeActionNotPending, "action is no longer pending"
+	case errors.Is(err, projectsession.ErrInvalidAction):
+		return CodeInvalidAction, "invalid action resolution"
+	case errors.Is(err, projectsession.ErrInvalidAnswer):
+		return CodeInvalidAnswer, "invalid answer"
+	case errors.Is(err, projectsession.ErrTurnNotCancellable):
+		return CodeTurnNotCancellable, "turn cannot be cancelled"
+	case errors.Is(err, projectsession.ErrRequestNotQueued):
+		return CodeRequestNotQueued, "request is not queued"
 	case errors.Is(err, projectsession.ErrSessionMismatch), errors.Is(err, projectsession.ErrSessionUnavailable):
 		return CodeSessionUnavailable, "session unavailable"
 	default:
@@ -317,12 +400,7 @@ func (c *connection) forwardSubscription(subscription *channel.Subscription) {
 				events = nil
 				continue
 			}
-			// 出站事件同样受 kind 语义约束：不合法即视为内部错误，仅关闭本连接。
-			if err := validateEvent(event); err != nil {
-				c.shutdown()
-				return
-			}
-			envelope, err := NewEnvelope(TypeEvent, c.sessionID, "", event.RequestID, event.Seq, EventPayload{Event: event})
+			envelope, err := c.outboundEvent(event)
 			if err != nil {
 				c.shutdown()
 				return
@@ -334,6 +412,25 @@ func (c *connection) forwardSubscription(subscription *channel.Subscription) {
 			}
 		}
 	}
+}
+
+// outboundEvent maps one domain event onto the wire message that carries it.
+// The unsupported notice owns a separate envelope type (B2 §4.2), so it is
+// translated here rather than pushed through validateEvent, which refuses it as
+// an ordinary event by design; only the fixed code travels, never the event's
+// session fields. Every other kind keeps the outbound semantics check: an
+// illegal event is an internal error and only closes this connection.
+func (c *connection) outboundEvent(event projectsession.Event) (Envelope, error) {
+	if event.Kind == projectsession.EventUnsupported {
+		if !event.Code.IsKnown() {
+			return Envelope{}, ErrInvalidMessage
+		}
+		return NewEnvelope(TypeUnsupported, c.sessionID, "", event.RequestID, event.Seq, UnsupportedPayload{Code: event.Code})
+	}
+	if err := validateEvent(event); err != nil {
+		return Envelope{}, err
+	}
+	return NewEnvelope(TypeEvent, c.sessionID, "", event.RequestID, event.Seq, EventPayload{Event: event})
 }
 
 func (c *connection) enqueue(messageType MessageType, commandID, requestID string, seq uint64, payload any) error {
@@ -349,7 +446,7 @@ func (c *connection) enqueue(messageType MessageType, commandID, requestID strin
 }
 
 func (c *connection) fail(code, message string) {
-	_ = c.enqueue(TypeError, "", "", 0, ErrorPayload{Code: code, Message: message})
+	_ = c.enqueue(TypeError, "", "", 0, newErrorPayload(code, message))
 }
 
 func (c *connection) writeLoop() {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestNormalizeInput(t *testing.T) {
@@ -99,6 +100,37 @@ func TestPublicEnumValues(t *testing.T) {
 	if EventSessionStarted != "session_started" || EventTurnStarted != "turn_started" || EventTextDelta != "text_delta" || EventTurnCompleted != "turn_completed" || EventTurnFailed != "turn_failed" || EventSessionFailed != "session_failed" || EventSessionStopped != "session_stopped" {
 		t.Fatalf("unexpected event kind values")
 	}
+	if EventContentBlock != "content_block" || EventActionRequired != "action_required" || EventActionResolved != "action_resolved" || EventUnsupported != "unsupported" {
+		t.Fatalf("unexpected B2 event kind values")
+	}
+	if BlockThinking != "thinking" || BlockToolUse != "tool_use" || BlockToolResult != "tool_result" {
+		t.Fatalf("unexpected block kind values")
+	}
+	if ToolBuiltin != "builtin" || ToolMCP != "mcp" {
+		t.Fatalf("unexpected tool class values")
+	}
+	if ActionToolApproval != "tool_approval" || ActionAskUserQuestion != "ask_user_question" {
+		t.Fatalf("unexpected action kind values")
+	}
+	if QuestionChoice != "choice" || QuestionText != "text" {
+		t.Fatalf("unexpected question input type values")
+	}
+	if UnsupportedUnknownBlock != "unknown_block" || UnsupportedUnknownSubtype != "unknown_subtype" ||
+		UnsupportedConcurrentAction != "concurrent_action" || UnsupportedTextDisabled != "text_input_disabled" {
+		t.Fatalf("unexpected unsupported code values")
+	}
+}
+
+// TestDefaultServiceConfig pins the two B2 service defaults so the preview
+// limit and the conditional free-text capability never drift silently.
+func TestDefaultServiceConfig(t *testing.T) {
+	config := DefaultServiceConfig()
+	if config.ToolPreviewMaxRunes != 200 {
+		t.Fatalf("ToolPreviewMaxRunes = %d, want 200", config.ToolPreviewMaxRunes)
+	}
+	if config.AskUserTextEnabled {
+		t.Fatal("AskUserTextEnabled must default to false until the CLI probe passes")
+	}
 }
 
 func TestSnapshotJSONShape(t *testing.T) {
@@ -107,15 +139,18 @@ func TestSnapshotJSONShape(t *testing.T) {
 		SessionStatus: SessionReady,
 		SessionError:  &ErrorInfo{Code: "oops", Message: "failed"},
 		Seq:           7,
-		Turn:          TurnSnapshot{Status: TurnRunning, RequestID: "request-1", Source: InputMobile, Message: "working", Error: &ErrorInfo{Code: "turn", Message: "waiting"}, PendingAction: &PendingAction{}},
-		QueueDepth:    2,
+		Turn: TurnSnapshot{Status: TurnRunning, RequestID: "request-1", Source: InputMobile, Message: "working", Error: &ErrorInfo{Code: "turn", Message: "waiting"}, PendingAction: &PendingAction{
+			ActionID: "action-1", RequestID: "request-1", Kind: ActionToolApproval, ToolName: "Bash", Preview: "go test ./...", AllowSessionAvailable: true,
+		}},
+		QueueDepth:     2,
+		QueuedRequests: []QueuedRequest{{RequestID: "request-2", Source: InputTerminal, Preview: "refactor login"}},
 	}
 	encoded, err := json.Marshal(want)
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 	jsonText := string(encoded)
-	for _, field := range []string{`"sessionId":"session-1"`, `"sessionStatus":"ready"`, `"requestId":"request-1"`, `"source":"mobile"`, `"turn":{"status":"running"`, `"sessionError":{"code":"oops","message":"failed"}`, `"error":{"code":"turn","message":"waiting"}`, `"pendingAction":{}`} {
+	for _, field := range []string{`"sessionId":"session-1"`, `"sessionStatus":"ready"`, `"requestId":"request-1"`, `"source":"mobile"`, `"turn":{"status":"running"`, `"sessionError":{"code":"oops","message":"failed"}`, `"error":{"code":"turn","message":"waiting"}`, `"pendingAction":{"actionId":"action-1"`, `"queuedRequests":[{"requestId":"request-2","source":"terminal","preview":"refactor login"}]`} {
 		if !strings.Contains(jsonText, field) {
 			t.Fatalf("JSON shape missing %s: %s", field, jsonText)
 		}
@@ -134,9 +169,178 @@ func TestSnapshotJSONShape(t *testing.T) {
 		t.Fatalf("json.Marshal(zero) error = %v", err)
 	}
 	zeroText := string(zeroJSON)
-	for _, field := range []string{`"sessionError":null`, `"error":null`, `"pendingAction":null`} {
+	for _, field := range []string{`"sessionError":null`, `"error":null`, `"pendingAction":null`, `"queuedRequests":null`} {
 		if !strings.Contains(zeroText, field) {
 			t.Fatalf("zero JSON missing explicit null %s: %s", field, zeroText)
+		}
+	}
+}
+
+// TestPendingActionJSONShape asserts the B2 §4.3 wire contract: the client only
+// ever sees the project-generated actionId, and the raw tool input, toolClass
+// and toolUseId never leave the service.
+func TestPendingActionJSONShape(t *testing.T) {
+	question := PendingAction{
+		ActionID:  "action-1",
+		RequestID: "request-1",
+		Kind:      ActionAskUserQuestion,
+		ToolName:  AskUserQuestionToolName,
+		Questions: []Question{{
+			QuestionID:  "q1",
+			Header:      "运行模式",
+			Question:    "选择运行模式",
+			InputType:   QuestionChoice,
+			MultiSelect: true,
+			Options:     []QuestionOption{{Label: "安全", Description: "只读检查"}, {Label: "完整"}},
+		}},
+	}
+	encoded, err := json.Marshal(question)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	jsonText := string(encoded)
+	for _, field := range []string{
+		`"actionId":"action-1"`, `"requestId":"request-1"`, `"kind":"ask_user_question"`,
+		`"toolName":"AskUserQuestion"`, `"allowSessionAvailable":false`, `"questionId":"q1"`,
+		`"header":"运行模式"`, `"question":"选择运行模式"`, `"inputType":"choice"`, `"multiSelect":true`,
+		`"label":"安全"`, `"description":"只读检查"`,
+	} {
+		if !strings.Contains(jsonText, field) {
+			t.Fatalf("pending action JSON missing %s: %s", field, jsonText)
+		}
+	}
+	for _, forbidden := range []string{`"input"`, `"toolClass"`, `"toolUseId"`, `"preview"`} {
+		if strings.Contains(jsonText, forbidden) {
+			t.Fatalf("pending action JSON must not carry %s: %s", forbidden, jsonText)
+		}
+	}
+
+	approval := PendingAction{
+		ActionID:              "action-2",
+		RequestID:             "request-1",
+		Kind:                  ActionToolApproval,
+		ToolName:              "Bash",
+		Preview:               "go test ./...",
+		AllowSessionAvailable: true,
+	}
+	approvalEncoded, err := json.Marshal(approval)
+	if err != nil {
+		t.Fatalf("json.Marshal(approval) error = %v", err)
+	}
+	approvalText := string(approvalEncoded)
+	for _, field := range []string{`"kind":"tool_approval"`, `"toolName":"Bash"`, `"preview":"go test ./..."`, `"allowSessionAvailable":true`} {
+		if !strings.Contains(approvalText, field) {
+			t.Fatalf("approval JSON missing %s: %s", field, approvalText)
+		}
+	}
+	if strings.Contains(approvalText, `"questions"`) {
+		t.Fatalf("tool_approval must omit questions: %s", approvalText)
+	}
+}
+
+// TestContentBlockJSONShape covers the three §4.2 kinds and asserts isError can
+// express an explicit false without leaking into the other kinds.
+func TestContentBlockJSONShape(t *testing.T) {
+	tests := []struct {
+		name    string
+		block   ContentBlock
+		want    []string
+		notWant []string
+	}{
+		{
+			name:    "thinking",
+			block:   ContentBlock{ID: "block-1", Kind: BlockThinking, Thinking: "weighing options"},
+			want:    []string{`"id":"block-1"`, `"kind":"thinking"`, `"thinking":"weighing options"`},
+			notWant: []string{`"toolUseId"`, `"toolClass"`, `"toolName"`, `"isError"`, `"mcpServer"`},
+		},
+		{
+			name:    "builtin tool use",
+			block:   ContentBlock{ID: "block-2", Kind: BlockToolUse, ToolUseID: "tool-1", ToolClass: ToolBuiltin, ToolName: "Read"},
+			want:    []string{`"kind":"tool_use"`, `"toolUseId":"tool-1"`, `"toolClass":"builtin"`, `"toolName":"Read"`},
+			notWant: []string{`"mcpServer"`, `"thinking"`, `"isError"`, `"input"`},
+		},
+		{
+			name:    "mcp tool use",
+			block:   ContentBlock{ID: "block-3", Kind: BlockToolUse, ToolUseID: "tool-2", ToolClass: ToolMCP, MCPServer: "filesystem", ToolName: "read_file"},
+			want:    []string{`"toolClass":"mcp"`, `"mcpServer":"filesystem"`},
+			notWant: []string{`"thinking"`, `"isError"`},
+		},
+		{
+			name:    "successful tool result",
+			block:   ContentBlock{ID: "block-4", Kind: BlockToolResult, ToolUseID: "tool-1", IsError: BoolPointer(false)},
+			want:    []string{`"kind":"tool_result"`, `"toolUseId":"tool-1"`, `"isError":false`},
+			notWant: []string{`"toolName"`, `"toolClass"`, `"thinking"`},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := json.Marshal(test.block)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			jsonText := string(encoded)
+			for _, field := range test.want {
+				if !strings.Contains(jsonText, field) {
+					t.Fatalf("block JSON missing %s: %s", field, jsonText)
+				}
+			}
+			for _, forbidden := range test.notWant {
+				if strings.Contains(jsonText, forbidden) {
+					t.Fatalf("block JSON must not carry %s: %s", forbidden, jsonText)
+				}
+			}
+		})
+	}
+}
+
+// TestSetQueuedRequestsKeepsDepthConsistent locks the §4.4 invariant that both
+// views of the FIFO are written from a single place.
+func TestSetQueuedRequestsKeepsDepthConsistent(t *testing.T) {
+	var snapshot Snapshot
+	snapshot.setQueuedRequests([]QueuedRequest{
+		{RequestID: "request-2", Source: InputTerminal, Preview: "one"},
+		{RequestID: "request-3", Source: InputMobile, Preview: "two"},
+	})
+	if snapshot.QueueDepth != len(snapshot.QueuedRequests) || snapshot.QueueDepth != 2 {
+		t.Fatalf("queueDepth = %d, queuedRequests = %d, want both 2", snapshot.QueueDepth, len(snapshot.QueuedRequests))
+	}
+	snapshot.setQueuedRequests(nil)
+	if snapshot.QueueDepth != 0 || len(snapshot.QueuedRequests) != 0 {
+		t.Fatalf("cleared queue = depth %d, list %d, want both 0", snapshot.QueueDepth, len(snapshot.QueuedRequests))
+	}
+}
+
+// TestNewQueuedRequestTruncatesPreview asserts a queued entry never carries the
+// full submitted text, on a rune boundary.
+func TestNewQueuedRequestTruncatesPreview(t *testing.T) {
+	config := DefaultServiceConfig()
+	long := strings.Repeat("界", config.ToolPreviewMaxRunes+50)
+	queued := newQueuedRequest(config, "request-9", Input{Source: InputMobile, Text: long})
+	if queued.RequestID != "request-9" || queued.Source != InputMobile {
+		t.Fatalf("unexpected queued request: %#v", queued)
+	}
+	runes := []rune(queued.Preview)
+	if len(runes) != config.ToolPreviewMaxRunes+1 {
+		t.Fatalf("preview rune count = %d, want %d including the ellipsis", len(runes), config.ToolPreviewMaxRunes+1)
+	}
+	if runes[len(runes)-1] != '…' {
+		t.Fatalf("truncated preview must end with an ellipsis: %q", queued.Preview)
+	}
+	if !utf8.ValidString(queued.Preview) {
+		t.Fatalf("truncated preview is not valid UTF-8: %q", queued.Preview)
+	}
+	if strings.Contains(long, queued.Preview) && len([]rune(long)) == len(runes) {
+		t.Fatal("preview must be shorter than the submitted text")
+	}
+}
+
+// TestTerminalEventSemanticsUnchanged guards the A3/A4 contract that B2 reuses
+// the existing Session and Turn terminal events instead of inventing new ones.
+func TestTerminalEventSemanticsUnchanged(t *testing.T) {
+	for _, kind := range []EventKind{EventSessionFailed, EventSessionStopped, EventTurnCompleted, EventTurnFailed} {
+		event := Event{Kind: kind, SessionID: "session-1"}
+		if event.Block != nil || event.PendingAction != nil || event.Code != "" {
+			t.Fatalf("%s must not carry B2 structured payloads: %#v", kind, event)
 		}
 	}
 }

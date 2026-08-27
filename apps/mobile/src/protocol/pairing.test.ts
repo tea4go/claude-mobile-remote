@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'vitest'
 import {
+  PAIRING_PAYLOAD_VERSION,
   encodePairingFragment,
   parsePairingFragment,
   parsePairingJson,
   type PairingPayload,
 } from './pairing'
+import { PROTOCOL_VERSION } from './types'
 
 const NOW = 1_700_000_000_000
 
@@ -14,13 +16,32 @@ const INVALID = '配对信息无效'
 
 function validPayload(): PairingPayload {
   return {
-    version: 1,
+    version: PAIRING_PAYLOAD_VERSION,
     wsUrl: 'ws://127.0.0.1:8765/ws',
     sessionId: 'session-1',
     pairToken: 'test-token-placeholder',
     expiresAt: '2026-08-24T12:00:00Z',
   }
 }
+
+// 配对负载版本（internal/pairing/payload.go 的 PayloadVersion）与传输层
+// 协议版本（internal/transport/protocol.go 的 Version）是两个独立契约，
+// B2 把协议升到 2 时配对负载仍为 1。
+describe('配对负载版本与协议版本相互独立', () => {
+  test('PAIRING_PAYLOAD_VERSION 为 1，不随协议版本升级', () => {
+    expect(PAIRING_PAYLOAD_VERSION).toBe(1)
+  })
+
+  test('配对负载不接受传输层协议版本号', () => {
+    expect(PROTOCOL_VERSION).not.toBe(PAIRING_PAYLOAD_VERSION)
+    const payload = validPayload()
+    payload.version = PROTOCOL_VERSION
+    expect(parsePairingJson(JSON.stringify(payload), NOW)).toEqual({
+      ok: false,
+      error: INVALID,
+    })
+  })
+})
 
 describe('parsePairingJson：原始 JSON', () => {
   test('合法 payload 解析成功', () => {
@@ -48,7 +69,7 @@ describe('parsePairingJson：原始 JSON', () => {
     expect(result).toEqual({ ok: false, error: INVALID })
   })
 
-  test('version 2 → 配对信息无效', () => {
+  test('version 2（传输层协议版本号）→ 配对信息无效', () => {
     const payload = validPayload()
     payload.version = 2
     const result = parsePairingJson(JSON.stringify(payload), NOW)

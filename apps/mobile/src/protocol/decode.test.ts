@@ -5,7 +5,7 @@ import type { Envelope } from './types'
 // 构造合法 envelope 的工厂；各用例按需覆盖字段。
 function baseEnvelope(overrides: Partial<Envelope> = {}): Envelope {
   return {
-    version: 1,
+    version: 2,
     type: 'hello_ack',
     sessionId: 'session-1',
     commandId: '',
@@ -25,14 +25,97 @@ function snapshotPayload() {
       sessionError: null as { code: string; message: string } | null,
       seq: 7,
       turn: {
-        status: 'idle' as const,
+        status: 'idle' as string,
         requestId: '',
         source: 'mobile' as const,
         message: '',
         error: null as { code: string; message: string } | null,
-        pendingAction: null as Record<string, never> | null,
+        pendingAction: null as Record<string, unknown> | null,
       },
       queueDepth: 0,
+      queuedRequests: [] as unknown,
+    },
+  }
+}
+
+// B2 §4.2：tool_approval 形态的 pendingAction；preview 可缺省。
+function approvalAction(overrides: Record<string, unknown> = {}) {
+  return {
+    actionId: 'act-1',
+    requestId: 'req-1',
+    kind: 'tool_approval',
+    toolName: 'Bash',
+    preview: 'ls -al',
+    allowSessionAvailable: true,
+    ...overrides,
+  }
+}
+
+// B2 §4.2：ask_user_question 形态的 pendingAction；toolName 固定为
+// AskUserQuestion，且不得携带 preview。
+function questionAction(overrides: Record<string, unknown> = {}) {
+  return {
+    actionId: 'act-2',
+    requestId: 'req-1',
+    kind: 'ask_user_question',
+    toolName: 'AskUserQuestion',
+    allowSessionAvailable: false,
+    questions: [
+      {
+        questionId: 'q-1',
+        header: '范围',
+        question: '选择一个目录',
+        inputType: 'choice',
+        multiSelect: false,
+        options: [{ label: 'src', description: '源码' }, { label: 'docs' }],
+      },
+    ],
+    ...overrides,
+  }
+}
+
+// waiting 状态的 snapshot：pendingAction 非空时 turn 必为 waiting，且
+// pendingAction.requestId 必须等于 turn.requestId。
+function waitingSnapshotPayload(action: Record<string, unknown> = approvalAction()) {
+  const payload = snapshotPayload()
+  payload.snapshot.turn.status = 'waiting'
+  payload.snapshot.turn.requestId = 'req-1'
+  payload.snapshot.turn.message = 'run the build'
+  payload.snapshot.turn.pendingAction = action
+  return payload
+}
+
+// content_block 事件：三类 kind 共用 envelope 形状，block 内字段按 kind 白名单。
+function blockEventPayload(block: Record<string, unknown>) {
+  return {
+    event: {
+      seq: 8,
+      kind: 'content_block',
+      sessionId: 'session-1',
+      requestId: 'req-1',
+      source: 'mobile',
+      text: '',
+      sessionStatus: '',
+      turnStatus: '',
+      error: null,
+      block,
+    },
+  }
+}
+
+function actionRequiredPayload(action: Record<string, unknown> = approvalAction()) {
+  return {
+    event: {
+      seq: 8,
+      kind: 'action_required',
+      sessionId: 'session-1',
+      requestId: 'req-1',
+      source: 'mobile',
+      text: '',
+      sessionStatus: '',
+      turnStatus: 'waiting',
+      error: null,
+      pendingAction: action,
     },
   }
 }
@@ -131,14 +214,17 @@ describe('decodeServerMessage：合法消息', () => {
     expect(message.payload.code).toBe('unauthorized')
   })
 
-  test('session snapshot 的 pendingAction 为空对象', () => {
-    const payload = snapshotPayload()
-    payload.snapshot.turn.pendingAction = {}
+  test('session snapshot 的 pendingAction 可为真实 tool_approval', () => {
     const message = decodeServerMessage(
-      JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload })),
+      JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload: waitingSnapshotPayload() })),
     )
     if (message.type !== 'snapshot') throw new Error('unexpected type')
-    expect(message.payload.snapshot.turn.pendingAction).toEqual({})
+    const action = message.payload.snapshot.turn.pendingAction
+    if (action === null || action.kind !== 'tool_approval') throw new Error('unexpected action')
+    expect(action.actionId).toBe('act-1')
+    expect(action.toolName).toBe('Bash')
+    expect(action.preview).toBe('ls -al')
+    expect(action.allowSessionAvailable).toBe(true)
   })
 
   test('snapshot turn error 与 sessionError 可为非空对象', () => {
@@ -158,7 +244,7 @@ describe('decodeServerMessage：合法消息', () => {
   // TestWebSocketPreTurnSnapshotTurnWireShape 断言的 wire 形状逐字对应。
   test('首轮前 snapshot：turn.source 为空串时仍可解码', () => {
     const wire = JSON.stringify({
-      version: 1,
+      version: 2,
       type: 'snapshot',
       sessionId: 'session-1',
       commandId: '',
@@ -180,6 +266,7 @@ describe('decodeServerMessage：合法消息', () => {
             pendingAction: null,
           },
           queueDepth: 0,
+          queuedRequests: null,
         },
       },
     })
@@ -225,8 +312,13 @@ describe('decodeServerMessage：非法 JSON 与基础结构', () => {
     ).toThrow()
   })
 
-  test('version = 2 拒绝（未知版本）', () => {
-    const envelope = baseEnvelope({ version: 2 })
+  test('version = 1（B1 旧客户端形态）拒绝', () => {
+    const envelope = baseEnvelope({ version: 1 })
+    expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
+  })
+
+  test('version = 3（未来版本）拒绝', () => {
+    const envelope = baseEnvelope({ version: 3 })
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 
@@ -243,25 +335,25 @@ describe('decodeServerMessage：非法 JSON 与基础结构', () => {
 
   test('payload 非对象（字符串）拒绝', () => {
     expect(() =>
-      decodeServerMessage('{"version":1,"type":"hello_ack","sessionId":"","commandId":"","requestId":"","seq":0,"payload":"x"}'),
+      decodeServerMessage('{"version":2,"type":"hello_ack","sessionId":"","commandId":"","requestId":"","seq":0,"payload":"x"}'),
     ).toThrow()
   })
 
   test('payload 为 null 拒绝', () => {
     expect(() =>
-      decodeServerMessage('{"version":1,"type":"hello_ack","sessionId":"","commandId":"","requestId":"","seq":0,"payload":null}'),
+      decodeServerMessage('{"version":2,"type":"hello_ack","sessionId":"","commandId":"","requestId":"","seq":0,"payload":null}'),
     ).toThrow()
   })
 
   test('seq 缺失拒绝', () => {
     expect(() =>
-      decodeServerMessage('{"version":1,"type":"hello_ack","sessionId":"","commandId":"","requestId":"","payload":{}}'),
+      decodeServerMessage('{"version":2,"type":"hello_ack","sessionId":"","commandId":"","requestId":"","payload":{}}'),
     ).toThrow()
   })
 
   test('seq 为负数拒绝', () => {
     expect(() =>
-      decodeServerMessage('{"version":1,"type":"hello_ack","sessionId":"","commandId":"","requestId":"","seq":-1,"payload":{}}'),
+      decodeServerMessage('{"version":2,"type":"hello_ack","sessionId":"","commandId":"","requestId":"","seq":-1,"payload":{}}'),
     ).toThrow()
   })
 })
@@ -566,5 +658,757 @@ describe('decodeServerMessage：payload 结构校验', () => {
       JSON.stringify(baseEnvelope({ type: 'unsubscribed' })),
     )
     expect(message.type).toBe('unsubscribed')
+  })
+
+  test('error payload 的 expectedVersion 可读出（版本不匹配提示升级）', () => {
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({
+          type: 'error',
+          payload: {
+            code: 'unsupported_version',
+            message: 'unsupported protocol version',
+            expectedVersion: 2,
+          },
+        }),
+      ),
+    )
+    if (message.type !== 'error') throw new Error('unexpected type')
+    expect(message.payload.code).toBe('unsupported_version')
+    expect(message.payload.expectedVersion).toBe(2)
+  })
+
+  test('error payload 缺 expectedVersion 仍合法（非版本错误不携带）', () => {
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({ type: 'error', payload: { code: 'unauthorized', message: 'nope' } }),
+      ),
+    )
+    if (message.type !== 'error') throw new Error('unexpected type')
+    expect(message.payload.expectedVersion).toBeUndefined()
+  })
+})
+
+describe('decodeServerMessage：content_block（B2 §4.1）', () => {
+  test('thinking 块可解码', () => {
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({
+          type: 'event',
+          requestId: 'req-1',
+          seq: 8,
+          payload: blockEventPayload({ id: 'blk-1', kind: 'thinking', thinking: '先看目录' }),
+        }),
+      ),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    const block = message.payload.event.block
+    if (block === undefined || block.kind !== 'thinking') throw new Error('unexpected block')
+    expect(block.id).toBe('blk-1')
+    expect(block.thinking).toBe('先看目录')
+  })
+
+  test('builtin tool_use 块可解码且不带 mcpServer', () => {
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({
+          type: 'event',
+          requestId: 'req-1',
+          seq: 8,
+          payload: blockEventPayload({
+            id: 'blk-2',
+            kind: 'tool_use',
+            toolUseId: 'tu-1',
+            toolClass: 'builtin',
+            toolName: 'Bash',
+          }),
+        }),
+      ),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    const block = message.payload.event.block
+    if (block === undefined || block.kind !== 'tool_use') throw new Error('unexpected block')
+    expect(block.toolClass).toBe('builtin')
+    expect(block.toolName).toBe('Bash')
+    expect(block.mcpServer).toBe('')
+  })
+
+  test('mcp tool_use 块必须带 mcpServer', () => {
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({
+          type: 'event',
+          requestId: 'req-1',
+          seq: 8,
+          payload: blockEventPayload({
+            id: 'blk-3',
+            kind: 'tool_use',
+            toolUseId: 'tu-2',
+            toolClass: 'mcp',
+            toolName: 'lookup',
+            mcpServer: 'docs',
+          }),
+        }),
+      ),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    const block = message.payload.event.block
+    if (block === undefined || block.kind !== 'tool_use') throw new Error('unexpected block')
+    expect(block.mcpServer).toBe('docs')
+  })
+
+  test('builtin tool_use 携带 mcpServer 拒绝', () => {
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(
+          baseEnvelope({
+            type: 'event',
+            requestId: 'req-1',
+            seq: 8,
+            payload: blockEventPayload({
+              id: 'blk-4',
+              kind: 'tool_use',
+              toolUseId: 'tu-3',
+              toolClass: 'builtin',
+              toolName: 'Bash',
+              mcpServer: 'docs',
+            }),
+          }),
+        ),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('mcp tool_use 缺 mcpServer 拒绝', () => {
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(
+          baseEnvelope({
+            type: 'event',
+            requestId: 'req-1',
+            seq: 8,
+            payload: blockEventPayload({
+              id: 'blk-5',
+              kind: 'tool_use',
+              toolUseId: 'tu-4',
+              toolClass: 'mcp',
+              toolName: 'lookup',
+            }),
+          }),
+        ),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('tool_result 块只带 toolUseId 与布尔 isError', () => {
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({
+          type: 'event',
+          requestId: 'req-1',
+          seq: 8,
+          payload: blockEventPayload({
+            id: 'blk-6',
+            kind: 'tool_result',
+            toolUseId: 'tu-1',
+            isError: false,
+          }),
+        }),
+      ),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    const block = message.payload.event.block
+    if (block === undefined || block.kind !== 'tool_result') throw new Error('unexpected block')
+    expect(block.toolUseId).toBe('tu-1')
+    expect(block.isError).toBe(false)
+  })
+
+  test('tool_result 缺 isError 拒绝', () => {
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(
+          baseEnvelope({
+            type: 'event',
+            requestId: 'req-1',
+            seq: 8,
+            payload: blockEventPayload({ id: 'blk-7', kind: 'tool_result', toolUseId: 'tu-1' }),
+          }),
+        ),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('tool_result 携带 thinking 等越界字段拒绝', () => {
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(
+          baseEnvelope({
+            type: 'event',
+            requestId: 'req-1',
+            seq: 8,
+            payload: blockEventPayload({
+              id: 'blk-8',
+              kind: 'tool_result',
+              toolUseId: 'tu-1',
+              isError: false,
+              thinking: '不应该出现',
+            }),
+          }),
+        ),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('未知 block kind 拒绝（unsupported 不是第四类 block）', () => {
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(
+          baseEnvelope({
+            type: 'event',
+            requestId: 'req-1',
+            seq: 8,
+            payload: blockEventPayload({ id: 'blk-9', kind: 'unsupported' }),
+          }),
+        ),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('content_block 缺 block 拒绝', () => {
+    const payload = blockEventPayload({ id: 'blk-10', kind: 'thinking', thinking: 'x' }) as {
+      event: Record<string, unknown>
+    }
+    delete payload.event.block
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('content_block 同时携带 pendingAction 拒绝', () => {
+    const payload = blockEventPayload({ id: 'blk-11', kind: 'thinking', thinking: 'x' }) as {
+      event: Record<string, unknown>
+    }
+    payload.event.pendingAction = approvalAction()
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('非 content_block 事件携带 block 拒绝', () => {
+    const payload = eventPayload() as unknown as { event: Record<string, unknown> }
+    payload.event.block = { id: 'blk-12', kind: 'thinking', thinking: 'x' }
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('事件携带非空 code 拒绝（unsupported 只走自己的 type）', () => {
+    const payload = eventPayload() as unknown as { event: Record<string, unknown> }
+    payload.event.code = 'unknown_block'
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('事件 kind 为 unsupported 拒绝', () => {
+    const payload = eventPayload() as unknown as { event: Record<string, unknown> }
+    payload.event.kind = 'unsupported'
+    payload.event.text = ''
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+})
+
+describe('decodeServerMessage：action_required / action_resolved（B2 §4.2）', () => {
+  test('tool_approval 的 action_required 可解码', () => {
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload: actionRequiredPayload() }),
+      ),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    const action = message.payload.event.pendingAction
+    if (action === undefined || action.kind !== 'tool_approval') throw new Error('unexpected action')
+    expect(action.actionId).toBe('act-1')
+    expect(action.requestId).toBe('req-1')
+  })
+
+  test('tool_approval 缺省 preview 仍可解码（不自行拼接）', () => {
+    const action = approvalAction() as Record<string, unknown>
+    delete action.preview
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({
+          type: 'event',
+          requestId: 'req-1',
+          seq: 8,
+          payload: actionRequiredPayload(action),
+        }),
+      ),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    const decoded = message.payload.event.pendingAction
+    if (decoded === undefined || decoded.kind !== 'tool_approval') throw new Error('unexpected action')
+    expect(decoded.preview).toBe('')
+  })
+
+  test('ask_user_question 多问题、单选与多选可解码', () => {
+    const action = questionAction({
+      questions: [
+        {
+          questionId: 'q-1',
+          header: '范围',
+          question: '选一个目录',
+          inputType: 'choice',
+          multiSelect: false,
+          options: [{ label: 'src' }, { label: 'docs' }],
+        },
+        {
+          questionId: 'q-2',
+          header: '检查项',
+          question: '选择需要的检查',
+          inputType: 'choice',
+          multiSelect: true,
+          options: [{ label: 'lint' }, { label: 'test' }, { label: 'build' }],
+        },
+      ],
+    })
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({
+          type: 'event',
+          requestId: 'req-1',
+          seq: 8,
+          payload: actionRequiredPayload(action),
+        }),
+      ),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    const decoded = message.payload.event.pendingAction
+    if (decoded === undefined || decoded.kind !== 'ask_user_question') {
+      throw new Error('unexpected action')
+    }
+    expect(decoded.questions).toHaveLength(2)
+    expect(decoded.questions[0].multiSelect).toBe(false)
+    expect(decoded.questions[1].multiSelect).toBe(true)
+    expect(decoded.questions[1].options).toHaveLength(3)
+  })
+
+  // B2 Task 2 Step 1 自由文本 CLI 实证已通过（docs/testing/B2-result.md），
+  // 解码器必须能读 inputType=text；服务端是否下发由配置控制。
+  test('inputType 为 text 的问题可解码且不带 options', () => {
+    const action = questionAction({
+      questions: [
+        {
+          questionId: 'q-1',
+          header: '补充',
+          question: '请输入备注',
+          inputType: 'text',
+          multiSelect: false,
+        },
+      ],
+    })
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({
+          type: 'event',
+          requestId: 'req-1',
+          seq: 8,
+          payload: actionRequiredPayload(action),
+        }),
+      ),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    const decoded = message.payload.event.pendingAction
+    if (decoded === undefined || decoded.kind !== 'ask_user_question') {
+      throw new Error('unexpected action')
+    }
+    expect(decoded.questions[0].inputType).toBe('text')
+    expect(decoded.questions[0].options).toHaveLength(0)
+  })
+
+  test('action_required 的 turnStatus 非 waiting 拒绝', () => {
+    const payload = actionRequiredPayload() as { event: Record<string, unknown> }
+    payload.event.turnStatus = 'running'
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('action_required 缺 pendingAction 拒绝', () => {
+    const payload = actionRequiredPayload() as { event: Record<string, unknown> }
+    delete payload.event.pendingAction
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('pendingAction.requestId 与事件 requestId 不一致拒绝', () => {
+    const payload = actionRequiredPayload(approvalAction({ requestId: 'req-other' }))
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('tool_approval 携带 questions 拒绝', () => {
+    const payload = actionRequiredPayload(
+      approvalAction({ questions: [{ questionId: 'q-1', header: 'h', question: 'q', inputType: 'choice', multiSelect: false, options: [{ label: 'a' }] }] }),
+    )
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('tool_approval 缺 toolName 拒绝', () => {
+    const action = approvalAction() as Record<string, unknown>
+    action.toolName = ''
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(
+          baseEnvelope({
+            type: 'event',
+            requestId: 'req-1',
+            seq: 8,
+            payload: actionRequiredPayload(action),
+          }),
+        ),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('ask_user_question 携带 preview 拒绝', () => {
+    const payload = actionRequiredPayload(questionAction({ preview: 'ls' }))
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('ask_user_question 的 toolName 不是 AskUserQuestion 拒绝', () => {
+    const payload = actionRequiredPayload(questionAction({ toolName: 'Bash' }))
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('ask_user_question 的 questions 为空拒绝', () => {
+    const payload = actionRequiredPayload(questionAction({ questions: [] }))
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('questionId 重复拒绝（答案无法寻址）', () => {
+    const question = {
+      questionId: 'q-1',
+      header: 'h',
+      question: 'q',
+      inputType: 'choice',
+      multiSelect: false,
+      options: [{ label: 'a' }],
+    }
+    const payload = actionRequiredPayload(questionAction({ questions: [question, { ...question }] }))
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('choice 问题缺 options 拒绝', () => {
+    const payload = actionRequiredPayload(
+      questionAction({
+        questions: [
+          { questionId: 'q-1', header: 'h', question: 'q', inputType: 'choice', multiSelect: false },
+        ],
+      }),
+    )
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('choice 选项 label 为空拒绝', () => {
+    const payload = actionRequiredPayload(
+      questionAction({
+        questions: [
+          {
+            questionId: 'q-1',
+            header: 'h',
+            question: 'q',
+            inputType: 'choice',
+            multiSelect: false,
+            options: [{ label: '' }],
+          },
+        ],
+      }),
+    )
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('text 问题携带 options 拒绝', () => {
+    const payload = actionRequiredPayload(
+      questionAction({
+        questions: [
+          {
+            questionId: 'q-1',
+            header: 'h',
+            question: 'q',
+            inputType: 'text',
+            multiSelect: false,
+            options: [{ label: 'a' }],
+          },
+        ],
+      }),
+    )
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('text 问题 multiSelect 为真拒绝', () => {
+    const payload = actionRequiredPayload(
+      questionAction({
+        questions: [
+          { questionId: 'q-1', header: 'h', question: 'q', inputType: 'text', multiSelect: true },
+        ],
+      }),
+    )
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('未知 inputType 拒绝', () => {
+    const payload = actionRequiredPayload(
+      questionAction({
+        questions: [
+          { questionId: 'q-1', header: 'h', question: 'q', inputType: 'voice', multiSelect: false },
+        ],
+      }),
+    )
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('pendingAction 携带越界字段（工具原始 input）拒绝', () => {
+    const payload = actionRequiredPayload(approvalAction({ input: { command: 'rm -rf /' } }))
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('action_resolved 不带 block / pendingAction', () => {
+    const message = decodeServerMessage(
+      JSON.stringify(
+        baseEnvelope({
+          type: 'event',
+          requestId: 'req-1',
+          seq: 8,
+          payload: {
+            event: {
+              seq: 8,
+              kind: 'action_resolved',
+              sessionId: 'session-1',
+              requestId: 'req-1',
+              source: 'mobile',
+              text: '',
+              sessionStatus: '',
+              turnStatus: 'running',
+              error: null,
+            },
+          },
+        }),
+      ),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    expect(message.payload.event.kind).toBe('action_resolved')
+    expect(message.payload.event.pendingAction).toBeUndefined()
+  })
+
+  test('action_resolved 携带 pendingAction 拒绝', () => {
+    const payload = actionRequiredPayload() as { event: Record<string, unknown> }
+    payload.event.kind = 'action_resolved'
+    payload.event.turnStatus = 'running'
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('snapshot 的 pendingAction 非空但 turn 非 waiting 拒绝', () => {
+    const payload = waitingSnapshotPayload()
+    payload.snapshot.turn.status = 'running'
+    expect(() =>
+      decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload }))),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('snapshot 的 pendingAction.requestId 与 turn.requestId 不一致拒绝', () => {
+    const payload = waitingSnapshotPayload(approvalAction({ requestId: 'req-other' }))
+    expect(() =>
+      decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload }))),
+    ).toThrow(/protocol decode error/)
+  })
+})
+
+describe('decodeServerMessage：queuedRequests（B2 §4.3）', () => {
+  test('非空队列可解码且保留来源与预览', () => {
+    const payload = snapshotPayload()
+    payload.snapshot.queueDepth = 2
+    payload.snapshot.queuedRequests = [
+      { requestId: 'req-2', source: 'mobile', preview: '跑一下测试' },
+      { requestId: 'req-3', source: 'terminal', preview: '看一下日志' },
+    ]
+    const message = decodeServerMessage(
+      JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload })),
+    )
+    if (message.type !== 'snapshot') throw new Error('unexpected type')
+    expect(message.payload.snapshot.queuedRequests).toHaveLength(2)
+    expect(message.payload.snapshot.queuedRequests[1].source).toBe('terminal')
+    expect(message.payload.snapshot.queuedRequests[0].preview).toBe('跑一下测试')
+  })
+
+  // Go 侧 Snapshot.QueuedRequests 无 omitempty，空队列在 wire 上是 null。
+  test('queuedRequests 为 null 视为空队列', () => {
+    const payload = snapshotPayload()
+    payload.snapshot.queuedRequests = null
+    const message = decodeServerMessage(
+      JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload })),
+    )
+    if (message.type !== 'snapshot') throw new Error('unexpected type')
+    expect(message.payload.snapshot.queuedRequests).toEqual([])
+  })
+
+  test('queuedRequests 字段缺失拒绝', () => {
+    const payload = snapshotPayload() as { snapshot: Record<string, unknown> }
+    delete payload.snapshot.queuedRequests
+    expect(() =>
+      decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload }))),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('queueDepth 与 queuedRequests 长度不一致拒绝', () => {
+    const payload = snapshotPayload()
+    payload.snapshot.queueDepth = 3
+    payload.snapshot.queuedRequests = [{ requestId: 'req-2', source: 'mobile', preview: 'x' }]
+    expect(() =>
+      decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload }))),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('queuedRequests 元素未知 source 拒绝', () => {
+    const payload = snapshotPayload()
+    payload.snapshot.queueDepth = 1
+    payload.snapshot.queuedRequests = [{ requestId: 'req-2', source: 'watch', preview: 'x' }]
+    expect(() =>
+      decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload }))),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('queuedRequests 元素携带越界字段拒绝', () => {
+    const payload = snapshotPayload()
+    payload.snapshot.queueDepth = 1
+    payload.snapshot.queuedRequests = [
+      { requestId: 'req-2', source: 'mobile', preview: 'x', text: '完整正文' },
+    ]
+    expect(() =>
+      decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload }))),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('queuedRequests 非数组拒绝', () => {
+    const payload = snapshotPayload()
+    payload.snapshot.queuedRequests = { requestId: 'req-2' }
+    expect(() =>
+      decodeServerMessage(JSON.stringify(baseEnvelope({ type: 'snapshot', seq: 7, payload }))),
+    ).toThrow(/protocol decode error/)
+  })
+})
+
+describe('decodeServerMessage：unsupported 独立消息类型（B2 §4.4）', () => {
+  test('四个固定安全 code 均可解码', () => {
+    for (const code of [
+      'unknown_block',
+      'unknown_subtype',
+      'concurrent_action',
+      'text_input_disabled',
+    ]) {
+      const message = decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'unsupported', payload: { code } })),
+      )
+      if (message.type !== 'unsupported') throw new Error('unexpected type')
+      expect(message.payload.code).toBe(code)
+    }
+  })
+
+  test('未知 code 拒绝', () => {
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'unsupported', payload: { code: 'mystery' } })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('空 code 拒绝', () => {
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'unsupported', payload: { code: '' } })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  // unsupported 只允许固定 code，不得透传原始 SDK 数据。
+  test('携带额外字段拒绝', () => {
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(
+          baseEnvelope({
+            type: 'unsupported',
+            payload: { code: 'unknown_block', data: { raw: 'secret' } },
+          }),
+        ),
+      ),
+    ).toThrow(/protocol decode error/)
   })
 })

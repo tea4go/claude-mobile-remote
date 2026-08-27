@@ -75,3 +75,59 @@ describe('SessionStatus：会话错误（B1）', () => {
     expect(container.textContent).not.toContain('原因')
   })
 })
+
+describe('SessionStatus：终态横幅（B2 §6）', () => {
+  test('会话正常结束显示终态横幅', () => {
+    render(
+      <SessionStatus
+        connection="connected"
+        sessionStatus="stopped"
+        sessionError={null}
+        turnStatus="idle"
+        queueDepthHint={0}
+      />,
+    )
+    expect(screen.getByTestId('session-terminal-banner').textContent).toContain('会话已结束')
+  })
+
+  test('会话失败显示终态横幅与安全错误文案', () => {
+    render(
+      <SessionStatus
+        connection="connected"
+        sessionStatus="failed"
+        sessionError={{ code: 'internal', message: '会话已异常结束' }}
+        turnStatus="failed"
+        queueDepthHint={0}
+      />,
+    )
+    const banner = screen.getByTestId('session-terminal-banner')
+    expect(banner.textContent).toContain('会话已失败')
+    expect(screen.getByText(/会话已异常结束/)).toBeInTheDocument()
+  })
+
+  test('运行中不显示终态横幅', () => {
+    render(
+      <SessionStatus
+        connection="connected"
+        sessionStatus="ready"
+        sessionError={null}
+        turnStatus="running"
+        queueDepthHint={0}
+      />,
+    )
+    expect(screen.queryByTestId('session-terminal-banner')).not.toBeInTheDocument()
+  })
+
+  test('等待待处理事项时 Turn 显示等待中', () => {
+    render(
+      <SessionStatus
+        connection="connected"
+        sessionStatus="ready"
+        sessionError={null}
+        turnStatus="waiting"
+        queueDepthHint={0}
+      />,
+    )
+    expect(screen.getByText(/Turn：等待中/)).toBeInTheDocument()
+  })
+})

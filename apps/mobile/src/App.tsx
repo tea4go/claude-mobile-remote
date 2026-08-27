@@ -3,10 +3,10 @@ import { NavBar } from 'antd-mobile'
 import PairingForm from './components/PairingForm'
 import SessionDetail from './components/SessionDetail'
 import SessionList from './components/SessionList'
-import { ProtocolClient, type CloseInfo, type SocketFactory } from './protocol/client'
-import { encodePairingFragment, parsePairingFragment, parsePairingJson, type PairingPayload } from './protocol/pairing'
-import { PROTOCOL_VERSION } from './protocol/types'
+import { ProtocolClient, type ActionResolution, type CloseInfo, type SocketFactory } from './protocol/client'
+import { encodePairingFragment, parsePairingFragment, parsePairingJson, PAIRING_PAYLOAD_VERSION, type PairingPayload } from './protocol/pairing'
 import {
+  actionResolutionSent,
   commandAccepted,
   commandRejected,
   commandSent,
@@ -15,10 +15,13 @@ import {
   connectionFailed,
   createInitialState,
   eventReceived,
+  noticeReceived,
   pairLoaded,
+  queuedCancelSent,
   reducer,
   reset,
   snapshotReceived,
+  turnCancelSent,
 } from './session/reducer'
 import {
   createInitialSessionStore,
@@ -153,6 +156,11 @@ function App({
         case 'connectionStateChanged':
           dispatch(connectionStateChanged(event.connection))
           break
+        // 不支持通知只转成可读提示，连接不受影响；但 seq 必须透传以推进
+        // seqBase（通知在服务端占用一个 seq，B2 §4.4）。
+        case 'unsupported':
+          dispatch(noticeReceived(event.code, event.seq))
+          break
       }
     }
 
@@ -203,6 +211,37 @@ function App({
     dispatch(pairLoaded())
   }, [])
 
+  // 待处理事项决议（B2 §5）：与自由文本共用单在途门控与 commandId 语义。
+  const handleResolveAction = useCallback((resolution: ActionResolution) => {
+    const client = clientRef.current
+    if (client === null) return
+    const commandId = generateCommandId()
+    const result = client.resolveAction(resolution, commandId)
+    if (result.ok) {
+      dispatch(actionResolutionSent({ commandId, actionId: resolution.actionId }))
+    }
+  }, [])
+
+  const handleCancelTurn = useCallback((requestId: string) => {
+    const client = clientRef.current
+    if (client === null) return
+    const commandId = generateCommandId()
+    const result = client.cancelTurn(requestId, commandId)
+    if (result.ok) {
+      dispatch(turnCancelSent({ commandId, requestId }))
+    }
+  }, [])
+
+  const handleCancelQueued = useCallback((requestId: string) => {
+    const client = clientRef.current
+    if (client === null) return
+    const commandId = generateCommandId()
+    const result = client.cancelQueued(requestId, commandId)
+    if (result.ok) {
+      dispatch(queuedCancelSent({ commandId, requestId }))
+    }
+  }, [])
+
   // 返回列表：关闭当前连接并清理详情状态，保留其他内存记录。
   const backToList = useCallback(() => {
     clientRef.current?.close()
@@ -222,8 +261,8 @@ function App({
       const record = store.records.find((r) => r.sessionId === sessionId)
       if (record === undefined) return
       openPairing({
-        // 记录只在校验通过的负载上创建，版本固定为当前协议版本。
-        version: PROTOCOL_VERSION,
+        // 记录只在校验通过的负载上创建，版本固定为配对负载版本。
+        version: PAIRING_PAYLOAD_VERSION,
         wsUrl: record.wsUrl,
         sessionId: record.sessionId,
         pairToken: record.pairToken,
@@ -234,10 +273,23 @@ function App({
   )
 
   const turnStatus = useMemo(() => {
+    // 有待处理事项即等待用户决议，优先于消息流推导（B2 §6）。
+    if (state.pendingAction !== null) return 'waiting'
     const claude = [...state.messages].reverse().find((m) => m.kind === 'claude')
     if (claude === undefined) return 'idle'
     return claude.status === 'streaming' ? 'running' : claude.status
-  }, [state.messages])
+  }, [state.messages, state.pendingAction])
+
+  // 可取消目标：待处理事项所属 Turn 优先，否则取最后一个仍在流式的 Turn。
+  // 服务端不下发独立的可取消标记，只能由本连接已知状态推导（B2 §5）。
+  const cancelTarget = useMemo(() => {
+    if (state.pendingAction !== null) return state.pendingAction.requestId
+    const streaming = [...state.messages]
+      .reverse()
+      .find((m) => m.kind === 'claude' && m.status === 'streaming')
+    if (streaming === undefined || streaming.kind !== 'claude') return null
+    return streaming.requestId
+  }, [state.messages, state.pendingAction])
 
   const currentRecord =
     currentSessionId === null
@@ -252,9 +304,13 @@ function App({
         state={state}
         turnStatus={turnStatus}
         pairingInvalid={pairingInvalid}
+        cancelTarget={cancelTarget}
         onBack={backToList}
         onReconnect={handleReconnect}
         onSend={handleSend}
+        onResolveAction={handleResolveAction}
+        onCancelTurn={handleCancelTurn}
+        onCancelQueued={handleCancelQueued}
       />
     )
   }

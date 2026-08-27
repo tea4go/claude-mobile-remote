@@ -1,7 +1,10 @@
 // 配对负载解析与规范化（D28/D30）。
 // 错误只返回固定类别与安全文案，不拼接原始 JSON、网络消息或 token。
 
-import { PROTOCOL_VERSION } from './types'
+// 配对负载版本与传输层协议版本是两个独立契约：这里对应
+// internal/pairing/payload.go 的 PayloadVersion，不随 internal/transport
+// 的 Version 升级而变。
+export const PAIRING_PAYLOAD_VERSION = 1
 
 export interface PairingPayload {
   version: number
@@ -26,7 +29,7 @@ function validatePayload(value: unknown, now: number): PairingResult {
   if (!isObject(value)) return { ok: false, error: ERROR_INVALID }
 
   const { version, wsUrl, sessionId, pairToken, expiresAt } = value
-  if (version !== PROTOCOL_VERSION) return { ok: false, error: ERROR_INVALID }
+  if (version !== PAIRING_PAYLOAD_VERSION) return { ok: false, error: ERROR_INVALID }
   if (
     typeof wsUrl !== 'string' ||
     typeof sessionId !== 'string' ||

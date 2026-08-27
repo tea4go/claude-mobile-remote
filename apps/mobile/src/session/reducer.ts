@@ -1,6 +1,15 @@
 // 单连接 UI 状态归并（D32/D33/D36）。纯函数，不依赖 React 运行时。
 
-import type { DomainEvent, ErrorInfo, SessionSnapshot } from '../protocol/types'
+import type {
+  CommandKind,
+  ContentBlock,
+  DomainEvent,
+  ErrorInfo,
+  PendingAction,
+  QueuedRequest,
+  SessionSnapshot,
+  UnsupportedCode,
+} from '../protocol/types'
 
 export type ConnectionState =
   | 'connecting'
@@ -20,8 +29,10 @@ export interface ClaudeMessage {
   kind: 'claude'
   requestId: string
   source: 'terminal' | 'mobile'
+  // cancelled 来自 turn_completed + turnStatus=cancelled（B2 §4.3）：
+  // 服务端不为取消单独发事件，只靠 turnStatus 区分。
+  status: 'streaming' | 'done' | 'failed' | 'cancelled'
   text: string
-  status: 'streaming' | 'done' | 'failed'
   error: ErrorInfo | null
 }
 
@@ -36,11 +47,29 @@ export interface InputMessage {
   status: 'accepted' | 'unknown' | null
 }
 
-export type Message = ClaudeMessage | InputMessage
+// 结构化内容块消息（B2 §4.1）：按 content_block 到达顺序追加，与 Claude
+// 文本共用一条消息流，重连后不由 snapshot 补造历史块。
+export interface BlockMessage {
+  kind: 'block'
+  requestId: string
+  block: ContentBlock
+}
 
+export type Message = ClaudeMessage | InputMessage | BlockMessage
+
+// 单在途命令（B2 §5）：所有 kind 共用一个槽位。targetId 按 kind 指向
+// actionId 或 requestId，text 只对 send_text 有意义。
 export interface PendingCommand {
   commandId: string
+  kind: CommandKind
   text: string
+  targetId: string
+}
+
+// 不支持通知（B2 §4.4）：只提示，不影响连接阶段与可发送状态。
+export interface Notice {
+  code: UnsupportedCode
+  message: string
 }
 
 export interface MobileState {
@@ -51,10 +80,14 @@ export interface MobileState {
   sessionError: ErrorInfo | null
   seqBase: number
   queueDepthHint: number
+  queuedRequests: QueuedRequest[]
   messages: Message[]
+  pendingAction: PendingAction | null
   pendingCommand: PendingCommand | null
   lastError: ErrorInfo | null
+  lastNotice: Notice | null
   canSend: boolean
+  canResolveAction: boolean
 }
 
 export function createInitialState(): MobileState {
@@ -66,10 +99,14 @@ export function createInitialState(): MobileState {
     sessionError: null,
     seqBase: 0,
     queueDepthHint: 0,
+    queuedRequests: [],
     messages: [],
+    pendingAction: null,
     pendingCommand: null,
     lastError: null,
+    lastNotice: null,
     canSend: false,
+    canResolveAction: false,
   }
 }
 
@@ -91,8 +128,66 @@ export function connectionStateChanged(connection: ConnectionState) {
   return { type: 'connectionStateChanged', connection } as const
 }
 
-export function commandSent(info: { commandId: string; text: string }) {
-  return { type: 'commandSent', ...info } as const
+// 四个命令构造器共用一个 action 类型：单在途门控与结果归并只区分 kind。
+interface CommandSentAction {
+  type: 'commandSent'
+  commandId: string
+  kind: CommandKind
+  text: string
+  targetId: string
+}
+
+export function commandSent(info: { commandId: string; text: string }): CommandSentAction {
+  return {
+    type: 'commandSent',
+    commandId: info.commandId,
+    kind: 'send_text',
+    text: info.text,
+    targetId: '',
+  }
+}
+
+export function actionResolutionSent(info: {
+  commandId: string
+  actionId: string
+}): CommandSentAction {
+  return {
+    type: 'commandSent',
+    commandId: info.commandId,
+    kind: 'resolve_action',
+    text: '',
+    targetId: info.actionId,
+  }
+}
+
+export function turnCancelSent(info: {
+  commandId: string
+  requestId: string
+}): CommandSentAction {
+  return {
+    type: 'commandSent',
+    commandId: info.commandId,
+    kind: 'cancel_turn',
+    text: '',
+    targetId: info.requestId,
+  }
+}
+
+export function queuedCancelSent(info: {
+  commandId: string
+  requestId: string
+}): CommandSentAction {
+  return {
+    type: 'commandSent',
+    commandId: info.commandId,
+    kind: 'cancel_queued',
+    text: '',
+    targetId: info.requestId,
+  }
+}
+
+export function noticeReceived(code: UnsupportedCode, seq: number) {
+  return { type: 'noticeReceived', code, seq } as const
 }
 
 export function commandAccepted(info: { commandId: string; requestId: string }) {
@@ -120,7 +215,8 @@ export type Action =
   | ReturnType<typeof snapshotReceived>
   | ReturnType<typeof eventReceived>
   | ReturnType<typeof connectionStateChanged>
-  | ReturnType<typeof commandSent>
+  | CommandSentAction
+  | ReturnType<typeof noticeReceived>
   | ReturnType<typeof commandAccepted>
   | ReturnType<typeof commandRejected>
   | ReturnType<typeof commandUnknown>
@@ -129,20 +225,63 @@ export type Action =
 
 // ---- 归并逻辑 ----
 
+// 不支持通知文案（B2 §4.4）：服务端只给类别码，文案在客户端固定。
+const NOTICE_MESSAGES: Record<UnsupportedCode, string> = {
+  unknown_block: '本版本暂不支持展示该内容块，请在电脑端查看',
+  unknown_subtype: '本版本暂不支持该待处理事项，请在电脑端处理',
+  concurrent_action: '该待处理事项已由其他客户端处理',
+  text_input_disabled: '当前需要先完成待处理事项，暂不接收新输入',
+}
+
+// 业务拒绝码文案（internal/transport/protocol.go）：需要引导用户下一步的
+// 类别在客户端统一文案；其余类别直接用服务端描述。
+const REJECTION_MESSAGES: Record<string, string> = {
+  action_not_pending: '该待处理事项已由其他客户端处理',
+  action_timeout: '待处理事项已超时取消，请等待新的请求',
+  invalid_answer: '回答不符合要求，请重新选择后提交',
+  turn_not_cancellable: '当前 Turn 已无法取消',
+  request_not_queued: '该排队输入已不在队列中',
+}
+
 function canSendNow(state: MobileState): boolean {
   return (
     state.phase === 'connected' &&
     (state.sessionStatus === 'ready' || state.sessionStatus === 'starting') &&
+    // 待处理事项未完成时服务端拒收自由文本（B2 §6）。
+    state.pendingAction === null &&
+    state.pendingCommand === null
+  )
+}
+
+function canResolveActionNow(state: MobileState): boolean {
+  return (
+    state.phase === 'connected' &&
+    state.pendingAction !== null &&
     state.pendingCommand === null
   )
 }
 
 function applyCanSend(state: MobileState): MobileState {
-  return { ...state, canSend: canSendNow(state) }
+  return {
+    ...state,
+    canSend: canSendNow(state),
+    canResolveAction: canResolveActionNow(state),
+  }
+}
+
+// 队列只在本地维护（B2 §4.3）：queueDepthHint 始终跟随列表长度。
+function withoutQueued(state: MobileState, requestId: string): MobileState {
+  const queuedRequests = state.queuedRequests.filter((q) => q.requestId !== requestId)
+  if (queuedRequests.length === state.queuedRequests.length) return state
+  return { ...state, queuedRequests, queueDepthHint: queuedRequests.length }
 }
 
 function markPendingUnknown(state: MobileState): MobileState {
   if (state.pendingCommand === null) return state
+  // 只有自由文本有正文需要回显；决议与取消不入消息流。
+  if (state.pendingCommand.kind !== 'send_text') {
+    return { ...state, pendingCommand: null }
+  }
   const unknown: InputMessage = {
     kind: 'input',
     source: 'mobile',
@@ -167,10 +306,15 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     sessionError: snapshot.sessionError,
     seqBase: snapshot.seq,
     queueDepthHint: snapshot.queueDepth,
+    queuedRequests: snapshot.queuedRequests,
     // 重连/刷新以新 snapshot 重新初始化，旧易失消息清空（D32）。
+    // 结构化内容块不在 snapshot 中，不得伪造历史块（B2 §4.1）。
     messages: [],
+    // waiting 的 snapshot 携带待处理事项，重连后仍需禁用文本输入。
+    pendingAction: snapshot.turn.pendingAction,
     pendingCommand: null,
     lastError: null,
+    lastNotice: null,
   }
   // 运行/等待中的 Turn 即使尚无文本也创建占位消息：用户可能在 AI 回复
   // 前配对，订阅后的 text_delta 需要归并目标（A5.1 验收回归）。
@@ -261,51 +405,92 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
     case 'session_failed':
       next.sessionStatus = event.sessionStatus as MobileState['sessionStatus']
       next.sessionError = event.error
+      // Session 终止后待处理事项与队列都不再可操作。
+      next.pendingAction = null
+      next.queuedRequests = []
+      next.queueDepthHint = 0
       break
     case 'session_stopped':
       next.sessionStatus = event.sessionStatus as MobileState['sessionStatus']
+      next.pendingAction = null
+      next.queuedRequests = []
+      next.queueDepthHint = 0
       break
     case 'turn_started': {
       const merged = mergeTurnStarted(next, event)
       if (merged === null) {
         return { ...markPendingUnknown(next), phase: 'protocolError', canSend: false }
       }
-      next = merged
+      // 排队项转为运行中 Turn 后移出列表。
+      next = withoutQueued(merged, event.requestId)
       break
     }
     case 'text_delta': {
-      const index = next.messages.findIndex(
-        (m) => m.kind === 'claude' && m.requestId === event.requestId,
-      )
-      if (index >= 0) {
-        const target = next.messages[index] as ClaudeMessage
+      // 文本必须和结构化 block 共用一条有序流。若上一个条目仍是同一
+      // Turn 的 Claude 文本，则继续合并流式增量；若中间已经出现 tool/
+      // thinking，则新建文本片段，避免把后续文本搬到所有工具之后。
+      let lastIndex = -1
+      for (let i = next.messages.length - 1; i >= 0; i -= 1) {
+        if (next.messages[i]?.kind === 'claude' && next.messages[i]?.requestId === event.requestId) {
+          lastIndex = i
+          break
+        }
+        if (next.messages[i]?.requestId === event.requestId) break
+      }
+      const last = lastIndex >= 0 ? next.messages[lastIndex] : undefined
+      if (last !== undefined && last.kind === 'claude' && lastIndex === next.messages.length - 1) {
         next.messages = [
-          ...next.messages.slice(0, index),
-          { ...target, text: target.text + event.text },
-          ...next.messages.slice(index + 1),
+          ...next.messages.slice(0, lastIndex),
+          { ...last, text: last.text + event.text },
+          ...next.messages.slice(lastIndex + 1),
+        ]
+      } else if (last !== undefined || next.messages.some((m) => m.kind === 'claude' && m.requestId === event.requestId)) {
+        next.messages = [
+          ...next.messages,
+          {
+            kind: 'claude',
+            requestId: event.requestId,
+            source: event.source as ClaudeMessage['source'],
+            text: event.text,
+            status: 'streaming',
+            error: null,
+          },
         ]
       }
       break
     }
     case 'turn_completed':
     case 'turn_failed': {
-      const index = next.messages.findIndex(
-        (m) => m.kind === 'claude' && m.requestId === event.requestId,
+      const status: ClaudeMessage['status'] =
+        event.kind === 'turn_failed'
+          ? 'failed'
+          : event.turnStatus === 'cancelled'
+            ? 'cancelled'
+            : 'done'
+      next.messages = next.messages.map((message) =>
+        message.kind === 'claude' && message.requestId === event.requestId
+          ? { ...message, status, error: event.error }
+          : message,
       )
-      if (index >= 0) {
-        const target = next.messages[index] as ClaudeMessage
+      // Turn 结束则待处理事项已无意义（服务端不保证补发 action_resolved）。
+      next.pendingAction = null
+      break
+    }
+    case 'content_block':
+      // decoder 已保证 content_block 必携 block；此处只做类型收窄。
+      if (event.block !== undefined) {
         next.messages = [
-          ...next.messages.slice(0, index),
-          {
-            ...target,
-            status: event.kind === 'turn_completed' ? 'done' : 'failed',
-            error: event.error,
-          },
-          ...next.messages.slice(index + 1),
+          ...next.messages,
+          { kind: 'block', requestId: event.requestId, block: event.block },
         ]
       }
       break
-    }
+    case 'action_required':
+      next.pendingAction = event.pendingAction ?? null
+      break
+    case 'action_resolved':
+      next.pendingAction = null
+      break
   }
   return applyCanSend(next)
 }
@@ -318,8 +503,12 @@ export function reducer(state: MobileState, action: Action): MobileState {
         phase: 'connecting',
         connection: 'connecting',
         messages: [],
+        pendingAction: null,
+        queuedRequests: [],
+        queueDepthHint: 0,
         pendingCommand: null,
         lastError: null,
+        lastNotice: null,
       })
     case 'snapshotReceived':
       return applySnapshot(state, action.snapshot)
@@ -330,40 +519,85 @@ export function reducer(state: MobileState, action: Action): MobileState {
     case 'commandSent':
       return applyCanSend({
         ...state,
-        pendingCommand: { commandId: action.commandId, text: action.text },
+        pendingCommand: {
+          commandId: action.commandId,
+          kind: action.kind,
+          text: action.text,
+          targetId: action.targetId,
+        },
       })
+    case 'noticeReceived':
+      // 不支持通知也经服务端 publish 递增并占用一个 seq（controller.publish +
+      // connection.outboundEvent 以 event.Seq 下行）：必须像普通事件一样做连续
+      // 性校验并推进 seqBase，否则其后事件会在 applyEvent 处被误判为缺口而
+      // 断连（真实 Claude 复测缺陷）。通知不改变连接阶段与可发送状态。
+      if (action.seq !== state.seqBase + 1) {
+        return { ...markPendingUnknown(state), phase: 'protocolError', canSend: false }
+      }
+      return {
+        ...state,
+        seqBase: action.seq,
+        lastNotice: { code: action.code, message: NOTICE_MESSAGES[action.code] },
+      }
     case 'commandAccepted': {
-      if (
-        state.pendingCommand === null ||
-        state.pendingCommand.commandId !== action.commandId
-      ) {
+      const pending = state.pendingCommand
+      if (pending === null || pending.commandId !== action.commandId) {
         return state
       }
-      const accepted: InputMessage = {
-        kind: 'input',
-        source: 'mobile',
-        requestId: action.requestId,
-        text: state.pendingCommand.text,
-        status: 'accepted',
+      const next: MobileState = { ...state, pendingCommand: null }
+      switch (pending.kind) {
+        case 'send_text': {
+          const accepted: InputMessage = {
+            kind: 'input',
+            source: 'mobile',
+            requestId: action.requestId,
+            text: pending.text,
+            status: 'accepted',
+          }
+          next.messages = [...state.messages, accepted]
+          break
+        }
+        case 'resolve_action':
+          // 决议被接受即事项已处理，不等 action_resolved 就解除等待。
+          next.pendingAction = null
+          break
+        case 'cancel_queued':
+          // 取消排队不发领域事件，只能按 command_result 本地移除。
+          return applyCanSend(withoutQueued(next, pending.targetId))
+        case 'cancel_turn':
+          // 取消 Turn 的可见变化由 turn_completed(cancelled) 带来。
+          break
       }
-      return applyCanSend({
-        ...state,
-        pendingCommand: null,
-        messages: [...state.messages, accepted],
-      })
+      return applyCanSend(next)
     }
     case 'commandRejected': {
-      if (
-        state.pendingCommand === null ||
-        state.pendingCommand.commandId !== action.commandId
-      ) {
+      const pending = state.pendingCommand
+      if (pending === null || pending.commandId !== action.commandId) {
         return state
       }
-      return applyCanSend({
+      const next: MobileState = {
         ...state,
         pendingCommand: null,
-        lastError: { code: action.code, message: action.message },
-      })
+        lastError: {
+          code: action.code,
+          message:
+            REJECTION_MESSAGES[action.code] ??
+            (action.message !== '' ? action.message : '操作被拒绝'),
+        },
+      }
+      switch (action.code) {
+        // 事项已不在待处理（双客户端竞态或超时）：清除本地待处理事项。
+        case 'action_not_pending':
+        case 'action_timeout':
+          next.pendingAction = null
+          break
+        // 回答无效：事项仍待处理，保留供用户重填。
+        case 'invalid_answer':
+          break
+        case 'request_not_queued':
+          return applyCanSend(withoutQueued(next, pending.targetId))
+      }
+      return applyCanSend(next)
     }
     case 'commandUnknown':
       if (

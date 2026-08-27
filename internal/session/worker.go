@@ -6,10 +6,14 @@ import (
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
 )
 
-// Host is the narrow Claude lifecycle owned exclusively by hostWorker.
+// Host is the narrow Claude lifecycle owned exclusively by hostWorker, plus the
+// two capabilities the Controller must reach outside the serialized run loop:
+// the pending action side channel and Interrupt (B2 design §3.4).
 type Host interface {
 	Connect(context.Context) error
 	RunTurn(context.Context, string, func(projectclaude.Event)) error
+	Actions() <-chan *projectclaude.ActionRequest
+	Interrupt(context.Context) error
 	Close() error
 }
 
@@ -55,6 +59,19 @@ func newHostWorker(host Host) *hostWorker {
 
 func (w *hostWorker) start(ctx context.Context) {
 	go w.run(ctx)
+}
+
+// actions exposes the Host side channel unchanged. Pending actions must bypass
+// the run loop: the permission callback runs on the SDK read goroutine, so
+// routing it through requests/events would deadlock against the Controller.
+func (w *hostWorker) actions() <-chan *projectclaude.ActionRequest {
+	return w.host.Actions()
+}
+
+// interrupt reaches the Host directly. It is only safe without a pending
+// action, because the SDK control response travels on the blocked read loop.
+func (w *hostWorker) interrupt(ctx context.Context) error {
+	return w.host.Interrupt(ctx)
 }
 
 func (w *hostWorker) run(ctx context.Context) {

@@ -172,7 +172,7 @@ flowchart TD
 
 | 里程碑 | 子阶段 |
 | --- | --- |
-| B 完整会话控制 | B1 消息渲染与已配对 Session 列表；B2 审批、AskUserQuestion 与取消；B3 单 Session Remote Server 组件化 |
+| B 完整会话控制 | B1 消息渲染与已配对 Session 列表；B2 结构化 Thinking/Tool 展示、工具审批、AskUserQuestion 与取消；B3 单 Session Remote Server 组件化 |
 | C iOS / Android | C1 Capacitor 工程、Web 接入与局域网明文放行；C2 扫码、安全存储、多配对列表、两端真机、VPN 与生命周期；C3 语音和通知 |
 | W WhaleTerm | W1 为 WhaleTerm 已持有的单个 Claude Session 启动进程内 Remote Server |
 | D HarmonyOS NEXT | D1 工程与协议；D2 功能迁移；D3 真机、推送与发布验证 |
