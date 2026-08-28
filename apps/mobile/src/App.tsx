@@ -3,6 +3,7 @@ import { NavBar } from 'antd-mobile'
 import PairingForm from './components/PairingForm'
 import SessionDetail from './components/SessionDetail'
 import SessionList from './components/SessionList'
+import { PAGE_BACKGROUND } from './components/ui'
 import { ProtocolClient, type ActionResolution, type CloseInfo, type SocketFactory } from './protocol/client'
 import { encodePairingFragment, parsePairingFragment, parsePairingJson, PAIRING_PAYLOAD_VERSION, type PairingPayload } from './protocol/pairing'
 import {
@@ -318,7 +319,7 @@ function App({
   // 配对页：列表为空时直接进入，否则由“新增配对”打开。
   if (adding || sessions.length === 0) {
     return (
-      <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
+      <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
         <NavBar
           back={sessions.length === 0 ? null : '返回'}
           onBack={() => {
@@ -335,7 +336,7 @@ function App({
 
   // 列表页
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
+    <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
       <NavBar back={null}>Claude Mobile Remote</NavBar>
       <SessionList
         sessions={sessions}

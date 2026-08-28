@@ -552,10 +552,10 @@ describe('App：B2 结构化内容块', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('工具调用（1）')).toBeInTheDocument()
+      expect(screen.getByText('查看 1 个步骤，运行 1 个工具')).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByText('工具调用（1）'))
-    expect(screen.getByText(/工具：Bash/)).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('activity-group-summary'))
+    expect(screen.getByText('工具：Bash')).toBeInTheDocument()
     expect(screen.queryByText('只读占位')).not.toBeInTheDocument()
   })
 })

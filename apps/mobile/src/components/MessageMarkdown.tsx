@@ -14,6 +14,9 @@ const codeBlockStyle: React.CSSProperties = {
   margin: '8px 0',
   padding: '8px 10px',
   background: '#f6f8fa',
+  // 与表格同理：正文区无气泡背景，偏白底色下光靠底色差很容易看不出
+  // 代码块边界，因此补一条网格线。
+  border: '1px solid #e3e6ec',
   borderRadius: 6,
   overflowX: 'auto',
   whiteSpace: 'pre',
@@ -27,6 +30,25 @@ const inlineCodeStyle: React.CSSProperties = {
   borderRadius: 4,
   fontSize: 12,
   wordBreak: 'break-all',
+}
+
+// 表格必须自己提供白底：正文区没有气泡背景，单元格透明时页面底色会
+// 直接透上来，表格就和背景糊成一片。白底 + 网格线 + 轻阴影让它成为
+// 一张浮在底色上的卡片。外层不画边框，避免与最外圈单元格边框叠成双线。
+const TABLE_LINE = '#e3e6ec'
+
+const tableWrapStyle: React.CSSProperties = {
+  overflowX: 'auto',
+  margin: '6px 0',
+  background: '#fff',
+  borderRadius: 8,
+  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.05)',
+}
+
+const tableCellStyle: React.CSSProperties = {
+  border: `1px solid ${TABLE_LINE}`,
+  padding: '5px 8px',
+  whiteSpace: 'nowrap',
 }
 
 const components: Components = {
@@ -47,18 +69,16 @@ const components: Components = {
       <code className={className}>{children}</code>
     ),
   table: ({ children }) => (
-    <div style={{ overflowX: 'auto', margin: '4px 0' }}>
-      <table style={{ borderCollapse: 'collapse', fontSize: 12 }}>{children}</table>
+    <div style={tableWrapStyle}>
+      <table style={{ borderCollapse: 'collapse', fontSize: 12, background: '#fff' }}>
+        {children}
+      </table>
     </div>
   ),
   th: ({ children }) => (
-    <th style={{ border: '1px solid #ddd', padding: '4px 8px', background: '#fafafa', whiteSpace: 'nowrap' }}>
-      {children}
-    </th>
+    <th style={{ ...tableCellStyle, background: '#f5f7fa', color: '#1f2937' }}>{children}</th>
   ),
-  td: ({ children }) => (
-    <td style={{ border: '1px solid #ddd', padding: '4px 8px', whiteSpace: 'nowrap' }}>{children}</td>
-  ),
+  td: ({ children }) => <td style={tableCellStyle}>{children}</td>,
   // 列表属于正文，保持随宽度自然折行；只有表格和代码块走横向滚动。
   ul: ({ children }) => <ul style={{ margin: '4px 0', paddingLeft: 20 }}>{children}</ul>,
   ol: ({ children }) => <ol style={{ margin: '4px 0', paddingLeft: 20 }}>{children}</ol>,

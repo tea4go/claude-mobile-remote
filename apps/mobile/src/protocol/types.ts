@@ -99,6 +99,15 @@ export type PendingAction =
       questions: Question[]
     }
 
+// action_resolved 回带的已校验答案（D52）：服务端把交给 SDK 的同一份答案原样回
+// 显，任何端都能看到答了什么（包括别的端答的）。它不是工具结果，也不进快照。
+export interface ResolvedAnswer {
+  questionId: string
+  header: string
+  question: string
+  values: string[]
+}
+
 // ---- 排队输入（B2 §4.3）----
 
 export interface QueuedRequest {
@@ -193,9 +202,11 @@ export interface DomainEvent {
   sessionStatus: SessionStatus | ''
   turnStatus: TurnStatus | ''
   error: ErrorInfo | null
-  // 只有 content_block 携带 block，只有 action_required 携带 pendingAction。
+  // 只有 content_block 携带 block，只有 action_required 携带 pendingAction，
+  // 只有 action_resolved 携带 answers。
   block?: ContentBlock
   pendingAction?: PendingAction
+  answers?: ResolvedAnswer[]
 }
 
 // 传输层 envelope。payload 在解码时按 type 严格校验，这里是未验证的原始值。

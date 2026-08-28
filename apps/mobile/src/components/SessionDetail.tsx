@@ -4,6 +4,7 @@ import MessageFeed from './MessageFeed'
 import PendingActionCard from './PendingActionCard'
 import QueuedRequestList from './QueuedRequestList'
 import SessionStatus from './SessionStatus'
+import { COMPACT_BUTTON_STYLE, GLASS_SURFACE_STYLE, SESSION_BACKGROUND } from './ui'
 import type { ActionResolution } from '../protocol/client'
 import type { MobileState } from '../session/reducer'
 import type { SessionRecord } from '../session/store'
@@ -48,11 +49,20 @@ export default function SessionDetail({
 
   return (
     <div
-      style={{ minHeight: '100vh', background: '#f5f5f5', display: 'flex', flexDirection: 'column' }}
+      style={{
+        minHeight: '100vh',
+        background: SESSION_BACKGROUND,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
     >
-      <NavBar back="返回" onBack={onBack}>
-        {record.name}
-      </NavBar>
+      {/* 页面整体不滚动（滚动发生在消息流内部），导航栏无需 sticky；
+          sticky 叠 backdropFilter 会多出一层合成层，得不到好处。 */}
+      <div style={GLASS_SURFACE_STYLE}>
+        <NavBar back="返回" onBack={onBack}>
+          {record.name}
+        </NavBar>
+      </div>
       <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <SessionStatus
           connection={pairingInvalid ? 'disconnected' : state.connection}
@@ -81,6 +91,7 @@ export default function SessionDetail({
               size="mini"
               fill="outline"
               color="danger"
+              style={COMPACT_BUTTON_STYLE}
               disabled={!commandReady}
               onClick={() => onCancelTurn(cancelTarget)}
             >
@@ -98,7 +109,12 @@ export default function SessionDetail({
           <div style={{ color: '#e00' }}>{state.lastError.message}</div>
         )}
         {showReconnect && (
-          <Button color="primary" size="small" onClick={onReconnect}>
+          <Button
+            color="primary"
+            size="small"
+            style={{ ...COMPACT_BUTTON_STYLE, alignSelf: 'flex-start' }}
+            onClick={onReconnect}
+          >
             重新连接
           </Button>
         )}
@@ -106,13 +122,24 @@ export default function SessionDetail({
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', padding: '0 16px' }}>
         <MessageFeed messages={state.messages} />
       </div>
-      <div style={{ padding: '8px 16px', borderTop: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {/* 待处理事项卡片固定在输入区上方（B2 §6），不随消息流滚走。 */}
+      <div
+        style={{
+          ...GLASS_SURFACE_STYLE,
+          padding: '8px 16px',
+          borderTop: '1px solid rgba(15, 23, 42, 0.06)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}
+      >
+        {/* 待处理事项以底部抽屉强呈现（D53）：事项出现即弹出，显式关闭即取消当前 Turn。 */}
         {state.pendingAction !== null && (
           <PendingActionCard
             action={state.pendingAction}
             enabled={state.canResolveAction}
+            cancelEnabled={commandReady}
             onResolve={onResolveAction}
+            onCancel={onCancelTurn}
           />
         )}
         <MessageComposer enabled={state.canSend} onSend={onSend} />

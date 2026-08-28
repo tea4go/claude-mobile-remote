@@ -63,4 +63,7 @@ type Event struct {
 	Block         *ContentBlock   `json:"block,omitempty"`
 	PendingAction *PendingAction  `json:"pendingAction,omitempty"`
 	Code          UnsupportedCode `json:"code,omitempty"`
+	// Answers only ever accompanies EventActionResolved for an answered
+	// AskUserQuestion (D52); permission decisions leave it empty.
+	Answers []ResolvedAnswer `json:"answers,omitempty"`
 }

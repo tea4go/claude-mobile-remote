@@ -733,8 +733,29 @@ func (c *Controller) handleResolveAction(state *actorState, command resolveActio
 		RequestID:  pending.RequestID,
 		Source:     state.current.Input.Source,
 		TurnStatus: TurnRunning,
+		Answers:    resolvedAnswers(pending, decision.Answers),
 	})
 	command.response <- nil
+}
+
+// resolvedAnswers pairs each question with the values just accepted, so
+// action_resolved can echo the answer back to every client (D52). The values are
+// the ones on their way to the SDK, never any part of a tool result; permission
+// decisions carry no answers.
+func resolvedAnswers(pending *PendingAction, ordered [][]string) []ResolvedAnswer {
+	if pending.Kind != ActionAskUserQuestion || len(ordered) != len(pending.Questions) {
+		return nil
+	}
+	answers := make([]ResolvedAnswer, len(pending.Questions))
+	for index, question := range pending.Questions {
+		answers[index] = ResolvedAnswer{
+			QuestionID: question.QuestionID,
+			Header:     question.Header,
+			Question:   question.Question,
+			Values:     append([]string(nil), ordered[index]...),
+		}
+	}
+	return answers
 }
 
 // buildActionDecision enforces the shape contract between the action kind and
@@ -1248,6 +1269,7 @@ func (c *Controller) publish(state *actorState, event Event) {
 		published := event
 		published.Error = cloneErrorInfo(event.Error)
 		published.PendingAction = clonePendingAction(event.PendingAction)
+		published.Answers = cloneResolvedAnswers(event.Answers)
 		if event.Block != nil {
 			block := *event.Block
 			published.Block = &block
@@ -1317,6 +1339,20 @@ func clonePendingAction(action *PendingAction) *PendingAction {
 		}
 	}
 	return &cloned
+}
+
+// cloneResolvedAnswers keeps each subscriber's copy independent, matching how the
+// other event payloads are cloned before delivery.
+func cloneResolvedAnswers(answers []ResolvedAnswer) []ResolvedAnswer {
+	if answers == nil {
+		return nil
+	}
+	cloned := make([]ResolvedAnswer, len(answers))
+	for index, answer := range answers {
+		cloned[index] = answer
+		cloned[index].Values = append([]string(nil), answer.Values...)
+	}
+	return cloned
 }
 
 func cloneErrorInfo(errorInfo *ErrorInfo) *ErrorInfo {

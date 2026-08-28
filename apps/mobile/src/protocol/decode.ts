@@ -13,6 +13,7 @@ import type {
   QuestionInputType,
   QuestionOption,
   QueuedRequest,
+  ResolvedAnswer,
   ServerMessage,
   SessionSnapshot,
   SessionStatus,
@@ -354,6 +355,44 @@ function decodeOptionalPendingAction(
 
 const QUEUED_REQUEST_KEYS: ReadonlySet<string> = new Set(['requestId', 'source', 'preview'])
 
+const RESOLVED_ANSWER_KEYS: ReadonlySet<string> = new Set([
+  'questionId',
+  'header',
+  'question',
+  'values',
+])
+
+// action_resolved 回带的已校验答案（D52）：服务端只在回答型事项上携带它，
+// 权限决议不带。每项必须能定位到具体问题并带至少一个非空白取值。
+function decodeResolvedAnswers(value: unknown): ResolvedAnswer[] {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value)) fail('answers must be an array')
+  const answers: ResolvedAnswer[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    if (!isObject(item)) fail('answer must be an object')
+    rejectUnknownKeys(item, RESOLVED_ANSWER_KEYS, 'resolved answer')
+    const questionId = requireNonEmptyString(item, 'questionId')
+    if (seen.has(questionId)) fail('duplicate answered questionId')
+    seen.add(questionId)
+    const rawValues = item.values
+    if (!Array.isArray(rawValues) || rawValues.length === 0) {
+      fail('answer values must be a non-empty array')
+    }
+    const values = rawValues.map((entry) => {
+      if (typeof entry !== 'string' || entry.trim() === '') fail('blank answer value')
+      return entry
+    })
+    answers.push({
+      questionId,
+      header: optionalString(item, 'header'),
+      question: requireNonEmptyString(item, 'question'),
+      values,
+    })
+  }
+  return answers
+}
+
 // 排队输入（B2 §4.3）：Go 侧 QueuedRequests 无 omitempty，空队列在线上是 null，
 // 但字段本身必须存在，缺失说明对端不是 B2 服务端。
 function decodeQueuedRequests(container: Record<string, unknown>): QueuedRequest[] {
@@ -446,6 +485,11 @@ function decodeEventPayload(value: unknown): EventPayload {
   } else if (rawAction !== undefined && rawAction !== null) {
     fail('unexpected event pendingAction')
   }
+  // 答案只属于 action_resolved（D52）。
+  const rawAnswers = event.answers
+  if (kind !== 'action_resolved' && rawAnswers !== undefined && rawAnswers !== null) {
+    fail('unexpected event answers')
+  }
 
   // kind 必须非空且合法；其余枚举按 kind 语义可为空（服务端零值序列化）。
   const domainEvent: DomainEvent = {
@@ -464,6 +508,10 @@ function decodeEventPayload(value: unknown): EventPayload {
   }
   if (kind === 'action_required') {
     domainEvent.pendingAction = decodePendingAction(rawAction, requestId)
+  }
+  if (kind === 'action_resolved') {
+    const answers = decodeResolvedAnswers(rawAnswers)
+    if (answers.length > 0) domainEvent.answers = answers
   }
   validateEventSemantics(domainEvent)
   return { event: domainEvent }
