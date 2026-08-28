@@ -1337,7 +1337,7 @@ func TestControllerSubscribeSnapshotHasNoGap(t *testing.T) {
 		eventA := receiveDomainEvent(t, eventsA)
 		eventB := receiveDomainEvent(t, eventsB)
 		wantSeq := snapshotB.Seq + uint64(index+1)
-		if eventA != eventB {
+		if !reflect.DeepEqual(eventA, eventB) {
 			t.Fatalf("post-boundary event %d differs: A %#v B %#v", index+1, eventA, eventB)
 		}
 		if eventA.Kind != wantKind || eventA.Seq != wantSeq || eventA.Seq <= snapshotB.Seq {
@@ -2321,6 +2321,9 @@ func TestControllerResolveActionAllowOnce(t *testing.T) {
 	if resolved.PendingAction != nil {
 		t.Fatalf("action_resolved must not carry a pending action: %#v", resolved.PendingAction)
 	}
+	if len(resolved.Answers) != 0 {
+		t.Fatalf("a permission decision must not echo answers: %#v", resolved.Answers)
+	}
 
 	snapshot := snapshotController(t, session.controller)
 	if snapshot.Turn.Status != TurnRunning || snapshot.Turn.PendingAction != nil {
@@ -2388,6 +2391,20 @@ func TestControllerResolveActionAnswersQuestions(t *testing.T) {
 	wantAnswers := [][]string{{"React"}, {"iOS", "Android"}}
 	if !reflect.DeepEqual(decision.Answers, wantAnswers) {
 		t.Fatalf("decision.Answers = %#v, want %#v in question order", decision.Answers, wantAnswers)
+	}
+
+	// action_resolved echoes the accepted answers so any client can show what was
+	// answered, in question order and paired with the question text (D52).
+	resolved := receiveDomainEvent(t, session.events)
+	if resolved.Kind != EventActionResolved {
+		t.Fatalf("event = %#v, want action_resolved", resolved)
+	}
+	wantEcho := []ResolvedAnswer{
+		{QuestionID: pending.Questions[0].QuestionID, Header: "Framework", Question: "Which framework?", Values: []string{"React"}},
+		{QuestionID: pending.Questions[1].QuestionID, Header: "Targets", Question: "Which targets?", Values: []string{"iOS", "Android"}},
+	}
+	if !reflect.DeepEqual(resolved.Answers, wantEcho) {
+		t.Fatalf("action_resolved Answers = %#v, want %#v", resolved.Answers, wantEcho)
 	}
 }
 

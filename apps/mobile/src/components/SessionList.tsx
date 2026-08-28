@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Card, Input, Tag } from 'antd-mobile'
 import type { SessionLocalStatus, SessionRecord } from '../session/store'
+import { BLOCK_BUTTON_STYLE, COMPACT_BUTTON_STYLE } from './ui'
 
 interface SessionListProps {
   sessions: SessionRecord[]
@@ -67,6 +68,7 @@ export default function SessionList({
                   <Button
                     size="mini"
                     color="primary"
+                    style={COMPACT_BUTTON_STYLE}
                     onClick={() => {
                       onRename(session.sessionId, draftName)
                       setRenamingId(null)
@@ -74,7 +76,7 @@ export default function SessionList({
                   >
                     保存
                   </Button>
-                  <Button size="mini" onClick={() => setRenamingId(null)}>
+                  <Button size="mini" style={COMPACT_BUTTON_STYLE} onClick={() => setRenamingId(null)}>
                     取消
                   </Button>
                 </div>
@@ -93,11 +95,17 @@ export default function SessionList({
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <Button size="small" color="primary" onClick={() => onOpen(session.sessionId)}>
+                <Button
+                  size="small"
+                  color="primary"
+                  style={COMPACT_BUTTON_STYLE}
+                  onClick={() => onOpen(session.sessionId)}
+                >
                   进入
                 </Button>
                 <Button
                   size="small"
+                  style={COMPACT_BUTTON_STYLE}
                   onClick={() => {
                     setRenamingId(session.sessionId)
                     setDraftName(session.name)
@@ -105,7 +113,12 @@ export default function SessionList({
                 >
                   重命名
                 </Button>
-                <Button size="small" color="danger" onClick={() => onRemove(session.sessionId)}>
+                <Button
+                  size="small"
+                  color="danger"
+                  style={COMPACT_BUTTON_STYLE}
+                  onClick={() => onRemove(session.sessionId)}
+                >
                   删除
                 </Button>
               </div>
@@ -113,7 +126,7 @@ export default function SessionList({
           </Card>
         ))
       )}
-      <Button color="primary" fill="outline" onClick={onAdd}>
+      <Button color="primary" fill="outline" style={BLOCK_BUTTON_STYLE} onClick={onAdd}>
         新增配对
       </Button>
     </div>

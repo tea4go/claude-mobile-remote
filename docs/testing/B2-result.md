@@ -53,8 +53,28 @@
 
 ## 4. B2 未在本阶段验证的项（明确不宣称）
 
-- **人工浏览器验收（Step 2）待做**：新增的结构化内容块、审批卡片、问答表单、取消按钮、排队列表与终态横幅只经 jsdom 验证，尚未在真实浏览器里比对参考图布局与手势；
+> §4 写于 Task 8 时点；其中「人工浏览器验收」一条已由 §5 闭环，其余仍成立。
+
+- **人工浏览器验收（Step 2）待做**：新增的结构化内容块、审批卡片、问答表单、取消按钮、排队列表与终态横幅只经 jsdom 验证，尚未在真实浏览器里比对参考图布局与手势（→ 已于 2026-08-28 闭环，见 §5）；
 - **真实 Claude 端到端（Step 3）待做**：工具审批放行/拒绝后 Turn 继续、一次真实工具调用尚未用真实 CLI 端到端验证（`AskUserQuestion` 自由文本已单独实证，见 §1）；
 - **系统推送、原生能力与真机**：后台推送、推送 Token、Capacitor、扫码、安全存储、VPN 真机、HarmonyOS 真机均不属 B2，未验证；
 - **完整历史与公网 Relay**：手机不重建完整上下文，公网 Relay 未实现，不属 B2；
 - **边界场景**：`action_timeout` 超时分支未在真实 10 分钟窗口下验证；多问题混合（部分 `choice` 部分 `text`）与自由文本长度上限未实证；双客户端真实竞态只有单元/集成测试覆盖，未做人工双端对打。
+
+## 5. B2 子阶段门禁 · 验收通过（2026-08-28）
+
+- **用户结论**：用户反馈「B2 验证已通过」，B2 子阶段验收闭环。验收对象为 B2 功能实现 + 三批移动端交互与视觉打磨。
+- **验收覆盖的三批打磨**：
+  1. **第一批·会话详情阅读体验**：Claude 回复满宽无气泡背景；结构化折叠面板改「摘要行 → 底部抽屉」，展开不再挤占正文；抽屉内二级详情只做标题/输入/状态三块（**不做输出区**，协议不下发工具输出，不得编造）；整体玻璃质感。
+  2. **第二批·交互控制**：审批与提问改底部抽屉（D53，仅标题栏 ✕ 可关闭，关闭即复用 `cancel_turn`，被拒则抽屉自动重开）；状态并入抽屉标题；`action_resolved` 携带 `answers` 实现答案回显（D52，不涉及工具结果正文，不进 snapshot，重连不重放）。
+  3. **第三批·视觉打磨**：表格改白底卡片与页面底色分离；抽屉遮罩淡化 + 玻璃靠 `brightness` 提亮（根因是 `backdropFilter` 会把身后遮罩一起采样成灰面）。
+- **提交前完整自动门禁（全绿）**：
+  - **Go 侧**：`gofmt -l .` 无输出；`GOFLAGS=-buildvcs=false go vet ./...` 无输出；`GOFLAGS=-buildvcs=false go test -count=1 ./...` → 8 个包全部 ok（非缓存执行）。
+  - **前端**（`apps/mobile`）：`npm run test` → 16 files / **400 tests** 全绿（较 Task 8 的 371 增加 29 例：ActivityGroup 17、MessageFeed 4、PendingActionCard 抽屉 5、decode 答案 8、reducer 2 等，含删除 `StructuredBlock` 用例后的净变化）；`npm run lint` **0 error**（1 个既有 warning 在 `scripts/cdp-console.mjs`，非本阶段引入）；`npm run build` 通过（`dist/assets/index-*.js` 490.71 kB / gzip 155.25 kB）。
+  - **敏感信息与产物**：`git diff --check` 无空白错误；`go.mod`/`go.sum`/`apps/mobile/dist` 均未入库；凭证特征扫描（`sk-ant`/长 `pairToken` 赋值/`eyJ`/私钥头）仅命中 §2 描述扫描动作的文字与 `internal/claude/fakehost_test.go` 的守卫用例，无真实凭证。
+- **本项的验收边界（不宣称超过的部分）**：
+  - 视觉观感由**用户人工确认**，仓库内**没有截图证据**。AI 侧浏览器子代理环境不可用（viewport 20px、`visibilityState=hidden`、截图固定报 `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE`），第三批一度由子代理注入伪 DOM 得出的「通过」结论已作废，不得表述为「AI 已视觉验证」；
+  - 第一、二批的交互链路有浏览器实测证据（`--fake-host interactive` 桩，走完「发送 → 工具审批 → 提问作答 → Turn 完成」），但结论基于 DOM 与计算样式断言，同样无截图；
+  - **真实 Claude 端到端仍未验**（工具审批放行/拒绝后 Turn 继续），因额度受限后置，不阻塞 B2 收口；
+  - 用户提供的界面参考图 `docs/specs/images/qoder/*.png` **未入库**：画面内含真实 Claude 会话正文与本机绝对路径，与 AGENTS.md「不提交会话内容」冲突，仅作本地参考；
+  - §4 其余未验证项（`action_timeout` 真实 10 分钟窗口、混合问题类型、双客户端真实竞态、真机与推送）保持不变。

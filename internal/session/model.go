@@ -133,6 +133,18 @@ type PendingAction struct {
 	Questions             []Question `json:"questions,omitempty"`
 }
 
+// ResolvedAnswer is one answered question exactly as the server accepted it, so
+// any client can show what was answered even if another client answered it
+// (D52). Values are the same strings the server hands to the SDK; no part of the
+// tool result is involved. Answers ride on action_resolved only and never enter
+// the snapshot.
+type ResolvedAnswer struct {
+	QuestionID string   `json:"questionId"`
+	Header     string   `json:"header,omitempty"`
+	Question   string   `json:"question"`
+	Values     []string `json:"values"`
+}
+
 // QueuedRequest exposes one not-yet-started FIFO entry so any client can name a
 // cancellation target, including inputs submitted from the PC or another phone.
 type QueuedRequest struct {

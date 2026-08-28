@@ -103,6 +103,28 @@ describe('MessageFeed', () => {
     expect(screen.queryByText(/结果未知/)).not.toBeInTheDocument()
   })
 
+  // D52：回答提交后必须能在消息流里看到选了什么，包括多选。
+  test('答案回显展示问题与所选取值', () => {
+    const messages: Message[] = [
+      {
+        kind: 'answer',
+        requestId: 'req-1',
+        answers: [
+          { questionId: 'q1', header: '框架', question: '选哪个框架？', values: ['React'] },
+          { questionId: 'q2', header: '', question: '选哪些端？', values: ['iOS', 'Android'] },
+        ],
+      },
+    ]
+    render(<MessageFeed messages={messages} />)
+    expect(screen.getByTestId('answer-echo')).toBeInTheDocument()
+    expect(screen.getByText('你的回答')).toBeInTheDocument()
+    expect(screen.getByText('框架 · 选哪个框架？')).toBeInTheDocument()
+    expect(screen.getByText('选哪些端？')).toBeInTheDocument()
+    expect(screen.getByText('React')).toBeInTheDocument()
+    expect(screen.getByText('iOS')).toBeInTheDocument()
+    expect(screen.getByText('Android')).toBeInTheDocument()
+  })
+
   test('Claude 流式文本按纯文本渲染并保留换行', () => {
     const messages: Message[] = [claude({ text: '第一行\n第二行' })]
     const { container } = render(<MessageFeed messages={messages} />)
@@ -144,22 +166,51 @@ describe('MessageFeed：Markdown 渲染边界（B1）', () => {
   test('空 Claude 文本不渲染消息气泡', () => {
     const { container } = render(<MessageFeed messages={[claude({ text: '' })]} />)
     expect(container.querySelector('p')).toBeNull()
+    // 没有任何可展示内容的占位消息整条跳过，不留下孤立的来源标记。
+    expect(container.textContent).not.toContain('Claude')
+  })
+
+  test('取消与失败即使没有正文也仍然留痕', () => {
+    const cancelled = render(<MessageFeed messages={[claude({ text: '', status: 'cancelled' })]} />)
+    expect(cancelled.getByText('已取消')).toBeInTheDocument()
+    cancelled.unmount()
+    const failed = render(
+      <MessageFeed
+        messages={[claude({ text: '', status: 'failed', error: { code: 'internal', message: 'boom' } })]}
+      />,
+    )
+    expect(failed.getByText(/boom/)).toBeInTheDocument()
   })
 })
 
-describe('MessageFeed：结构化内容块（B2 §6）', () => {
-  test('结构化块渲染为默认折叠的摘要行，不再出现只读占位', () => {
+describe('MessageFeed：结构化活动分组（B2 §6）', () => {
+  test('结构化块只在正文里留一行摘要，不渲染活动内容', () => {
     const { container } = render(
       <MessageFeed
         messages={[block({ id: 'b1', kind: 'thinking', thinking: '先看现有实现' })]}
       />,
     )
-    expect(screen.getByText('思考过程')).toBeInTheDocument()
+    expect(screen.getByText('查看 1 个步骤')).toBeInTheDocument()
     expect(screen.queryByText('先看现有实现')).not.toBeInTheDocument()
     expect(container.textContent).not.toContain('只读占位')
   })
 
-  test('工具调用与文本按到达顺序混排', () => {
+  test('思考与工具合并进同一个分组，思考不再打断连续工具', () => {
+    render(
+      <MessageFeed
+        messages={[
+          block({ id: 'b1', kind: 'thinking', thinking: '先看现有实现' }),
+          block({ id: 'b2', kind: 'tool_use', toolUseId: 'tu-1', toolClass: 'builtin', toolName: 'Bash', mcpServer: '' }),
+          block({ id: 'b3', kind: 'thinking', thinking: '再改代码' }),
+          block({ id: 'b4', kind: 'tool_use', toolUseId: 'tu-2', toolClass: 'builtin', toolName: 'Read', mcpServer: '' }),
+        ]}
+      />,
+    )
+    expect(screen.getAllByTestId('activity-group')).toHaveLength(1)
+    expect(screen.getByText('查看 4 个步骤，运行 2 个工具')).toBeInTheDocument()
+  })
+
+  test('摘要行按到达顺序排在两段文本之间', () => {
     const { container } = render(
       <MessageFeed
         messages={[
@@ -176,13 +227,38 @@ describe('MessageFeed：结构化内容块（B2 §6）', () => {
         ]}
       />,
     )
-    fireEvent.click(screen.getByText('工具调用（1）'))
     const text = container.textContent ?? ''
-    expect(text.indexOf('开始处理')).toBeLessThan(text.indexOf('Bash'))
-    expect(text.indexOf('Bash')).toBeLessThan(text.indexOf('处理完成'))
+    expect(text.indexOf('开始处理')).toBeLessThan(text.indexOf('查看 1 个步骤'))
+    expect(text.indexOf('查看 1 个步骤')).toBeLessThan(text.indexOf('处理完成'))
   })
 
-  test('工具结果关联同一 toolUseId 的工具名', () => {
+  test('turn_started 的空占位消息不切开活动摘要与正文', () => {
+    // 真实顺序（reducer）：输入 → 空占位 → 内容块 → 带正文的另一条 Claude 消息。
+    const { container } = render(
+      <MessageFeed
+        messages={[
+          input({ text: '你好' }),
+          claude({ text: '' }),
+          block({ id: 'b1', kind: 'thinking', thinking: '先看清要改什么' }),
+          block({
+            id: 'b2',
+            kind: 'tool_use',
+            toolUseId: 'tu-1',
+            toolClass: 'builtin',
+            toolName: 'Bash',
+            mcpServer: '',
+          }),
+          claude({ text: '执行完成' }),
+        ]}
+      />,
+    )
+    // 只剩一个「Claude」来源标记（属于带正文的那条）。
+    expect(screen.getAllByText('Claude')).toHaveLength(1)
+    const text = container.textContent ?? ''
+    expect(text.indexOf('查看 2 个步骤')).toBeLessThan(text.indexOf('执行完成'))
+  })
+
+  test('工具与同一 toolUseId 的结果合并为一条活动，抽屉内显示工具名与状态', () => {
     render(
       <MessageFeed
         messages={[
@@ -198,13 +274,13 @@ describe('MessageFeed：结构化内容块（B2 §6）', () => {
         ]}
       />,
     )
-    expect(screen.getByText('工具调用（1）')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('工具调用（1）'))
-    expect(screen.getByText(/工具：Grep/)).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('activity-group-summary'))
+    expect(screen.getAllByTestId('activity-row')).toHaveLength(1)
+    expect(screen.getByText('工具：Grep')).toBeInTheDocument()
     expect(screen.getByText('成功')).toBeInTheDocument()
   })
 
-  test('连续工具合并为一个默认折叠的分组', () => {
+  test('连续工具合并为一个摘要行', () => {
     render(
       <MessageFeed
         messages={[
@@ -214,8 +290,8 @@ describe('MessageFeed：结构化内容块（B2 §6）', () => {
         ]}
       />,
     )
-    expect(screen.getByText('工具调用（2）')).toBeInTheDocument()
-    expect(screen.queryByText(/工具：Bash/)).not.toBeInTheDocument()
+    expect(screen.getByText('查看 2 个步骤，运行 2 个工具')).toBeInTheDocument()
+    expect(screen.queryByText('工具：Bash')).not.toBeInTheDocument()
   })
 
   test('孤立工具结果不编造工具名', () => {
@@ -224,6 +300,7 @@ describe('MessageFeed：结构化内容块（B2 §6）', () => {
         messages={[block({ id: 'b5', kind: 'tool_result', toolUseId: 'tu-x', isError: true })]}
       />,
     )
+    fireEvent.click(screen.getByTestId('activity-group-summary'))
     expect(screen.getByText('工具结果')).toBeInTheDocument()
     expect(screen.getByText('失败')).toBeInTheDocument()
   })

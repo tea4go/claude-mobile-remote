@@ -734,6 +734,32 @@ describe('B2 pending action', () => {
     expect(state.pendingAction).toBeNull()
     expect(state.canSend).toBe(true)
     expect(state.canResolveAction).toBe(false)
+    // 权限决议不带答案，不得凭空添一条回显（D52）。
+    expect(state.messages.filter((m) => m.kind === 'answer')).toHaveLength(0)
+  })
+
+  test('action_resolved 携带答案时追加一条回显', () => {
+    let state = waitingState(questionAction())
+    state = reducer(
+      state,
+      eventReceived(
+        event('action_resolved', 13, {
+          requestId: 'req-9',
+          turnStatus: 'running',
+          answers: [
+            { questionId: 'q-1', header: '框架', question: '选哪个？', values: ['React'] },
+          ],
+        } as Partial<DomainEvent>),
+      ),
+    )
+    expect(state.pendingAction).toBeNull()
+    const echo = state.messages.filter((m) => m.kind === 'answer')
+    expect(echo).toHaveLength(1)
+    expect(echo[0]).toMatchObject({
+      kind: 'answer',
+      requestId: 'req-9',
+      answers: [{ questionId: 'q-1', values: ['React'] }],
+    })
   })
 
   test('决议在途时禁用重复提交', () => {

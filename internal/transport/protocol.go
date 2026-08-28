@@ -474,7 +474,7 @@ func validateEvent(event projectsession.Event) error {
 func validateEventPayloadFields(event projectsession.Event) error {
 	switch event.Kind {
 	case projectsession.EventContentBlock:
-		if event.PendingAction != nil || event.Code != "" {
+		if event.PendingAction != nil || event.Code != "" || len(event.Answers) > 0 {
 			return protocolError(CodeInvalidMessage, "unexpected content_block fields")
 		}
 		if event.Block == nil {
@@ -482,7 +482,7 @@ func validateEventPayloadFields(event projectsession.Event) error {
 		}
 		return validateContentBlock(*event.Block)
 	case projectsession.EventActionRequired:
-		if event.Block != nil || event.Code != "" {
+		if event.Block != nil || event.Code != "" || len(event.Answers) > 0 {
 			return protocolError(CodeInvalidMessage, "unexpected action_required fields")
 		}
 		if event.PendingAction == nil {
@@ -492,13 +492,44 @@ func validateEventPayloadFields(event projectsession.Event) error {
 			return protocolError(CodeInvalidMessage, "action_required must report a waiting turn")
 		}
 		return validatePendingAction(*event.PendingAction, event.RequestID)
+	case projectsession.EventActionResolved:
+		// The resolution drops the action itself (D47) but may echo the answers
+		// the server just accepted, so every client can show what was answered
+		// even when another client answered it (D52).
+		if event.Block != nil || event.PendingAction != nil || event.Code != "" {
+			return protocolError(CodeInvalidMessage, "unexpected action_resolved fields")
+		}
+		return validateResolvedAnswers(event.Answers)
 	case projectsession.EventUnsupported:
 		// The safety notice has its own envelope type, so it must never reach a
 		// client as an ordinary event (B2 §4.2).
 		return protocolError(CodeInvalidMessage, "unsupported must not travel as an event")
 	default:
-		if event.Block != nil || event.PendingAction != nil || event.Code != "" {
+		if event.Block != nil || event.PendingAction != nil || event.Code != "" || len(event.Answers) > 0 {
 			return protocolError(CodeInvalidMessage, "unexpected structured event fields")
+		}
+	}
+	return nil
+}
+
+// validateResolvedAnswers keeps the D52 answer echo to the shape the server
+// accepted: one entry per answered question, each naming its question and
+// carrying at least one non-blank value. The echo is the answer, never any part
+// of the tool result, so no other field may travel here.
+func validateResolvedAnswers(answers []projectsession.ResolvedAnswer) error {
+	seen := make(map[string]struct{}, len(answers))
+	for _, answer := range answers {
+		if answer.QuestionID == "" || answer.Question == "" || len(answer.Values) == 0 {
+			return protocolError(CodeInvalidMessage, "invalid resolved answer")
+		}
+		if _, duplicate := seen[answer.QuestionID]; duplicate {
+			return protocolError(CodeInvalidMessage, "duplicate resolved answer")
+		}
+		seen[answer.QuestionID] = struct{}{}
+		for _, value := range answer.Values {
+			if strings.TrimSpace(value) == "" {
+				return protocolError(CodeInvalidMessage, "blank resolved answer value")
+			}
 		}
 	}
 	return nil

@@ -1,11 +1,29 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { Button, TextArea } from 'antd-mobile'
 import { MAX_TEXT_BYTES } from '../protocol/types'
+import { COMPACT_BUTTON_STYLE } from './ui'
 
 interface MessageComposerProps {
   enabled: boolean
   onSend: (text: string) => void
 }
+
+// 胶囊形输入区（参考 docs/specs/images/session_detail.png）：输入框与发送按钮
+// 包在同一个圆角容器里，默认单行高，随内容增高到四行为止。
+const SHELL_STYLE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-end',
+  gap: 8,
+  background: 'rgba(255, 255, 255, 0.9)',
+  border: '1px solid rgba(0, 0, 0, 0.08)',
+  borderRadius: 20,
+  padding: '5px 6px 5px 14px',
+}
+
+// TextArea 的字号由 CSS 变量控制，行内样式需要断言成 CSSProperties。
+const INPUT_STYLE = { '--font-size': '14px' } as CSSProperties
+
+const SEND_BUTTON_STYLE: CSSProperties = { ...COMPACT_BUTTON_STYLE, padding: '4px 14px', borderRadius: 14 }
 
 // 底部固定输入（§7）：空白或超限文本不发送；1 MiB 按 UTF-8 字节计算。
 export default function MessageComposer({ enabled, onSend }: MessageComposerProps) {
@@ -32,20 +50,25 @@ export default function MessageComposer({ enabled, onSend }: MessageComposerProp
       {(oversize && oversizeNow) || oversizeNow ? (
         <div style={{ fontSize: 12, color: '#e00' }}>文本超出长度上限</div>
       ) : null}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-        <TextArea
-          data-testid="composer-input"
-          value={text}
-          onChange={(value) => {
-            setText(value)
-            if (!oversizeNow) setOversize(false)
-          }}
-          placeholder="发送文本给 Claude"
-          rows={2}
-          disabled={!enabled}
-        />
+      <div style={SHELL_STYLE}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <TextArea
+            data-testid="composer-input"
+            style={INPUT_STYLE}
+            value={text}
+            onChange={(value) => {
+              setText(value)
+              if (!oversizeNow) setOversize(false)
+            }}
+            placeholder="发送文本给 Claude"
+            autoSize={{ minRows: 1, maxRows: 4 }}
+            disabled={!enabled}
+          />
+        </div>
         <Button
           color="primary"
+          size="small"
+          style={SEND_BUTTON_STYLE}
           disabled={!enabled || trimmed === '' || oversizeNow}
           onClick={submit}
         >

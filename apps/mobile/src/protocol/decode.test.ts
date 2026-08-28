@@ -1276,6 +1276,74 @@ describe('decodeServerMessage：action_required / action_resolved（B2 §4.2）'
     ).toThrow(/protocol decode error/)
   })
 
+  // D52：action_resolved 可回带服务端已校验的答案，作为界面回显。
+  function resolvedPayload(answers: unknown, kind = 'action_resolved') {
+    return {
+      event: {
+        seq: 8,
+        kind,
+        sessionId: 'session-1',
+        requestId: 'req-1',
+        source: 'mobile',
+        text: '',
+        sessionStatus: '',
+        turnStatus: kind === 'action_resolved' ? 'running' : '',
+        error: null,
+        answers,
+      },
+    }
+  }
+
+  test('action_resolved 解码已校验答案', () => {
+    const payload = resolvedPayload([
+      { questionId: 'q1', header: '框架', question: '选哪个框架？', values: ['React'] },
+      { questionId: 'q2', question: '选哪些端？', values: ['iOS', 'Android'] },
+    ])
+    const message = decodeServerMessage(
+      JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+    )
+    if (message.type !== 'event') throw new Error('unexpected type')
+    expect(message.payload.event.answers).toEqual([
+      { questionId: 'q1', header: '框架', question: '选哪个框架？', values: ['React'] },
+      { questionId: 'q2', header: '', question: '选哪些端？', values: ['iOS', 'Android'] },
+    ])
+  })
+
+  test.each([
+    ['缺 questionId', [{ question: '选哪个？', values: ['React'] }]],
+    ['缺 question', [{ questionId: 'q1', values: ['React'] }]],
+    ['取值为空数组', [{ questionId: 'q1', question: '选哪个？', values: [] }]],
+    ['取值空白', [{ questionId: 'q1', question: '选哪个？', values: ['  '] }]],
+    [
+      'questionId 重复',
+      [
+        { questionId: 'q1', question: '选哪个？', values: ['React'] },
+        { questionId: 'q1', question: '选哪个？', values: ['Vue'] },
+      ],
+    ],
+    ['越界字段', [{ questionId: 'q1', question: '选哪个？', values: ['React'], result: '正文' }]],
+  ])('action_resolved 答案 %s 拒绝', (_name, answers) => {
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(
+          baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload: resolvedPayload(answers) }),
+        ),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
+  test('非 action_resolved 携带 answers 拒绝', () => {
+    const payload = resolvedPayload(
+      [{ questionId: 'q1', question: '选哪个？', values: ['React'] }],
+      'turn_completed',
+    )
+    expect(() =>
+      decodeServerMessage(
+        JSON.stringify(baseEnvelope({ type: 'event', requestId: 'req-1', seq: 8, payload })),
+      ),
+    ).toThrow(/protocol decode error/)
+  })
+
   test('snapshot 的 pendingAction 非空但 turn 非 waiting 拒绝', () => {
     const payload = waitingSnapshotPayload()
     payload.snapshot.turn.status = 'running'

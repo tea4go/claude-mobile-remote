@@ -404,6 +404,61 @@ func TestValidateEnvelopeAcceptsPendingActionEvents(t *testing.T) {
 	if err := validateEventEnvelope(t, resolved); err != nil {
 		t.Fatalf("action_resolved error = %v", err)
 	}
+
+	answered := structuredEvent(projectsession.EventActionResolved)
+	answered.TurnStatus = projectsession.TurnRunning
+	answered.Answers = []projectsession.ResolvedAnswer{
+		{QuestionID: "q1", Header: "h", Question: "pick one", Values: []string{"yes"}},
+		{QuestionID: "q2", Question: "pick many", Values: []string{"a", "b"}},
+	}
+	if err := validateEventEnvelope(t, answered); err != nil {
+		t.Fatalf("answered action_resolved error = %v", err)
+	}
+}
+
+// TestValidateEnvelopeRejectsInvalidResolvedAnswers pins the D52 echo: only
+// action_resolved may carry answers, and each answer must name its question and
+// carry real values.
+func TestValidateEnvelopeRejectsInvalidResolvedAnswers(t *testing.T) {
+	resolvedWith := func(answers ...projectsession.ResolvedAnswer) projectsession.Event {
+		event := structuredEvent(projectsession.EventActionResolved)
+		event.TurnStatus = projectsession.TurnRunning
+		event.Answers = answers
+		return event
+	}
+	answer := projectsession.ResolvedAnswer{QuestionID: "q1", Header: "h", Question: "pick one", Values: []string{"yes"}}
+
+	blockWithAnswers := contentBlockEvent(projectsession.ContentBlock{ID: "b", Kind: projectsession.BlockThinking, Thinking: "x"})
+	blockWithAnswers.Answers = []projectsession.ResolvedAnswer{answer}
+	requiredWithAnswers := structuredEvent(projectsession.EventActionRequired)
+	requiredWithAnswers.TurnStatus = projectsession.TurnWaiting
+	requiredWithAnswers.PendingAction = &projectsession.PendingAction{
+		ActionID: "action-1", RequestID: "request-1", Kind: projectsession.ActionToolApproval, ToolName: "Bash",
+	}
+	requiredWithAnswers.Answers = []projectsession.ResolvedAnswer{answer}
+	completedWithAnswers := structuredEvent(projectsession.EventTurnCompleted)
+	completedWithAnswers.Answers = []projectsession.ResolvedAnswer{answer}
+
+	events := map[string]projectsession.Event{
+		"answer without question id":   resolvedWith(projectsession.ResolvedAnswer{Question: "pick one", Values: []string{"yes"}}),
+		"answer without question":      resolvedWith(projectsession.ResolvedAnswer{QuestionID: "q1", Values: []string{"yes"}}),
+		"answer without values":        resolvedWith(projectsession.ResolvedAnswer{QuestionID: "q1", Question: "pick one"}),
+		"blank answer value":           resolvedWith(projectsession.ResolvedAnswer{QuestionID: "q1", Question: "pick one", Values: []string{"  "}}),
+		"duplicate question id":        resolvedWith(answer, answer),
+		"content_block with answers":   blockWithAnswers,
+		"action_required with answers": requiredWithAnswers,
+		"unrelated kind with answers":  completedWithAnswers,
+	}
+
+	for name, event := range events {
+		t.Run(name, func(t *testing.T) {
+			err := validateEventEnvelope(t, event)
+			var protocolErr *ProtocolError
+			if !errors.As(err, &protocolErr) || protocolErr.Code != CodeInvalidMessage {
+				t.Fatalf("ValidateEnvelope() error = %v, want code %q", err, CodeInvalidMessage)
+			}
+		})
+	}
 }
 
 func TestValidateEnvelopeRejectsInvalidPendingActions(t *testing.T) {

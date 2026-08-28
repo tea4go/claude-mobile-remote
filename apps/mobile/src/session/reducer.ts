@@ -7,6 +7,7 @@ import type {
   ErrorInfo,
   PendingAction,
   QueuedRequest,
+  ResolvedAnswer,
   SessionSnapshot,
   UnsupportedCode,
 } from '../protocol/types'
@@ -55,7 +56,15 @@ export interface BlockMessage {
   block: ContentBlock
 }
 
-export type Message = ClaudeMessage | InputMessage | BlockMessage
+// 已回答事项的答案回显（D52）：只来自 action_resolved 携带的服务端已校验
+// 答案，因此哪一端答的都能看到；重连后不由 snapshot 补造。
+export interface AnswerMessage {
+  kind: 'answer'
+  requestId: string
+  answers: ResolvedAnswer[]
+}
+
+export type Message = ClaudeMessage | InputMessage | BlockMessage | AnswerMessage
 
 // 单在途命令（B2 §5）：所有 kind 共用一个槽位。targetId 按 kind 指向
 // actionId 或 requestId，text 只对 send_text 有意义。
@@ -490,6 +499,13 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       break
     case 'action_resolved':
       next.pendingAction = null
+      // 回答型事项回带已校验答案（D52）；权限决议不带，不记一条空回显。
+      if (event.answers !== undefined && event.answers.length > 0) {
+        next.messages = [
+          ...next.messages,
+          { kind: 'answer', requestId: event.requestId, answers: event.answers },
+        ]
+      }
       break
   }
   return applyCanSend(next)

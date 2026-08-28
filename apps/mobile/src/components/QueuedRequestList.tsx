@@ -1,4 +1,5 @@
 import { Button, Tag } from 'antd-mobile'
+import { COMPACT_BUTTON_STYLE } from './ui'
 import type { QueuedRequest } from '../protocol/types'
 
 interface QueuedRequestListProps {
@@ -29,11 +30,14 @@ export default function QueuedRequestList({
           data-testid="queued-request-item"
           style={{ display: 'flex', gap: 8, alignItems: 'center' }}
         >
-          <Tag color="default">{request.source === 'terminal' ? '电脑端' : '手机端'}</Tag>
+          <Tag color="default" style={{ fontSize: 11, padding: '0 5px' }}>
+            {request.source === 'terminal' ? '电脑端' : '手机端'}
+          </Tag>
           <span style={{ flex: 1, fontSize: 13, wordBreak: 'break-word' }}>{request.preview}</span>
           <Button
             size="mini"
             fill="outline"
+            style={COMPACT_BUTTON_STYLE}
             disabled={!enabled}
             onClick={() => onCancel(request.requestId)}
           >

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Tag } from 'antd-mobile'
 import MessageMarkdown from './MessageMarkdown'
-import StructuredBlock, { ToolActivityGroup, type ToolActivity } from './StructuredBlock'
+import ActivityGroup, { type Activity } from './ActivityGroup'
 import type { Message } from '../session/reducer'
 
 interface MessageFeedProps {
@@ -25,47 +25,78 @@ function resolveToolName(messages: Message[], index: number, toolUseId: string):
 
 type DisplayItem =
   | { kind: 'message'; message: Exclude<Message, { kind: 'block' }> }
-  | { kind: 'block'; block: Extract<Message, { kind: 'block' }>['block']; toolName?: string }
-  | { kind: 'tools'; activities: ToolActivity[] }
+  | { kind: 'activities'; activities: Activity[] }
+
+// turn_started 会先追加一条空文本的 Claude 占位消息，随后的文本事件因为中间夹了
+// 内容块而另起一条（reducer）。占位消息没有任何可展示内容，渲染出来只是一个孤立的
+// 「Claude」标记，反而把活动摘要与正文切开，因此在展示层跳过。
+function hasVisibleContent(message: Exclude<Message, { kind: 'block' }>): boolean {
+  if (message.kind === 'input') return true
+  // 答案回显只在有答案时入流（reducer），到这里必然可展示。
+  if (message.kind === 'answer') return true
+  if (message.text !== '') return true
+  // 取消与失败即使没有正文也必须留痕（B2 §7）。
+  if (message.status === 'cancelled') return true
+  return message.status === 'failed' && message.error !== null
+}
 
 function buildDisplayItems(messages: Message[]): DisplayItem[] {
   const items: DisplayItem[] = []
-  const activities = new Map<string, ToolActivity>()
+  const pendingTools = new Map<string, Extract<Activity, { kind: 'tool' }>>()
 
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index]
     if (message === undefined) continue
     if (message.kind !== 'block') {
-      items.push({ kind: 'message', message })
+      if (hasVisibleContent(message)) items.push({ kind: 'message', message })
       continue
     }
-    if (message.block.kind === 'tool_use') {
-      const activity: ToolActivity = { tool: message.block }
-      activities.set(message.block.toolUseId, activity)
-      items.push({ kind: 'tools', activities: [activity] })
+    const block = message.block
+    if (block.kind === 'thinking') {
+      items.push({
+        kind: 'activities',
+        activities: [{ kind: 'thinking', id: block.id, text: block.thinking }],
+      })
       continue
     }
-    if (message.block.kind === 'tool_result') {
-      const activity = activities.get(message.block.toolUseId)
-      if (activity !== undefined) {
-        activity.result = message.block
-        continue
+    if (block.kind === 'tool_use') {
+      const activity: Extract<Activity, { kind: 'tool' }> = {
+        kind: 'tool',
+        id: block.id,
+        tool: block,
       }
-      items.push({ kind: 'block', block: message.block, toolName: resolveToolName(messages, index, message.block.toolUseId) })
+      pendingTools.set(block.toolUseId, activity)
+      items.push({ kind: 'activities', activities: [activity] })
       continue
     }
-    items.push({ kind: 'block', block: message.block })
+    const pending = pendingTools.get(block.toolUseId)
+    if (pending !== undefined) {
+      pending.result = block
+      continue
+    }
+    items.push({
+      kind: 'activities',
+      activities: [
+        {
+          kind: 'result',
+          id: block.id,
+          toolName: resolveToolName(messages, index, block.toolUseId),
+          result: block,
+        },
+      ],
+    })
   }
 
-  // 结果已经吸收到对应工具项；文本、Thinking 或输入消息会打断连续工具分组。
+  // 结果已经吸收到对应工具项；只有文本与输入消息会打断连续活动分组，
+  // Thinking 不再单独占位，避免正文被零散披露行切碎。
   const grouped: DisplayItem[] = []
   for (const item of items) {
     const previous = grouped[grouped.length - 1]
-    if (item.kind === 'tools' && previous?.kind === 'tools') {
+    if (item.kind === 'activities' && previous?.kind === 'activities') {
       previous.activities.push(...item.activities)
-    } else {
-      grouped.push(item)
+      continue
     }
+    grouped.push(item)
   }
   return grouped
 }
@@ -97,13 +128,11 @@ export default function MessageFeed({ messages }: MessageFeedProps) {
       style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', overflowY: 'auto', padding: '8px 0' }}
     >
       {buildDisplayItems(messages).map((item, index) => {
-        if (item.kind === 'tools') {
-          return <ToolActivityGroup key={`tools-${index}`} activities={item.activities} />
-        }
-        if (item.kind === 'block') {
+        if (item.kind === 'activities') {
+          // 结构化活动是行式摘要（参考图），占满行宽而不是气泡宽度。
           return (
-            <div key={`block-${index}`} style={{ alignSelf: 'flex-start', maxWidth: '90%' }}>
-              <StructuredBlock block={item.block} toolName={item.toolName} />
+            <div key={`activities-${index}`} style={{ alignSelf: 'stretch' }}>
+              <ActivityGroup activities={item.activities} />
             </div>
           )
         }
@@ -130,19 +159,36 @@ export default function MessageFeed({ messages }: MessageFeedProps) {
             </div>
           )
         }
+        if (message.kind === 'answer') {
+          // 你的回答（D52）：答案由服务端回带，因此别的端答的也看得到。这里只显示
+          // 问题与所选取值，不含任何工具结果。
+          return (
+            <div key={`answer-${index}`} data-testid="answer-echo" style={{ alignSelf: 'stretch' }}>
+              <div style={{ fontSize: 12, color: '#8c8c8c' }}>你的回答</div>
+              {message.answers.map((answer) => (
+                <div key={answer.questionId} style={{ marginTop: 4, wordBreak: 'break-word' }}>
+                  <div style={{ fontSize: 13, color: '#333' }}>
+                    {answer.header === '' ? answer.question : `${answer.header} · ${answer.question}`}
+                  </div>
+                  <div style={{ marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {answer.values.map((value) => (
+                      <Tag key={value} color="primary" fill="outline">
+                        {value}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        }
+        // Claude 回复占满行宽且不用气泡背景（参考 qoder/sessionDetail.png），
+        // 让正文获得最大展示空间；来源标记压成小灰字。
         return (
-          <div key={`message-${index}`} style={{ alignSelf: 'flex-start', maxWidth: '90%' }}>
-            <Tag>Claude</Tag>
+          <div key={`message-${index}`} style={{ alignSelf: 'stretch' }}>
+            <div style={{ fontSize: 12, color: '#8c8c8c' }}>Claude</div>
             {message.text !== '' && (
-              <div
-                style={{
-                  background: '#fff',
-                  borderRadius: 8,
-                  padding: '8px 12px',
-                  marginTop: 4,
-                  wordBreak: 'break-word',
-                }}
-              >
+              <div style={{ marginTop: 2, wordBreak: 'break-word' }}>
                 <MessageMarkdown text={message.text} />
               </div>
             )}

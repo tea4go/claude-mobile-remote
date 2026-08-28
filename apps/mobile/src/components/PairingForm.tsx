@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Button, TextArea } from 'antd-mobile'
+import { BLOCK_BUTTON_STYLE } from './ui'
 
 interface PairingFormProps {
   initialError: string | null
@@ -34,6 +35,7 @@ export default function PairingForm({ initialError, onSubmit }: PairingFormProps
       )}
       <Button
         color="primary"
+        style={BLOCK_BUTTON_STYLE}
         onClick={() => {
           if (json.trim() === '') {
             setEmptyError(true)
