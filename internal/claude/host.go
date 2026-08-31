@@ -33,7 +33,10 @@ const permissionDestinationSession = "session"
 type Option func(*Host)
 
 func withClient(client sdkClient) Option {
-	return func(host *Host) { host.client = client }
+	return func(host *Host) {
+		host.client = client
+		host.clientSet = true
+	}
 }
 
 // WithActionTimeout 覆盖单个 pending action 的等待上限。
@@ -60,9 +63,25 @@ func WithCwd(cwd string) Option {
 	return func(host *Host) { host.cwd = cwd }
 }
 
+// WithPermissionMode sets the Claude permission mode used for this Host.
+func WithPermissionMode(mode string) Option {
+	return func(host *Host) { host.permissionMode = claudecode.PermissionMode(mode) }
+}
+
+// WithModel sets the Claude model used for this Host.
+func WithModel(model string) Option {
+	return func(host *Host) { host.model = model }
+}
+
+// WithMaxTurns sets the maximum number of turns used by this Host.
+func WithMaxTurns(turns int) Option {
+	return func(host *Host) { host.maxTurns = turns }
+}
+
 // Host 持有一个长生命周期 SDK Client。RunTurn 必须由上层串行调用。
 type Host struct {
 	client       sdkClient
+	clientSet    bool
 	sessionID    string
 	sessionIDSet bool
 	startedSent  bool
@@ -71,6 +90,9 @@ type Host struct {
 	previewMaxRunes int
 	actionTimeout   time.Duration
 	cwd             string
+	permissionMode  claudecode.PermissionMode
+	model           string
+	maxTurns        int
 
 	// actions 是 pending action 的旁路上行通道（设计 §3.4）：权限回调跑在 SDK
 	// 读循环上，不能复用 RunTurn 的 emit 路径，否则与上层的无缓冲事件通道互等。
@@ -129,6 +151,15 @@ func (h *Host) sessionSDKOptions(mode sessionMode, sessionID string) []claudecod
 	if h.cwd != "" {
 		options = append(options, claudecode.WithCwd(h.cwd))
 	}
+	if h.permissionMode != "" {
+		options = append(options, claudecode.WithPermissionMode(h.permissionMode))
+	}
+	if h.model != "" {
+		options = append(options, claudecode.WithModel(h.model))
+	}
+	if h.maxTurns > 0 {
+		options = append(options, claudecode.WithMaxTurns(h.maxTurns))
+	}
 	if sessionID == "" {
 		return options
 	}
@@ -157,6 +188,9 @@ func newReservedHost(mode sessionMode, sessionID string, options ...Option) (*Ho
 		return nil, fmt.Errorf("预分配 session ID 必须是合法 UUID: %q", sessionID)
 	}
 	host := NewHost(append([]Option{withReservedSessionID(mode, sessionID)}, options...)...)
+	if !host.clientSet {
+		host.client = claudecode.NewClient(host.sessionSDKOptions(mode, sessionID)...)
+	}
 	return host, nil
 }
 
@@ -164,9 +198,6 @@ func withReservedSessionID(mode sessionMode, sessionID string) Option {
 	return func(host *Host) {
 		host.sessionID = sessionID
 		host.sessionIDSet = true
-		if host.client == nil {
-			host.client = claudecode.NewClient(host.sessionSDKOptions(mode, sessionID)...)
-		}
 	}
 }
 

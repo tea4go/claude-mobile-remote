@@ -105,6 +105,21 @@ func connectHost(t *testing.T, client *fakeClient, options ...Option) *Host {
 	return host
 }
 
+func TestHostClaudeOptions(t *testing.T) {
+	host := NewHost(
+		WithPermissionMode("acceptEdits"),
+		WithModel("claude-sonnet"),
+		WithMaxTurns(3),
+	)
+	if host.permissionMode != "acceptEdits" || host.model != "claude-sonnet" || host.maxTurns != 3 {
+		t.Fatalf("Claude options = mode %q, model %q, max turns %d", host.permissionMode, host.model, host.maxTurns)
+	}
+	options := claudecode.NewOptions(host.sessionSDKOptions(sessionModeResume, "session-1")...)
+	if options.PermissionMode == nil || string(*options.PermissionMode) != "acceptEdits" || options.Model == nil || *options.Model != "claude-sonnet" || options.MaxTurns != 3 {
+		t.Fatalf("SDK options = %#v", options)
+	}
+}
+
 // brokerHost 构造一个只用于权限回调的 Host：不跑 Turn，因此等待决议只能被
 // 决议本身、Close 或 action 超时终止。
 func brokerHost(t *testing.T, options ...Option) *Host {
