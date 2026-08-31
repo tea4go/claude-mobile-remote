@@ -190,7 +190,15 @@ function App({
     }
 
     client.connect()
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return
+      dispatch(connectionStateChanged(client.connectionState()))
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       client.onEvent = null
       client.onClose = null
       client.close()

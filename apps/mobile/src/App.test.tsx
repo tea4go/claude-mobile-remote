@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from './App'
 import { PROTOCOL_VERSION } from './protocol/types'
 
@@ -210,6 +210,18 @@ describe('App：自动连接与发送', () => {
 })
 
 describe('App：断线与重连', () => {
+  test('活动 Session 注册页面可见性监听且不自动重连', async () => {
+    const addEventListener = vi.spyOn(document, 'addEventListener')
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    expect(addEventListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
+
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    document.dispatchEvent(new Event('visibilitychange'))
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+    addEventListener.mockRestore()
+  })
+
   test('运行期断线显示已断开，不自动重连，可显式重连', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)

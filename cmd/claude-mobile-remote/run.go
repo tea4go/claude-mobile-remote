@@ -147,7 +147,7 @@ func runWithRemote(ctx context.Context, input io.Reader, output, errorOutput io.
 			return 1
 		}
 		pairings = remote.Pairings()
-		if err := writePairingPayload(output, payload); err != nil {
+		if err := writePairingOutput(output, payload); err != nil {
 			fmt.Fprintln(errorOutput, "配对信息输出错误")
 			return 1
 		}
@@ -261,7 +261,7 @@ func runWithRemote(ctx context.Context, input io.Reader, output, errorOutput io.
 				pairings = nil
 				continue
 			}
-			if err := writePairingPayload(output, payload); err != nil {
+			if err := writePairingOutput(output, payload); err != nil {
 				fmt.Fprintln(errorOutput, "配对信息输出错误")
 				return 1
 			}
@@ -376,5 +376,17 @@ func writePairingPayload(output io.Writer, payload pairing.Payload) error {
 		return err
 	}
 	_, err = fmt.Fprintf(output, "pairing: %s\n", encoded)
+	return err
+}
+
+func writePairingOutput(output io.Writer, payload pairing.Payload) error {
+	if err := writePairingPayload(output, payload); err != nil {
+		return err
+	}
+	qr, err := pairing.RenderTerminalQR(payload)
+	if err != nil {
+		return fmt.Errorf("render pairing QR: %w", err)
+	}
+	_, err = fmt.Fprintf(output, "pairing QR:\n%s\n", qr)
 	return err
 }

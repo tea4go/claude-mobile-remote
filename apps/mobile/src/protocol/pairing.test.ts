@@ -136,6 +136,22 @@ describe('parsePairingJson：原始 JSON', () => {
 })
 
 describe('Fragment 编解码', () => {
+  test('与 Go 端固定 Pairing fixture 互操作', () => {
+    const fragment =
+      '#pair=eyJ2ZXJzaW9uIjoxLCJ3c1VybCI6IndzOi8vMTkyLjAuMi4xMDo4NzY1L3dzIiwic2Vzc2lvbklkIjoic2Vzc2lvbi0xIiwicGFpclRva2VuIjoidG9rZW4tZml4dHVyZSIsImV4cGlyZXNBdCI6IjIwMjYtMDgtMzFUMTI6MDA6MDBaIn0'
+    const result = parsePairingFragment(fragment, NOW)
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        version: 1,
+        wsUrl: 'ws://192.0.2.10:8765/ws',
+        sessionId: 'session-1',
+        pairToken: 'token-fixture',
+        expiresAt: '2026-08-31T12:00:00Z',
+      },
+    })
+  })
+
   test('规范化为无填充 Base64URL 并可往返解析', () => {
     const payload = validPayload()
     const fragment = encodePairingFragment(payload)

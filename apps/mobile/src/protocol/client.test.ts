@@ -415,6 +415,23 @@ describe('断线与失效', () => {
     return { client, socket }
   }
 
+  test('connectionState 反映连接阶段与非正常断线', () => {
+    const { client } = makeClient()
+    expect(client.connectionState()).toBe('connecting')
+    client.connect()
+    expect(client.connectionState()).toBe('connecting')
+    const socket = FakeWebSocket.instances[0]!
+    socket.serverOpen()
+    expect(client.connectionState()).toBe('authenticating')
+    socket.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+    expect(client.connectionState()).toBe('subscribing')
+    socket.serverMessage({ version: 2, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage(snapshotMessage())
+    expect(client.connectionState()).toBe('connected')
+    socket.serverClose()
+    expect(client.connectionState()).toBe('disconnected')
+  })
+
   test('运行期非正常 close：已断开 + 结果未知，无 close code', () => {
     const { client } = connectedClient()
     client.sendText('hi', 'cmd-1')

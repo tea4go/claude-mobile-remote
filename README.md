@@ -59,6 +59,8 @@ cd apps/mobile && npm install && npm run dev
 go run ./cmd/claude-mobile-remote
 ```
 
+启动后终端会同时输出可粘贴的配对 JSON 和 `pairing QR:` 终端二维码。二维码承载现有 `#pair=<Base64URL(JSON)>` Fragment；当前没有原生扫码时，可用二维码读取工具读取内容，再把 Fragment 放到 Mobile Web 地址栏后打开。A6 的 JSON 手动粘贴方式继续可用。
+
 如需让 Claude 在指定项目目录中运行，可使用 `--cwd`。路径会在启动前解析为绝对路径，并且必须已经存在且是目录；不传时保持使用当前进程工作目录。
 
 ```bash

@@ -1235,6 +1235,7 @@ func TestRunWithRemoteStartsBeforeFirstInput(t *testing.T) {
 
 	// 无任何终端输入：Start 返回配对并立即输出（设计 §8）。
 	waitForOutput(t, output, "pairing:")
+	waitForOutput(t, output, "pairing QR:")
 	if startCalls := remote.startCallCount(); startCalls != 1 {
 		t.Fatalf("Start calls before first input = %d, want 1", startCalls)
 	}

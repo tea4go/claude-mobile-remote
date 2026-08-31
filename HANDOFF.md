@@ -10,11 +10,21 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：C2 设计确认。
-- **本轮任务**：W1 暂缓，C2 收敛为 C2-A 后端二维码与配对持久化、C2-B Mobile Web 生命周期；原生扫码、安全存储、多 Session 原生持久化、真机和 VPN 暂缓。
+- **子阶段**：C2-A/C2-B 已完成并通过用户验收。
+- **本轮任务**：缩小 CLI 终端二维码的显示尺寸，保持 Pairing Fragment、JSON 输出和二维码内容不变。
+- **范围**：仅调整 `internal/pairing` 的终端渲染方式；不改变协议、配对凭证、服务启动参数或 Mobile Web 行为。
+- **通过条件**：新增回归测试证明终端二维码相较原渲染在宽度和高度上缩小；配对相关测试与 CLI 构建通过。
+- **实际完成项**：终端二维码使用 UTF-8 半块字符渲染，并关闭库内置的四模块外边框；新增回归测试锁定宽度和高度均小于旧渲染，且渲染结果与无边框预期一致。
+- **实际验证**：`go test ./internal/pairing ./protocol ./cmd/claude-mobile-remote -count=1` 通过；`GOFLAGS=-buildvcs=false go build ./cmd/claude-mobile-remote` 通过；`git diff --check` 通过。
+- **当前结论**：CLI 启动参数和二维码承载内容不变，终端显示尺寸进一步缩小；用户已确认 C2 配对、生命周期、重启恢复和二维码验收通过；本次提交尚未执行。
+
+- **子阶段**：C2-A/C2-B 实施完成并通过用户验收。
+- **本轮任务**：W1 暂缓，完成 C2-A 后端终端二维码与现有配对持久化回归、C2-B Mobile Web 刷新/断线/手动重连/可见性状态同步；原生扫码、安全存储、多 Session 原生持久化、真机和 VPN 暂缓。
 - **范围**：不接入 WhaleTerm，不接管外部 Claude 进程，不改变 WebSocket 协议、Session 状态模型或 Pairing JSON 形状；二维码仅做终端 ANSI/ASCII 输出，不生成 PNG、不增加 HTTP 二维码接口。
-- **通过条件**：设计获得用户确认；后续实施计划覆盖终端二维码、现有配对持久化、Web 刷新/断线/手动重连，以及明确的未实施项。
-- **当前结论**：C2 精简设计已按用户确认更新；设计文档、D54 和本记录待本次授权提交。提交后下一步是生成 C2-A/C2-B 实施计划。
+- **通过条件**：终端二维码与现有 Pairing Fragment 互操作；pairing 文件行为不回归；Web 刷新/断线/手动重连和可见性边界通过；原生、PNG、HTTP 二维码接口、真机和 VPN 明确记录为暂缓。
+- **实际完成项**：新增 `protocol.EncodePairingFragment`、终端二维码渲染与 CLI `pairing QR:` 输出；新增 Go/TypeScript 互操作测试；`ProtocolClient` 增加连接状态读取，App 增加 `visibilitychange` 状态同步；README 与 `docs/testing/C2-result.md` 已更新。
+- **实际验证**：Go 聚焦测试、CLI 构建、`go vet ./...`、Mobile Web 403 个测试、lint 和 build 通过；全量 Go 测试仅在当前沙箱的既有 httptest/本地监听用例失败（禁止绑定 `[::1]:0` 与 `127.0.0.1:0`），详见 `docs/testing/C2-result.md`。
+- **当前结论**：C2 精简设计已按用户确认提交（`a3e18f2`）；实施计划位于 `docs/plans/2026-08-31-C2-pairing-web-lifecycle-plan.md`，本轮实现与人工验收已完成。
 
 - **子阶段**：仓库配置维护。
 - **本轮任务**：将 `claude-mobile-remote` CLI 二进制产物加入 `.gitignore`。
