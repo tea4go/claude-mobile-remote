@@ -8,6 +8,7 @@ import (
 
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 	"github.com/tea4go/claude-mobile-remote/internal/transport"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 var (
@@ -94,10 +95,10 @@ func buildCommand(state clientState, line string) (transport.CommandPayload, err
 		if state.actionID == "" {
 			return transport.CommandPayload{}, errNoPendingAction
 		}
-		decisions := map[string]transport.ActionDecision{
-			":allow":         transport.DecisionAllowOnce,
-			":allow-session": transport.DecisionAllowSession,
-			":deny":          transport.DecisionDeny,
+		decisions := map[string]protocol.ActionDecision{
+			":allow":         protocol.DecisionAllowOnce,
+			":allow-session": protocol.DecisionAllowSession,
+			":deny":          protocol.DecisionDeny,
 		}
 		return transport.CommandPayload{
 			Kind:     transport.CommandResolveAction,
@@ -141,9 +142,9 @@ func buildCommand(state clientState, line string) (transport.CommandPayload, err
 
 // parseAnswers 解析 `questionId=value[,value]` 形式的答案，对之间用 ';' 分隔。
 // 选项标签本身可能含空格（如「方案 A」），所以不能按空白拆分。
-func parseAnswers(raw string) ([]transport.QuestionAnswer, error) {
+func parseAnswers(raw string) ([]protocol.QuestionAnswer, error) {
 	pairs := strings.Split(raw, ";")
-	answers := make([]transport.QuestionAnswer, 0, len(pairs))
+	answers := make([]protocol.QuestionAnswer, 0, len(pairs))
 	seen := make(map[string]struct{}, len(pairs))
 	for _, pair := range pairs {
 		pair = strings.TrimSpace(pair)
@@ -168,7 +169,7 @@ func parseAnswers(raw string) ([]transport.QuestionAnswer, error) {
 			}
 			values = append(values, value)
 		}
-		answers = append(answers, transport.QuestionAnswer{QuestionID: questionID, Values: values})
+		answers = append(answers, protocol.QuestionAnswer{QuestionID: questionID, Values: values})
 	}
 	return answers, nil
 }

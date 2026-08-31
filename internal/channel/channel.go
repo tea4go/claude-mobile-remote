@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 var ErrInvalidSequence = errors.New("invalid event sequence")
@@ -13,10 +13,10 @@ var ErrInvalidSequence = errors.New("invalid event sequence")
 // command a remote client can issue has to travel through this interface so the
 // Channel never reaches the SDK on its own.
 type Controller interface {
-	Submit(context.Context, projectsession.Input) (string, error)
-	Subscribe(context.Context, int) (projectsession.Snapshot, <-chan projectsession.Event, error)
-	Snapshot(context.Context) (projectsession.Snapshot, error)
-	ResolveAction(context.Context, string, projectsession.ActionDecision, []projectsession.QuestionAnswer) error
+	Submit(context.Context, protocol.Input) (string, error)
+	Subscribe(context.Context, int) (protocol.Snapshot, <-chan protocol.Event, error)
+	Snapshot(context.Context) (protocol.Snapshot, error)
+	ResolveAction(context.Context, string, protocol.ActionDecision, []protocol.QuestionAnswer) error
 	CancelTurn(context.Context, string) error
 	CancelQueued(context.Context, string) error
 }
@@ -42,7 +42,7 @@ func (c *Channel) SessionID() string {
 // Controller is touched, keeping session isolation independent of the caller.
 func (c *Channel) guard(sessionID string) error {
 	if sessionID != c.sessionID {
-		return projectsession.ErrSessionMismatch
+		return protocol.ErrSessionMismatch
 	}
 	return nil
 }
@@ -51,25 +51,25 @@ func (c *Channel) SubmitText(ctx context.Context, sessionID, text string) (strin
 	if err := c.guard(sessionID); err != nil {
 		return "", err
 	}
-	return c.controller.Submit(ctx, projectsession.Input{
+	return c.controller.Submit(ctx, protocol.Input{
 		SessionID: c.sessionID,
-		Source:    projectsession.InputMobile,
+		Source:    protocol.InputMobile,
 		Text:      text,
 	})
 }
 
 // Snapshot exposes the current state so a caller can validate a resolution
 // against the pending action before asking the Controller to apply it.
-func (c *Channel) Snapshot(ctx context.Context, sessionID string) (projectsession.Snapshot, error) {
+func (c *Channel) Snapshot(ctx context.Context, sessionID string) (protocol.Snapshot, error) {
 	if err := c.guard(sessionID); err != nil {
-		return projectsession.Snapshot{}, err
+		return protocol.Snapshot{}, err
 	}
 	snapshot, err := c.controller.Snapshot(ctx)
 	if err != nil {
-		return projectsession.Snapshot{}, err
+		return protocol.Snapshot{}, err
 	}
 	if snapshot.SessionID != c.sessionID {
-		return projectsession.Snapshot{}, projectsession.ErrSessionMismatch
+		return protocol.Snapshot{}, protocol.ErrSessionMismatch
 	}
 	return snapshot, nil
 }
@@ -78,8 +78,8 @@ func (c *Channel) ResolveAction(
 	ctx context.Context,
 	sessionID string,
 	actionID string,
-	decision projectsession.ActionDecision,
-	answers []projectsession.QuestionAnswer,
+	decision protocol.ActionDecision,
+	answers []protocol.QuestionAnswer,
 ) error {
 	if err := c.guard(sessionID); err != nil {
 		return err
@@ -102,8 +102,8 @@ func (c *Channel) CancelQueued(ctx context.Context, sessionID, requestID string)
 }
 
 type Subscription struct {
-	Snapshot projectsession.Snapshot
-	Events   <-chan projectsession.Event
+	Snapshot protocol.Snapshot
+	Events   <-chan protocol.Event
 	Errors   <-chan error
 	Cancel   context.CancelFunc
 }
@@ -117,10 +117,10 @@ func (c *Channel) OpenSubscription(ctx context.Context, capacity int) (*Subscrip
 	}
 	if snapshot.SessionID != c.sessionID {
 		cancel()
-		return nil, projectsession.ErrSessionMismatch
+		return nil, protocol.ErrSessionMismatch
 	}
 
-	events := make(chan projectsession.Event, capacity)
+	events := make(chan protocol.Event, capacity)
 	errorsChannel := make(chan error, 1)
 	go forwardEvents(childContext, cancel, c.sessionID, snapshot.Seq, source, events, errorsChannel)
 	return &Subscription{
@@ -136,8 +136,8 @@ func forwardEvents(
 	cancel context.CancelFunc,
 	sessionID string,
 	lastSeq uint64,
-	source <-chan projectsession.Event,
-	destination chan<- projectsession.Event,
+	source <-chan protocol.Event,
+	destination chan<- protocol.Event,
 	errorsChannel chan<- error,
 ) {
 	defer cancel()
@@ -152,7 +152,7 @@ func forwardEvents(
 				return
 			}
 			if event.SessionID != sessionID {
-				errorsChannel <- projectsession.ErrSessionMismatch
+				errorsChannel <- protocol.ErrSessionMismatch
 				return
 			}
 			if event.Seq <= lastSeq {

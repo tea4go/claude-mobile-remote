@@ -3,9 +3,12 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,6 +27,7 @@ type cliConfig struct {
 	pairTokenTTL    time.Duration
 	allowedOrigins  []string
 	resumeSessionID string
+	cwd             string
 	// fakeHostScenario 为空表示使用真实 Claude Host；非空时改用脚本化桩 Host
 	// （B2 Task 4），用于把交互验证与真实 Claude 额度解耦。
 	fakeHostScenario projectclaude.FakeScenario
@@ -62,6 +66,7 @@ func parseConfig(arguments []string) (cliConfig, error) {
 	flags.DurationVar(&config.pairTokenTTL, "pair-token-ttl", config.pairTokenTTL, "配对凭证有效期")
 	flags.Var(&extraOrigins, "allowed-origin", "额外允许的浏览器 Origin，可重复")
 	flags.StringVar(&config.resumeSessionID, "resume", "", "恢复已有会话的 session ID（UUID）")
+	flags.StringVar(&config.cwd, "cwd", "", "Claude 会话的工作目录")
 	flags.StringVar(&fakeHost, "fake-host", "", "使用脚本化假 Host 而非真实 Claude："+fakeHostScenarioList())
 	if err := flags.Parse(arguments); err != nil {
 		return cliConfig{}, err
@@ -82,6 +87,23 @@ func parseConfig(arguments []string) (cliConfig, error) {
 	}
 	if config.resumeSessionID != "" && !isUUID(config.resumeSessionID) {
 		return cliConfig{}, errors.New("invalid resume session ID: must be a UUID")
+	}
+	if isFlagSet(flags, "cwd") {
+		if strings.TrimSpace(config.cwd) == "" {
+			return cliConfig{}, errors.New("cwd must not be empty")
+		}
+		absolute, err := filepath.Abs(config.cwd)
+		if err != nil {
+			return cliConfig{}, fmt.Errorf("invalid cwd: %w", err)
+		}
+		info, err := os.Stat(absolute)
+		if err != nil {
+			return cliConfig{}, fmt.Errorf("invalid cwd: %w", err)
+		}
+		if !info.IsDir() {
+			return cliConfig{}, errors.New("cwd must be a directory")
+		}
+		config.cwd = absolute
 	}
 	if _, _, err := net.SplitHostPort(config.listen); err != nil {
 		return cliConfig{}, errors.New("invalid listen address")

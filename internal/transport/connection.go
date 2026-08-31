@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/tea4go/claude-mobile-remote/internal/channel"
 	"github.com/tea4go/claude-mobile-remote/internal/pairing"
-	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 type connectionState uint8
@@ -24,7 +24,7 @@ const (
 const (
 	// 单条出站事件预算：最大合法 prompt + JSON envelope 余量。普通队列与
 	// 提前缓存至少容纳两条该预算的事件，数量上限保持不变。
-	outboundEventMaxBytes = projectsession.MaxPromptBytes + 64*1024
+	outboundEventMaxBytes = protocol.MaxPromptBytes + 64*1024
 	outboxMaxItems        = 64
 	outboxMaxBytes        = 2 * outboundEventMaxBytes
 	earlyMaxItems         = 32
@@ -272,19 +272,20 @@ func (c *connection) resolveAction(payload CommandPayload) (string, error) {
 	return action.RequestID, nil
 }
 
-// sessionResolution converts the wire vocabulary into the session vocabulary.
-// The two enums are deliberately separate types so the session package never
-// imports the transport, which makes this the only translation point.
-func sessionResolution(payload CommandPayload) (projectsession.ActionDecision, []projectsession.QuestionAnswer) {
+// sessionResolution lifts the resolution out of the command payload. The types
+// now come straight from protocol, so there is no enum translation left; it only
+// deep-copies the answers so a later mutation of the payload cannot alias the
+// slice handed to the Controller.
+func sessionResolution(payload CommandPayload) (protocol.ActionDecision, []protocol.QuestionAnswer) {
 	if payload.Decision != "" {
-		return projectsession.ActionDecision(payload.Decision), nil
+		return payload.Decision, nil
 	}
 	if len(payload.Answers) == 0 {
 		return "", nil
 	}
-	answers := make([]projectsession.QuestionAnswer, 0, len(payload.Answers))
+	answers := make([]protocol.QuestionAnswer, 0, len(payload.Answers))
 	for _, answer := range payload.Answers {
-		answers = append(answers, projectsession.QuestionAnswer{
+		answers = append(answers, protocol.QuestionAnswer{
 			QuestionID: answer.QuestionID,
 			Values:     append([]string(nil), answer.Values...),
 		})
@@ -295,26 +296,26 @@ func sessionResolution(payload CommandPayload) (projectsession.ActionDecision, [
 func commandError(err error) (string, string) {
 	// A ProtocolError already carries the exact §4.5 code decided upstream, so it
 	// must win over the sentinel mapping below.
-	var protocol *ProtocolError
-	if errors.As(err, &protocol) {
-		return protocol.Code, protocol.Message
+	var protocolErr *ProtocolError
+	if errors.As(err, &protocolErr) {
+		return protocolErr.Code, protocolErr.Message
 	}
 	switch {
-	case errors.Is(err, projectsession.ErrInvalidInput):
+	case errors.Is(err, protocol.ErrInvalidInput):
 		return CodeInvalidCommand, "invalid command"
-	case errors.Is(err, projectsession.ErrQueueFull):
+	case errors.Is(err, protocol.ErrQueueFull):
 		return CodeQueueFull, "input queue full"
-	case errors.Is(err, projectsession.ErrActionNotPending):
+	case errors.Is(err, protocol.ErrActionNotPending):
 		return CodeActionNotPending, "action is no longer pending"
-	case errors.Is(err, projectsession.ErrInvalidAction):
+	case errors.Is(err, protocol.ErrInvalidAction):
 		return CodeInvalidAction, "invalid action resolution"
-	case errors.Is(err, projectsession.ErrInvalidAnswer):
+	case errors.Is(err, protocol.ErrInvalidAnswer):
 		return CodeInvalidAnswer, "invalid answer"
-	case errors.Is(err, projectsession.ErrTurnNotCancellable):
+	case errors.Is(err, protocol.ErrTurnNotCancellable):
 		return CodeTurnNotCancellable, "turn cannot be cancelled"
-	case errors.Is(err, projectsession.ErrRequestNotQueued):
+	case errors.Is(err, protocol.ErrRequestNotQueued):
 		return CodeRequestNotQueued, "request is not queued"
-	case errors.Is(err, projectsession.ErrSessionMismatch), errors.Is(err, projectsession.ErrSessionUnavailable):
+	case errors.Is(err, protocol.ErrSessionMismatch), errors.Is(err, protocol.ErrSessionUnavailable):
 		return CodeSessionUnavailable, "session unavailable"
 	default:
 		return CodeInternal, "internal error"
@@ -420,8 +421,8 @@ func (c *connection) forwardSubscription(subscription *channel.Subscription) {
 // an ordinary event by design; only the fixed code travels, never the event's
 // session fields. Every other kind keeps the outbound semantics check: an
 // illegal event is an internal error and only closes this connection.
-func (c *connection) outboundEvent(event projectsession.Event) (Envelope, error) {
-	if event.Kind == projectsession.EventUnsupported {
+func (c *connection) outboundEvent(event protocol.Event) (Envelope, error) {
+	if event.Kind == protocol.EventUnsupported {
 		if !event.Code.IsKnown() {
 			return Envelope{}, ErrInvalidMessage
 		}

@@ -2,35 +2,23 @@ package claude
 
 import (
 	"strings"
-	"unicode/utf8"
+
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 // DefaultToolPreviewMaxRunes 是 B2 §3.1 预览截断的默认上限。
 // 运行时上限统一由 ServiceConfig.ToolPreviewMaxRunes 提供，这里只作为
-// 该配置的默认值与非法值兜底，避免上限散落到各处常量。
-const DefaultToolPreviewMaxRunes = 200
+// 该配置的默认值与非法值兜底，避免上限散落到各处常量。共享实现位于 protocol。
+const DefaultToolPreviewMaxRunes = protocol.DefaultToolPreviewMaxRunes
 
 // previewEllipsis 标记预览已被截断，是单个 rune，便于按 rune 计数断言。
 const previewEllipsis = '…'
 
-// TruncatePreview 按 rune 边界把展示字符串截断到 maxRunes 个 rune，超长时补一个
-// 省略号。它是工具审批预览（B2 §4.3）和排队项预览（§4.4）唯一的截断实现，
-// 保证两者语义一致且结果始终是合法 UTF-8。
+// TruncatePreview 是 protocol.TruncatePreview 的兼容包装：按 rune 边界把展示
+// 字符串截断到 maxRunes 个 rune，超长时补一个省略号。它是工具审批预览（B2 §4.3）
+// 和排队项预览（§4.4）唯一的截断实现，保证两者语义一致且结果始终是合法 UTF-8。
 func TruncatePreview(text string, maxRunes int) string {
-	if maxRunes <= 0 {
-		maxRunes = DefaultToolPreviewMaxRunes
-	}
-	if utf8.RuneCountInString(text) <= maxRunes {
-		return text
-	}
-	kept := make([]rune, 0, maxRunes+1)
-	for _, run := range text {
-		if len(kept) == maxRunes {
-			break
-		}
-		kept = append(kept, run)
-	}
-	return string(append(kept, previewEllipsis))
+	return protocol.TruncatePreview(text, maxRunes)
 }
 
 // previewJoinSeparator 连接 Glob/Grep 的 pattern 与 path。

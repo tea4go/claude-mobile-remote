@@ -54,6 +54,12 @@ func WithToolPreviewMaxRunes(maxRunes int) Option {
 	}
 }
 
+// WithCwd sets the working directory used when the SDK starts Claude Code.
+// An empty value keeps the SDK default, which is the current process directory.
+func WithCwd(cwd string) Option {
+	return func(host *Host) { host.cwd = cwd }
+}
+
 // Host 持有一个长生命周期 SDK Client。RunTurn 必须由上层串行调用。
 type Host struct {
 	client       sdkClient
@@ -64,6 +70,7 @@ type Host struct {
 	mapper          *blockMapper
 	previewMaxRunes int
 	actionTimeout   time.Duration
+	cwd             string
 
 	// actions 是 pending action 的旁路上行通道（设计 §3.4）：权限回调跑在 SDK
 	// 读循环上，不能复用 RunTurn 的 emit 路径，否则与上层的无缓冲事件通道互等。
@@ -93,9 +100,11 @@ func NewHost(options ...Option) *Host {
 		actions:         make(chan *ActionRequest),
 		stopped:         make(chan struct{}),
 	}
-	host.client = claudecode.NewClient(claudecode.WithCanUseTool(host.canUseTool))
 	for _, option := range options {
 		option(host)
+	}
+	if host.client == nil {
+		host.client = claudecode.NewClient(host.sessionSDKOptions(sessionModeNew, "")...)
 	}
 	return host
 }
@@ -117,6 +126,12 @@ const (
 // 映射 --resume（设计 §5）。SDK 侧 Validate 会拒绝两者并用。
 func (h *Host) sessionSDKOptions(mode sessionMode, sessionID string) []claudecode.Option {
 	options := []claudecode.Option{claudecode.WithCanUseTool(h.canUseTool)}
+	if h.cwd != "" {
+		options = append(options, claudecode.WithCwd(h.cwd))
+	}
+	if sessionID == "" {
+		return options
+	}
 	if mode == sessionModeResume {
 		return append(options, claudecode.WithResume(sessionID))
 	}
@@ -149,7 +164,9 @@ func withReservedSessionID(mode sessionMode, sessionID string) Option {
 	return func(host *Host) {
 		host.sessionID = sessionID
 		host.sessionIDSet = true
-		host.client = claudecode.NewClient(host.sessionSDKOptions(mode, sessionID)...)
+		if host.client == nil {
+			host.client = claudecode.NewClient(host.sessionSDKOptions(mode, sessionID)...)
+		}
 	}
 }
 
@@ -167,6 +184,7 @@ func (h *Host) PrepareNewSession() error {
 	raw[8] = (raw[8] & 0x3f) | 0x80 // variant 10
 	sessionID := fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
 	withReservedSessionID(sessionModeNew, sessionID)(h)
+	h.client = claudecode.NewClient(h.sessionSDKOptions(sessionModeNew, sessionID)...)
 	return nil
 }
 

@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 // Version is 2 since B2: structured content, pending actions and the control
@@ -98,46 +98,37 @@ const (
 	CommandCancelQueued  CommandKind = "cancel_queued"
 )
 
-// ActionDecision is the answer to a tool approval. allow_session is only offered
-// when the SDK itself suggested a session-wide rule (B2 §3.1).
-type ActionDecision string
-
-const (
-	DecisionAllowOnce    ActionDecision = "allow_once"
-	DecisionAllowSession ActionDecision = "allow_session"
-	DecisionDeny         ActionDecision = "deny"
+// The decision/answer wire vocabulary now lives in protocol. These aliases keep
+// transport-internal call sites and tests on the old unqualified names without
+// reintroducing a second definition of the types.
+type (
+	ActionDecision = protocol.ActionDecision
+	QuestionAnswer = protocol.QuestionAnswer
 )
 
-func (decision ActionDecision) isKnown() bool {
-	switch decision {
-	case DecisionAllowOnce, DecisionAllowSession, DecisionDeny:
-		return true
-	}
-	return false
-}
+const (
+	DecisionAllowOnce    = protocol.DecisionAllowOnce
+	DecisionAllowSession = protocol.DecisionAllowSession
+	DecisionDeny         = protocol.DecisionDeny
+)
 
+// HelloPayload carries the credential a client submits in its first message.
 type HelloPayload struct {
 	PairToken string `json:"pairToken"`
 }
 
-// QuestionAnswer answers exactly one question of an ask_user_question action.
-// Values holds option labels for choice questions and the typed string for the
-// conditional free-text form.
-type QuestionAnswer struct {
-	QuestionID string   `json:"questionId"`
-	Values     []string `json:"values"`
-}
-
 // CommandPayload carries every client command. Each kind uses a disjoint subset
 // of the fields, and ValidateEnvelope rejects any field outside that subset so a
-// malformed control command can never be read as another kind.
+// malformed control command can never be read as another kind. Decision and
+// Answers use the protocol package's single wire vocabulary; there is no
+// transport-local ActionDecision or QuestionAnswer copy.
 type CommandPayload struct {
-	Kind      CommandKind      `json:"kind"`
-	Text      string           `json:"text,omitempty"`
-	ActionID  string           `json:"actionId,omitempty"`
-	RequestID string           `json:"requestId,omitempty"`
-	Decision  ActionDecision   `json:"decision,omitempty"`
-	Answers   []QuestionAnswer `json:"answers,omitempty"`
+	Kind      CommandKind               `json:"kind"`
+	Text      string                    `json:"text,omitempty"`
+	ActionID  string                    `json:"actionId,omitempty"`
+	RequestID string                    `json:"requestId,omitempty"`
+	Decision  protocol.ActionDecision   `json:"decision,omitempty"`
+	Answers   []protocol.QuestionAnswer `json:"answers,omitempty"`
 }
 
 type CommandResultPayload struct {
@@ -167,16 +158,16 @@ func newErrorPayload(code, message string) ErrorPayload {
 // UnsupportedPayload carries nothing but a fixed code: the original SDK data is
 // never forwarded, so an unmappable block cannot leak through this path.
 type UnsupportedPayload struct {
-	Code projectsession.UnsupportedCode `json:"code"`
+	Code protocol.UnsupportedCode `json:"code"`
 }
 
 type SnapshotPayload struct {
-	ConnectionStatus string                  `json:"connectionStatus"`
-	Snapshot         projectsession.Snapshot `json:"snapshot"`
+	ConnectionStatus string            `json:"connectionStatus"`
+	Snapshot         protocol.Snapshot `json:"snapshot"`
 }
 
 type EventPayload struct {
-	Event projectsession.Event `json:"event"`
+	Event protocol.Event `json:"event"`
 }
 
 func NewEnvelope(messageType MessageType, sessionID, commandID, requestID string, seq uint64, payload any) (Envelope, error) {
@@ -295,7 +286,7 @@ func validateCommand(payload CommandPayload) error {
 		if hasDecision == hasAnswers {
 			return protocolError(CodeInvalidMessage, "resolve_action must carry exactly one resolution form")
 		}
-		if hasDecision && !payload.Decision.isKnown() {
+		if hasDecision && !payload.Decision.IsKnown() {
 			return protocolError(CodeInvalidMessage, "unknown approval decision")
 		}
 		if hasAnswers {
@@ -315,7 +306,7 @@ func validateCommand(payload CommandPayload) error {
 // validateAnswerShape checks what can be judged without the pending action.
 // Matching answers against the offered questions happens in
 // ValidateActionResolution, which owns the business-level rejection codes.
-func validateAnswerShape(answers []QuestionAnswer) error {
+func validateAnswerShape(answers []protocol.QuestionAnswer) error {
 	seen := make(map[string]struct{}, len(answers))
 	for _, answer := range answers {
 		if answer.QuestionID == "" || len(answer.Values) == 0 {
@@ -339,7 +330,7 @@ func validateAnswerShape(answers []QuestionAnswer) error {
 // and the allow_session precondition are decided, so the Controller and the
 // protocol layer cannot drift apart. Rejection messages stay generic: they never
 // echo question text or a tool preview.
-func ValidateActionResolution(action projectsession.PendingAction, config projectsession.ServiceConfig, payload CommandPayload) error {
+func ValidateActionResolution(action protocol.PendingAction, config protocol.ServiceConfig, payload CommandPayload) error {
 	if payload.Kind != CommandResolveAction {
 		return protocolError(CodeInvalidAction, "command does not resolve an action")
 	}
@@ -353,20 +344,20 @@ func ValidateActionResolution(action projectsession.PendingAction, config projec
 	}
 
 	switch action.Kind {
-	case projectsession.ActionToolApproval:
+	case protocol.ActionToolApproval:
 		if !hasDecision {
 			return protocolError(CodeInvalidAction, "tool approval expects a decision")
 		}
 		switch payload.Decision {
-		case DecisionAllowOnce, DecisionDeny:
-		case DecisionAllowSession:
+		case protocol.DecisionAllowOnce, protocol.DecisionDeny:
+		case protocol.DecisionAllowSession:
 			if !action.AllowSessionAvailable {
 				return protocolError(CodeInvalidAction, "allow_session is not offered for this action")
 			}
 		default:
 			return protocolError(CodeInvalidAction, "unknown approval decision")
 		}
-	case projectsession.ActionAskUserQuestion:
+	case protocol.ActionAskUserQuestion:
 		if !hasAnswers {
 			return protocolError(CodeInvalidAction, "question expects answers")
 		}
@@ -377,7 +368,7 @@ func ValidateActionResolution(action projectsession.PendingAction, config projec
 	return nil
 }
 
-func validateAnswersAgainstQuestions(questions []projectsession.Question, config projectsession.ServiceConfig, answers []QuestionAnswer) error {
+func validateAnswersAgainstQuestions(questions []protocol.Question, config protocol.ServiceConfig, answers []protocol.QuestionAnswer) error {
 	submitted := make(map[string][]string, len(answers))
 	for _, answer := range answers {
 		if answer.QuestionID == "" {
@@ -403,16 +394,16 @@ func validateAnswersAgainstQuestions(questions []projectsession.Question, config
 	return nil
 }
 
-func validateAnswerValues(question projectsession.Question, config projectsession.ServiceConfig, values []string) error {
+func validateAnswerValues(question protocol.Question, config protocol.ServiceConfig, values []string) error {
 	switch question.InputType {
-	case projectsession.QuestionText:
+	case protocol.QuestionText:
 		if !config.AskUserTextEnabled {
 			return protocolError(CodeInvalidAnswer, "free-text answers are disabled")
 		}
 		if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
 			return protocolError(CodeInvalidAnswer, "free-text answer must be a single non-blank value")
 		}
-	case projectsession.QuestionChoice:
+	case protocol.QuestionChoice:
 		if len(values) == 0 || (!question.MultiSelect && len(values) != 1) {
 			return protocolError(CodeInvalidAnswer, "unexpected number of selected options")
 		}
@@ -444,19 +435,19 @@ func isEmptyPayload(envelope Envelope) bool {
 // validateEvent enforces kind-level field semantics for outbound events:
 // turn_started must carry the normalized input text, text_delta a non-empty
 // increment, and all other kinds no text at all.
-func validateEvent(event projectsession.Event) error {
+func validateEvent(event protocol.Event) error {
 	if err := validateEventPayloadFields(event); err != nil {
 		return err
 	}
 	switch event.Kind {
-	case projectsession.EventTurnStarted:
+	case protocol.EventTurnStarted:
 		if event.RequestID == "" ||
-			(event.Source != projectsession.InputTerminal && event.Source != projectsession.InputMobile) ||
-			event.Text == "" || len([]byte(event.Text)) > projectsession.MaxPromptBytes ||
-			event.TurnStatus != projectsession.TurnRunning {
+			(event.Source != protocol.InputTerminal && event.Source != protocol.InputMobile) ||
+			event.Text == "" || len([]byte(event.Text)) > protocol.MaxPromptBytes ||
+			event.TurnStatus != protocol.TurnRunning {
 			return protocolError(CodeInvalidMessage, "invalid turn_started event")
 		}
-	case projectsession.EventTextDelta:
+	case protocol.EventTextDelta:
 		if event.Text == "" {
 			return protocolError(CodeInvalidMessage, "invalid text_delta event")
 		}
@@ -471,9 +462,9 @@ func validateEvent(event projectsession.Event) error {
 // validateEventPayloadFields binds the B2 structured fields to the exact kinds
 // that own them. Every other kind must leave them absent, so a client never has
 // to guess whether a block or an action belongs to the event it is reading.
-func validateEventPayloadFields(event projectsession.Event) error {
+func validateEventPayloadFields(event protocol.Event) error {
 	switch event.Kind {
-	case projectsession.EventContentBlock:
+	case protocol.EventContentBlock:
 		if event.PendingAction != nil || event.Code != "" || len(event.Answers) > 0 {
 			return protocolError(CodeInvalidMessage, "unexpected content_block fields")
 		}
@@ -481,18 +472,18 @@ func validateEventPayloadFields(event projectsession.Event) error {
 			return protocolError(CodeInvalidMessage, "content_block event without a block")
 		}
 		return validateContentBlock(*event.Block)
-	case projectsession.EventActionRequired:
+	case protocol.EventActionRequired:
 		if event.Block != nil || event.Code != "" || len(event.Answers) > 0 {
 			return protocolError(CodeInvalidMessage, "unexpected action_required fields")
 		}
 		if event.PendingAction == nil {
 			return protocolError(CodeInvalidMessage, "action_required event without an action")
 		}
-		if event.TurnStatus != projectsession.TurnWaiting {
+		if event.TurnStatus != protocol.TurnWaiting {
 			return protocolError(CodeInvalidMessage, "action_required must report a waiting turn")
 		}
 		return validatePendingAction(*event.PendingAction, event.RequestID)
-	case projectsession.EventActionResolved:
+	case protocol.EventActionResolved:
 		// The resolution drops the action itself (D47) but may echo the answers
 		// the server just accepted, so every client can show what was answered
 		// even when another client answered it (D52).
@@ -500,7 +491,7 @@ func validateEventPayloadFields(event projectsession.Event) error {
 			return protocolError(CodeInvalidMessage, "unexpected action_resolved fields")
 		}
 		return validateResolvedAnswers(event.Answers)
-	case projectsession.EventUnsupported:
+	case protocol.EventUnsupported:
 		// The safety notice has its own envelope type, so it must never reach a
 		// client as an ordinary event (B2 §4.2).
 		return protocolError(CodeInvalidMessage, "unsupported must not travel as an event")
@@ -516,7 +507,7 @@ func validateEventPayloadFields(event projectsession.Event) error {
 // accepted: one entry per answered question, each naming its question and
 // carrying at least one non-blank value. The echo is the answer, never any part
 // of the tool result, so no other field may travel here.
-func validateResolvedAnswers(answers []projectsession.ResolvedAnswer) error {
+func validateResolvedAnswers(answers []protocol.ResolvedAnswer) error {
 	seen := make(map[string]struct{}, len(answers))
 	for _, answer := range answers {
 		if answer.QuestionID == "" || answer.Question == "" || len(answer.Values) == 0 {
@@ -538,33 +529,33 @@ func validateResolvedAnswers(answers []projectsession.ResolvedAnswer) error {
 // validateContentBlock applies the per-kind field whitelist of B2 §4.2. Anything
 // unknown or incomplete is rejected here instead of being forwarded, because the
 // Adapter is expected to degrade such input to the unsupported notice.
-func validateContentBlock(block projectsession.ContentBlock) error {
+func validateContentBlock(block protocol.ContentBlock) error {
 	if block.ID == "" {
 		return protocolError(CodeInvalidMessage, "content block without an id")
 	}
 	switch block.Kind {
-	case projectsession.BlockThinking:
+	case protocol.BlockThinking:
 		if block.Thinking == "" || block.ToolUseID != "" || block.ToolClass != "" ||
 			block.MCPServer != "" || block.ToolName != "" || block.IsError != nil {
 			return protocolError(CodeInvalidMessage, "invalid thinking block")
 		}
-	case projectsession.BlockToolUse:
+	case protocol.BlockToolUse:
 		if block.ToolUseID == "" || block.ToolName == "" || block.Thinking != "" || block.IsError != nil {
 			return protocolError(CodeInvalidMessage, "invalid tool_use block")
 		}
 		switch block.ToolClass {
-		case projectsession.ToolBuiltin:
+		case protocol.ToolBuiltin:
 			if block.MCPServer != "" {
 				return protocolError(CodeInvalidMessage, "builtin tool must not name an MCP server")
 			}
-		case projectsession.ToolMCP:
+		case protocol.ToolMCP:
 			if block.MCPServer == "" {
 				return protocolError(CodeInvalidMessage, "MCP tool without a server")
 			}
 		default:
 			return protocolError(CodeInvalidMessage, "unknown tool class")
 		}
-	case projectsession.BlockToolResult:
+	case protocol.BlockToolResult:
 		if block.ToolUseID == "" || block.IsError == nil || block.Thinking != "" ||
 			block.ToolClass != "" || block.MCPServer != "" || block.ToolName != "" {
 			return protocolError(CodeInvalidMessage, "invalid tool_result block")
@@ -577,17 +568,17 @@ func validateContentBlock(block projectsession.ContentBlock) error {
 
 // validatePendingAction applies the B2 §4.3 shape, including that an approval
 // never carries questions and a question never carries a tool preview.
-func validatePendingAction(action projectsession.PendingAction, requestID string) error {
+func validatePendingAction(action protocol.PendingAction, requestID string) error {
 	if action.ActionID == "" || action.RequestID == "" || action.RequestID != requestID {
 		return protocolError(CodeInvalidMessage, "pending action correlation mismatch")
 	}
 	switch action.Kind {
-	case projectsession.ActionToolApproval:
+	case protocol.ActionToolApproval:
 		if action.ToolName == "" || len(action.Questions) > 0 {
 			return protocolError(CodeInvalidMessage, "invalid tool_approval action")
 		}
-	case projectsession.ActionAskUserQuestion:
-		if action.ToolName != projectsession.AskUserQuestionToolName || action.Preview != "" || len(action.Questions) == 0 {
+	case protocol.ActionAskUserQuestion:
+		if action.ToolName != protocol.AskUserQuestionToolName || action.Preview != "" || len(action.Questions) == 0 {
 			return protocolError(CodeInvalidMessage, "invalid ask_user_question action")
 		}
 		return validateQuestions(action.Questions)
@@ -597,7 +588,7 @@ func validatePendingAction(action projectsession.PendingAction, requestID string
 	return nil
 }
 
-func validateQuestions(questions []projectsession.Question) error {
+func validateQuestions(questions []protocol.Question) error {
 	seen := make(map[string]struct{}, len(questions))
 	for _, question := range questions {
 		if question.QuestionID == "" || question.Header == "" || question.Question == "" {
@@ -608,7 +599,7 @@ func validateQuestions(questions []projectsession.Question) error {
 		}
 		seen[question.QuestionID] = struct{}{}
 		switch question.InputType {
-		case projectsession.QuestionChoice:
+		case protocol.QuestionChoice:
 			if len(question.Options) == 0 {
 				return protocolError(CodeInvalidMessage, "choice question without options")
 			}
@@ -617,7 +608,7 @@ func validateQuestions(questions []projectsession.Question) error {
 					return protocolError(CodeInvalidMessage, "option without a label")
 				}
 			}
-		case projectsession.QuestionText:
+		case protocol.QuestionText:
 			if len(question.Options) > 0 || question.MultiSelect {
 				return protocolError(CodeInvalidMessage, "text question must not offer options")
 			}

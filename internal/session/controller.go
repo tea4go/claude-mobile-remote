@@ -8,42 +8,30 @@ import (
 	"sync/atomic"
 
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
-// The interaction control vocabulary lives here rather than in model.go because
-// B2 Task 3 owns this file. Transport defines the same wire values, but session
-// must not import transport: the dependency runs transport → session → claude,
-// so the two vocabularies are converted explicitly at the transport boundary.
+// The interaction control vocabulary lives in protocol, the single Go source of
+// truth for the wire contract. The sentinels and the ActionDecision/QuestionAnswer
+// types are aliased here so existing Session callers keep compiling.
 var (
-	// ErrActionNotPending is the single stable answer to any decision that lost
-	// the race: unknown, already resolved, or ended by cancel/stop/failure.
-	ErrActionNotPending = errors.New("action not pending")
-	// ErrInvalidAction reports a resolution that does not fit the action shape.
-	ErrInvalidAction = errors.New("invalid action resolution")
-	// ErrInvalidAnswer reports answers that do not cover the questions exactly.
-	ErrInvalidAnswer = errors.New("invalid question answers")
-	// ErrTurnNotCancellable reports that the named Turn is not the running one.
-	ErrTurnNotCancellable = errors.New("turn not cancellable")
-	// ErrRequestNotQueued reports that the named request is not a FIFO entry.
-	ErrRequestNotQueued = errors.New("request not queued")
+	ErrActionNotPending   = protocol.ErrActionNotPending
+	ErrInvalidAction      = protocol.ErrInvalidAction
+	ErrInvalidAnswer      = protocol.ErrInvalidAnswer
+	ErrTurnNotCancellable = protocol.ErrTurnNotCancellable
+	ErrRequestNotQueued   = protocol.ErrRequestNotQueued
 )
 
-// ActionDecision is the decision a client applies to a tool approval. Question
-// answers carry no decision value and leave it empty.
-type ActionDecision string
+type (
+	ActionDecision = protocol.ActionDecision
+	QuestionAnswer = protocol.QuestionAnswer
+)
 
 const (
-	DecisionAllowOnce    ActionDecision = "allow_once"
-	DecisionAllowSession ActionDecision = "allow_session"
-	DecisionDeny         ActionDecision = "deny"
+	DecisionAllowOnce    = protocol.DecisionAllowOnce
+	DecisionAllowSession = protocol.DecisionAllowSession
+	DecisionDeny         = protocol.DecisionDeny
 )
-
-// QuestionAnswer answers exactly one question of a pending ask_user_question
-// action. Clients address questions by questionId, never by position.
-type QuestionAnswer struct {
-	QuestionID string   `json:"questionId"`
-	Values     []string `json:"values"`
-}
 
 // The deny reasons Claude sees. They explain the outcome without echoing user
 // content, tool input or client identities.
@@ -1300,14 +1288,14 @@ func (c *Controller) removeSubscriber(state *actorState, subscriberID uint64) {
 // so the two views can never disagree (B2 §4.4).
 func (c *Controller) syncQueue(state *actorState) {
 	if len(state.queue) == 0 {
-		state.snapshot.setQueuedRequests(nil)
+		setQueuedRequests(&state.snapshot, nil)
 		return
 	}
 	items := make([]QueuedRequest, 0, len(state.queue))
 	for _, queued := range state.queue {
 		items = append(items, newQueuedRequest(c.config, queued.RequestID, queued.Input))
 	}
-	state.snapshot.setQueuedRequests(items)
+	setQueuedRequests(&state.snapshot, items)
 }
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {

@@ -579,6 +579,27 @@ func TestSessionSDKOptionsSeparateNewAndResume(t *testing.T) {
 	}
 }
 
+func TestSessionSDKOptionsCarryWorkingDirectoryForNewAndResume(t *testing.T) {
+	sessionID := "9c3d7e2a-1b4f-4c5d-8e6a-2f7b9d0c4a11"
+	dir := t.TempDir()
+	host := NewHost(WithCwd(dir))
+
+	for _, test := range []struct {
+		name string
+		mode sessionMode
+	}{
+		{name: "new", mode: sessionModeNew},
+		{name: "resume", mode: sessionModeResume},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			options := claudecode.NewOptions(host.sessionSDKOptions(test.mode, sessionID)...)
+			if options.Cwd == nil || *options.Cwd != dir {
+				t.Fatalf("Cwd = %v, want %q", options.Cwd, dir)
+			}
+		})
+	}
+}
+
 // TestHostResumeReservesExistingID 覆盖设计 §5.2：恢复会话在 Connect 前即持有
 // 已有 ID，首个 init/Result 必须返回同一 ID。
 func TestHostResumeReservesExistingID(t *testing.T) {

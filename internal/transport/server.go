@@ -11,7 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/tea4go/claude-mobile-remote/internal/channel"
 	"github.com/tea4go/claude-mobile-remote/internal/pairing"
-	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 type Authenticator interface {
@@ -28,7 +28,7 @@ type Config struct {
 	// It must stay identical to the value handed to session.WithServiceConfig:
 	// the transport only pre-validates, the Controller still owns the verdict,
 	// so a divergence would surface as a rejection the UI cannot explain.
-	ServiceConfig projectsession.ServiceConfig
+	ServiceConfig protocol.ServiceConfig
 }
 
 func DefaultConfig() Config {
@@ -37,8 +37,8 @@ func DefaultConfig() Config {
 		AllowedOrigins: []string{"http://127.0.0.1:5173", "http://localhost:5173"},
 		AuthTimeout:    5 * time.Second,
 		CloseTimeout:   time.Second,
-		ReadLimit:      int64(projectsession.MaxPromptBytes + 64*1024),
-		ServiceConfig:  projectsession.DefaultServiceConfig(),
+		ReadLimit:      int64(protocol.MaxPromptBytes + 64*1024),
+		ServiceConfig:  protocol.DefaultServiceConfig(),
 	}
 }
 
