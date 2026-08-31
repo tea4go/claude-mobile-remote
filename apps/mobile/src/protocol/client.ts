@@ -99,6 +99,14 @@ export class ProtocolClient {
     return this.stage === 'ready'
   }
 
+  connectionState(): 'connecting' | 'authenticating' | 'subscribing' | 'connected' | 'disconnected' {
+    if (this.socket === null) {
+      return this.generation === 0 ? 'connecting' : 'disconnected'
+    }
+    if (this.stage === 'ready') return 'connected'
+    return this.stage
+  }
+
   connect(): void {
     if (this.socket !== null) return
     this.closedByUser = false

@@ -1,7 +1,7 @@
 # B3 单 Session Remote Server 组件化 · 验证记录
 
-- 关联设计：`docs/superpowers/specs/2026-08-31-B3-single-session-remote-server-design.md`
-- 关联计划：`docs/superpowers/plans/2026-08-31-B3-single-session-remote-server.md`
+- 关联设计：`docs/specs/2026-08-31-B3-single-session-remote-server-design.md`
+- 关联计划：`docs/plans/2026-08-31-B3-single-session-remote-server.md`
 - 关联决策：D39、D42
 
 ## 1. 目标与范围
