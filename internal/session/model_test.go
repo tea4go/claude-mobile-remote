@@ -297,14 +297,14 @@ func TestContentBlockJSONShape(t *testing.T) {
 // views of the FIFO are written from a single place.
 func TestSetQueuedRequestsKeepsDepthConsistent(t *testing.T) {
 	var snapshot Snapshot
-	snapshot.setQueuedRequests([]QueuedRequest{
+	setQueuedRequests(&snapshot, []QueuedRequest{
 		{RequestID: "request-2", Source: InputTerminal, Preview: "one"},
 		{RequestID: "request-3", Source: InputMobile, Preview: "two"},
 	})
 	if snapshot.QueueDepth != len(snapshot.QueuedRequests) || snapshot.QueueDepth != 2 {
 		t.Fatalf("queueDepth = %d, queuedRequests = %d, want both 2", snapshot.QueueDepth, len(snapshot.QueuedRequests))
 	}
-	snapshot.setQueuedRequests(nil)
+	setQueuedRequests(&snapshot, nil)
 	if snapshot.QueueDepth != 0 || len(snapshot.QueuedRequests) != 0 {
 		t.Fatalf("cleared queue = depth %d, list %d, want both 0", snapshot.QueueDepth, len(snapshot.QueuedRequests))
 	}

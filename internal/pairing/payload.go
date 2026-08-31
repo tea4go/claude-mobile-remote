@@ -1,22 +1,11 @@
 package pairing
 
-import (
-	"encoding/json"
-	"time"
-)
+import "github.com/tea4go/claude-mobile-remote/protocol"
 
-const PayloadVersion = 1
+// PayloadVersion is the pairing payload schema version.
+const PayloadVersion = protocol.PayloadVersion
 
 // Payload is the platform-neutral pairing data shown to an authorized user.
-type Payload struct {
-	Version   int       `json:"version"`
-	WSURL     string    `json:"wsUrl"`
-	SessionID string    `json:"sessionId"`
-	PairToken string    `json:"pairToken"`
-	ExpiresAt time.Time `json:"expiresAt"`
-}
-
-// Marshal encodes the pairing payload without logging or decorating it.
-func (p Payload) Marshal() ([]byte, error) {
-	return json.Marshal(p)
-}
+// It is an alias to protocol.Pairing, the single Go source of truth; the Marshal
+// method and JSON tags come from protocol.
+type Payload = protocol.Pairing

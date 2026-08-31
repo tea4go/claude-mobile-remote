@@ -10,12 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tea4go/claude-mobile-remote/internal/channel"
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
 	"github.com/tea4go/claude-mobile-remote/internal/pairing"
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
-	"github.com/tea4go/claude-mobile-remote/internal/transport"
 	"github.com/tea4go/claude-mobile-remote/internal/version"
+	remoteserver "github.com/tea4go/claude-mobile-remote/remote"
 )
 
 type runtimeBuilder func(cliConfig) (sessionController, remoteService, error)
@@ -51,32 +50,32 @@ func buildRuntime(config cliConfig) (sessionController, remoteService, error) {
 		return nil, nil, err
 	}
 	controller := projectsession.NewController(host, projectsession.WithReservedSessionID(reservedID))
+
 	// 桩模式的 Session ID 是固定常量，多个 --fake-host 进程会共用同一个凭证文件，
 	// 因此只有真实 Session 才启用跨重启恢复。
-	var pairingOptions []pairing.Option
+	var pairingFile string
 	if config.fakeHostScenario == "" && reservedID != "" {
-		pairingFile, err := defaultPairingFile(reservedID)
+		pairingFile, err = defaultPairingFile(reservedID)
 		if err != nil {
 			return nil, nil, err
 		}
 		// 已过期的凭证不再能授权任何客户端，启动时顺手清理，避免目录只增不减。
 		_ = pairing.PruneExpired(filepath.Dir(pairingFile), time.Now())
-		pairingOptions = append(pairingOptions, pairing.WithPersistenceFile(pairingFile))
 	}
-	manager, err := pairing.NewManager(config.advertiseURL, config.pairTokenTTL, pairingOptions...)
+
+	remoteServer, err := remoteserver.New(remoteserver.Config{
+		SessionID:              reservedID,
+		Controller:             controller,
+		ListenAddress:          config.listen,
+		AdvertiseURL:           config.advertiseURL,
+		PairTokenTTL:           config.pairTokenTTL,
+		PairingPersistenceFile: pairingFile,
+		AllowedOrigins:         append([]string(nil), config.allowedOrigins...),
+	})
 	if err != nil {
 		return nil, nil, err
 	}
-	registry := channel.NewRegistry()
-	serverConfig := transport.DefaultConfig()
-	serverConfig.ListenAddress = config.listen
-	serverConfig.AllowedOrigins = append([]string(nil), config.allowedOrigins...)
-	server, err := transport.NewServer(serverConfig, manager, registry)
-	if err != nil {
-		return nil, nil, err
-	}
-	remote := newRemoteRuntime(manager, registry, server, controller)
-	return controller, remote, nil
+	return controller, remoteServer, nil
 }
 
 func defaultPairingFile(sessionID string) (string, error) {
@@ -100,15 +99,22 @@ func buildHost(config cliConfig) (projectsession.Host, string, error) {
 		return fake, fake.SessionID(), nil
 	}
 	if config.resumeSessionID != "" {
-		resumed, err := projectclaude.NewHostForResume(config.resumeSessionID)
+		resumed, err := projectclaude.NewHostForResume(config.resumeSessionID, hostOptions(config)...)
 		if err != nil {
 			return nil, "", err
 		}
 		return resumed, config.resumeSessionID, nil
 	}
-	host := projectclaude.NewHost()
+	host := projectclaude.NewHost(hostOptions(config)...)
 	if err := host.PrepareNewSession(); err != nil {
 		return nil, "", err
 	}
 	return host, host.SessionID(), nil
+}
+
+func hostOptions(config cliConfig) []projectclaude.Option {
+	if config.cwd == "" {
+		return nil
+	}
+	return []projectclaude.Option{projectclaude.WithCwd(config.cwd)}
 }

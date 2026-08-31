@@ -3,37 +3,38 @@ package session
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/tea4go/claude-mobile-remote/protocol"
+)
+
+// QueueCapacity is the Session-side FIFO bound. It is internal: no wire field
+// carries it, so it stays here rather than in protocol.
+const QueueCapacity = 32
+
+// MaxPromptBytes, the input vocabulary and the input sentinels are shared with
+// Transport and the CLI, so they live in protocol and are aliased here.
+const MaxPromptBytes = protocol.MaxPromptBytes
+
+type (
+	InputSource = protocol.InputSource
+	Input       = protocol.Input
 )
 
 const (
-	QueueCapacity  = 32
-	MaxPromptBytes = 1024 * 1024
+	InputTerminal = protocol.InputTerminal
+	InputMobile   = protocol.InputMobile
 )
 
 var (
-	ErrInvalidInput       = errors.New("invalid input")
-	ErrQueueFull          = errors.New("input queue full")
-	ErrSessionMismatch    = errors.New("session ID mismatch")
-	ErrSessionUnavailable = errors.New("session unavailable")
-	ErrInternal           = errors.New("internal error")
+	ErrInvalidInput       = protocol.ErrInvalidInput
+	ErrQueueFull          = protocol.ErrQueueFull
+	ErrSessionMismatch    = protocol.ErrSessionMismatch
+	ErrSessionUnavailable = protocol.ErrSessionUnavailable
+	ErrInternal           = protocol.ErrInternal
 )
-
-type InputSource string
-
-const (
-	InputTerminal InputSource = "terminal"
-	InputMobile   InputSource = "mobile"
-)
-
-type Input struct {
-	SessionID string      `json:"sessionId"`
-	Source    InputSource `json:"source"`
-	Text      string      `json:"text"`
-}
 
 type requestIDGenerator func() (string, error)
 

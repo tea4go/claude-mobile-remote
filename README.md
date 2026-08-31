@@ -59,12 +59,26 @@ cd apps/mobile && npm install && npm run dev
 go run ./cmd/claude-mobile-remote
 ```
 
+如需让 Claude 在指定项目目录中运行，可使用 `--cwd`。路径会在启动前解析为绝对路径，并且必须已经存在且是目录；不传时保持使用当前进程工作目录。
+
+```bash
+go run ./cmd/claude-mobile-remote --cwd /Users/zhangym/code/work/my-project
+```
+
 ### 恢复已有会话
 
 用 `--resume <sessionId>` 接续电脑上已经存在的 Claude 会话。`sessionId` 必须是合法 UUID（8-4-4-4-12），Claude 端需存在该会话历史，否则 init 时按 Session 失败处理。恢复后手机配对、订阅与消息收发和新建会话完全一致。
 
 ```bash
 go run ./cmd/claude-mobile-remote --resume <sessionId>
+```
+
+恢复时也可以显式指定原项目目录：
+
+```bash
+go run ./cmd/claude-mobile-remote \
+  --resume <sessionId> \
+  --cwd /Users/zhangym/code/work/my-project
 ```
 
 **恢复 ≠ 接管活跃会话。** `--resume` 只能接续一个当前没有被其他 Claude 进程活跃占用的会话；它不能接管一个正被另一个 Claude Code 进程运行中的会话。每个活跃 Session 始终只有一个 Host 和一个 SDK Client（见 DECISIONS D2 / D39），对活跃会话再开一个 `--resume` Client 属禁止行为，会引发会话冲突。

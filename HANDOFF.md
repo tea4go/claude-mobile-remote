@@ -6,9 +6,26 @@
 
 ## 0. 一句话现状
 
-A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户验收**（2026-08-28，含三批移动端 UI 打磨；真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁（Capacitor iOS/Android 工程 + Web 接入 + 局域网明文放行 + Android 模拟器壳内连通）；服务重启后的配对恢复已闭环。下一步进入 C2 设计。
+A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户验收**（2026-08-28，含三批移动端 UI 打磨；真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁（Capacitor iOS/Android 工程 + Web 接入 + 局域网明文放行 + Android 模拟器壳内连通）；服务重启后的配对恢复已闭环；**B3 已完成并通过门禁**（协议类型下放到 `protocol/`、远程能力抽取为 `remote.Server`）。下一步：W1（依赖 B3）与 C2（依赖 C1+B2，与 B3 无直接依赖）。
 
 ## 当前执行（AI 自动维护）
+
+- **子阶段**：仓库配置维护。
+- **本轮任务**：将 `claude-mobile-remote` CLI 二进制产物加入 `.gitignore`。
+- **通过条件**：`.gitignore` 明确忽略该二进制名称，不影响现有 Go 源码和测试规则。
+- **实际完成项**：已在 Go 二进制忽略区新增 `claude-mobile-remote`。
+- **实际验证**：`git diff --check` 通过；`rg` 确认 `.gitignore` 第 5 行包含精确规则 `claude-mobile-remote`。
+
+- **子阶段**：B3 已收口。本轮完成协议类型下放与单 Session Remote Server 组件化，门禁全绿，证据见 `docs/testing/B3-result.md`。
+- **实际完成项**：
+  1. **`protocol/` 包（新增）**：JSON-bearing 协议类型（Snapshot/Turn/Event/Input/ContentBlock/PendingAction/Question/QuestionAnswer/ActionDecision/ServiceConfig/Pairing/TruncatePreview）的唯一 Go 来源，不依赖任何 internal 包、SDK 或 Transport。
+  2. **`internal/session`/`claude`/`pairing` 改 alias**：`session` 的 `model.go`/`event.go`/`input.go`/`controller.go` 类型与哨兵改 alias 指向 `protocol`；`Snapshot.setQueuedRequests` 方法改包级函数（Go 不能对非本地 alias 定义方法）；`claude.TruncatePreview` 改 delegate，`pairing.Payload` 改 alias。
+  3. **`internal/channel`/`transport` 指向 `protocol`**：Channel 的 `Controller` 接口、Transport 三文件的 payload/snapshot/event 引用改用 `protocol` 类型；**删除 transport 本地 `ActionDecision`/`QuestionAnswer` 副本**，`sessionResolution` 简化为深拷贝。
+  4. **`remote/` 包（新增）**：公共 `Controller`/`Config`/`Server`，`Start` 合并原 `Activate`（注册 Channel + 签发凭证，失败回滚），`Close` 注销 Channel 且从不调用宿主 Controller 的 Start/Stop。
+  5. **`cmd/claude-mobile-remote` 迁移**：`main.go` 改用 `remote.New` 装配；`run.go` 的 `remoteService` 去掉 `Activate`、`Start()` 返回 Pairing、删除「init 后延迟激活」死分支；删除旧 `cmd/claude-mobile-remote/remote.go`。
+- **实际执行的验证及结论**：`gofmt -l .` 无输出；`GOFLAGS=-buildvcs=false go vet ./...` 无输出；`GOFLAGS=-buildvcs=false go test -count=1 ./...` → **10 个包全部 ok**（新增 `protocol`、`remote`）；`git diff --check` 无空白错误。`rg` 核对确认协议 `type X` 定义只出现在 `protocol/`，`internal/session`/`pairing`/`transport` 内均为 alias，transport 本地 `ActionDecision`/`QuestionAnswer` 副本已消除。
+- **未验证项**：真实 Claude 端到端（额度受限，不阻塞）；WhaleTerm W1 接入（B3 只交付公共边界，未实现 WhaleTerm 侧适配）；前端/HarmonyOS（B3 只动 Go 侧，wire contract 不变，未重跑 `npm`）。
+- **未执行**：任何 Git 写操作（仅用只读 `git diff --check`）。
 
 - **子阶段**：B2 已收口。用户于 2026-08-28 反馈「B2 验证已通过」，本轮工作是提交前重跑完整门禁、做敏感信息与产物核对，并把验收结论写入 `docs/testing/B2-result.md`。
 - **提交前门禁（本轮实际执行，全绿）**：`gofmt -l .` 无输出；`GOFLAGS=-buildvcs=false go vet ./...` 无输出；`GOFLAGS=-buildvcs=false go test -count=1 ./...` → 8 个包全部 ok（非缓存）；`cd apps/mobile && npm run test` → 16 文件 **400 passed**；`npm run lint` **0 error**（1 个既有 warning 在 `scripts/cdp-console.mjs`）；`npm run build` 通过（`index-*.js` 490.71 kB / gzip 155.25 kB）。`git diff --check` 无空白错误；`go.mod`/`go.sum`/`apps/mobile/dist` 均未入库；凭证特征扫描仅命中「描述扫描动作的文档文字」与 `fakehost_test.go` 的守卫用例，无真实凭证。
@@ -36,7 +53,7 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 
 ## 1. 当前目标
 
-B2 已整体收口：功能实现（Go 侧协议 v2 与领域模型、SDK Adapter 结构化映射与工具预览、权限回调与 Interaction Broker/取消旁路、假 Host 桩模式、Channel 命令面与 Transport v2 路由、Mobile Web 协议/reducer/结构化 UI 与控制交互）+ 三批移动端交互与视觉打磨均已通过用户验收，结论见 `docs/testing/B2-result.md` §5。下一步进入 C2 设计。
+B2 已整体收口（结论见 `docs/testing/B2-result.md` §5）。B3 已完成并通过门禁：协议类型下放到 `protocol/` 单一 Go 来源、远程能力抽取为可导入的 `remote.Server`，Standalone CLI 行为回归通过（结论见 `docs/testing/B3-result.md`）。下一步：W1（WhaleTerm 接入，依赖 B3）与 C2（扫码/安全存储/多配对列表/真机/VPN/生命周期，依赖 C1+B2，与 B3 无直接依赖）。
 
 ```text
 机器 A：PC 输入 ──> Session Controller ──> Claude
@@ -63,13 +80,13 @@ B2 已整体收口：功能实现（Go 侧协议 v2 与领域模型、SDK Adapte
 ## 3. 文档状态
 
 - 常驻文档均已用户确认：`REQUIREMENTS.md`、`AGENTS.md`、`CLAUDE.md`、`DECISIONS.md`、总体设计、A5.2 后简化路线设计。
-- A1–A6、B1、B2、C1 的分阶段设计与实施计划均已确认并执行；门禁记录见 `docs/testing/`（A1/A2/A3/A4/A5.1/A6/B1/C1 已通过，A5.2 真实 Claude 门禁因额度受限仅部分通过，`A5-result.md` 待补写）。
+- A1–A6、B1、B2、C1、B3 的分阶段设计与实施计划均已确认并执行；门禁记录见 `docs/testing/`（A1/A2/A3/A4/A5.1/A6/B1/C1/B3 已通过，A5.2 真实 Claude 门禁因额度受限仅部分通过，`A5-result.md` 待补写）。
 - 完整逐项状态表（含每个文件路径与当时结论）见 `docs/HANDOFF-archive.md` §8。
-- 业务代码：B1 及之前、B2、C1 均已**本地提交未推送**；后续改动的提交状态以 `git status` 为准。
+- 业务代码：B1 及之前、B2、C1 均已**本地提交未推送**；B3 及后续改动的提交状态以 `git status` 为准。
 
 ## 4. 下一步（仅未闭环项）
 
-1. **进入 C2 设计**（扫码、安全存储、多配对列表、两端真机、VPN 与生命周期）；
+1. **进入 W1 设计**（WhaleTerm 为已持有的单个 Claude Session 启动进程内 Remote Server，依赖 B3 公共边界）与 **C2 设计**（扫码、安全存储、多配对列表、两端真机、VPN 与生命周期）；
 2. 移动端会话列表持久化（`store.ts` 仅内存，刷新即清空）留待 C2；届时需连同硬约束 7、D41 的浏览器存储约束和 `store.test.ts` 的「不写 Storage」护栏一并正面修改，并重新评估是否下发/续期 `expiresAt`（D51 已记原因）；
 3. C1 遗留待办：Origin 默认值是否加入 `http://localhost`（C1-result §7 发现 2），用户决定留待 C2；
 4. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID，并一并补验 B2 的真实 Claude 工具审批端到端；

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -57,6 +58,27 @@ func TestParseConfig(t *testing.T) {
 	}
 	if got.listen != "0.0.0.0:8765" || got.advertiseURL != "ws://100.64.0.10:8765/ws" || got.pairTokenTTL != 15*time.Minute {
 		t.Fatalf("explicit config = %#v", got)
+	}
+}
+
+func TestParseConfigCwd(t *testing.T) {
+	dir := t.TempDir()
+	got, err := parseConfig([]string{"--cwd", dir})
+	if err != nil {
+		t.Fatalf("parseConfig(--cwd) error = %v", err)
+	}
+	if got.cwd != dir {
+		t.Fatalf("cwd = %q, want %q", got.cwd, dir)
+	}
+
+	file := dir + "/file"
+	if err := os.WriteFile(file, []byte("x"), 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	for _, value := range []string{"", dir + "/missing", file} {
+		if _, err := parseConfig([]string{"--cwd", value}); err == nil {
+			t.Fatalf("parseConfig(--cwd %q) error = nil, want rejection", value)
+		}
 	}
 }
 
