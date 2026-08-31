@@ -113,8 +113,18 @@ func buildHost(config cliConfig) (projectsession.Host, string, error) {
 }
 
 func hostOptions(config cliConfig) []projectclaude.Option {
-	if config.cwd == "" {
-		return nil
+	options := make([]projectclaude.Option, 0, 4)
+	if config.cwd != "" {
+		options = append(options, projectclaude.WithCwd(config.cwd))
 	}
-	return []projectclaude.Option{projectclaude.WithCwd(config.cwd)}
+	if config.permissionMode != "" {
+		options = append(options, projectclaude.WithPermissionMode(config.permissionMode))
+	}
+	if config.model != "" {
+		options = append(options, projectclaude.WithModel(config.model))
+	}
+	if config.maxTurns > 0 {
+		options = append(options, projectclaude.WithMaxTurns(config.maxTurns))
+	}
+	return options
 }

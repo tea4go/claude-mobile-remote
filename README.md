@@ -51,41 +51,62 @@ cd apps/mobile && npm install && npm run dev
 
 ## 使用
 
-### 新建会话（默认）
+### 开发版：日常启动
 
-不传 `--resume` 直接启动即新建一个 Claude 会话：CLI 自动生成 UUID 并预分配给 Claude，Connect 成功后、首个 Turn 前在终端输出配对 JSON（二维码数据）。默认只监听 `127.0.0.1:8765`，跨机器时按下方「A6 局域网跨机器联调」补充 `--listen` / `--advertise-url`。
-
-```bash
-go run ./cmd/claude-mobile-remote
-```
-
-启动后终端会同时输出可粘贴的配对 JSON 和 `pairing QR:` 终端二维码。二维码承载现有 `#pair=<Base64URL(JSON)>` Fragment；当前没有原生扫码时，可用二维码读取工具读取内容，再把 Fragment 放到 Mobile Web 地址栏后打开。A6 的 JSON 手动粘贴方式继续可用。
-
-如需让 Claude 在指定项目目录中运行，可使用 `--cwd`。路径会在启动前解析为绝对路径，并且必须已经存在且是目录；不传时保持使用当前进程工作目录。
+日常使用只需要关注会话、工作目录和 Claude 参数。省略 `--resume` 会新建会话；CLI 自动生成 UUID 并预分配给 Claude，Connect 成功后、首个 Turn 前在终端输出配对 JSON 和二维码。
 
 ```bash
-go run ./cmd/claude-mobile-remote --cwd /Users/zhangym/code/work/my-project
+go run ./cmd/claude-mobile-remote \
+  --cwd /Users/zhangym/code/work/my-project \
+  --permission-mode acceptEdits
 ```
 
-### 恢复已有会话
-
-用 `--resume <sessionId>` 接续电脑上已经存在的 Claude 会话。`sessionId` 必须是合法 UUID（8-4-4-4-12），Claude 端需存在该会话历史，否则 init 时按 Session 失败处理。恢复后手机配对、订阅与消息收发和新建会话完全一致。
-
-```bash
-go run ./cmd/claude-mobile-remote --resume <sessionId>
-```
-
-恢复时也可以显式指定原项目目录：
+恢复已有会话：
 
 ```bash
 go run ./cmd/claude-mobile-remote \
   --resume <sessionId> \
-  --cwd /Users/zhangym/code/work/my-project
+  --cwd /Users/zhangym/code/work/my-project \
+  --permission-mode acceptEdits
 ```
+
+常用 Claude 参数包括 `--permission-mode`、`--model` 和 `--max-turns`。不传 `--profile` 时使用 `local`：Remote Server 只监听 `127.0.0.1:8765`，适合本机浏览器。
+
+启动后终端会同时输出可粘贴的配对 JSON 和 `pairing QR:` 终端二维码。二维码承载现有 `#pair=<Base64URL(JSON)>` Fragment；当前没有原生扫码时，可用二维码读取工具读取内容，再把 Fragment 放到 Mobile Web 地址栏后打开。A6 的 JSON 手动粘贴方式继续可用。
+
+`--cwd` 路径会在启动前解析为绝对路径，并且必须已经存在且是目录；不传时使用当前进程工作目录。`--resume <sessionId>` 只能恢复当前没有被其他 Claude 进程活跃占用的会话，不能接管正在运行中的外部 Claude 进程。
 
 **恢复 ≠ 接管活跃会话。** `--resume` 只能接续一个当前没有被其他 Claude 进程活跃占用的会话；它不能接管一个正被另一个 Claude Code 进程运行中的会话。每个活跃 Session 始终只有一个 Host 和一个 SDK Client（见 DECISIONS D2 / D39），对活跃会话再开一个 `--resume` Client 属禁止行为，会引发会话冲突。
 
-## A6 局域网跨机器联调
+### 调试版：模拟器、真机和底层网络排障
+
+远程环境优先使用 profile：
+
+```bash
+# Android 模拟器，固定把 10.0.2.2 解释为宿主机
+go run ./cmd/claude-mobile-remote --profile emulator
+
+# 真机，LAN 和 VPN 统一为 device；多网卡时可覆盖自动选择的地址
+go run ./cmd/claude-mobile-remote \
+  --profile device \
+  --advertise-host 10.88.16.45
+```
+
+`device` 会选择一个非 loopback IPv4 作为二维码中的地址；如果电脑同时连接多个 LAN/VPN，使用 `--advertise-host` 指定手机实际可达的地址。LAN 与 VPN 在 Remote Server 层没有区别，差异只是所选 IP 和网络可达性。
+
+只有需要精确控制网络参数时才使用 `debug` profile 或底层参数：
+
+```bash
+go run ./cmd/claude-mobile-remote \
+  --profile debug \
+  --listen 0.0.0.0:8765 \
+  --advertise-url 'ws://10.0.2.2:8765/ws' \
+  --allowed-origin http://localhost
+```
+
+`--listen` 是服务绑定地址，`--advertise-url` 是二维码写入且客户端实际连接的地址，`--allowed-origin` 是 WebSocket 页面来源白名单。它们属于调试参数，普通开发不需要填写。
+
+### A6 局域网跨机器联调
 
 A6 只验证桌面浏览器跨机器闭环：机器 A 运行 Claude 和 Remote Server，Windows 机器 B 只运行 Mobile Web。两台机器应位于用户信任的同一局域网。
 

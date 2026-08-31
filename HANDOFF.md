@@ -10,6 +10,14 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 
 ## 当前执行（AI 自动维护）
 
+- **子阶段**：CLI 产品化配置改造。
+- **本轮任务**：将普通启动参数收敛为 Session/CWD/Claude 参数；用 `local`、`emulator`、`device`、`debug` profile 区分网络环境，并同步开发版/调试版使用文档。
+- **范围**：LAN 与 VPN 统一为 `device`；保留底层网络参数作为 debug 能力；不改变 Session Host 唯一性、WebSocket 协议、配对负载或 Remote Server 架构。
+- **通过条件**：profile 默认与覆盖规则有测试；`permission-mode` 等常用 Claude 参数传入 SDK；普通/调试命令文档清晰；Go 测试、构建、vet 通过。
+- **实际完成项**：新增 `local`、`emulator`、`device`、`debug` profile；新增 `--advertise-host`、`--permission-mode`、`--model`、`--max-turns`；修正 resume/新建 Host 的 SDK 参数装配顺序；README 已拆分开发版与调试版，设计/计划/验证记录位于 `docs/specs/`、`docs/plans/`、`docs/testing/`。
+- **实际验证**：`cmd/claude-mobile-remote` 与 `internal/claude` 测试通过；`go vet ./...` 与 CLI build 通过；用户已完成开发版、模拟器和真机 `device` profile 验收；全量 Go 测试仍受当前沙箱 loopback 监听限制，真实 Claude live 测试未执行完成。
+- **当前结论**：CLI 日常启动可省略底层网络参数，LAN/VPN 统一由 `device` profile 表达；用户验收通过，准备执行本次提交。
+
 - **子阶段**：C2-A/C2-B 已完成并通过用户验收。
 - **本轮任务**：缩小 CLI 终端二维码的显示尺寸，保持 Pairing Fragment、JSON 输出和二维码内容不变。
 - **范围**：仅调整 `internal/pairing` 的终端渲染方式；不改变协议、配对凭证、服务启动参数或 Mobile Web 行为。

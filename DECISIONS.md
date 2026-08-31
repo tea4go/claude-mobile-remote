@@ -441,3 +441,10 @@
 - **理由**：后端二维码和 Web 刷新/断线/手动重连可以在现有 CLI、桌面浏览器和自动化测试中尽快验证；没有真机时不引入原生实现和额外平台复杂度。安全底线仍遵守硬约束 7，不因简化而把 Token 写入日志、浏览器存储或不受保护文件。
 - **影响**：二维码编码现有 `Pairing` 负载的 `#pair=<Base64URL(JSON)>` Fragment，不新增协议字段或 WebSocket API。CLI 只显示 ANSI/ASCII 二维码，不生成 PNG、不增加 HTTP 二维码接口。浏览器继续不得写 `localStorage`、`sessionStorage` 或 IndexedDB；现有 pairing 文件恢复、过期、`sessionId` 绑定和权限保护保持不变。C2 不接入 WhaleTerm、不接管外部 Claude 进程、不改变三端协议形状。
 - **状态**：已定
+## D55 · CLI 网络 profile 与开发/调试参数分层
+
+- **日期**：2026-08-31
+- **决策**：CLI 普通使用只暴露 Session、CWD 和常用 Claude 参数；Remote Server 网络配置通过 `local`、`emulator`、`device`、`debug` profile 管理。LAN 与 VPN 统一为 `device`，不作为两个产品概念；底层 `--listen`、`--advertise-url`、`--allowed-origin` 保留为 debug/高级覆盖参数。
+- **理由**：LAN 与 VPN 在 Remote Server 层都是客户端直连 PC，只是可达地址和网络前提不同；将二者拆成 profile 会把部署细节暴露给普通用户。默认 `local` 保持 loopback，模拟器使用固定的 `10.0.2.2`，真机 `device` 使用 PC 可达 IPv4 并允许多网卡时显式覆盖。
+- **影响**：README 分为开发版和调试版；CLI 新增 `--profile`、`--advertise-host`、`--permission-mode`、`--model`、`--max-turns`。不自动建立公网 Relay、不创建 daemon、不改变 Session/协议/配对负载；未知 Claude 参数不静默透传。
+- **状态**：已定
