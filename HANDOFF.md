@@ -10,6 +10,24 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 
 ## 当前执行（AI 自动维护）
 
+- **子阶段**：开发者自动化脚本设计。
+- **本轮任务**：参考 Macro-Deck-Client-App 的 macOS/Windows 脚本体系，为新 pull 项目提供安装、环境检查、Web/原生运行、CLI 调试和构建入口。
+- **范围**：新增 `scripts/macos` 与 `scripts/windows` 平台脚本及共享说明；覆盖 `install_1_base_tools`、`install_2_android_sdk`、`check`、`web-dev`、`web-build`、`android-run`、`android-build`，macOS 额外覆盖 `ios-run`、`ios-build`、CLI 启动；不自动开放防火墙、不处理凭证、不改变协议或 WhaleTerm 接入边界。
+- **通过条件**：新用户可从 README 的最短路径开始；脚本具备可重复执行的依赖检查、明确失败提示和参数透传；macOS/Windows 入口语义对齐；脚本静态检查与可执行的 dry-run/check 验证通过。
+- **当前状态**：平台脚本、README 与验证记录已完成；未执行 Git 写操作。
+- **实际完成项**：新增 macOS Bash 与 Windows PowerShell 的共享 helper、环境检查、基础工具安装、Android SDK 安装、Web 开发/构建、CLI、Android live/dist/build 入口；macOS 额外提供 iOS Simulator 运行/构建；README 增加新 pull 三步路径、命令表、排障和安全边界。Android 目标 AVD 通过 serial 绑定，live/dist 恢复环境变量，CLI 日志隐藏参数。
+- **实际验证**：macOS `bash -n`、全部 `--help`、基础 `check`、`check --android` 通过；Capacitor CLI 版本核对通过；Mobile Web 405 个测试、lint、build 通过；`git diff --check` 通过。Go 全量测试受当前沙箱禁止 httptest 绑定本地端口影响，Windows PowerShell parser/实机流程、Android 安装和 iOS Simulator 流程未执行。
+- **当前结论**：脚本实现与文档完成，验证记录见 `docs/testing/developer-automation-scripts-result.md`；下一步由用户在 Windows 及需要的原生设备环境执行平台验收。
+
+- **子阶段**：开发者自动化脚本安装体系重构。
+- **本轮任务**：参照 Macro-Deck-Client-App 的 install_1/install_4 结构，新增基础工具与 Android SDK 实际安装入口，删除重复的 setup 入口并同步 README。
+- **范围**：新增 macOS/Windows `install_1_base_tools` 与 `install_2_android_sdk`；删除对应旧 `setup`；保留 check、Web、Android、iOS、CLI 运行/构建入口；Android 安装组件以当前工程 compileSdk 36 为准，不处理签名、凭证、Claude Service 或 Git 写操作。
+- **通过条件**：安装脚本可重复执行，明确处理 SDK 根目录、Java、sdkmanager、platform-tools、platform 36、build-tools；Windows 可配置用户环境变量，macOS 给出当前终端和持久化配置提示；旧入口不再出现在 README；静态检查与可执行检查通过。
+- **当前状态**：安装脚本已新增，旧 setup 已删除，README/验证记录已同步；正在完成最终静态验证，未执行 Git 写操作。
+- **实际完成项**：新增 macOS/Windows `install_1_base_tools` 与 `install_2_android_sdk`；Android 安装包含 command-line tools、platform-tools、platform 36、build-tools 36、Java 检查和环境变量配置；Windows 写入用户级环境变量，macOS 输出 shell 配置；删除两个旧 setup 脚本。
+- **实际验证**：macOS 新脚本 `bash -n`、帮助、`--check-only` 临时目录检查通过；未在真实 SDK 上重复安装；Windows PowerShell 和真实 Windows 安装流程未执行。
+- **当前结论**：安装体系已按确认方案重构，最终文件清单和限制见 `docs/testing/developer-automation-scripts-result.md`。
+
 - **子阶段**：移动端 Web UI 第二轮可用性修复。
 - **本轮任务**：根据真机截图继续调整普通正文/用户输入字号，扩大抽屉关闭按钮触控区，修复权限/问答命令发送失败后按钮失效，以及为空的工具详情提示。
 - **范围**：仅修改 `apps/mobile` 展示层与客户端命令交互反馈；不改协议字段、服务端语义、配对凭证或三端共用契约。工具结果正文仍遵守不下发边界。
