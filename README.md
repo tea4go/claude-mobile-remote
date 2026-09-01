@@ -31,23 +31,115 @@
 
 ## 快速开始
 
-前提：Go ≥ 1.25 与 Node ≥ 20。
+前提：Go ≥ 1.25 与 Node ≥ 20。新 clone 或 pull 后，从仓库根目录按三步开始：
 
-`go.mod`/`go.sum` 是本机状态（可能含指向本地 SDK 的 `replace`），不入库；仓库提交的是基准 `go.mod.base`。克隆后先恢复：
+1. `install_1_base_tools` 安装/准备 Go、Node/npm 和项目依赖；
+2. 需要原生 Android 时执行 `install_2_android_sdk`，再用 `check` 检查环境；
+3. 选择 Web、Android、iOS 或 CLI 入口开始开发。
+
+### 新 pull 的三步路径
+
+macOS：
 
 ```bash
-cp go.mod.base go.mod && go mod tidy
+bash scripts/macos/install_1_base_tools.sh
+bash scripts/macos/install_2_android_sdk.sh
+bash scripts/macos/check.sh
+bash scripts/macos/web-dev.sh
 ```
 
+Windows PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/windows/install_1_base_tools.ps1
+powershell -ExecutionPolicy Bypass -File scripts/windows/install_2_android_sdk.ps1
+powershell -ExecutionPolicy Bypass -File scripts/windows/check.ps1
+powershell -ExecutionPolicy Bypass -File scripts/windows/web-dev.ps1
+```
+
+`install_2_android_sdk` 会在明确执行时安装 command-line tools、platform-tools、Android platform 36 和 build-tools 36；支持 `--sdk-root`/`-SdkRoot`。不需要 Android 时可跳过该步骤。基础安装只在 `go.mod` 不存在时从 `go.mod.base` 恢复，不覆盖已有本地 `go.mod`；随后执行 `go mod tidy` 和 `npm ci`。
+
+### 平台命令表
+
+| 用途 | macOS | Windows PowerShell |
+| --- | --- | --- |
+| 环境检查 | `bash scripts/macos/check.sh` | `powershell -ExecutionPolicy Bypass -File scripts/windows/check.ps1` |
+| 安装基础工具/依赖 | `bash scripts/macos/install_1_base_tools.sh` | `powershell -ExecutionPolicy Bypass -File scripts/windows/install_1_base_tools.ps1` |
+| 安装 Android SDK | `bash scripts/macos/install_2_android_sdk.sh` | `powershell -ExecutionPolicy Bypass -File scripts/windows/install_2_android_sdk.ps1` |
+| 检查 Android | `bash scripts/macos/check.sh --android` | `powershell -ExecutionPolicy Bypass -File scripts/windows/check.ps1 -Android` |
+| Web 开发 | `bash scripts/macos/web-dev.sh` | `powershell -ExecutionPolicy Bypass -File scripts/windows/web-dev.ps1` |
+| Web 构建 | `bash scripts/macos/web-build.sh` | `powershell -ExecutionPolicy Bypass -File scripts/windows/web-build.ps1` |
+| Android live | `bash scripts/macos/android-run.sh --live` | `powershell -ExecutionPolicy Bypass -File scripts/windows/android-run.ps1 -Live` |
+| Android dist | `bash scripts/macos/android-run.sh --dist` | `powershell -ExecutionPolicy Bypass -File scripts/windows/android-run.ps1 -Dist` |
+| Android Debug 构建 | `bash scripts/macos/android-build.sh` | `powershell -ExecutionPolicy Bypass -File scripts/windows/android-build.ps1` |
+| CLI 启动 | `bash scripts/macos/cli-run.sh --profile local` | `powershell -ExecutionPolicy Bypass -File scripts/windows/cli-run.ps1 --profile local` |
+| iOS Simulator 运行 | `bash scripts/macos/ios-run.sh` | 不提供：Windows 无 Xcode/iOS Simulator 环境 |
+| iOS Simulator 构建 | `bash scripts/macos/ios-build.sh` | 不提供：请在 macOS 上执行 |
+
+### 参数与运行模式
+
+Web 开发默认监听 localhost；需要手机或其他机器访问时显式指定地址和端口：
+
 ```bash
-# Go CLI
+bash scripts/macos/web-dev.sh --host 0.0.0.0 --port 5173
+# Windows：web-dev.ps1 -Host 0.0.0.0 -Port 5173
+```
+
+Web 构建默认依次执行 test、lint、build；仅调试某一步时可使用 `--skip-test`/`--skip-lint`，Windows 对应为 `-SkipTest`/`-SkipLint`。
+
+Android 有两种模式，且必须二选一：
+
+- `--live`/`-Live` 使用 Web 开发服务器，脚本把模拟器访问宿主机的地址设为 `http://10.0.2.2:5173`。需同时保持 `web-dev` 运行；可用 `--port`/`-Port` 修改端口，并可用 `--avd`/`-Avd` 指定模拟器。
+- `--dist`/`-Dist` 先构建 Web，再使用本地构建资源同步 Capacitor 并安装 Debug 包，不依赖正在运行的 Web server。
+
+Android 脚本只负责检查/启动模拟器、同步和安装，不启动 Claude Service。iOS 脚本仅面向 macOS 的 Xcode Simulator，不处理真机签名；Windows 没有 iOS 入口。
+
+CLI 脚本会把剩余参数原样透传给 `go run ./cmd/claude-mobile-remote`，例如：
+
+```bash
+bash scripts/macos/cli-run.sh \
+  --profile device \
+  --cwd /Users/zhangym/code/work/my-project \
+  --permission-mode acceptEdits
+```
+
+脚本不会替用户选择 `--profile`、`--cwd`、`--resume` 或配对参数，也不会把配对凭证写入文件或命令日志。
+
+### 安全边界
+
+这些脚本只编排现有 Go、npm、Capacitor、Gradle、Android SDK 和 Xcode 命令：
+
+- 不开放系统防火墙、不扫描端口、不自动暴露局域网服务；需要跨设备访问时由开发者显式选择 `--host` 和 CLI 网络 profile；
+- 脚本不保存或写入 token、配对 JSON、会话内容、签名文件或 keystore，也不额外回显 CLI 参数中的 token；CLI 正常启动时仍会按产品流程在终端显示配对 JSON/二维码，请勿将其写入日志、截图或问题单；
+- 不覆盖已有 `go.mod`，不执行 `git reset`、`git restore`、`git checkout`、`git add`、`git commit` 或 `git push`；
+- 不启动或托管 Claude Service，Session 生命周期仍由 CLI/宿主负责。
+
+`go.mod`/`go.sum` 是本机状态（可能含指向本地 SDK 的 `replace`），不入库；仓库提交的是基准 `go.mod.base`。依赖变更时只在本地修改 `go.mod`，确认后再由开发者决定是否同步更新 `go.mod.base`。
+
+### 故障排查
+
+- 缺少 Go 或 Node/npm：macOS 可按脚本提示使用 Homebrew；Windows 可按提示使用 `winget` 或 Go、Node.js 官方安装包。脚本不会静默修改 PATH。
+- 缺少 Android SDK、`adb`、模拟器或平台组件：执行 `install_2_android_sdk`（可用 `--sdk-root`/`-SdkRoot` 指定目录），再执行带 Android 选项的 `check`。先用 `emulator -list-avds` 确认存在 AVD。
+- Android live 白屏或连接失败：确认 Web dev server 仍在运行、端口与 `--port`/`-Port` 一致，并确认模拟器使用 `10.0.2.2`；真机不要直接套用该地址，应使用 CLI 的 `device` profile 和手机可达地址。
+- Android dist 仍显示旧页面：重新执行 `android-run --dist`/`-Dist`，确认没有残留的 live server 配置；必要时卸载旧 Debug 包后重装。
+- iOS 命令失败：仅在安装 Xcode 和命令行工具的 macOS 上运行，并先打开目标 Simulator；如果工程切换为 CocoaPods，再按脚本提示安装 CocoaPods。Windows 请改用 Android 或 Web 入口。
+- 脚本检查通过但 CLI 启动失败：保留脚本输出的第一条错误，使用下面的手工命令复现，以便区分 Go、SDK、Claude 配置和网络问题。
+
+脚本不可用时的最小手工诊断命令：
+
+```bash
+cp go.mod.base go.mod  # 仅在 go.mod 不存在时执行
+go mod tidy
 go run ./cmd/claude-mobile-remote -version
-
-# 移动 Web
-cd apps/mobile && npm install && npm run dev
+cd apps/mobile
+npm ci
+npm run test
+npm run lint
+npm run build
+npm run dev
 ```
 
-构建与测试：`go test ./...`、`gofmt -l .`（无输出即通过）、`cd apps/mobile && npm run test && npm run build`。注意 `go vet` / `go build` 需加 `GOFLAGS=-buildvcs=false`（go.mod 不入库的副作用，见 D18）。依赖变更时：本地改 `go.mod`，确认后同步更新 `go.mod.base` 提交。
+构建与测试：`go test ./...`、`gofmt -l .`（无输出即通过）。注意 `go vet` / `go build` 需加 `GOFLAGS=-buildvcs=false`（go.mod 不入库的副作用，见 D18）。
 
 ## 使用
 
