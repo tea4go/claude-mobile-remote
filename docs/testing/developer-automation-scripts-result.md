@@ -23,10 +23,19 @@
 | `cd apps/mobile && npm test && npm run lint && npm run build` | 通过；405 tests，lint 0 error（保留 1 个既有 warning），build 通过 |
 | `git diff --check` | 通过 |
 
+## Windows 实测（PowerShell 5.1）
+
+- 9 个 `.ps1` 补齐 UTF-8 BOM 并通过 5.1 parser；修复七类问题：缺 BOM（5.1 按 GBK 误读中文）、`_common.ps1` 正则转义、`check.ps1` 用 `--version` 检查 go（应为子命令 `go version`）、局部变量 `$home` 与只读 `$HOME` 冲突（改 `$sdkHome`）、`$ErrorActionPreference='Stop'` 下 `2>` 重定向被包装成终止错误（新增 `Invoke-Capture`）、StrictMode 下空 `List[string]` unroll 触发 `PropertyNotFoundStrict`（改 `if ($errors)`）、`Start-AndroidAvd` 冷启动超时 120 秒且 `-WindowStyle Hidden` 隐藏窗口（改 300 秒 + 进度输出）。
+- `check.ps1` 端到端通过（go/node/npm 检出、退出码 0）；`check.ps1 -Android` 通过；`install_1_base_tools.ps1 -ShowHelp` 冒烟通过；`android-run.ps1 -Live` 的 `Require-AndroidEnvironment` 用真实 `ANDROID_HOME` 验证返回 gradle wrapper。
+- Android 模拟器「卡死」根因：默认 virtio-wifi 拉起宿主 `netsimd.exe`（网络模拟守护进程）在本机 `ntdll.dll` access-violation 崩溃（火绒内核驱动 `sysdiag.sys`/`hrwfpdrv.sys` 仍加载，典型 AV 内核 hook），阻塞 QEMU 主循环——WHPX/AEHD/TCG 三加速、两种图形后端、两个模拟器版本、两个镜像「同样卡死、零内核输出」的统一原因。
+- 解决：`_common.ps1` 的 `Start-AndroidAvd` 用 `-feature -Wifi -feature -VirtioWifi` 禁用，android-35（`Phone_API35`）完整启动（`Boot completed in 25844 ms`、`sys.boot_completed=1`、adb `device`、Android 15、netsimd 不再拉起）。
+- `toggle-hypervisor.ps1` 保留 `Emulator`/`Whpx`/`Wsl2`/`Status` 四模式，WHPX 为推荐后端。
+- Android Gradle 构建需 JDK 21–24（Capacitor 8 生成的 `capacitor.build.gradle` 写死 `source/target=Java 21`，Gradle 8.14.3 最高支持 JDK 24）；`JAVA_HOME` 指向 JDK 26 时报 `Unsupported class file major version 70`。`_common.ps1` 新增 `Get-JavaMajor`/`Get-EffectiveJavaHome`/`Resolve-AndroidJdk`，`Require-AndroidEnvironment` 自动改用兼容 JDK（优先 Android Studio 内置 JBR=JDK 21），`check.ps1 -Android` 会提示并自动改选；用 JBR 实测 `assembleDebug` 构建成功。
+
 ## 未执行/限制
 
-- 当前 macOS 没有 `pwsh` 或 Windows PowerShell，因此未执行 Windows parser、`-Help` 和 Windows 实机流程；需在 Windows 环境复核。
-- 未实际启动 Android 模拟器、安装 APK，未运行 iOS Simulator 或 Xcode build。
+- macOS 无 `pwsh`，Windows parser 与实机流程已在真实 Windows（PowerShell 5.1）复核通过（见上文「Windows 实测」）；Windows `-Help` 仅在 `install_1_base_tools.ps1` 冒烟通过，未全量执行。
+- Android 模拟器已启动并完成 Android 15 引导（见上文），但未实际安装 APK；iOS Simulator 与 Xcode build 未执行。
 - `GOFLAGS=-buildvcs=false go test ./...` 触发项目既有测试的环境限制：沙箱禁止 httptest 绑定 `[::1]:0`/`127.0.0.1:0`，失败点在 `cmd/channel-test-client`、`internal/transport`、`remote` 的监听测试，与本次脚本无关。
 - 未执行安装脚本，避免在当前工作区重复运行 `go mod tidy`/`npm ci` 或修改真实 SDK；安装脚本的命令路径已做静态核对。
 

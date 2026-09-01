@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Alias('Help')][switch]$ShowHelp,
   [switch]$Android
 )
@@ -25,7 +25,7 @@ function Check-Tool([string]$Name, [string]$Hint) {
 function Check-Major([string]$Name, [int]$Minimum, [string]$Hint) {
   Check-Tool $Name $Hint
   if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) { return }
-  $line = (& $Name '--version' 2>$null | Select-Object -First 1).ToString()
+  $line = (Invoke-Capture $Name '--version' | Select-Object -First 1).ToString()
   $match = [regex]::Match($line, '(\d+)')
   if (-not $match.Success -or [int]$match.Groups[1].Value -lt $Minimum) {
     Write-Warn "$Name 版本过低：$line；要求主版本 >= $Minimum。"
@@ -33,9 +33,9 @@ function Check-Major([string]$Name, [int]$Minimum, [string]$Hint) {
   } else { Write-Info "$Name 版本满足要求：$line" }
 }
 
-Check-Major 'go' 1 '请从 go.dev 安装 Go 1.25+。'
+Check-Tool 'go' '请从 go.dev 安装 Go 1.25+。'
 if (Get-Command go -ErrorAction SilentlyContinue) {
-  $goLine = (& go version 2>$null | Out-String).Trim()
+  $goLine = (Invoke-Capture 'go' 'version' | Out-String).Trim()
   $goMatch = [regex]::Match($goLine, 'go(\d+)\.(\d+)')
   if ($goMatch.Success -and ([int]$goMatch.Groups[1].Value -lt 1 -or ([int]$goMatch.Groups[1].Value -eq 1 -and [int]$goMatch.Groups[2].Value -lt 25))) {
     Write-Warn "Go 版本低于 1.25：$goLine"; [void]$errors.Add('go version')
@@ -48,6 +48,19 @@ if ($Android) {
   $androidErrors = Test-AndroidEnvironment
   foreach ($message in $androidErrors) { Write-Warn $message; [void]$errors.Add('android') }
   if (-not (Get-GradleWrapper)) { Write-Warn '缺少 Android Gradle wrapper。'; [void]$errors.Add('gradlew') }
+  $jdk = Resolve-AndroidJdk
+  if (-not $jdk) {
+    Write-Warn '未找到兼容的 JDK（需 21–24）。Capacitor 8 要求 Java 21，Gradle 8.14.3 最高支持 JDK 24；请安装 JDK 21（Android Studio 内置 JBR 或 jvms install 21）。'
+    [void]$errors.Add('jdk')
+  } else {
+    $effective = Get-EffectiveJavaHome
+    $major = Get-JavaMajor $effective
+    if ($major -notin 21..24) {
+      Write-Warn "JAVA_HOME 指向 JDK $major（不兼容），脚本将自动改用兼容 JDK：$jdk"
+    } else {
+      Write-Info "Java 版本满足要求：$jdk (JDK $major)"
+    }
+  }
 }
 
 if ($errors.Count -gt 0) { Write-Host "检查未通过：$($errors.Count) 项。可使用 winget、Android Studio 或官方安装包修复。" -ForegroundColor Yellow; exit 1 }

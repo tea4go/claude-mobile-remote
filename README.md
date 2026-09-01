@@ -92,6 +92,8 @@ Android 有两种模式，且必须二选一：
 - `--live`/`-Live` 使用 Web 开发服务器，脚本把模拟器访问宿主机的地址设为 `http://10.0.2.2:5173`。需同时保持 `web-dev` 运行；可用 `--port`/`-Port` 修改端口，并可用 `--avd`/`-Avd` 指定模拟器。
 - `--dist`/`-Dist` 先构建 Web，再使用本地构建资源同步 Capacitor 并安装 Debug 包，不依赖正在运行的 Web server。
 
+当本机存在多个 AVD 时，`-Live`/`-Dist` 需用 `--avd`/`-Avd` 指定要用的模拟器（脚本会列出可用名称，如 `-Avd Phone_API35`）；只有一个 AVD 时可省略。可先 `emulator -list-avds` 查看本机 AVD。
+
 Android 脚本只负责检查/启动模拟器、同步和安装，不启动 Claude Service。iOS 脚本仅面向 macOS 的 Xcode Simulator，不处理真机签名；Windows 没有 iOS 入口。
 
 CLI 脚本会把剩余参数原样透传给 `go run ./cmd/claude-mobile-remote`，例如：

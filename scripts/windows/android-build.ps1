@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$Release,
   [Alias('Help')][switch]$ShowHelp
 )

@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$SkipTest,
   [switch]$SkipLint,
   [Alias('Help')][switch]$ShowHelp

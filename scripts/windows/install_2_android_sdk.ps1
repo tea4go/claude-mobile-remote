@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$SdkRoot,
   [Alias('Help')][switch]$ShowHelp
 )
@@ -31,7 +31,7 @@ if (-not (Test-Path -LiteralPath $cmdline)) {
 }
 if (-not (Test-Path -LiteralPath $cmdline)) { Fail "安装后仍找不到 sdkmanager.bat: $cmdline" }
 Require-Command 'java'
-$java = (& java -version 2>&1 | Out-String)
+$java = (cmd.exe /c 'java -version 2>&1' | Out-String)
 if ($java -notmatch 'version "(1\.)?(1[7-9]|[2-9][0-9])') { Fail '需要 Java 17 或更高版本。' }
 $packages = @('platform-tools', 'platforms;android-36', 'build-tools;36.0.0')
 $yes = Join-Path $env:TEMP ("android-sdk-yes-{0}.txt" -f ([guid]::NewGuid().ToString('N')))

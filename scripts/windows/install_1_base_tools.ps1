@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Alias('Help')][switch]$ShowHelp
 )
 . (Join-Path $PSScriptRoot '_common.ps1')

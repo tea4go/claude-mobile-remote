@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Alias('Help')][switch]$ShowHelp,
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$CliArgs
 )
