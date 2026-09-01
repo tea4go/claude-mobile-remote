@@ -6,6 +6,9 @@ import {
   DRAWER_MASK_STYLE,
   DRAWER_SHEET_STYLE,
   ICON_BUTTON_STYLE,
+  FONT_SIZE_BODY,
+  FONT_SIZE_COMPACT,
+  FONT_SIZE_SECONDARY,
 } from './ui'
 import type { ActionResolution } from '../protocol/client'
 import type { ActionDecision, PendingAction, Question } from '../protocol/types'
@@ -17,9 +20,10 @@ interface PendingActionCardProps {
   // 取消命令是否可发（父组件的单在途命令门控）；为假时关闭按钮禁用，
   // 避免出现「抽屉已收起但取消没发出去」的悬空状态。
   cancelEnabled: boolean
-  onResolve: (resolution: ActionResolution) => void
+  // 返回 false 表示命令未真正写入 WebSocket；此时不能把按钮锁死。
+  onResolve: (resolution: ActionResolution) => boolean | void
   // 显式关闭 = 放弃这一轮，向 Claude 发取消信号（D53）。
-  onCancel: (requestId: string) => void
+  onCancel: (requestId: string) => boolean | void
 }
 
 const BODY_STYLE: CSSProperties = {
@@ -66,7 +70,7 @@ function Drawer({
               flex: 1,
               minWidth: 0,
               textAlign: 'center',
-              fontSize: 15,
+              fontSize: FONT_SIZE_BODY,
               color: '#333',
               wordBreak: 'break-word',
             }}
@@ -85,7 +89,7 @@ function Drawer({
         </div>
         <div data-testid="pending-action-card" style={BODY_STYLE}>
           {/* 关闭语义不直观，直接写明，避免用户把它当成「稍后再说」。 */}
-          <div style={{ fontSize: 12, color: '#8c8c8c' }}>关闭此面板将取消当前 Turn</div>
+          <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>关闭此面板将取消当前 Turn</div>
           {children}
         </div>
       </Popup>
@@ -106,6 +110,7 @@ export default function PendingActionCard({
   // 显式关闭后本地收起。取消成功时父组件会清掉事项并卸载本组件；
   // 若取消被拒绝而事项仍在，下面按 enabled 回升重新弹出，不会留下无法处理的事项。
   const [dismissed, setDismissed] = useState(false)
+  const [submitError, setSubmitError] = useState(false)
   // 按 React “prop 变化时调整 state”模式在渲染期比较上一次的值，
   // 不用 effect，避开多余渲染。
   const [tracked, setTracked] = useState({ actionId: action.actionId, enabled })
@@ -115,36 +120,46 @@ export default function PendingActionCard({
     setSubmitted(false)
     setAnswers({})
     setDismissed(false)
+    setSubmitError(false)
   } else if (tracked.enabled !== enabled) {
     setTracked({ actionId: action.actionId, enabled })
     // enabled 落到假说明命令已在途或连接不可用；恢复时解除本地禁用，
     // 使被拒绝但仍在等待的事项可以重新提交，也把已收起的抽屉重新弹出。
     if (!enabled) setSubmitted(false)
-    else setDismissed(false)
+    else {
+      setDismissed(false)
+      setSubmitError(false)
+    }
   }
 
   const active = enabled && !submitted
   const close = () => {
     if (!cancelEnabled) return
-    setDismissed(true)
-    onCancel(action.requestId)
+    const sent = onCancel(action.requestId)
+    if (sent !== false) setDismissed(true)
+    else setSubmitError(true)
   }
 
   if (action.kind === 'tool_approval') {
     const resolve = (decision: ActionDecision) => {
       if (!active) return
+      const sent = onResolve({ actionId: action.actionId, decision })
+      if (sent === false) {
+        setSubmitError(true)
+        return
+      }
       setSubmitted(true)
-      onResolve({ actionId: action.actionId, decision })
     }
     return (
       <Drawer title="权限请求" visible={!dismissed} canClose={cancelEnabled} onClose={close}>
-        <div style={{ fontSize: 13 }}>Claude 请求使用工具：{action.toolName}</div>
+        {submitError && <SubmitError />}
+        <div style={{ fontSize: FONT_SIZE_SECONDARY }}>Claude 请求使用工具：{action.toolName}</div>
         {/* preview 由服务端按白名单抽取；未下发时只显示工具名，不自行拼接。 */}
         {action.preview !== '' && (
           <div
             data-testid="action-preview"
             style={{
-              fontSize: 12,
+              fontSize: FONT_SIZE_COMPACT,
               color: '#555',
               background: 'rgba(255, 255, 255, 0.7)',
               border: '1px solid rgba(255, 255, 255, 0.8)',
@@ -160,7 +175,7 @@ export default function PendingActionCard({
           <Button
             color="primary"
             size="small"
-            style={COMPACT_BUTTON_STYLE}
+            style={{ ...COMPACT_BUTTON_STYLE, minHeight: 44, paddingInline: 16 }}
             disabled={!active}
             onClick={() => resolve('allow_once')}
           >
@@ -171,7 +186,7 @@ export default function PendingActionCard({
               color="primary"
               fill="outline"
               size="small"
-              style={COMPACT_BUTTON_STYLE}
+              style={{ ...COMPACT_BUTTON_STYLE, minHeight: 44, paddingInline: 16 }}
               disabled={!active}
               onClick={() => resolve('allow_session')}
             >
@@ -182,7 +197,7 @@ export default function PendingActionCard({
             color="danger"
             fill="outline"
             size="small"
-            style={COMPACT_BUTTON_STYLE}
+            style={{ ...COMPACT_BUTTON_STYLE, minHeight: 44, paddingInline: 16 }}
             disabled={!active}
             onClick={() => resolve('deny')}
           >
@@ -215,21 +230,26 @@ export default function PendingActionCard({
       questionId: question.questionId,
       values: valuesOf(question),
     }))
+    const sent = onResolve({ actionId: action.actionId, answers: payload })
+    if (sent === false) {
+      setSubmitError(true)
+      return
+    }
     setSubmitted(true)
-    onResolve({ actionId: action.actionId, answers: payload })
   }
 
   return (
     <Drawer title="需要你的回答" visible={!dismissed} canClose={cancelEnabled} onClose={close}>
+      {submitError && <SubmitError />}
       {action.questions.map((question) => (
         <div key={question.questionId} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div
             data-testid={`question-header-${question.questionId}`}
-            style={{ fontSize: 12, color: '#888' }}
+            style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}
           >
             {question.header}
           </div>
-          <div style={{ fontSize: 14, wordBreak: 'break-word' }}>{question.question}</div>
+          <div style={{ fontSize: FONT_SIZE_BODY, wordBreak: 'break-word' }}>{question.question}</div>
           {question.inputType === 'text' ? (
             <TextArea
               data-testid={`question-text-${question.questionId}`}
@@ -247,9 +267,9 @@ export default function PendingActionCard({
               <Space direction="vertical">
                 {question.options.map((option) => (
                   <Checkbox key={option.label} value={option.label} disabled={!active}>
-                    <span style={{ fontSize: 14 }}>{option.label}</span>
+                    <span style={{ fontSize: FONT_SIZE_BODY }}>{option.label}</span>
                     {option.description !== '' && (
-                      <div style={{ fontSize: 12, color: '#888' }}>{option.description}</div>
+                      <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>{option.description}</div>
                     )}
                   </Checkbox>
                 ))}
@@ -263,9 +283,9 @@ export default function PendingActionCard({
               <Space direction="vertical">
                 {question.options.map((option) => (
                   <Radio key={option.label} value={option.label} disabled={!active}>
-                    <span style={{ fontSize: 14 }}>{option.label}</span>
+                    <span style={{ fontSize: FONT_SIZE_BODY }}>{option.label}</span>
                     {option.description !== '' && (
-                      <div style={{ fontSize: 12, color: '#888' }}>{option.description}</div>
+                      <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>{option.description}</div>
                     )}
                   </Radio>
                 ))}
@@ -277,12 +297,20 @@ export default function PendingActionCard({
       <Button
         color="primary"
         size="small"
-        style={COMPACT_BUTTON_STYLE}
+        style={{ ...COMPACT_BUTTON_STYLE, minHeight: 44, paddingInline: 16 }}
         disabled={!active || !answered}
         onClick={submit}
       >
         提交
       </Button>
     </Drawer>
+  )
+}
+
+function SubmitError() {
+  return (
+    <div data-testid="pending-action-error" style={{ fontSize: FONT_SIZE_COMPACT, color: '#e00' }}>
+      当前连接未就绪，操作未发送，请重试
+    </div>
   )
 }

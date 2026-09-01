@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import { Button, TextArea } from 'antd-mobile'
 import { MAX_TEXT_BYTES } from '../protocol/types'
-import { COMPACT_BUTTON_STYLE } from './ui'
+import { COMPACT_BUTTON_STYLE, FONT_SIZE_COMPACT, FONT_SIZE_BODY } from './ui'
 
 interface MessageComposerProps {
   enabled: boolean
@@ -21,7 +21,7 @@ const SHELL_STYLE: CSSProperties = {
 }
 
 // TextArea 的字号由 CSS 变量控制，行内样式需要断言成 CSSProperties。
-const INPUT_STYLE = { '--font-size': '14px' } as CSSProperties
+const INPUT_STYLE = { '--font-size': FONT_SIZE_BODY } as CSSProperties
 
 const SEND_BUTTON_STYLE: CSSProperties = { ...COMPACT_BUTTON_STYLE, padding: '4px 14px', borderRadius: 14 }
 
@@ -48,7 +48,7 @@ export default function MessageComposer({ enabled, onSend }: MessageComposerProp
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {(oversize && oversizeNow) || oversizeNow ? (
-        <div style={{ fontSize: 12, color: '#e00' }}>文本超出长度上限</div>
+        <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#e00' }}>文本超出长度上限</div>
       ) : null}
       <div style={SHELL_STYLE}>
         <div style={{ flex: 1, minWidth: 0 }}>

@@ -94,6 +94,18 @@ describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
     expect(drawerState()).toBe('closed')
   })
 
+  test('决议命令未实际发出时保留按钮并允许重试', () => {
+    const onResolve = vi.fn(() => false)
+    render(<Card action={approval()} onResolve={onResolve} />)
+
+    const button = screen.getByRole('button', { name: '本次允许' })
+    fireEvent.click(button)
+
+    expect(onResolve).toHaveBeenCalledWith({ actionId: 'act-1', decision: 'allow_once' })
+    expect(button).not.toBeDisabled()
+    expect(screen.getByTestId('pending-action-error')).toHaveTextContent('请重试')
+  })
+
   test('点遮罩不关闭，不会误取消整个 Turn', () => {
     const onCancel = vi.fn()
     render(

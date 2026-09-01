@@ -1,12 +1,18 @@
 import type { CSSProperties } from 'react'
 
+// 应用正文使用 antd-mobile 的字号变量，而不是在组件里写死 px。
+// 这样主题或宿主环境调整字号时，普通内容、辅助信息和控件会一起变化。
+export const FONT_SIZE_BODY = 'var(--adm-font-size-9)'
+export const FONT_SIZE_SECONDARY = 'var(--adm-font-size-7)'
+export const FONT_SIZE_COMPACT = 'var(--adm-font-size-6)'
+
 // 共享视觉常量：按钮尺寸集中一处，避免各组件抄出不一致的内边距与字号。
 // antd-mobile 的默认档按中文字号偏大（17px 字 + 7px 上下内边距），
 // 这里用行内样式覆盖，保持点按区域可用但不再抢视觉。
 
 // 行内次要操作：取消、重命名、审批决议等跟随文字排布的按钮。
 export const COMPACT_BUTTON_STYLE: CSSProperties = {
-  fontSize: 13,
+  fontSize: FONT_SIZE_COMPACT,
   lineHeight: 1.4,
   padding: '4px 12px',
   borderRadius: 6,
@@ -15,7 +21,7 @@ export const COMPACT_BUTTON_STYLE: CSSProperties = {
 // 独占一行的主操作：配对页连接、列表新增配对。比行内按钮高一档，
 // 仍明显小于 antd-mobile 默认档。
 export const BLOCK_BUTTON_STYLE: CSSProperties = {
-  fontSize: 14,
+  fontSize: FONT_SIZE_BODY,
   lineHeight: 1.4,
   padding: '8px 12px',
   borderRadius: 8,
@@ -85,8 +91,8 @@ export const DRAWER_HEADER_STYLE: CSSProperties = {
 
 // 抽屉标题行上的返回/关闭按钮：点按区域 32px，视觉只有一个符号。
 export const ICON_BUTTON_STYLE: CSSProperties = {
-  width: 32,
-  height: 32,
+  width: 44,
+  height: 44,
   flexShrink: 0,
   display: 'flex',
   alignItems: 'center',
@@ -94,7 +100,7 @@ export const ICON_BUTTON_STYLE: CSSProperties = {
   border: 'none',
   background: 'none',
   color: '#333',
-  fontSize: 17,
+  fontSize: 24,
   fontFamily: 'inherit',
   lineHeight: 1,
   cursor: 'pointer',

@@ -7,6 +7,9 @@ import {
   DRAWER_SHEET_STYLE,
   GLASS_PANEL_STYLE,
   ICON_BUTTON_STYLE,
+  FONT_SIZE_BODY,
+  FONT_SIZE_COMPACT,
+  FONT_SIZE_SECONDARY,
 } from './ui'
 
 type ToolUse = Extract<ContentBlock, { kind: 'tool_use' }>
@@ -64,7 +67,7 @@ const SUMMARY_STYLE: CSSProperties = {
   border: 'none',
   background: 'none',
   color: '#8c8c8c',
-  fontSize: 13,
+  fontSize: FONT_SIZE_SECONDARY,
   fontFamily: 'inherit',
   textAlign: 'left',
   cursor: 'pointer',
@@ -83,10 +86,10 @@ const ROW_STYLE: CSSProperties = {
   cursor: 'pointer',
 }
 
-const SECTION_LABEL_STYLE: CSSProperties = { fontSize: 12, color: '#8c8c8c' }
+const SECTION_LABEL_STYLE: CSSProperties = { fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }
 
 const BODY_TEXT_STYLE: CSSProperties = {
-  fontSize: 13,
+  fontSize: FONT_SIZE_SECONDARY,
   color: '#333',
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
@@ -209,10 +212,10 @@ function DrawerHeader({
           gap: 6,
         }}
       >
-        <span style={{ fontSize: 15, color: '#333', wordBreak: 'break-word' }}>{title}</span>
+        <span style={{ fontSize: FONT_SIZE_BODY, color: '#333', wordBreak: 'break-word' }}>{title}</span>
         {status !== undefined && status !== null && (
           <Tag
-            style={{ fontSize: 11, padding: '0 5px', flexShrink: 0 }}
+            style={{ fontSize: FONT_SIZE_COMPACT, padding: '0 5px', flexShrink: 0 }}
             color={STATUS_COLOR[status]}
           >
             {STATUS_LABEL[status]}
@@ -242,15 +245,15 @@ function ActivityRow({ activity, onOpen }: { activity: Activity; onOpen: () => v
     <button type="button" data-testid="activity-row" style={ROW_STYLE} onClick={onOpen}>
       <StatusDot status={status} />
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{ fontSize: 13, color: '#333', wordBreak: 'break-word' }}>
+          <span style={{ fontSize: FONT_SIZE_SECONDARY, color: '#333', wordBreak: 'break-word' }}>
           {titleOf(activity)}
         </span>
         {detail !== '' && (
-          <span style={{ fontSize: 12, color: '#8c8c8c', wordBreak: 'break-word' }}>{detail}</span>
+          <span style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c', wordBreak: 'break-word' }}>{detail}</span>
         )}
       </span>
       {status !== null && (
-        <Tag style={{ fontSize: 11, padding: '0 5px' }} color={STATUS_COLOR[status]}>
+        <Tag style={{ fontSize: FONT_SIZE_COMPACT, padding: '0 5px' }} color={STATUS_COLOR[status]}>
           {STATUS_LABEL[status]}
         </Tag>
       )}
@@ -264,6 +267,10 @@ function ActivityRow({ activity, onOpen }: { activity: Activity; onOpen: () => v
 // 也不用 pre/code 承载正文（B2 §6）。
 function ActivityDetail({ activity }: { activity: Activity }) {
   const input = inputOf(activity)
+  const emptyMessage =
+    activity.kind === 'result'
+      ? '工具结果正文未下发，请在电脑端查看'
+      : '本工具未提供输入预览'
   return (
     <div
       data-testid="activity-detail"
@@ -277,7 +284,13 @@ function ActivityDetail({ activity }: { activity: Activity }) {
     >
       {activity.kind === 'thinking' ? (
         <Section label="内容">
-          <div style={BODY_TEXT_STYLE}>{input}</div>
+          <div style={{ ...BODY_TEXT_STYLE, color: input === '' ? '#8c8c8c' : BODY_TEXT_STYLE.color }}>
+            {input === '' ? '本思考步骤未提供可展示内容' : input}
+          </div>
+        </Section>
+      ) : activity.kind === 'result' ? (
+        <Section label="结果">
+          <div style={{ ...BODY_TEXT_STYLE, color: '#8c8c8c' }}>{emptyMessage}</div>
         </Section>
       ) : (
         <Section label="输入">

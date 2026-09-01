@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button, Card, Input, Tag } from 'antd-mobile'
 import type { SessionLocalStatus, SessionRecord } from '../session/store'
-import { BLOCK_BUTTON_STYLE, COMPACT_BUTTON_STYLE } from './ui'
+import { BLOCK_BUTTON_STYLE, COMPACT_BUTTON_STYLE, FONT_SIZE_COMPACT } from './ui'
 
 interface SessionListProps {
   sessions: SessionRecord[]
@@ -83,14 +83,14 @@ export default function SessionList({
               ) : (
                 <div style={{ fontWeight: 600 }}>{session.name}</div>
               )}
-              <div style={{ fontSize: 12, color: '#888' }}>
+              <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>
                 ID {session.sessionId.slice(0, ID_DIGEST_LENGTH)} · {addressDigest(session.wsUrl)}
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Tag color={session.status === 'needsPairing' ? 'warning' : 'default'}>
                   {STATUS_LABELS[session.status]}
                 </Tag>
-                <span style={{ fontSize: 12, color: '#888' }}>
+                <span style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>
                   {lastConnectedLabel(session.lastConnectedAt)}
                 </span>
               </div>

@@ -221,34 +221,37 @@ function App({
   }, [])
 
   // 待处理事项决议（B2 §5）：与自由文本共用单在途门控与 commandId 语义。
-  const handleResolveAction = useCallback((resolution: ActionResolution) => {
+  const handleResolveAction = useCallback((resolution: ActionResolution): boolean => {
     const client = clientRef.current
-    if (client === null) return
+    if (client === null) return false
     const commandId = generateCommandId()
     const result = client.resolveAction(resolution, commandId)
     if (result.ok) {
       dispatch(actionResolutionSent({ commandId, actionId: resolution.actionId }))
     }
+    return result.ok
   }, [])
 
-  const handleCancelTurn = useCallback((requestId: string) => {
+  const handleCancelTurn = useCallback((requestId: string): boolean => {
     const client = clientRef.current
-    if (client === null) return
+    if (client === null) return false
     const commandId = generateCommandId()
     const result = client.cancelTurn(requestId, commandId)
     if (result.ok) {
       dispatch(turnCancelSent({ commandId, requestId }))
     }
+    return result.ok
   }, [])
 
-  const handleCancelQueued = useCallback((requestId: string) => {
+  const handleCancelQueued = useCallback((requestId: string): boolean => {
     const client = clientRef.current
-    if (client === null) return
+    if (client === null) return false
     const commandId = generateCommandId()
     const result = client.cancelQueued(requestId, commandId)
     if (result.ok) {
       dispatch(queuedCancelSent({ commandId, requestId }))
     }
+    return result.ok
   }, [])
 
   // 返回列表：关闭当前连接并清理详情状态，保留其他内存记录。

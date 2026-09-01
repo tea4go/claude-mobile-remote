@@ -6,9 +6,34 @@
 
 ## 0. 一句话现状
 
-A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户验收**（2026-08-28，含三批移动端 UI 打磨；真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁（Capacitor iOS/Android 工程 + Web 接入 + 局域网明文放行 + Android 模拟器壳内连通）；服务重启后的配对恢复已闭环；**B3 已完成并通过门禁**（协议类型下放到 `protocol/`、远程能力抽取为 `remote.Server`）。下一步：W1（依赖 B3）与 C2（依赖 C1+B2，与 B3 无直接依赖）。
+A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户验收**（2026-08-28，含三批移动端 UI 打磨；真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁（Capacitor iOS/Android 工程 + Web 接入 + 局域网明文放行 + Android 模拟器壳内连通）；服务重启后的配对恢复已闭环；**B3 已完成并通过门禁**（协议类型下放到 `protocol/`、远程能力抽取为 `remote.Server`）；**C2-A/C2-B 已完成并通过用户验收**（终端二维码 + Mobile Web 生命周期）；**CLI 产品化配置改造已完成并通过用户验收**（网络 profile + 常用 Claude 参数）。C2-C（原生扫码/安全存储）与 C2-D（真机/VPN）暂缓。下一步：W1（依赖 B3，已就绪）。
 
 ## 当前执行（AI 自动维护）
+
+- **子阶段**：移动端 Web UI 第二轮可用性修复。
+- **本轮任务**：根据真机截图继续调整普通正文/用户输入字号，扩大抽屉关闭按钮触控区，修复权限/问答命令发送失败后按钮失效，以及为空的工具详情提示。
+- **范围**：仅修改 `apps/mobile` 展示层与客户端命令交互反馈；不改协议字段、服务端语义、配对凭证或三端共用契约。工具结果正文仍遵守不下发边界。
+- **通过条件**：普通文本与用户输入跟随较大的 antd-mobile 字号变量；抽屉关闭按钮具备可靠的移动端触控尺寸；命令只有真正发出后才锁定，发送失败可重试并有提示；工具详情无内容时给出明确说明；测试、lint、build 通过，并完成浏览器/截图复核。
+- **实际完成项**：普通正文与用户输入改为使用 `--adm-font-size-9`；抽屉标题栏关闭/返回按钮扩大为 44×44，审批/问答/提交按钮增加 44px 最小触控高度；命令回调返回发送结果，只有真正写入 WebSocket 后才锁定操作，失败时保留按钮并提示重试；工具结果活动无正文时显示“工具结果正文未下发，请在电脑端查看”，空思考内容也有明确占位。
+- **实际验证**：`cd apps/mobile && npm test` → 16 个文件、405 个测试通过；`npm run lint` 0 error（保留 1 个既有 warning 在 `scripts/cdp-console.mjs`）；`npm run build` 通过；`git diff --check` 通过。已检查用户提供的四张真机截图，尚未在手机热点环境重新人工复测。
+- **当前结论**：本轮仍只修改 Mobile Web 展示与命令失败反馈，不改协议和工具结果脱敏边界；下一步由用户刷新页面后复测普通文本、抽屉按钮和权限/问答操作。
+
+- **子阶段**：移动端 Web UI 可用性修复。
+- **本轮任务**：修复手机浏览器中字号偏小，以及会话详情输入栏随页面内容滚动、无法固定在底部的问题。
+- **范围**：仅调整 `apps/mobile` 的字号继承/antd-mobile 变量使用与详情页视口布局；不改变协议、状态模型、配对凭证或交互语义。
+- **通过条件**：普通正文与抽屉不再被 12–14px 行内样式压缩；字号跟随 antd-mobile 变量；消息区独立滚动且输入栏稳定停留在视口底部；Mobile Web 测试、lint、build 通过。
+- **实际完成项**：详情页改为 `100dvh` 视口高度并隐藏页面级溢出，消息区保持独立滚动；底部输入栏不可被消息内容挤下，并适配 `safe-area-inset-bottom`。新增全局基础样式清除浏览器 body 默认边距并继承 antd-mobile 字体变量；应用内正文、Markdown、抽屉和辅助信息的字号覆盖改为 `--adm-font-size-*` 变量。
+- **实际验证**：`cd apps/mobile && npm test` → 16 个文件、403 个测试通过；`npm run lint` 0 error（保留 1 个既有 `scripts/cdp-console.mjs` warning）；`npm run build` 通过；`git diff --check` 通过。尚未重新进行手机热点真机人工复测。
+- **当前结论**：本轮仅涉及 Mobile Web 展示层，不改变协议、状态、配对或三端共用契约；等待用户在手机浏览器复测字号和底部输入栏。
+
+- **子阶段**：W1 设计。
+- **本轮任务**：规划 WhaleTerm 对已有单个 Claude Session 的进程内 Remote Server 接入，实现不中断任务的远程管理。
+- **范围**：复用 WhaleTerm 已有 Claude Client、Session Controller 和输入队列；不做 CLI 生产级 PTY，不接管普通终端外部 Claude 进程，不创建第二个 SDK Client，不停止宿主 Session。
+- **通过条件**：W1 设计明确宿主适配边界、开启/关闭生命周期、当前 Turn 行为、跨仓库依赖和可执行验收；经用户确认后编写实施计划。
+- **当前结论**：W1 架构设计和实施计划已获用户确认；已切换 WhaleTerm `claude_remote_manage` 分支，Task 1 盘点完成，Task 3 开始。WhaleTerm 当前工作区存在一个用户未跟踪的 `WhaleTerm-Claude功能介绍.html`，保留不动。
+- **本轮已完成**：WhaleTerm 已接入本地 `claude-mobile-remote` 公共模块；新增 `backend/chat/claude_remote_bridge.go` 及聚焦测试，建立单 Session 协议事件 Hub，覆盖 Snapshot、事件 seq、有序发布和错误 Session 隔离。
+- **本轮验证**：`GOFLAGS=-buildvcs=false go test -vet=off ./backend/chat -run 'TestClaudeRemoteEventHub' -count=1` 通过；默认 `go test` 仍被 WhaleTerm 既有 `deepwiki.go`/`gemini.go` 等 vet 错误拦截。
+- **当前缺口**：真实 Claude manager 的 stream、权限、队列、取消和 Session 状态尚未接入 Hub；`remote.Server` 尚未由 WhaleTerm 持有；Wails“远程管理”入口、配对展示和跨仓库人工验收尚未实施。
 
 - **子阶段**：CLI 产品化配置改造。
 - **本轮任务**：将普通启动参数收敛为 Session/CWD/Claude 参数；用 `local`、`emulator`、`device`、`debug` profile 区分网络环境，并同步开发版/调试版使用文档。
@@ -77,7 +102,7 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 
 ## 1. 当前目标
 
-B2 已整体收口（结论见 `docs/testing/B2-result.md` §5）。B3 已完成并通过门禁：协议类型下放到 `protocol/` 单一 Go 来源、远程能力抽取为可导入的 `remote.Server`，Standalone CLI 行为回归通过（结论见 `docs/testing/B3-result.md`）。下一步：W1（WhaleTerm 接入，依赖 B3）与 C2（扫码/安全存储/多配对列表/真机/VPN/生命周期，依赖 C1+B2，与 B3 无直接依赖）。
+B2 已整体收口（结论见 `docs/testing/B2-result.md` §5）。B3 已完成并通过门禁（结论见 `docs/testing/B3-result.md`）：协议类型下放到 `protocol/` 单一 Go 来源、远程能力抽取为可导入的 `remote.Server`。C2-A/C2-B 已完成并通过用户验收（结论见 `docs/testing/C2-result.md`）：后端终端二维码与 Mobile Web 生命周期闭环。CLI 产品化配置改造已完成并通过用户验收（D55，结论见 `docs/testing/cli-productized-config-result.md`）：网络 profile 与常用 Claude 参数分层。下一步进入 W1 设计（WhaleTerm 为已持有的单个 Claude Session 启动进程内 Remote Server，依赖 B3 公共边界）。
 
 ```text
 机器 A：PC 输入 ──> Session Controller ──> Claude
@@ -104,24 +129,25 @@ B2 已整体收口（结论见 `docs/testing/B2-result.md` §5）。B3 已完成
 ## 3. 文档状态
 
 - 常驻文档均已用户确认：`REQUIREMENTS.md`、`AGENTS.md`、`CLAUDE.md`、`DECISIONS.md`、总体设计、A5.2 后简化路线设计。
-- A1–A6、B1、B2、C1、B3 的分阶段设计与实施计划均已确认并执行；门禁记录见 `docs/testing/`（A1/A2/A3/A4/A5.1/A6/B1/C1/B3 已通过，A5.2 真实 Claude 门禁因额度受限仅部分通过，`A5-result.md` 待补写）。
+- A1–A6、B1、B2、C1、B3、C2-A/C2-B、CLI 产品化配置的分阶段设计与实施计划均已确认并执行；门禁记录见 `docs/testing/`（A1/A2/A3/A4/A5.1/A6/B1/C1/B3/C2/cli-productized-config 已通过，A5.2 真实 Claude 门禁因额度受限仅部分通过，`A5-result.md` 待补写）。
 - 完整逐项状态表（含每个文件路径与当时结论）见 `docs/HANDOFF-archive.md` §8。
-- 业务代码：B1 及之前、B2、C1 均已**本地提交未推送**；B3 及后续改动的提交状态以 `git status` 为准。
+- 业务代码：B1 及之前、B2、C1 均已**本地提交未推送**；B3 及后续改动均已本地提交（`110d8e5`、`d9f413d`、`d587ea2`），当前工作区以 `git status` 为准。
 
 ## 4. 下一步（仅未闭环项）
 
-1. **进入 W1 设计**（WhaleTerm 为已持有的单个 Claude Session 启动进程内 Remote Server，依赖 B3 公共边界）与 **C2 设计**（扫码、安全存储、多配对列表、两端真机、VPN 与生命周期）；
-2. 移动端会话列表持久化（`store.ts` 仅内存，刷新即清空）留待 C2；届时需连同硬约束 7、D41 的浏览器存储约束和 `store.test.ts` 的「不写 Storage」护栏一并正面修改，并重新评估是否下发/续期 `expiresAt`（D51 已记原因）；
-3. C1 遗留待办：Origin 默认值是否加入 `http://localhost`（C1-result §7 发现 2），用户决定留待 C2；
-4. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID，并一并补验 B2 的真实 Claude 工具审批端到端；
-5. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
-6. 行内代码当前为 `wordBreak: 'break-all'`，会在任意字符处切断标识符（B1-result §8.3），待确认是否改为 `break-word`；
-7. SDK `WithSessionID` 发布正式版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`。
+1. **进入 W1 设计**（WhaleTerm 为已持有的单个 Claude Session 启动进程内 Remote Server，依赖 B3 公共边界）；
+2. **C2-C（暂缓）**：原生扫码、Keychain/Android Keystore 安全存储、原生多 Session 列表跨重启持久化、前后台恢复；重启时需连同硬约束 7、D41 的浏览器存储约束和 `store.test.ts` 的「不写 Storage」护栏一并正面修改，并重新评估是否下发/续期 `expiresAt`（D51 已记原因）；
+3. **C2-D（暂缓）**：iOS/Android 真机、VPN、本地网络权限、系统杀进程恢复；
+4. C1 遗留待办：Origin 默认值是否加入 `http://localhost`（C1-result §7 发现 2），用户决定留待后续；
+5. 额度恢复后重跑真实 Claude 门禁（`TestLiveReservedSessionIDPreTurn`），补验首轮完成、跨 Turn 上下文和 Resume 同 ID，并一并补验 B2 的真实 Claude 工具审批端到端；
+6. 按需补做 A5.2 重连/resume 人工步骤并补写 `docs/testing/A5-result.md`；
+7. 行内代码当前为 `wordBreak: 'break-all'`，会在任意字符处切断标识符（B1-result §8.3），待确认是否改为 `break-word`；
+8. SDK `WithSessionID` 发布正式版本后，把本地 `replace` 换回正式版本并同步 `go.mod.base`。
 
 ## 5. 首期关键验证
 
-已验证：SDK 生命周期/流式消息/取消、真实 `sessionId` 与二维码时机、Turn 完成后 Session 可继续、终端与手机输入在单一 Controller 串行、snapshot 最小字段、显式 listen/advertise/Origin 支持跨机器访问且保持默认 loopback 边界。
-待验证：手机 VPN、原生扫码、安全存储和前后台恢复（C2 真机阶段）。
+已验证：SDK 生命周期/流式消息/取消、真实 `sessionId` 与二维码时机、Turn 完成后 Session 可继续、终端与手机输入在单一 Controller 串行、snapshot 最小字段、显式 listen/advertise/Origin 支持跨机器访问且保持默认 loopback 边界、后端终端二维码与 Mobile Web 生命周期闭环、CLI 网络 profile 与常用 Claude 参数。
+待验证：手机 VPN、原生扫码、安全存储和前后台恢复（暂缓项 C2-C/C2-D 真机阶段）。
 
 ## 6. 环境与已知事项
 
