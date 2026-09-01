@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Alias('Host')][string]$BindHost = '127.0.0.1',
   [ValidateRange(1, 65535)][int]$Port = 5173,
   [Alias('Help')][switch]$ShowHelp,

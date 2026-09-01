@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$Live,
   [switch]$Dist,
   [string]$Avd,
@@ -12,7 +12,12 @@ if (($Live -and $Dist) -or (-not $Live -and -not $Dist)) { Fail '必须且只能
 Require-Command 'npm'
 $wrapper = Require-AndroidEnvironment
 $configuredAvd = [Environment]::GetEnvironmentVariable('AVD', 'Process')
-$selectedAvd = if ($Avd) { $Avd } elseif ($configuredAvd) { $configuredAvd } else { 'pixel7' }
+$selectedAvd = if ($Avd) { $Avd } elseif ($configuredAvd) { $configuredAvd } else {
+  $avds = Get-AvdNames
+  if (-not $avds) { Fail '未找到任何 AVD。请用 Android Studio 的 Device Manager 创建 AVD 后再运行。' }
+  if ($avds.Count -gt 1) { Fail "检测到多个 AVD，请用 -Avd 明确指定：$($avds -join ', ')。" }
+  $avds[0]
+}
 
 $hadCap = Test-Path Env:CAP_SERVER_URL
 $oldCap = [Environment]::GetEnvironmentVariable('CAP_SERVER_URL', 'Process')
