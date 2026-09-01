@@ -6,7 +6,7 @@
 
 ## 0. 一句话现状
 
-A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户验收**（2026-08-28，含三批移动端 UI 打磨；真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁（Capacitor iOS/Android 工程 + Web 接入 + 局域网明文放行 + Android 模拟器壳内连通）；服务重启后的配对恢复已闭环；**B3 已完成并通过门禁**（协议类型下放到 `protocol/`、远程能力抽取为 `remote.Server`）；**C2-A/C2-B 已完成并通过用户验收**（终端二维码 + Mobile Web 生命周期）；**CLI 产品化配置改造已完成并通过用户验收**（网络 profile + 常用 Claude 参数）。C2-C（原生扫码/安全存储）与 C2-D（真机/VPN）暂缓。下一步：W1（依赖 B3，已就绪）。
+A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户验收**（2026-08-28，含三批移动端 UI 打磨；真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁（Capacitor iOS/Android 工程 + Web 接入 + 局域网明文放行 + Android 模拟器壳内连通）；服务重启后的配对恢复已闭环；**B3 已完成并通过门禁**（协议类型下放到 `protocol/`、远程能力抽取为 `remote.Server`）；**D2 已完成代码层功能拉齐并在主工作区通过 Harmony 编译门禁**；**C2-A/C2-B 已完成并通过用户验收**（终端二维码 + Mobile Web 生命周期）；**CLI 产品化配置改造已完成并通过用户验收**（网络 profile + 常用 Claude 参数）。C2-C（原生扫码/安全存储）与 C2-D（真机/VPN）暂缓。下一步：W1（依赖 B3，已就绪）。
 
 ## 当前执行（AI 自动维护）
 
@@ -17,65 +17,6 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 - **当前状态**：平台脚本、README 与验证记录已完成；未执行 Git 写操作。
 - **实际完成项**：新增 macOS Bash 与 Windows PowerShell 的共享 helper、环境检查、基础工具安装、Android SDK 安装、Web 开发/构建、CLI、Android live/dist/build 入口；macOS 额外提供 iOS Simulator 运行/构建；README 增加新 pull 三步路径、命令表、排障和安全边界。Android 目标 AVD 通过 serial 绑定，live/dist 恢复环境变量，CLI 日志隐藏参数。
 - **实际验证**：macOS `bash -n`、全部 `--help`、基础 `check`、`check --android` 通过；Capacitor CLI 版本核对通过；Mobile Web 405 个测试、lint、build 通过；`git diff --check` 通过。Go 全量测试受当前沙箱禁止 httptest 绑定本地端口影响，Windows PowerShell parser/实机流程、Android 安装和 iOS Simulator 流程未执行。
-- **当前结论**：脚本实现与文档完成，验证记录见 `docs/testing/developer-automation-scripts-result.md`；下一步由用户在 Windows 及需要的原生设备环境执行平台验收。
-
-- **子阶段**：开发者自动化脚本安装体系重构。
-- **本轮任务**：参照 Macro-Deck-Client-App 的 install_1/install_4 结构，新增基础工具与 Android SDK 实际安装入口，删除重复的 setup 入口并同步 README。
-- **范围**：新增 macOS/Windows `install_1_base_tools` 与 `install_2_android_sdk`；删除对应旧 `setup`；保留 check、Web、Android、iOS、CLI 运行/构建入口；Android 安装组件以当前工程 compileSdk 36 为准，不处理签名、凭证、Claude Service 或 Git 写操作。
-- **通过条件**：安装脚本可重复执行，明确处理 SDK 根目录、Java、sdkmanager、platform-tools、platform 36、build-tools；Windows 可配置用户环境变量，macOS 给出当前终端和持久化配置提示；旧入口不再出现在 README；静态检查与可执行检查通过。
-- **当前状态**：安装脚本已新增，旧 setup 已删除，README/验证记录已同步；正在完成最终静态验证，未执行 Git 写操作。
-- **实际完成项**：新增 macOS/Windows `install_1_base_tools` 与 `install_2_android_sdk`；Android 安装包含 command-line tools、platform-tools、platform 36、build-tools 36、Java 检查和环境变量配置；Windows 写入用户级环境变量，macOS 输出 shell 配置；删除两个旧 setup 脚本。
-- **实际验证**：macOS 新脚本 `bash -n`、帮助、`--check-only` 临时目录检查通过；未在真实 SDK 上重复安装；Windows PowerShell 和真实 Windows 安装流程未执行。
-- **当前结论**：安装体系已按确认方案重构，最终文件清单和限制见 `docs/testing/developer-automation-scripts-result.md`。
-
-- **子阶段**：移动端 Web UI 第二轮可用性修复。
-- **本轮任务**：根据真机截图继续调整普通正文/用户输入字号，扩大抽屉关闭按钮触控区，修复权限/问答命令发送失败后按钮失效，以及为空的工具详情提示。
-- **范围**：仅修改 `apps/mobile` 展示层与客户端命令交互反馈；不改协议字段、服务端语义、配对凭证或三端共用契约。工具结果正文仍遵守不下发边界。
-- **通过条件**：普通文本与用户输入跟随较大的 antd-mobile 字号变量；抽屉关闭按钮具备可靠的移动端触控尺寸；命令只有真正发出后才锁定，发送失败可重试并有提示；工具详情无内容时给出明确说明；测试、lint、build 通过，并完成浏览器/截图复核。
-- **实际完成项**：普通正文与用户输入改为使用 `--adm-font-size-9`；抽屉标题栏关闭/返回按钮扩大为 44×44，审批/问答/提交按钮增加 44px 最小触控高度；命令回调返回发送结果，只有真正写入 WebSocket 后才锁定操作，失败时保留按钮并提示重试；工具结果活动无正文时显示“工具结果正文未下发，请在电脑端查看”，空思考内容也有明确占位。
-- **实际验证**：`cd apps/mobile && npm test` → 16 个文件、405 个测试通过；`npm run lint` 0 error（保留 1 个既有 warning 在 `scripts/cdp-console.mjs`）；`npm run build` 通过；`git diff --check` 通过。已检查用户提供的四张真机截图，尚未在手机热点环境重新人工复测。
-- **当前结论**：本轮仍只修改 Mobile Web 展示与命令失败反馈，不改协议和工具结果脱敏边界；下一步由用户刷新页面后复测普通文本、抽屉按钮和权限/问答操作。
-
-- **子阶段**：移动端 Web UI 可用性修复。
-- **本轮任务**：修复手机浏览器中字号偏小，以及会话详情输入栏随页面内容滚动、无法固定在底部的问题。
-- **范围**：仅调整 `apps/mobile` 的字号继承/antd-mobile 变量使用与详情页视口布局；不改变协议、状态模型、配对凭证或交互语义。
-- **通过条件**：普通正文与抽屉不再被 12–14px 行内样式压缩；字号跟随 antd-mobile 变量；消息区独立滚动且输入栏稳定停留在视口底部；Mobile Web 测试、lint、build 通过。
-- **实际完成项**：详情页改为 `100dvh` 视口高度并隐藏页面级溢出，消息区保持独立滚动；底部输入栏不可被消息内容挤下，并适配 `safe-area-inset-bottom`。新增全局基础样式清除浏览器 body 默认边距并继承 antd-mobile 字体变量；应用内正文、Markdown、抽屉和辅助信息的字号覆盖改为 `--adm-font-size-*` 变量。
-- **实际验证**：`cd apps/mobile && npm test` → 16 个文件、403 个测试通过；`npm run lint` 0 error（保留 1 个既有 `scripts/cdp-console.mjs` warning）；`npm run build` 通过；`git diff --check` 通过。尚未重新进行手机热点真机人工复测。
-- **当前结论**：本轮仅涉及 Mobile Web 展示层，不改变协议、状态、配对或三端共用契约；等待用户在手机浏览器复测字号和底部输入栏。
-
-- **子阶段**：W1 设计。
-- **本轮任务**：规划 WhaleTerm 对已有单个 Claude Session 的进程内 Remote Server 接入，实现不中断任务的远程管理。
-- **范围**：复用 WhaleTerm 已有 Claude Client、Session Controller 和输入队列；不做 CLI 生产级 PTY，不接管普通终端外部 Claude 进程，不创建第二个 SDK Client，不停止宿主 Session。
-- **通过条件**：W1 设计明确宿主适配边界、开启/关闭生命周期、当前 Turn 行为、跨仓库依赖和可执行验收；经用户确认后编写实施计划。
-- **当前结论**：W1 架构设计和实施计划已获用户确认；已切换 WhaleTerm `claude_remote_manage` 分支，Task 1 盘点完成，Task 3 开始。WhaleTerm 当前工作区存在一个用户未跟踪的 `WhaleTerm-Claude功能介绍.html`，保留不动。
-- **本轮已完成**：WhaleTerm 已接入本地 `claude-mobile-remote` 公共模块；新增 `backend/chat/claude_remote_bridge.go` 及聚焦测试，建立单 Session 协议事件 Hub，覆盖 Snapshot、事件 seq、有序发布和错误 Session 隔离。
-- **本轮验证**：`GOFLAGS=-buildvcs=false go test -vet=off ./backend/chat -run 'TestClaudeRemoteEventHub' -count=1` 通过；默认 `go test` 仍被 WhaleTerm 既有 `deepwiki.go`/`gemini.go` 等 vet 错误拦截。
-- **当前缺口**：真实 Claude manager 的 stream、权限、队列、取消和 Session 状态尚未接入 Hub；`remote.Server` 尚未由 WhaleTerm 持有；Wails“远程管理”入口、配对展示和跨仓库人工验收尚未实施。
-
-- **子阶段**：CLI 产品化配置改造。
-- **本轮任务**：将普通启动参数收敛为 Session/CWD/Claude 参数；用 `local`、`emulator`、`device`、`debug` profile 区分网络环境，并同步开发版/调试版使用文档。
-- **范围**：LAN 与 VPN 统一为 `device`；保留底层网络参数作为 debug 能力；不改变 Session Host 唯一性、WebSocket 协议、配对负载或 Remote Server 架构。
-- **通过条件**：profile 默认与覆盖规则有测试；`permission-mode` 等常用 Claude 参数传入 SDK；普通/调试命令文档清晰；Go 测试、构建、vet 通过。
-- **实际完成项**：新增 `local`、`emulator`、`device`、`debug` profile；新增 `--advertise-host`、`--permission-mode`、`--model`、`--max-turns`；修正 resume/新建 Host 的 SDK 参数装配顺序；README 已拆分开发版与调试版，设计/计划/验证记录位于 `docs/specs/`、`docs/plans/`、`docs/testing/`。
-- **实际验证**：`cmd/claude-mobile-remote` 与 `internal/claude` 测试通过；`go vet ./...` 与 CLI build 通过；用户已完成开发版、模拟器和真机 `device` profile 验收；全量 Go 测试仍受当前沙箱 loopback 监听限制，真实 Claude live 测试未执行完成。
-- **当前结论**：CLI 日常启动可省略底层网络参数，LAN/VPN 统一由 `device` profile 表达；用户验收通过，准备执行本次提交。
-
-- **子阶段**：C2-A/C2-B 已完成并通过用户验收。
-- **本轮任务**：缩小 CLI 终端二维码的显示尺寸，保持 Pairing Fragment、JSON 输出和二维码内容不变。
-- **范围**：仅调整 `internal/pairing` 的终端渲染方式；不改变协议、配对凭证、服务启动参数或 Mobile Web 行为。
-- **通过条件**：新增回归测试证明终端二维码相较原渲染在宽度和高度上缩小；配对相关测试与 CLI 构建通过。
-- **实际完成项**：终端二维码使用 UTF-8 半块字符渲染，并关闭库内置的四模块外边框；新增回归测试锁定宽度和高度均小于旧渲染，且渲染结果与无边框预期一致。
-- **实际验证**：`go test ./internal/pairing ./protocol ./cmd/claude-mobile-remote -count=1` 通过；`GOFLAGS=-buildvcs=false go build ./cmd/claude-mobile-remote` 通过；`git diff --check` 通过。
-- **当前结论**：CLI 启动参数和二维码承载内容不变，终端显示尺寸进一步缩小；用户已确认 C2 配对、生命周期、重启恢复和二维码验收通过；本次提交尚未执行。
-
-- **子阶段**：C2-A/C2-B 实施完成并通过用户验收。
-- **本轮任务**：W1 暂缓，完成 C2-A 后端终端二维码与现有配对持久化回归、C2-B Mobile Web 刷新/断线/手动重连/可见性状态同步；原生扫码、安全存储、多 Session 原生持久化、真机和 VPN 暂缓。
-- **范围**：不接入 WhaleTerm，不接管外部 Claude 进程，不改变 WebSocket 协议、Session 状态模型或 Pairing JSON 形状；二维码仅做终端 ANSI/ASCII 输出，不生成 PNG、不增加 HTTP 二维码接口。
-- **通过条件**：终端二维码与现有 Pairing Fragment 互操作；pairing 文件行为不回归；Web 刷新/断线/手动重连和可见性边界通过；原生、PNG、HTTP 二维码接口、真机和 VPN 明确记录为暂缓。
-- **实际完成项**：新增 `protocol.EncodePairingFragment`、终端二维码渲染与 CLI `pairing QR:` 输出；新增 Go/TypeScript 互操作测试；`ProtocolClient` 增加连接状态读取，App 增加 `visibilitychange` 状态同步；README 与 `docs/testing/C2-result.md` 已更新。
-- **实际验证**：Go 聚焦测试、CLI 构建、`go vet ./...`、Mobile Web 403 个测试、lint 和 build 通过；全量 Go 测试仅在当前沙箱的既有 httptest/本地监听用例失败（禁止绑定 `[::1]:0` 与 `127.0.0.1:0`），详见 `docs/testing/C2-result.md`。
-- **当前结论**：C2 精简设计已按用户确认提交（`a3e18f2`）；实施计划位于 `docs/plans/2026-08-31-C2-pairing-web-lifecycle-plan.md`，本轮实现与人工验收已完成。
 
 - **子阶段**：仓库配置维护。
 - **本轮任务**：将 `claude-mobile-remote` CLI 二进制产物加入 `.gitignore`。

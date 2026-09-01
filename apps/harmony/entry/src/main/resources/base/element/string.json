@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Claude Mobile Remote Harmony entry module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Entry ability for Claude Mobile Remote Harmony"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Claude Mobile Remote"
+    }
+  ]
+}
