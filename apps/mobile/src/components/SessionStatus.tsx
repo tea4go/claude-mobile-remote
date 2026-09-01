@@ -1,6 +1,7 @@
 import { Tag } from 'antd-mobile'
 import type { ConnectionState } from '../session/reducer'
 import type { ErrorInfo } from '../protocol/types'
+import { FONT_SIZE_COMPACT, FONT_SIZE_SECONDARY } from './ui'
 
 interface SessionStatusProps {
   connection: ConnectionState
@@ -70,7 +71,7 @@ export default function SessionStatus({
         <div
           data-testid="session-terminal-banner"
           style={{
-            fontSize: 13,
+            fontSize: FONT_SIZE_SECONDARY,
             color: '#8a5a00',
             background: '#fff7e6',
             border: '1px solid #ffe0a3',
@@ -82,7 +83,7 @@ export default function SessionStatus({
         </div>
       )}
       {sessionError !== null && (
-        <div style={{ fontSize: 12, color: '#e00' }}>会话错误：{sessionError.message}</div>
+        <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#e00' }}>会话错误：{sessionError.message}</div>
       )}
     </div>
   )

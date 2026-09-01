@@ -1,5 +1,6 @@
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { FONT_SIZE_BODY, FONT_SIZE_SECONDARY } from './ui'
 
 interface MessageMarkdownProps {
   text: string
@@ -20,7 +21,7 @@ const codeBlockStyle: React.CSSProperties = {
   borderRadius: 6,
   overflowX: 'auto',
   whiteSpace: 'pre',
-  fontSize: 12,
+  fontSize: FONT_SIZE_SECONDARY,
   lineHeight: 1.5,
 }
 
@@ -28,7 +29,7 @@ const inlineCodeStyle: React.CSSProperties = {
   padding: '1px 4px',
   background: '#f0f0f0',
   borderRadius: 4,
-  fontSize: 12,
+  fontSize: FONT_SIZE_SECONDARY,
   wordBreak: 'break-all',
 }
 
@@ -70,7 +71,7 @@ const components: Components = {
     ),
   table: ({ children }) => (
     <div style={tableWrapStyle}>
-      <table style={{ borderCollapse: 'collapse', fontSize: 12, background: '#fff' }}>
+      <table style={{ borderCollapse: 'collapse', fontSize: FONT_SIZE_BODY, background: '#fff' }}>
         {children}
       </table>
     </div>

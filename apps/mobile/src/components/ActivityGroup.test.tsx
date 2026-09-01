@@ -41,6 +41,10 @@ function tool(use: ToolUse, result?: ToolResult): Activity {
   return { kind: 'tool', id: use.id, tool: use, ...(result === undefined ? {} : { result }) }
 }
 
+function resultActivity(): Activity {
+  return { kind: 'result', id: 'result-only', toolName: 'Bash', result: toolResult(false) }
+}
+
 function openList() {
   fireEvent.click(screen.getByTestId('activity-group-summary'))
 }
@@ -91,7 +95,7 @@ describe('ActivityGroup：列表行状态（B2 §6）', () => {
   })
 
   test('结果到达后显示成功', () => {
-    render(<ActivityGroup activities={[tool(builtinTool('Bash'), toolResult(false))]} />)
+    render(<ActivityGroup activities={[resultActivity()]} />)
     openList()
     expect(screen.getByText('成功')).toBeInTheDocument()
     expect(screen.queryByText('失败')).not.toBeInTheDocument()
@@ -174,6 +178,14 @@ describe('ActivityGroup：详情抽屉（B2 §6）', () => {
     openList()
     fireEvent.click(screen.getByTestId('activity-row'))
     expect(screen.getByText('本工具未提供输入预览')).toBeInTheDocument()
+  })
+
+  test('工具结果没有正文时显示明确说明', () => {
+    render(<ActivityGroup activities={[resultActivity()]} />)
+    openList()
+    fireEvent.click(screen.getByTestId('activity-row'))
+    expect(screen.getByText('结果')).toBeInTheDocument()
+    expect(screen.getByText('工具结果正文未下发，请在电脑端查看')).toBeInTheDocument()
   })
 
   test('思考详情展示完整正文，且不解析 Markdown 或 HTML', () => {

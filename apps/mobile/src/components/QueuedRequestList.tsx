@@ -1,5 +1,5 @@
 import { Button, Tag } from 'antd-mobile'
-import { COMPACT_BUTTON_STYLE } from './ui'
+import { COMPACT_BUTTON_STYLE, FONT_SIZE_COMPACT, FONT_SIZE_SECONDARY } from './ui'
 import type { QueuedRequest } from '../protocol/types'
 
 interface QueuedRequestListProps {
@@ -23,17 +23,17 @@ export default function QueuedRequestList({
       data-testid="queued-request-list"
       style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
     >
-      <div style={{ fontSize: 12, color: '#888' }}>等待处理的输入</div>
+      <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>等待处理的输入</div>
       {requests.map((request) => (
         <div
           key={request.requestId}
           data-testid="queued-request-item"
           style={{ display: 'flex', gap: 8, alignItems: 'center' }}
         >
-          <Tag color="default" style={{ fontSize: 11, padding: '0 5px' }}>
+          <Tag color="default" style={{ fontSize: FONT_SIZE_COMPACT, padding: '0 5px' }}>
             {request.source === 'terminal' ? '电脑端' : '手机端'}
           </Tag>
-          <span style={{ flex: 1, fontSize: 13, wordBreak: 'break-word' }}>{request.preview}</span>
+          <span style={{ flex: 1, fontSize: FONT_SIZE_SECONDARY, wordBreak: 'break-word' }}>{request.preview}</span>
           <Button
             size="mini"
             fill="outline"

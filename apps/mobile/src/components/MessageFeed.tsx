@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Tag } from 'antd-mobile'
 import MessageMarkdown from './MessageMarkdown'
 import ActivityGroup, { type Activity } from './ActivityGroup'
+import { FONT_SIZE_COMPACT, FONT_SIZE_SECONDARY } from './ui'
 import type { Message } from '../session/reducer'
 
 interface MessageFeedProps {
@@ -152,7 +153,7 @@ export default function MessageFeed({ messages }: MessageFeedProps) {
               <div style={{ background: '#e6f4ff', borderRadius: 8, padding: '8px 12px' }}>
                 {message.text}
               </div>
-              <div style={{ fontSize: 12, color: '#888', textAlign: 'right' }}>
+              <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888', textAlign: 'right' }}>
                 {sourceLabel}
                 {statusLabel}
               </div>
@@ -164,10 +165,10 @@ export default function MessageFeed({ messages }: MessageFeedProps) {
           // 问题与所选取值，不含任何工具结果。
           return (
             <div key={`answer-${index}`} data-testid="answer-echo" style={{ alignSelf: 'stretch' }}>
-              <div style={{ fontSize: 12, color: '#8c8c8c' }}>你的回答</div>
+              <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>你的回答</div>
               {message.answers.map((answer) => (
                 <div key={answer.questionId} style={{ marginTop: 4, wordBreak: 'break-word' }}>
-                  <div style={{ fontSize: 13, color: '#333' }}>
+                  <div style={{ fontSize: FONT_SIZE_SECONDARY, color: '#333' }}>
                     {answer.header === '' ? answer.question : `${answer.header} · ${answer.question}`}
                   </div>
                   <div style={{ marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -186,7 +187,7 @@ export default function MessageFeed({ messages }: MessageFeedProps) {
         // 让正文获得最大展示空间；来源标记压成小灰字。
         return (
           <div key={`message-${index}`} style={{ alignSelf: 'stretch' }}>
-            <div style={{ fontSize: 12, color: '#8c8c8c' }}>Claude</div>
+            <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>Claude</div>
             {message.text !== '' && (
               <div style={{ marginTop: 2, wordBreak: 'break-word' }}>
                 <MessageMarkdown text={message.text} />
@@ -195,7 +196,7 @@ export default function MessageFeed({ messages }: MessageFeedProps) {
             {/* 取消生效与“已请求取消”必须可区分（B2 §7）：此标记只在终态出现。 */}
             {message.status === 'cancelled' && <Tag color="warning">已取消</Tag>}
             {message.status === 'failed' && message.error !== null && (
-              <div style={{ fontSize: 12, color: '#e00' }}>Turn 失败：{message.error.message}</div>
+              <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#e00' }}>Turn 失败：{message.error.message}</div>
             )}
           </div>
         )

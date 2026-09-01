@@ -4,7 +4,12 @@ import MessageFeed from './MessageFeed'
 import PendingActionCard from './PendingActionCard'
 import QueuedRequestList from './QueuedRequestList'
 import SessionStatus from './SessionStatus'
-import { COMPACT_BUTTON_STYLE, GLASS_SURFACE_STYLE, SESSION_BACKGROUND } from './ui'
+import {
+  COMPACT_BUTTON_STYLE,
+  FONT_SIZE_COMPACT,
+  GLASS_SURFACE_STYLE,
+  SESSION_BACKGROUND,
+} from './ui'
 import type { ActionResolution } from '../protocol/client'
 import type { MobileState } from '../session/reducer'
 import type { SessionRecord } from '../session/store'
@@ -19,9 +24,9 @@ interface SessionDetailProps {
   onBack: () => void
   onReconnect: () => void
   onSend: (text: string) => void
-  onResolveAction: (resolution: ActionResolution) => void
-  onCancelTurn: (requestId: string) => void
-  onCancelQueued: (requestId: string) => void
+  onResolveAction: (resolution: ActionResolution) => boolean | void
+  onCancelTurn: (requestId: string) => boolean | void
+  onCancelQueued: (requestId: string) => boolean | void
 }
 
 // 会话详情页（B1）：单个 Session 的状态栏、消息流与输入区。
@@ -50,10 +55,12 @@ export default function SessionDetail({
   return (
     <div
       style={{
+        height: '100dvh',
         minHeight: '100vh',
         background: SESSION_BACKGROUND,
         display: 'flex',
         flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
       {/* 页面整体不滚动（滚动发生在消息流内部），导航栏无需 sticky；
@@ -63,7 +70,7 @@ export default function SessionDetail({
           {record.name}
         </NavBar>
       </div>
-      <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ flexShrink: 0, padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <SessionStatus
           connection={pairingInvalid ? 'disconnected' : state.connection}
           sessionStatus={state.sessionStatus}
@@ -75,7 +82,7 @@ export default function SessionDetail({
         {state.lastNotice !== null && (
           <div
             data-testid="session-notice"
-            style={{ fontSize: 12, color: '#8a5a00' }}
+            style={{ fontSize: FONT_SIZE_COMPACT, color: '#8a5a00' }}
           >
             {state.lastNotice.message}
           </div>
@@ -93,12 +100,14 @@ export default function SessionDetail({
               color="danger"
               style={COMPACT_BUTTON_STYLE}
               disabled={!commandReady}
-              onClick={() => onCancelTurn(cancelTarget)}
+              onClick={() => {
+                onCancelTurn(cancelTarget)
+              }}
             >
               取消当前 Turn
             </Button>
             {/* 发出取消请求不等于已取消（B2 §7）。 */}
-            {cancelRequested && <span style={{ fontSize: 12, color: '#888' }}>已请求取消</span>}
+            {cancelRequested && <span style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>已请求取消</span>}
           </div>
         )}
         {pairingInvalid && <div style={{ color: '#e00' }}>配对已失效，请返回列表重新配对</div>}
@@ -125,11 +134,12 @@ export default function SessionDetail({
       <div
         style={{
           ...GLASS_SURFACE_STYLE,
-          padding: '8px 16px',
+          padding: '8px 16px calc(8px + env(safe-area-inset-bottom))',
           borderTop: '1px solid rgba(15, 23, 42, 0.06)',
           display: 'flex',
           flexDirection: 'column',
           gap: 8,
+          flexShrink: 0,
         }}
       >
         {/* 待处理事项以底部抽屉强呈现（D53）：事项出现即弹出，显式关闭即取消当前 Turn。 */}
