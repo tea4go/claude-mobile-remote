@@ -5,7 +5,7 @@
 )
 
 . (Join-Path $PSScriptRoot '_common.ps1')
-if ($ShowHelp) { Write-Host '用法: .\web-build.ps1 [-SkipTest] [-SkipLint] [-Help]'; exit 0 }
+if ($ShowHelp) { Write-Host '用法: .\4_web_build.ps1 [-SkipTest] [-SkipLint] [-Help]'; exit 0 }
 Require-Command 'npm'
 if (-not $SkipTest) { Invoke-MobileNpm -Arguments @('run', 'test') }
 if (-not $SkipLint) { Invoke-MobileNpm -Arguments @('run', 'lint') }

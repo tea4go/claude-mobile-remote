@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 
 usage() { cat <<'EOF'
-用法：bash scripts/macos/check.sh [选项]
+用法：bash scripts/macos/2_check.sh [选项]
   --android  检查 Android SDK、adb、emulator、sdkmanager 和 Gradle wrapper
   --ios      检查 Xcode Simulator、CocoaPods 和 iOS 工程
   --help     显示帮助

@@ -69,12 +69,12 @@ Write-Host ("已切换到「{0}」。请重启电脑后生效。" -f $desc) -For
 if ($Mode -eq 'Emulator') {
   Write-Host '重启后验证与运行：' -ForegroundColor Yellow
   Write-Host '  .\toggle-hypervisor.ps1 Status'
-  Write-Host '  .\android-run.ps1 -Live -Avd Medium_Phone'
+  Write-Host '  .\3_android_run.ps1 -Live -Avd Medium_Phone'
 } elseif ($Mode -eq 'Whpx') {
   Write-Host '重启后验证与运行：' -ForegroundColor Yellow
   Write-Host '  .\toggle-hypervisor.ps1 Status          # HypervisorPresent=True 且 EnableVirtualizationBasedSecurity=0'
   Write-Host '  emulator -avd Medium_Phone -accel-check   # 应显示 WHPX 可用'
-  Write-Host '  .\android-run.ps1 -Live -Avd Medium_Phone'
+  Write-Host '  .\3_android_run.ps1 -Live -Avd Medium_Phone'
 } else {
   Write-Host '重启后 WSL2（Ubuntu）即可恢复。' -ForegroundColor Yellow
 }

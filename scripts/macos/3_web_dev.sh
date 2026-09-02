@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 usage() { cat <<'EOF'
-用法：bash scripts/macos/web-dev.sh [--host VALUE] [--port VALUE]
+用法：bash scripts/macos/3_web_dev.sh [--host VALUE] [--port VALUE]
 默认仅监听 localhost；需要手机/模拟器访问时显式传 --host 0.0.0.0。
 EOF
 }

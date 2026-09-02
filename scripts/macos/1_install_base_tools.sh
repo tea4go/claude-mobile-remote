@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 
 usage() { cat <<'EOF'
-用法：bash scripts/macos/install_1_base_tools.sh
+用法：bash scripts/macos/1_install_base_tools.sh
   安装/检查 Go、Node.js/npm，并准备项目 Go 与前端依赖。
 EOF
 }

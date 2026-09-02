@@ -2,7 +2,7 @@
   [Alias('Help')][switch]$ShowHelp
 )
 . (Join-Path $PSScriptRoot '_common.ps1')
-if ($ShowHelp) { Write-Host '用法: .\install_1_base_tools.ps1'; exit 0 }
+if ($ShowHelp) { Write-Host '用法: .\1_install_base_tools.ps1'; exit 0 }
 
 foreach ($tool in @('go', 'node', 'npm')) {
   if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
