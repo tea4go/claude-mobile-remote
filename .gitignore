@@ -65,6 +65,9 @@ apps/mobile/android/.gradle/
 apps/mobile/android/build/
 apps/mobile/android/app/build/
 apps/mobile/android/captures/
+# Capacitor 每次 cap sync/update 再生成的 gradle 文件（DO NOT EDIT，不入库）
+apps/mobile/android/capacitor.settings.gradle
+apps/mobile/android/app/capacitor.build.gradle
 
 # 平台签名与描述文件
 *.keystore
