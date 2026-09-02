@@ -64,7 +64,7 @@ bash scripts/macos/3_cli_run.sh --profile device    # 真机调试
 | `--advertise-url` | `ws://127.0.0.1:8765/ws` | 写入二维码且客户端实际连接的地址 |
 | `--advertise-host` | 空 | `device` profile 指定客户端可达 IPv4（高级参数） |
 | `--pair-token-ttl` | `720h`（30 天） | 配对凭证有效期，可收紧 |
-| `--allowed-origin` | `http://127.0.0.1:5173`、`http://localhost:5173` | 额外允许的浏览器 Origin，可重复 |
+| `--allowed-origin` | `http://127.0.0.1:5173`、`http://localhost:5173` | 额外允许的浏览器 Origin，可重复；`emulator` profile 额外内置 `http://localhost` 与 `http://10.0.2.2:5173`（live 默认端口），自定义 Vite 端口时需显式传此 flag |
 | `--resume` | 空 | 恢复已有会话的 session ID（UUID） |
 | `--cwd` | 空 | Claude 会话的工作目录 |
 | `--permission-mode` | 空 | Claude 权限模式：`default`\|`acceptEdits`\|`plan`\|`bypassPermissions` |
@@ -138,7 +138,7 @@ bash scripts/macos/3_android_run.sh --live
 
 要点：
 
-- 模拟器通过 `10.0.2.2` 访问宿主机，live 端口需与 `--port`/`-Port` 一致（默认 5173）。
+- 模拟器通过 `10.0.2.2` 访问宿主机，live 端口需与 `--port`/`-Port` 一致（默认 5173）。`emulator` profile 已放行 `http://10.0.2.2:5173`（live 默认端口），开箱即用；改端口时需给 CLI 加 `--allowed-origin http://10.0.2.2:<端口>`。
 - 本机有多个 AVD 时用 `--avd`/`-Avd` 指定（如 `-Avd Phone_API35`）；只有一个可省略。可用 `emulator -list-avds` 查看。
 
 **build（只构建，不启动模拟器、不安装）**：
@@ -168,7 +168,7 @@ Windows 无 Xcode/iOS Simulator 环境，改用 Android 或 Web 入口。
 
 - **缺少 Go 或 Node/npm**：按脚本提示用 Homebrew（macOS）或 `winget`/官方安装包（Windows）。脚本不静默修改 PATH。
 - **缺少 Android SDK / adb / 模拟器 / 平台组件**：执行 `1_install_android_sdk`，再跑带 Android 选项的 `2_check`（`bash scripts/macos/2_check.sh --android` / `powershell -ExecutionPolicy Bypass -File scripts/windows/2_check.ps1 -Android`）。先用 `emulator -list-avds` 确认存在 AVD。
-- **Android live 白屏或连接失败**：确认 Web dev server 仍在运行、端口与 `--port`/`-Port` 一致，并确认模拟器走 `10.0.2.2`；真机不要套用该地址，改用 CLI 的 `device` profile。
+- **Android live 白屏或连接失败**：确认 Web dev server 仍在运行、端口与 `--port`/`-Port` 一致（默认 5173，`emulator` profile 已放行对应 Origin），并确认模拟器走 `10.0.2.2`；改端口需给 CLI 加 `--allowed-origin http://10.0.2.2:<端口>`。真机不要套用该地址，改用 CLI 的 `device` profile。
 - **Android dist 仍显示旧页面**：重新执行 `3_android_run --dist`/`-Dist`，确认没有残留 live server 配置；必要时卸载旧 Debug 包重装。
 - **iOS 命令失败**：仅在有 Xcode 和命令行工具的 macOS 上运行，并先打开目标 Simulator。
 - **脚本检查通过但 CLI 启动失败**：保留第一条错误，用 [docs/advanced-usage.md](docs/advanced-usage.md) 里的手工命令复现，区分 Go / SDK / Claude 配置 / 网络问题。

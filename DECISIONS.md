@@ -448,3 +448,11 @@
 - **理由**：LAN 与 VPN 在 Remote Server 层都是客户端直连 PC，只是可达地址和网络前提不同；将二者拆成 profile 会把部署细节暴露给普通用户。默认 `local` 保持 loopback，模拟器使用固定的 `10.0.2.2`，真机 `device` 使用 PC 可达 IPv4 并允许多网卡时显式覆盖。
 - **影响**：README 分为开发版和调试版；CLI 新增 `--profile`、`--advertise-host`、`--permission-mode`、`--model`、`--max-turns`。不自动建立公网 Relay、不创建 daemon、不改变 Session/协议/配对负载；未知 Claude 参数不静默透传。
 - **状态**：已定
+
+## D56 · emulator profile 自动放行 live reload 默认端口 Origin
+
+- **日期**：2026-09-02
+- **决策**：`emulator` profile 在已有 `http://localhost`（dist 壳内 Origin）之外，自动把 `http://10.0.2.2:5173`（live reload 页面 Origin，默认 dev server 端口）追加进 `allowedOrigins`；自定义 Vite 端口（≠5173）时仍需显式 `--allowed-origin http://10.0.2.2:<端口>`。
+- **理由**：live reload 下壳内页面从 dev server（`CAP_SERVER_URL=http://10.0.2.2:5173`）加载，Origin 为 `http://10.0.2.2:5173`，精确匹配的 CheckOrigin 此前会拒绝对应的 WebSocket 握手（403），用户须手工补 `--allowed-origin`，命令复杂。`10.0.2.2` 是 Android 模拟器内部 NAT 别名，只指向宿主回环，该 Origin 的页面只可能存在于模拟器内，与 profile 已内置的 `http://localhost` 暴露面同级；不改全局默认白名单，`local`/`device`/`debug` 不受影响。
+- **影响**：`cmd/claude-mobile-remote/config.go` emulator profile 追加一条 Origin；`TestParseConfigProfiles` 断言该 Origin；README 与 HANDOFF 的 live 联调说明简化；`--allowed-origin` 保留为自定义端口逃生门（符合 D55 参数分层）。不改变协议、监听、二维码地址或配对负载。
+- **状态**：已定

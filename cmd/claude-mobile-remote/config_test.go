@@ -71,13 +71,13 @@ func TestParseConfigProfiles(t *testing.T) {
 		profile     string
 		listen      string
 		advertise   string
-		origin      string
+		origins     []string
 		advertiseIP string
 	}{
-		{name: "emulator", args: []string{"--profile", "emulator"}, profile: "emulator", listen: "0.0.0.0:8765", advertise: "ws://10.0.2.2:8765/ws", origin: "http://localhost"},
-		{name: "emulator custom port", args: []string{"--profile", "emulator", "--listen", "0.0.0.0:9000"}, profile: "emulator", listen: "0.0.0.0:9000", advertise: "ws://10.0.2.2:9000/ws", origin: "http://localhost"},
-		{name: "device", args: []string{"--profile", "device", "--advertise-host", "10.88.16.45"}, profile: "device", listen: "0.0.0.0:8765", advertise: "ws://10.88.16.45:8765/ws", origin: "http://localhost", advertiseIP: "10.88.16.45"},
-		{name: "debug", args: []string{"--profile", "debug", "--listen", "127.0.0.1:9000", "--advertise-url", "ws://debug.local:9000/ws", "--allowed-origin", "http://debug.local"}, profile: "debug", listen: "127.0.0.1:9000", advertise: "ws://debug.local:9000/ws", origin: "http://debug.local"},
+		{name: "emulator", args: []string{"--profile", "emulator"}, profile: "emulator", listen: "0.0.0.0:8765", advertise: "ws://10.0.2.2:8765/ws", origins: []string{"http://localhost", "http://10.0.2.2:5173"}},
+		{name: "emulator custom port", args: []string{"--profile", "emulator", "--listen", "0.0.0.0:9000"}, profile: "emulator", listen: "0.0.0.0:9000", advertise: "ws://10.0.2.2:9000/ws", origins: []string{"http://localhost", "http://10.0.2.2:5173"}},
+		{name: "device", args: []string{"--profile", "device", "--advertise-host", "10.88.16.45"}, profile: "device", listen: "0.0.0.0:8765", advertise: "ws://10.88.16.45:8765/ws", origins: []string{"http://localhost"}, advertiseIP: "10.88.16.45"},
+		{name: "debug", args: []string{"--profile", "debug", "--listen", "127.0.0.1:9000", "--advertise-url", "ws://debug.local:9000/ws", "--allowed-origin", "http://debug.local"}, profile: "debug", listen: "127.0.0.1:9000", advertise: "ws://debug.local:9000/ws", origins: []string{"http://debug.local"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -88,8 +88,10 @@ func TestParseConfigProfiles(t *testing.T) {
 			if got.profile != test.profile || got.listen != test.listen || got.advertiseURL != test.advertise {
 				t.Fatalf("profile config = %#v", got)
 			}
-			if !contains(got.allowedOrigins, test.origin) {
-				t.Fatalf("allowed origins = %#v, want %q", got.allowedOrigins, test.origin)
+			for _, origin := range test.origins {
+				if !contains(got.allowedOrigins, origin) {
+					t.Fatalf("allowed origins = %#v, want %q", got.allowedOrigins, origin)
+				}
 			}
 			if test.advertiseIP != "" && got.advertiseHost != test.advertiseIP {
 				t.Fatalf("advertise host = %q, want %q", got.advertiseHost, test.advertiseIP)

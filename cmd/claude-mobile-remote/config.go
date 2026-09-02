@@ -174,6 +174,12 @@ func applyProfile(config *cliConfig, flags *flag.FlagSet) error {
 		if !contains(config.allowedOrigins, "http://localhost") {
 			config.allowedOrigins = append(config.allowedOrigins, "http://localhost")
 		}
+		// live reload 下壳内页面从 dev server 加载，Origin 为 http://10.0.2.2:5173
+		// （10.0.2.2 是模拟器内部 NAT 别名，只指向宿主回环，仅模拟器内可达）。
+		// 自定义 Vite 端口时 profile 无法得知端口，仍需显式 --allowed-origin。
+		if !contains(config.allowedOrigins, "http://10.0.2.2:5173") {
+			config.allowedOrigins = append(config.allowedOrigins, "http://10.0.2.2:5173")
+		}
 	case "device":
 		if !isFlagSet(flags, "listen") {
 			config.listen = "0.0.0.0:8765"
