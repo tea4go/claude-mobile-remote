@@ -4,7 +4,7 @@
 )
 
 . (Join-Path $PSScriptRoot '_common.ps1')
-if ($ShowHelp) { Write-Host '用法: .\cli-run.ps1 [Claude Mobile Remote CLI 参数]'; exit 0 }
+if ($ShowHelp) { Write-Host '用法: .\3_cli_run.ps1 [Claude Mobile Remote CLI 参数]'; exit 0 }
 Require-Command 'go'
 Ensure-GoModule
 Push-Location $script:RepoRoot

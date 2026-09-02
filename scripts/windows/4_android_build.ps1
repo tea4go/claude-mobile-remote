@@ -4,10 +4,10 @@
 )
 
 . (Join-Path $PSScriptRoot '_common.ps1')
-if ($ShowHelp) { Write-Host '用法: .\android-build.ps1 [-Release] [-Help]'; exit 0 }
+if ($ShowHelp) { Write-Host '用法: .\4_android_build.ps1 [-Release] [-Help]'; exit 0 }
 Require-Command 'npm'
 $wrapper = Require-AndroidEnvironment
-& (Join-Path $PSScriptRoot 'web-build.ps1')
+& (Join-Path $PSScriptRoot '4_web_build.ps1')
 if (-not $?) { Fail 'Web 构建失败。' }
 $hadCap = Test-Path Env:CAP_SERVER_URL
 $oldCap = [Environment]::GetEnvironmentVariable('CAP_SERVER_URL', 'Process')

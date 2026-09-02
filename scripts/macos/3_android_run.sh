@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/_common.sh"
 usage() { cat <<'EOF'
-用法：bash scripts/macos/android-run.sh (--live|--dist) [--avd NAME] [--port PORT]
+用法：bash scripts/macos/3_android_run.sh (--live|--dist) [--avd NAME] [--port PORT]
   --live  使用 http://10.0.2.2:PORT 的宿主机 Web dev 资源（需另行启动 Web）
   --dist  使用本地生产构建资源
 EOF
@@ -28,7 +28,7 @@ start_android_avd "$selected_avd" "$emulator_bin" "$adb_bin"
 if [[ "$mode" == live ]]; then
   (cd "$MOBILE_DIR" && CAP_SERVER_URL="http://10.0.2.2:$port" npm exec -- cap sync android)
 else
-  "$SCRIPT_DIR/web-build.sh"
+  "$SCRIPT_DIR/4_web_build.sh"
   (cd "$MOBILE_DIR" && env -u CAP_SERVER_URL npm exec -- cap sync android)
 fi
 (cd "$MOBILE_DIR/android" && ./gradlew installDebug)

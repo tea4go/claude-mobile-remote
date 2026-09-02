@@ -10,14 +10,14 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 
 ## 当前执行（AI 自动维护）
 
-- **子阶段**：开发者自动化脚本设计。
-- **本轮任务**：参考 Macro-Deck-Client-App 的 macOS/Windows 脚本体系，为新 pull 项目提供安装、环境检查、Web/原生运行、CLI 调试和构建入口。
-- **范围**：新增 `scripts/macos` 与 `scripts/windows` 平台脚本及共享说明；覆盖 `install_1_base_tools`、`install_2_android_sdk`、`check`、`web-dev`、`web-build`、`android-run`、`android-build`，macOS 额外覆盖 `ios-run`、`ios-build`、CLI 启动；不自动开放防火墙、不处理凭证、不改变协议或 WhaleTerm 接入边界。
+- **子阶段**：开发者自动化脚本 + 文档重构（README 与脚本命名）。
+- **本轮任务**：参考 Macro-Deck-Client-App 的 macOS/Windows 脚本体系，为新 pull 项目提供安装、环境检查、Web/原生运行、CLI 调试和构建入口；并按执行顺序给脚本文件名加数字前缀（1 安装 / 2 检查 / 3 运行 / 4 构建），重构 README 模块顺序（环境准备 → Server → Web → Android/iOS）。
+- **范围**：新增 `scripts/macos` 与 `scripts/windows` 平台脚本及共享说明；覆盖 `1_install_base_tools`、`1_install_android_sdk`、`2_check`、`3_web_dev`、`4_web_build`、`3_android_run`、`4_android_build`，macOS 额外覆盖 `3_ios_run`、`4_ios_build`、`3_cli_run`；不自动开放防火墙、不处理凭证、不改变协议或 WhaleTerm 接入边界。
 - **通过条件**：新用户可从 README 的最短路径开始；脚本具备可重复执行的依赖检查、明确失败提示和参数透传；macOS/Windows 入口语义对齐；脚本静态检查与可执行的 dry-run/check 验证通过。
-- **当前状态**：平台脚本、README 与验证记录已完成；未执行 Git 写操作。
-- **实际完成项**：新增 macOS Bash 与 Windows PowerShell 的共享 helper、环境检查、基础工具安装、Android SDK 安装、Web 开发/构建、CLI、Android live/dist/build 入口；macOS 额外提供 iOS Simulator 运行/构建；README 增加新 pull 三步路径、命令表、排障和安全边界。Android 目标 AVD 通过 serial 绑定，live/dist 恢复环境变量，CLI 日志隐藏参数。
+- **当前状态**：脚本重命名（10 个 macOS + 8 个 Windows 加数字前缀）、脚本内部调用与全部文档旧名引用已更新；README 已按 环境准备 → Server 服务端 → Web 端 → Android 和 iOS 重构，Server 参数改为表格、Android dist/live 与 iOS 改为表格；未执行 Git 写操作。
+- **实际完成项**：新增 macOS Bash 与 Windows PowerShell 的共享 helper、环境检查、基础工具安装、Android SDK 安装、Web 开发/构建、CLI、Android live/dist/build 入口；macOS 额外提供 iOS Simulator 运行/构建；README 增加新 pull 三步路径、Server 参数表、命令表、排障和安全边界。Android 目标 AVD 通过 serial 绑定，live/dist 恢复环境变量，CLI 日志隐藏参数。脚本文件名统一为 `N_role` 前缀（1=安装、2=检查、3=运行、4=构建），`_common`、`toggle-hypervisor` 为共享/辅助脚本不参与排序；文档（README、advanced-usage、三份 plan/spec、验证记录）中的旧脚本名引用全部更新。
 - **实际验证**：macOS `bash -n`、全部 `--help`、基础 `check`、`check --android` 通过；Capacitor CLI 版本核对通过；Mobile Web 405 个测试、lint、build 通过；`git diff --check` 通过。Go 全量测试受当前沙箱禁止 httptest 绑定本地端口影响，Windows PowerShell parser/实机流程、Android 安装和 iOS Simulator 流程未执行。
-- **当前结论**：脚本实现与文档完成，验证记录见 `docs/testing/developer-automation-scripts-result.md`。Windows 侧已实测闭环（9 个 `.ps1` 补 UTF-8 BOM 并修复七类 PowerShell 5.1 解析/StrictMode/启动超时问题，`check.ps1` 端到端通过）；Android 模拟器「卡死」根因已定位并解决（默认 virtio-wifi 拉起宿主 `netsimd.exe` 崩溃阻塞 QEMU，WHPX/AEHD/TCG 一律卡死），`_common.ps1` 的 `Start-AndroidAvd` 已用 `-feature -Wifi -feature -VirtioWifi` 禁用，android-35 完整启动（adb `device`、`sys.boot_completed=1`）。WHPX 为推荐后端，`toggle-hypervisor.ps1` 保留四模式。Android 构建需 JDK 21–24，`_common.ps1` 的 `Require-AndroidEnvironment` 会自动选用兼容 JDK（优先 Android Studio JBR=JDK 21）。
+- **当前结论**：脚本实现与文档完成，验证记录见 `docs/testing/developer-automation-scripts-result.md`。Windows 侧已实测闭环（9 个 `.ps1` 补 UTF-8 BOM 并修复七类 PowerShell 5.1 解析/StrictMode/启动超时问题，`2_check.ps1` 端到端通过）；Android 模拟器「卡死」根因已定位并解决（默认 virtio-wifi 拉起宿主 `netsimd.exe` 崩溃阻塞 QEMU，WHPX/AEHD/TCG 一律卡死），`_common.ps1` 的 `Start-AndroidAvd` 已用 `-feature -Wifi -feature -VirtioWifi` 禁用，android-35 完整启动（adb `device`、`sys.boot_completed=1`）。WHPX 为推荐后端，`toggle-hypervisor.ps1` 保留四模式。Android 构建需 JDK 21–24，`_common.ps1` 的 `Require-AndroidEnvironment` 会自动选用兼容 JDK（优先 Android Studio JBR=JDK 21）。
 
 - **子阶段**：仓库配置维护。
 - **本轮任务**：将 `claude-mobile-remote` CLI 二进制产物加入 `.gitignore`。

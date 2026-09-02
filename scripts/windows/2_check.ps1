@@ -6,7 +6,7 @@
 . (Join-Path $PSScriptRoot '_common.ps1')
 
 function Show-Usage {
-  Write-Host '用法: .\check.ps1 [-Android] [-Help]'
+  Write-Host '用法: .\2_check.ps1 [-Android] [-Help]'
   Write-Host '  -Android  额外检查 Android SDK、adb、emulator 和项目 SDK 组件。'
   Write-Host '  -Help     显示帮助。'
 }

@@ -67,8 +67,11 @@ function Invoke-MobileCommand {
     [Parameter(Mandatory = $true)][string]$Command,
     [object[]]$Arguments = @()
   )
-  if (-not (Test-Path -LiteralPath $script:MobileRoot)) { Fail "找不到 Mobile 项目: $script:MobileRoot" }
-  Push-Location $script:MobileRoot
+  # $Command 是 gradle wrapper（apps/mobile/android/gradlew.bat）的完整路径，Gradle 工程根目录是 wrapper 所在目录，
+  # 而非 apps/mobile。必须从该目录执行，否则 Gradle 会报 "does not contain a Gradle build"。
+  $dir = Split-Path -Parent $Command
+  if (-not (Test-Path -LiteralPath $dir)) { Fail "找不到 Android 工程目录: $dir" }
+  Push-Location $dir
   try { Invoke-External -FilePath $Command -Arguments $Arguments }
   finally { Pop-Location }
 }
@@ -220,7 +223,8 @@ function Start-AndroidAvd([string]$AvdName) {
   if ($serial) { $env:ANDROID_SERIAL = $serial; return }
   Write-Info "启动 Android AVD: $AvdName"
   # 禁用 Wifi/virtio-wifi 以避免 emulator 的 netsimd.exe（网络模拟守护进程）崩溃挂死 guest CPU——本机 netsimd 在 ntdll.dll 访问违规，会阻塞 QEMU 主循环导致内核永不启动
-  $proc = Start-Process -FilePath $emulator -ArgumentList @('-avd', $AvdName, '-feature', '-Wifi', '-feature', '-VirtioWifi') -PassThru
+  # -no-snapshot：跳过 quickboot 快照加载，强制冷启动。本机残留快照（在禁用 Wifi 前/崩溃态保存）加载后 guest 会卡死在 offline，adb 永远等不到 boot_completed。
+  $proc = Start-Process -FilePath $emulator -ArgumentList @('-avd', $AvdName, '-feature', '-Wifi', '-feature', '-VirtioWifi', '-no-snapshot') -PassThru
   $ready = $false
   $start = Get-Date
   $deadline = $start.AddMinutes(5)
@@ -254,4 +258,37 @@ function Get-AvdSerial([string]$Adb, [string]$AvdName) {
     }
   }
   return $null
+}
+
+# 从 apps/mobile/android/app/build.gradle 读取 applicationId（App 包名）。
+function Get-AndroidAppId {
+  $buildGradle = Join-Path $script:MobileRoot 'android\app\build.gradle'
+  if (-not (Test-Path -LiteralPath $buildGradle)) { return $null }
+  $content = Get-Content -LiteralPath $buildGradle -Raw
+  $match = [regex]::Match($content, 'applicationId\s+[''"]([^''"]+)[''"]')
+  if ($match.Success) { return $match.Groups[1].Value }
+  return $null
+}
+
+# 通过 am start 显式拉起 App 的入口 Activity（Capacitor 默认入口为 .MainActivity，位于 namespace 包下，
+# 本工程 namespace 与 applicationId 一致）。installDebug 只安装、不启动，这里补上启动步骤。
+function Start-AndroidApp {
+  param([Parameter(Mandatory = $true)][string]$AppId)
+  $adb = Get-AndroidTool 'adb'
+  if (-not $adb) { Fail '缺少 adb，无法启动 App。' }
+  Write-Info "启动 App: $AppId"
+  $null = Invoke-Capture $adb @('shell', 'am', 'start', '-n', "$AppId/.MainActivity")
+}
+
+# 探测本机某个 TCP 端口是否可连接，用于判断 -Live 模式依赖的 Web dev server 是否已在运行。
+function Test-TcpPort([int]$Port, [string]$Address = '127.0.0.1') {
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $client.Connect($Address, $Port)
+    return $true
+  } catch {
+    return $false
+  } finally {
+    $client.Dispose()
+  }
 }

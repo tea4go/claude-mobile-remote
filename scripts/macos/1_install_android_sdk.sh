@@ -5,7 +5,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 CHECK_ONLY=0
 usage() { cat <<'EOF'
-用法：bash scripts/macos/install_2_android_sdk.sh [选项]
+用法：bash scripts/macos/1_install_android_sdk.sh [选项]
   --sdk-root PATH  指定 Android SDK 根目录
   --check-only     只检查 sdkmanager 和 adb，不安装组件
   --help           显示帮助

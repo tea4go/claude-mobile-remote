@@ -6,7 +6,7 @@
 )
 
 . (Join-Path $PSScriptRoot '_common.ps1')
-if ($ShowHelp) { Write-Host '用法: .\web-dev.ps1 [-Host 地址] [-Port 端口] [其他 Vite 参数]'; exit 0 }
+if ($ShowHelp) { Write-Host '用法: .\3_web_dev.ps1 [-Host 地址] [-Port 端口] [其他 Vite 参数]'; exit 0 }
 Require-Command 'npm'
 $arguments = @('run', 'dev', '--', '--host', $BindHost, '--port', $Port.ToString())
 if ($NpmArgs) { $arguments += $NpmArgs }

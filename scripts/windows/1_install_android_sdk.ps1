@@ -3,7 +3,7 @@
   [Alias('Help')][switch]$ShowHelp
 )
 . (Join-Path $PSScriptRoot '_common.ps1')
-if ($ShowHelp) { Write-Host '用法: .\install_2_android_sdk.ps1 [-SdkRoot 路径]'; exit 0 }
+if ($ShowHelp) { Write-Host '用法: .\1_install_android_sdk.ps1 [-SdkRoot 路径]'; exit 0 }
 
 if ([string]::IsNullOrWhiteSpace($SdkRoot)) { $SdkRoot = [Environment]::GetEnvironmentVariable('ANDROID_HOME', 'Process') }
 if ([string]::IsNullOrWhiteSpace($SdkRoot)) { $SdkRoot = Join-Path $env:LOCALAPPDATA 'Android\Sdk' }

@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 usage() { cat <<'EOF'
-用法：bash scripts/macos/web-build.sh [--skip-test] [--skip-lint]
+用法：bash scripts/macos/4_web_build.sh [--skip-test] [--skip-lint]
 EOF
 }
 skip_test=0 skip_lint=0

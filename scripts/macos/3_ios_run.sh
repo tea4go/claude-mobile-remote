@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/_common.sh"
 usage() { cat <<'EOF'
-用法：bash scripts/macos/ios-run.sh [--simulator NAME]
+用法：bash scripts/macos/3_ios_run.sh [--simulator NAME]
 仅运行到 Xcode iPhone Simulator，不连接或签名真机。
 EOF
 }
@@ -20,6 +20,6 @@ if [[ -z "$simulator" ]]; then
   simulator="$(printf '%s\n' "$devices" | sed -nE 's/^[[:space:]]+([^()]+) \([0-9A-F-]+\) \((Booted|Shutdown)\)$/\1/p' | awk '/iPhone/ { print; exit }' | sed 's/[[:space:]]*$//')"
   [[ -n "$simulator" ]] || die "没有可用的 iPhone Simulator，请在 Xcode 中安装运行时。"
 fi
-"$SCRIPT_DIR/web-build.sh"
+"$SCRIPT_DIR/4_web_build.sh"
 mobile_command npm exec -- cap sync ios
 mobile_command npm exec -- cap run ios --target "$simulator"
