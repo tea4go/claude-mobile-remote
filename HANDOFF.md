@@ -113,7 +113,7 @@ B2 已整体收口（结论见 `docs/testing/B2-result.md` §5）。B3 已完成
 
 - 本机具备 Go、Node.js、Xcode；Android SDK 已就绪（platform-tools 37.0.1 / platforms 36 / build-tools 36.0.0 / emulator 37.1.11 / android-36 arm64-v8a，AVD `pixel7`），`ANDROID_HOME=~/Library/Android/sdk` 已写入 `~/.zshrc`，JDK 21 由用户 JVMS 管理；
 - 模拟器只用于界面适配与构建验证；其网络经 NAT（宿主机 `10.0.2.2`），不能代替 C2 真机与 VPN 验证；
-- Android 壳需 `server.androidScheme: 'http'` 才能连 `ws://` 明文（D49）；dist 加载路径下壳内 Origin 为 `http://localhost`（无端口），live reload 下为 dev server 地址（如 `http://10.0.2.2:5173`），联调需对应的 `--allowed-origin`；
+- Android 壳需 `server.androidScheme: 'http'` 才能连 `ws://` 明文（D49）；dist 加载路径下壳内 Origin 为 `http://localhost`（无端口），live reload 下为 dev server 地址（如 `http://10.0.2.2:5173`）；`emulator` profile 已内置 `http://localhost` 与 `http://10.0.2.2:5173`（live 默认端口，D56），自定义 Vite 端口才需 `--allowed-origin`；
 - 桩服务必须以管道方式启动（CLI 读 stdin，`nohup ... &` 会因 EOF 立即退出）：`tail -f /dev/null | /tmp/cmr ... --allowed-origin http://localhost:5174`；
 - antd-mobile 5.42.3 部分传递依赖与 React 19 peer 范围不一致，用户已评估可忽略；
 - 本地沙箱禁止绑定 `[::1]:0`，`internal/transport` 与 `cmd/channel-test-client` 的部分 httptest 用例可能因此失败，属环境限制而非回归。

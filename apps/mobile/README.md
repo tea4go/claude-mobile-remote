@@ -40,10 +40,8 @@ npm run dev:emu
 # 终端 2：仓库根目录起 Service（用 --fake-host 桩，不耗 Claude 额度）
 GOFLAGS=-buildvcs=false go build -o /tmp/cmr ./cmd/claude-mobile-remote
 tail -f /dev/null | /tmp/cmr \
-  --listen 0.0.0.0:8765 \
-  --advertise-url ws://10.0.2.2:8765/ws \
-  --fake-host interactive \
-  --allowed-origin http://10.0.2.2:5173
+  --profile emulator \
+  --fake-host interactive
 
 # 记下输出的配对 JSON
 
@@ -57,7 +55,7 @@ npm run android:install
 关键点（都有实测依据，弄错就连不上）：
 
 - **模拟器访问宿主机是 `10.0.2.2`**，不是 LAN IP。`--advertise-url` 和 `CAP_SERVER_URL` 都用它。
-- **live reload 下壳内页面的 Origin 是 dev server 地址 `http://10.0.2.2:5173`**，所以 Service 必须 `--allowed-origin http://10.0.2.2:5173`。写成 `http://localhost` 会在握手时被拒（403），页面报 `Unexpected response code: 403`。
+- **live reload 下壳内页面的 Origin 是 dev server 地址 `http://10.0.2.2:5173`**。`--profile emulator` 已放行该 Origin（live 默认端口），开箱即用；自定义 Vite 端口时给 Service 加 `--allowed-origin http://10.0.2.2:<端口>`。写成 `http://localhost` 会在握手时被拒（403），页面报 `Unexpected response code: 403`。
 - `CAP_SERVER_URL` 是在 `cap sync` 时写进 `android/app/src/main/assets/capacitor.config.json` 的。**要关掉 live reload，必须重新跑不带该变量的 `npm run sync:native`**，否则壳会一直指向 dev server。
 - 换配对 JSON 前先重开 App（`adb shell am force-stop com.tea4go.claudemobileremote`），否则新 JSON 会追加在旧文本后面。
 
@@ -71,7 +69,7 @@ npm run sync:native      # build + cap sync，壳加载本地 dist
 npm run android:install
 ```
 
-这条路径下壳内页面 Origin 是 **`http://localhost`（无端口）**，Service 要 `--allowed-origin http://localhost`，`--advertise-url` 仍用 `ws://10.0.2.2:8765/ws`。
+这条路径下壳内页面 Origin 是 **`http://localhost`（无端口）**，`--profile emulator` 已放行；`--advertise-url` 自动为 `ws://10.0.2.2:8765/ws`。
 
 另外 `capacitor.config.ts` 已设 `server.androidScheme: 'http'`：Capacitor 默认的 `https://localhost` 会触发 WebView 混合内容策略，拦掉到 `ws://` 的明文连接（D48）。
 
