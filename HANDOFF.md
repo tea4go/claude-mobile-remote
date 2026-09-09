@@ -10,6 +10,12 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 
 ## 当前执行（AI 自动维护）
 
+- **子阶段**：Windows 开发者脚本维护。
+- **本轮任务**：修复 `scripts/windows/1_install_base_tools.ps1` 在 `go mod tidy` 阶段因外部 `GOPROXY/GOSUMDB` 指向不稳定镜像而失败的问题，为基础工具安装补齐可回退的 Go 依赖下载策略。
+- **范围**：仅调整 `scripts/windows` 下与 Go module 安装相关的脚本和说明；优先保证当前 PowerShell 进程内自恢复，不改仓库 Go 依赖、不改业务代码、不引入 Git 写操作。
+- **通过条件**：Windows 基础安装脚本在存在异常 `GOPROXY/GOSUMDB` 环境变量时，仍能使用脚本内回退策略完成 `go mod tidy`，或至少明确输出已尝试的回退链与最终失败原因；帮助命令和轻量验证可证明新逻辑生效。
+- **当前状态**：已定位根因为脚本直接继承外部 Go 环境变量，`go mod tidy` 在 `goproxy.cn` 的 sumdb 查询 504 时无任何兜底重试，导致安装流程整体失败；准备修改共享 helper 与安装脚本。
+
 - **子阶段**：开发者自动化脚本 + 文档重构（README 与脚本命名）。
 - **本轮任务**：为 `scripts/windows` 下 8 个主入口 `ps1` 脚本补齐同名 `.bat` 包装脚本，便于 Windows 用户双击或直接通过 cmd 启动；实现参考 `wireguard-harmony/build-app.bat`，保持参数透传与暂停查看输出行为。
 - **范围**：新增 `1_install_android_sdk.bat`、`1_install_base_tools.bat`、`2_check.bat`、`3_android_run.bat`、`3_cli_run.bat`、`3_web_dev.bat`、`4_android_build.bat`、`4_web_build.bat`；不改动现有 `.ps1` 逻辑，不为 `_common.ps1` 和 `toggle-hypervisor.ps1` 增加 `.bat` 包装层，不改变脚本编号、CLI 参数语义或协议/网络行为。
