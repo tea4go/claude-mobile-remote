@@ -14,7 +14,10 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 - **本轮任务**：修复 `scripts/windows/1_install_base_tools.ps1` 在 `go mod tidy` 阶段因外部 `GOPROXY/GOSUMDB` 指向不稳定镜像而失败的问题，为基础工具安装补齐可回退的 Go 依赖下载策略。
 - **范围**：仅调整 `scripts/windows` 下与 Go module 安装相关的脚本和说明；优先保证当前 PowerShell 进程内自恢复，不改仓库 Go 依赖、不改业务代码、不引入 Git 写操作。
 - **通过条件**：Windows 基础安装脚本在存在异常 `GOPROXY/GOSUMDB` 环境变量时，仍能使用脚本内回退策略完成 `go mod tidy`，或至少明确输出已尝试的回退链与最终失败原因；帮助命令和轻量验证可证明新逻辑生效。
-- **当前状态**：已定位根因为脚本直接继承外部 Go 环境变量，`go mod tidy` 在 `goproxy.cn` 的 sumdb 查询 504 时无任何兜底重试，导致安装流程整体失败；准备修改共享 helper 与安装脚本。
+- **当前状态**：已完成脚本修复并通过受控验证；真实联网环境下的 `go mod tidy` 尚未在本轮重跑。
+- **实际完成项**：在 `scripts/windows/_common.ps1` 新增 `Set-ProcessEnvironment` / `Restore-ProcessEnvironment` / `Get-GoEnvironmentProfiles` / `Invoke-GoWithFallback` 等 helper；`1_install_base_tools.ps1` 的 `go mod tidy` 改为经由回退链执行。新逻辑先继承当前 Go 环境尝试一次，失败后自动切到 `GOPROXY=https://proxy.golang.org,direct`、`GOSUMDB=sum.golang.org`，并在每次尝试后恢复原进程环境变量。
+- **实际验证**：`powershell -File scripts/windows/1_install_base_tools.ps1 -ShowHelp` 正常输出用法；另在 `%TEMP%/cmr-go-fallback-test` 生成 mock `go.cmd` 做受控验证，模拟“继承环境使用 `https://goproxy.cn,direct` 失败、官方代理成功”的场景，`Invoke-GoWithFallback` 已按预期完成两次调用、第二次成功，且 `GOPROXY/GOSUMDB` 在函数返回后恢复原值。
+- **未验证项**：未在真实外网环境中完整重跑 `go mod tidy + npm ci`；若用户网络对 `proxy.golang.org` 不可达，仍需根据实际环境再补充额外镜像策略。
 
 - **子阶段**：开发者自动化脚本 + 文档重构（README 与脚本命名）。
 - **本轮任务**：为 `scripts/windows` 下 8 个主入口 `ps1` 脚本补齐同名 `.bat` 包装脚本，便于 Windows 用户双击或直接通过 cmd 启动；实现参考 `wireguard-harmony/build-app.bat`，保持参数透传与暂停查看输出行为。

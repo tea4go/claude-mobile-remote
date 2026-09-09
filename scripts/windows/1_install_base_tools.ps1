@@ -1,4 +1,4 @@
-﻿param(
+param(
   [Alias('Help')][switch]$ShowHelp
 )
 . (Join-Path $PSScriptRoot '_common.ps1')
@@ -15,6 +15,6 @@ foreach ($tool in @('go', 'node', 'npm')) {
 }
 Ensure-GoModule
 Push-Location $script:RepoRoot
-try { Invoke-External -FilePath 'go' -Arguments @('mod', 'tidy') } finally { Pop-Location }
+try { Invoke-GoWithFallback -Arguments @('mod', 'tidy') } finally { Pop-Location }
 Invoke-MobileNpm -Arguments @('ci')
 Write-Host '基础工具和项目依赖安装完成。' -ForegroundColor Green
