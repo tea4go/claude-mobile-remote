@@ -1,5 +1,5 @@
-# Copyright 2026 WireGuard Harmony Contributors
-# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Claude Mobile Remote Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # 构建上架华为应用市场用的 APP 包（harmony-default-signed.app）。
 # 用 `hvigorw assembleApp --mode project` 打包整个工程。
@@ -26,7 +26,7 @@ $BuildProfile = "$ProjectDir\build-profile.json5"
 $AppOutputDir = "$ProjectDir\build\outputs\default"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "WireGuard 构建上架 APP 包" -ForegroundColor Cyan
+Write-Host "Claude Mobile Remote 构建上架 APP 包" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -111,9 +111,9 @@ if ($isSigned) {
 # 强制校验 APP 包内所有 HAP 的最低 API 版本
 Assert-AppMinApiVersion -AppPath $appItem.FullName
 
-# 5. 重命名为标准格式：WireGuardRelease-<versionName>.app
+# 5. 重命名为标准格式：ClaudeMobileRemoteRelease-<versionName>.app
 Write-Host "[5/5] 重命名产物..." -ForegroundColor Yellow
-$outName = "WireGuardRelease-$($versionInfo.VersionName).app"
+$outName = "ClaudeMobileRemoteRelease-$($versionInfo.VersionName).app"
 $finalOutput = Join-Path $AppOutputDir $outName
 try {
     Move-Item -LiteralPath $appItem.FullName -Destination $finalOutput -Force

@@ -1,5 +1,5 @@
-# Copyright 2026 WireGuard Harmony Contributors
-# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Claude Mobile Remote Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # 构建签名 HAP（带版本号递增）。
 # 每次执行会递增 patch 版本号（如 1.0.0 → 1.0.1），写回 app.json5，
@@ -17,7 +17,7 @@ $Hvigorw     = "$DevEcoTools\tools\hvigor\bin\hvigorw.bat"
 $HapOutput   = "$ProjectDir\entry\build\default\outputs\default\entry-default-signed.hap"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "WireGuard Harmony 构建签名 HAP" -ForegroundColor Cyan
+Write-Host "Claude Mobile Remote Harmony 构建签名 HAP" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -30,11 +30,6 @@ Write-Host ""
 $env:DEVECO_SDK_HOME   = "$DevEcoTools\sdk"
 $env:JAVA_HOME         = "$DevEcoTools\jbr"
 $env:JAVA_TOOL_OPTIONS = "-Djdk.util.zip.disableZip64ExtraFieldValidation=true"
-
-# Rust OHOS 交叉编译环境
-Write-Host "[Rust 环境]" -ForegroundColor Yellow
-Initialize-RustOhosTarget
-Write-Host ""
 
 # 注入版本号
 & "$PSScriptRoot\gen-version.ps1"
@@ -80,11 +75,11 @@ $isSigned = $HapOutput -like "*-signed.hap"
 $outputDir = Split-Path $HapOutput -Parent
 
 if ($isSigned) {
-    # 签名包：WireGuardDebug-x.y.z.hap（默认 debug 模式）
-    $prefix = "WireGuardDebug"
+    # 签名包：ClaudeMobileRemoteDebug-x.y.z.hap（默认 debug 模式）
+    $prefix = "ClaudeMobileRemoteDebug"
 } else {
-    # 未签名包：WireGuardUnsigned-x.y.z.hap
-    $prefix = "WireGuardUnsigned"
+    # 未签名包：ClaudeMobileRemoteUnsigned-x.y.z.hap
+    $prefix = "ClaudeMobileRemoteUnsigned"
 }
 
 $targetHap = Join-Path $outputDir "$prefix-$($versionInfo.VersionName).hap"

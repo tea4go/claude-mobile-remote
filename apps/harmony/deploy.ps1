@@ -1,5 +1,5 @@
-# Copyright 2026 WireGuard Harmony Contributors
-# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Claude Mobile Remote Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # 装机部署脚本：先构建签名 HAP，再通过 hdc 安装到设备。
 
@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\_common.ps1"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "WireGuard Harmony 装机部署" -ForegroundColor Cyan
+Write-Host "Claude Mobile Remote Harmony 装机部署" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -34,8 +34,8 @@ Write-Host ""
 # 查找最新产物
 $versionInfo = Get-CurrentVersion
 $outputDir = "$PSScriptRoot\entry\build\default\outputs\default"
-$signedHap = Join-Path $outputDir "WireGuardDebug-$($versionInfo.VersionName).hap"
-$unsignedHap = Join-Path $outputDir "WireGuardUnsigned-$($versionInfo.VersionName).hap"
+$signedHap = Join-Path $outputDir "ClaudeMobileRemoteDebug-$($versionInfo.VersionName).hap"
+$unsignedHap = Join-Path $outputDir "ClaudeMobileRemoteUnsigned-$($versionInfo.VersionName).hap"
 
 $hapToInstall = $null
 if (Test-Path $signedHap) {
@@ -68,7 +68,7 @@ foreach ($dev in $devices) {
 Write-Host ""
 
 # 逐台安装并启动
-$bundleName = "com.wireguard.hap"
+$bundleName = "com.tea4go.claudemobileremote"
 $okCount = 0
 foreach ($dev in $devices) {
     Write-Host "  ▶ $dev" -ForegroundColor Cyan
@@ -111,7 +111,7 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "部署完成！" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  应用：WireGuard for HarmonyOS" -ForegroundColor Gray
+Write-Host "  应用：Claude Mobile Remote for HarmonyOS" -ForegroundColor Gray
 Write-Host "  版本：$($versionInfo.VersionName)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "提示：首次启动需授予 VPN 权限" -ForegroundColor Yellow

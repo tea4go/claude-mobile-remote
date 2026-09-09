@@ -1,5 +1,5 @@
-# Copyright 2026 WireGuard Harmony Contributors
-# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Claude Mobile Remote Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # 生成版本常量文件 AppVersion.ets，供 UI 显示。
 # 版本格式：v<versionName>-B<yyMMdd>-<HHmm>，例如 v1.0.1-B260815-1200
@@ -15,6 +15,12 @@ $ErrorActionPreference = "Stop"
 
 $OutFile = "$PSScriptRoot\entry\src\main\ets\common\AppVersion.ets"
 
+# 确保目标目录存在（首次构建时 common 目录可能尚未创建）
+$outDir = Split-Path -LiteralPath $OutFile -Parent
+if (-not (Test-Path -LiteralPath $outDir)) {
+    New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+}
+
 # 从 app.json5 读取当前版本号
 $versionInfo = Get-CurrentVersion
 $versionName = $versionInfo.VersionName
@@ -25,8 +31,8 @@ $time = $now.ToString("HHmm")
 $fullVersion = "v$versionName-B$stamp-$time"
 
 $content = @"
-// Copyright 2026 WireGuard Harmony Contributors
-// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Claude Mobile Remote Contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // 本文件由 gen-version.ps1 在每次构建时生成，请勿手动修改。
 // 版本格式：v<versionName>-B<yyMMdd>-<HHmm>
