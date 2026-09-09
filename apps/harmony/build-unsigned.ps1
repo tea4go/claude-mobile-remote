@@ -1,5 +1,5 @@
-# Copyright 2026 WireGuard Harmony Contributors
-# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Claude Mobile Remote Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # 构建未签名 HAP（entry-default-unsigned.hap）。
 # 命令行不做签名，产物无法直接装机（hdc install 会报 sign info inconsistent），
@@ -17,7 +17,7 @@ $Hvigorw     = "$DevEcoTools\tools\hvigor\bin\hvigorw.bat"
 $HapOutput   = "$ProjectDir\entry\build\default\outputs\default\entry-default-unsigned.hap"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "WireGuard Harmony 构建未签名 HAP" -ForegroundColor Cyan
+Write-Host "Claude Mobile Remote Harmony 构建未签名 HAP" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -34,11 +34,6 @@ Write-Host ""
 $env:DEVECO_SDK_HOME   = "$DevEcoTools\sdk"
 $env:JAVA_HOME         = "$DevEcoTools\jbr"
 $env:JAVA_TOOL_OPTIONS = "-Djdk.util.zip.disableZip64ExtraFieldValidation=true"
-
-# Rust OHOS 交叉编译环境
-Write-Host "[Rust 环境]" -ForegroundColor Yellow
-Initialize-RustOhosTarget
-Write-Host ""
 
 # 注入版本号（生成 AppVersion.ets，供 UI 显示）
 & "$PSScriptRoot\gen-version.ps1"
@@ -73,12 +68,12 @@ if (!(Test-Path $HapOutput)) {
 # 强制校验最低 API 版本
 Assert-HapMinApiVersion -HapPath $HapOutput
 
-# 重命名为标准格式：WireGuardUnsigned-<versionName>.hap
+# 重命名为标准格式：ClaudeMobileRemoteUnsigned-<versionName>.hap
 $outputDir = Split-Path $HapOutput -Parent
-$targetHap = Join-Path $outputDir "WireGuardUnsigned-$($versionInfo.VersionName).hap"
+$targetHap = Join-Path $outputDir "ClaudeMobileRemoteUnsigned-$($versionInfo.VersionName).hap"
 try {
     Move-Item -LiteralPath $HapOutput -Destination $targetHap -Force
-    Write-Host "  ✓ HAP 重命名：WireGuardUnsigned-$($versionInfo.VersionName).hap" -ForegroundColor Green
+    Write-Host "  ✓ HAP 重命名：ClaudeMobileRemoteUnsigned-$($versionInfo.VersionName).hap" -ForegroundColor Green
 } catch {
     Write-Host "  ⚠ 重命名失败，保留原名：$_" -ForegroundColor Yellow
     $targetHap = $HapOutput

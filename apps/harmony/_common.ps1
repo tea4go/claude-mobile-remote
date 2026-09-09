@@ -1,5 +1,5 @@
-# Copyright 2026 WireGuard Harmony Contributors
-# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Claude Mobile Remote Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # 构建脚本通用函数
 
@@ -170,155 +170,6 @@ function Get-CurrentVersion {
 
 <#
 .SYNOPSIS
-  检查 Rust 工具链是否真的包含目标标准库
-.DESCRIPTION
-  不依赖 rustup target list，直接检查 sysroot 中的 libcore。
-#>
-function Test-RustTargetAvailable {
-    param(
-        [Parameter(Mandatory = $true)][string]$Toolchain,
-        [Parameter(Mandatory = $true)][string]$Target
-    )
-
-    $sysrootOutput = @(& rustc +$Toolchain --print sysroot 2>&1)
-    if ($LASTEXITCODE -ne 0 -or $sysrootOutput.Count -eq 0) {
-        Write-Host "  错误：无法取得 Rust 工具链 $Toolchain 的 sysroot：$($sysrootOutput -join ' ')" -ForegroundColor Red
-        return $false
-    }
-
-    $sysroot = [string]$sysrootOutput[$sysrootOutput.Count - 1]
-    $corePattern = Join-Path $sysroot "lib\rustlib\$Target\lib\libcore-*.rlib"
-    $coreFiles = @(Get-ChildItem -Path $corePattern -File -ErrorAction SilentlyContinue)
-    if ($coreFiles.Count -eq 0) {
-        Write-Host "  错误：sysroot 中缺少 $Target 的 libcore：$corePattern" -ForegroundColor Yellow
-        return $false
-    }
-
-    return $true
-}
-
-<#
-.SYNOPSIS
-  从 Rust 官方归档安装目标标准库
-#>
-function Install-RustTargetFromOfficialArchive {
-    param(
-        [Parameter(Mandatory = $true)][string]$Toolchain,
-        [Parameter(Mandatory = $true)][string]$Target
-    )
-
-    $versionOutput = @(& rustc +$Toolchain --version 2>&1)
-    if ($LASTEXITCODE -ne 0 -or $versionOutput.Count -eq 0) {
-        throw "无法读取 Rust 工具链 $Toolchain 的版本：$($versionOutput -join ' ')"
-    }
-    $versionText = $versionOutput -join ' '
-    if ($versionText -notmatch '\brustc\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b') {
-        throw "无法从 rustc --version 提取 semver：$versionText"
-    }
-    $version = $matches[1]
-
-    $sysrootOutput = @(& rustc +$Toolchain --print sysroot 2>&1)
-    if ($LASTEXITCODE -ne 0 -or $sysrootOutput.Count -eq 0) {
-        throw "无法取得 Rust 工具链 $Toolchain 的 sysroot：$($sysrootOutput -join ' ')"
-    }
-    $sysroot = [string]$sysrootOutput[$sysrootOutput.Count - 1]
-    $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
-    $archivePath = Join-Path $tempDir "rust-std-$version-$Target.tar.xz"
-    $url = "https://static.rust-lang.org/dist/rust-std-$version-$Target.tar.xz"
-
-    try {
-        New-Item -ItemType Directory -Path $tempDir -Force -ErrorAction Stop | Out-Null
-        Write-Host "  正在下载 Rust 官方归档：$url" -ForegroundColor Yellow
-        try {
-            Invoke-WebRequest -Uri $url -OutFile $archivePath -UseBasicParsing -ErrorAction Stop
-        } catch {
-            throw "下载 Rust 官方归档失败：$url；$($_.Exception.Message)"
-        }
-        if (-not (Test-Path -LiteralPath $archivePath)) {
-            throw "Rust 官方归档下载后不存在：$archivePath"
-        }
-
-        $tar = Get-Command tar -ErrorAction SilentlyContinue
-        if (-not $tar) {
-            throw "未找到 tar，无法解压 Rust 官方归档"
-        }
-        & $tar.Source -xf $archivePath -C $tempDir
-        if ($LASTEXITCODE -ne 0) {
-            throw "解压 Rust 官方归档失败（退出码 $LASTEXITCODE）：$archivePath"
-        }
-        $installScript = Join-Path (Join-Path $tempDir "rust-std-$version-$Target") "install.ps1"
-        if (-not (Test-Path -LiteralPath $installScript)) {
-            throw "归档中未找到 install.ps1：$installScript"
-        }
-
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScript --prefix $sysroot --disable-ldconfig
-        if ($LASTEXITCODE -ne 0) {
-            throw "调用 Rust 官方归档 install.ps1 失败（退出码 $LASTEXITCODE）"
-        }
-        if (-not (Test-RustTargetAvailable -Toolchain $Toolchain -Target $Target)) {
-            throw "归档安装完成后仍未找到 $Target 的 libcore"
-        }
-    } finally {
-        Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-
-<#
-.SYNOPSIS
-  准备 Rust OHOS 交叉编译目标
-.DESCRIPTION
-  固定使用 MSVC Rust 工具链；先按真实 libcore 检查，rustup 失败后侧载官方归档。
-#>
-function Initialize-RustOhosTarget {
-    param(
-        [string]$Toolchain = "stable-x86_64-pc-windows-msvc",
-        [string]$Target = "aarch64-unknown-linux-ohos"
-    )
-
-    if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
-        Write-Host "错误：未找到 rustup，无法准备 Rust OHOS 交叉编译环境" -ForegroundColor Red
-        exit 1
-    }
-    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
-        Write-Host "错误：未找到 cargo，无法编译 Rust 原生库" -ForegroundColor Red
-        exit 1
-    }
-
-    $env:RUSTUP_TOOLCHAIN = $Toolchain
-    if (-not (Test-RustTargetAvailable -Toolchain $Toolchain -Target $Target)) {
-        Write-Host "  未找到 Rust 目标 $Target 的真实标准库，尝试 rustup 安装..." -ForegroundColor Yellow
-        $previousDistServer = $env:RUSTUP_DIST_SERVER
-        $installExitCode = 1
-        try {
-            $env:RUSTUP_DIST_SERVER = "https://static.rust-lang.org"
-            & rustup target add $Target --toolchain $Toolchain
-            $installExitCode = $LASTEXITCODE
-        } finally {
-            $env:RUSTUP_DIST_SERVER = $previousDistServer
-        }
-
-        if (-not (Test-RustTargetAvailable -Toolchain $Toolchain -Target $Target)) {
-            Write-Host "  rustup 未能提供可用的 $Target（退出码 $installExitCode），切换官方归档侧载..." -ForegroundColor Yellow
-            try {
-                Install-RustTargetFromOfficialArchive -Toolchain $Toolchain -Target $Target
-            } catch {
-                Write-Host "错误：Rust 目标 $Target 的 rustup 和官方归档安装均失败：$($_.Exception.Message)" -ForegroundColor Red
-                exit 1
-            }
-        }
-    }
-
-    if (-not (Test-RustTargetAvailable -Toolchain $Toolchain -Target $Target)) {
-        Write-Host "错误：Rust 目标 $Target 最终仍缺少 libcore" -ForegroundColor Red
-        exit 1
-    }
-
-    Write-Host "  ✓ Rust 工具链：$Toolchain" -ForegroundColor Green
-    Write-Host "  ✓ Rust 目标：$Target（已核实 libcore）" -ForegroundColor Green
-}
-
-<#
-.SYNOPSIS
   将路径解析为真实物理路径（展开目录联接 junction 与符号链接）
 .DESCRIPTION
   hvigor 会校验模块路径的真实路径是否等于传入路径，从目录联接（如 C:\MyWork -> D:\MyWork）
@@ -368,14 +219,14 @@ function Resolve-RealPath {
 .PARAMETER HapPath
   HAP 文件路径
 .PARAMETER Expected
-  期望的 minAPIVersion 数字编码，默认 50000012（API 12 / HarmonyOS 5.0.0）
+  期望的 minAPIVersion 数字编码，默认 60101024（API 24 / HarmonyOS 6.1.1）
 .NOTES
   校验失败直接 exit 1，阻断后续构建/装机流程。
 #>
 function Assert-HapMinApiVersion {
     param(
         [Parameter(Mandatory = $true)][string]$HapPath,
-        [int]$Expected = 50000012
+        [int]$Expected = 60101024
     )
 
     if (-not (Test-Path -LiteralPath $HapPath)) {
@@ -405,12 +256,12 @@ function Assert-HapMinApiVersion {
 
     $actual = [int]$matches[1]
     if ($actual -ne $Expected) {
-        Write-Host "  ✗ minAPIVersion 校验失败：期望 $Expected（API 12 / HarmonyOS 5.0.0），实际 $actual" -ForegroundColor Red
-        Write-Host "    根因通常是 build-profile.json5 的 compatibleSdkVersion 未设为 `"5.0.0(12)`"。" -ForegroundColor Yellow
+        Write-Host "  ✗ minAPIVersion 校验失败：期望 $Expected（API 24 / HarmonyOS 6.1.1），实际 $actual" -ForegroundColor Red
+        Write-Host "    根因通常是 build-profile.json5 的 compatibleSdkVersion 未设为 `"6.1.1(24)`"。" -ForegroundColor Yellow
         exit 1
     }
 
-    Write-Host "  ✓ minAPIVersion 校验通过：$actual (API 12 / HarmonyOS 5.0.0)" -ForegroundColor Green
+    Write-Host "  ✓ minAPIVersion 校验通过：$actual (API 24 / HarmonyOS 6.1.1)" -ForegroundColor Green
 }
 
 <#
@@ -423,14 +274,14 @@ function Assert-HapMinApiVersion {
 .PARAMETER AppPath
   APP 包文件路径
 .PARAMETER Expected
-  期望的 minAPIVersion 数字编码，默认 50000012（API 12 / HarmonyOS 5.0.0）
+  期望的 minAPIVersion 数字编码，默认 60101024（API 24 / HarmonyOS 6.1.1）
 .NOTES
   临时目录用后自动清理。校验失败直接 exit 1，阻断上架流程。
 #>
 function Assert-AppMinApiVersion {
     param(
         [Parameter(Mandatory = $true)][string]$AppPath,
-        [int]$Expected = 50000012
+        [int]$Expected = 60101024
     )
 
     if (-not (Test-Path -LiteralPath $AppPath)) {

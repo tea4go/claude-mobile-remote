@@ -1,5 +1,5 @@
-# Copyright 2026 WireGuard Harmony Contributors
-# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Claude Mobile Remote Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # 签名配置脚本：从 .env 文件读取签名信息，自动配置 build-profile.json5。
 
@@ -118,9 +118,15 @@ $signingConfig = @"
       {
         "name": "default",
         "signingConfig": "default",
-        "compatibleSdkVersion": "5.0.0(12)",
-        "targetSdkVersion": "5.0.0(12)",
-        "runtimeOS": "HarmonyOS"
+        "compatibleSdkVersion": "6.1.1(24)",
+        "targetSdkVersion": "6.1.1(24)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
       }
     ],
     "buildModeSet": [

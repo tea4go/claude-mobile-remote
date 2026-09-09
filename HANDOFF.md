@@ -11,6 +11,16 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 ## 当前执行（AI 自动维护）
 
 - **子阶段**：Windows 开发者脚本维护。
+- **本轮任务**：修复 `scripts/windows/4_web_build.ps1` 调用 `apps/mobile` 测试时，Vitest 在 Windows 下找不到 `src/setupTests.ts`、导致 16 个测试套件全部未执行的问题。
+- **范围**：仅调整 `apps/mobile` 的测试配置与必要说明；不改移动端业务行为、不跳过测试、不放宽构建门禁。
+- **通过条件**：`npm run test` 在 `apps/mobile` 下恢复正常加载 `setupTests.ts` 并执行现有测试；`4_web_build.ps1` 或其等价命令链能继续跑过测试、lint、build。
+- **当前状态**：已完成修复并通过完整门禁；`4_web_build.ps1` 在 Windows 工作区入口路径下恢复可用。
+- **实际完成项**：`apps/mobile/vite.config.ts` 新增 `resolve.preserveSymlinks = true`，显式保留当前工作区的 `C:` 入口路径，避免 Vite/Vitest 在 Windows junction 环境下把根目录归一到真实 `D:` 路径；`test.setupFiles` 调整为项目根相对路径 `/src/setupTests.ts`。同时将 `apps/mobile/package.json` 的 `vite` 版本从 `^8.2.0` 收紧为精确 `8.1.5`，并通过 `npm install -D vite@8.1.5` 同步更新 `package-lock.json` 与本地依赖，避免后续 `npm install` 再次抬回存在回归的 8.2.x。
+- **根因结论**：当前仓库通过 `C:\MyWork\...` 入口访问，但真实目录位于 `D:\MyWork\...`；原来的 Vite 8.2.2 + Vitest 4.1.11 在此类 Windows symlink/junction 场景下会把测试根目录与 `setupFiles` 解析到错误路径，先后表现为 `/src/setupTests.ts` 与 `/@fs/D:/.../setupTests.ts` 无法加载。
+- **实际验证**：`npm run test` 已恢复通过，结果为 **16 个测试文件、405 个测试全部通过**；随后两次执行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/4_web_build.ps1`，均完整跑过 `npm run test`、`npm run lint`、`npm run build`。其中 lint 仅保留 1 个既有 warning（`scripts/cdp-console.mjs:76` 的 `eslint(no-unused-expressions)`），无 error；生产构建通过，产物体积为 `dist/assets/index-CksCmMak.js` 492.41 kB / gzip 155.69 kB。
+- **未处理项**：测试输出仍存在既有运行期 warning，包括 antd-mobile 的 `Please make sure you have imported antd-mobile/es/global` 和若干 React `act(...)` 提示；这些 warning 未阻塞本轮脚本修复，但后续若要收敛测试输出可单独处理。
+
+- **子阶段**：Windows 开发者脚本维护。
 - **本轮任务**：修复 `scripts/windows/1_install_base_tools.ps1` 在 `go mod tidy` 阶段因外部 `GOPROXY/GOSUMDB` 指向不稳定镜像而失败的问题，为基础工具安装补齐可回退的 Go 依赖下载策略。
 - **范围**：仅调整 `scripts/windows` 下与 Go module 安装相关的脚本和说明；优先保证当前 PowerShell 进程内自恢复，不改仓库 Go 依赖、不改业务代码、不引入 Git 写操作。
 - **通过条件**：Windows 基础安装脚本在存在异常 `GOPROXY/GOSUMDB` 环境变量时，仍能使用脚本内回退策略完成 `go mod tidy`，或至少明确输出已尝试的回退链与最终失败原因；帮助命令和轻量验证可证明新逻辑生效。
