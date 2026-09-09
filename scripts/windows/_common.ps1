@@ -1,4 +1,4 @@
-﻿Set-StrictMode -Version Latest
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $script:ScriptDir = $PSScriptRoot
@@ -26,6 +26,97 @@ function Invoke-External {
   else { Write-Info ("运行: {0} {1}" -f $FilePath, ($Arguments -join ' ')) }
   & $FilePath @Arguments
   if ($LASTEXITCODE -ne 0) { Fail "命令失败（exit code $LASTEXITCODE）: $FilePath" }
+}
+
+function Set-ProcessEnvironment {
+  param([hashtable]$Overrides = @{})
+  $snapshot = @{}
+  foreach ($name in $Overrides.Keys) {
+    $snapshot[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+    $value = $Overrides[$name]
+    if ($null -eq $value) { Remove-Item -Path ("Env:{0}" -f $name) -ErrorAction SilentlyContinue }
+    else { [Environment]::SetEnvironmentVariable($name, [string]$value, 'Process') }
+  }
+  return $snapshot
+}
+
+function Restore-ProcessEnvironment {
+  param([hashtable]$Snapshot = @{})
+  foreach ($name in $Snapshot.Keys) {
+    $value = $Snapshot[$name]
+    if ($null -eq $value) { Remove-Item -Path ("Env:{0}" -f $name) -ErrorAction SilentlyContinue }
+    else { [Environment]::SetEnvironmentVariable($name, [string]$value, 'Process') }
+  }
+}
+
+function Get-ProcessEnvironmentValue([string]$Name, [string]$Fallback = '<默认>') {
+  $value = [Environment]::GetEnvironmentVariable($Name, 'Process')
+  if ([string]::IsNullOrWhiteSpace($value)) { return $Fallback }
+  return $value
+}
+
+function Get-GoEnvironmentProfiles {
+  $profiles = New-Object System.Collections.Generic.List[object]
+  $seen = New-Object System.Collections.Generic.HashSet[string]
+
+  foreach ($profile in @(
+    @{
+      Name = '继承当前 Go 环境'
+      Environment = @{}
+    },
+    @{
+      Name = '官方 Go 代理'
+      Environment = @{
+        GOPROXY = 'https://proxy.golang.org,direct'
+        GOSUMDB = 'sum.golang.org'
+      }
+    },
+    @{
+      Name = '源站直连'
+      Environment = @{
+        GOPROXY = 'direct'
+        GOSUMDB = 'sum.golang.org'
+      }
+    }
+  )) {
+    $signature = ($profile.Environment.GetEnumerator() | Sort-Object Name | ForEach-Object { '{0}={1}' -f $_.Name, $_.Value }) -join ';'
+    if ($seen.Add($signature)) { [void]$profiles.Add($profile) }
+  }
+
+  return $profiles.ToArray()
+}
+
+function Get-GoEnvironmentSummary {
+  param([hashtable]$Environment = @{})
+  if (-not $Environment -or $Environment.Count -eq 0) {
+    return ('GOPROXY={0}; GOSUMDB={1}' -f `
+      (Get-ProcessEnvironmentValue -Name 'GOPROXY'), `
+      (Get-ProcessEnvironmentValue -Name 'GOSUMDB'))
+  }
+  return (($Environment.GetEnumerator() | Sort-Object Name | ForEach-Object { '{0}={1}' -f $_.Name, $_.Value }) -join '; ')
+}
+
+function Invoke-GoWithFallback {
+  param([Parameter(Mandatory = $true)][object[]]$Arguments)
+
+  $attemptErrors = New-Object System.Collections.Generic.List[string]
+  foreach ($profile in Get-GoEnvironmentProfiles) {
+    $summary = Get-GoEnvironmentSummary -Environment $profile.Environment
+    Write-Info ("Go 依赖下载策略：{0}（{1}）" -f $profile.Name, $summary)
+    $snapshot = Set-ProcessEnvironment -Overrides $profile.Environment
+    try {
+      Invoke-External -FilePath 'go' -Arguments $Arguments
+      return
+    } catch {
+      $message = $_.Exception.Message
+      [void]$attemptErrors.Add(('{0}: {1}' -f $profile.Name, $message))
+      Write-Warn ("{0} 失败：{1}" -f $profile.Name, $message)
+    } finally {
+      Restore-ProcessEnvironment -Snapshot $snapshot
+    }
+  }
+
+  Fail ("Go 命令在所有下载策略下均失败：{0}{1}" -f [Environment]::NewLine, ($attemptErrors -join [Environment]::NewLine))
 }
 
 # PowerShell 5.1 在 $ErrorActionPreference='Stop' 下，会把原生命令经 2> 重定向的 stderr 包装成终止错误；
