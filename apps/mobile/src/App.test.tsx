@@ -158,6 +158,20 @@ describe('App：自动连接与发送', () => {
     })
   })
 
+  test('粘贴完整 Fragment 后连接成功', async () => {
+    window.location.hash = ''
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: fragmentOf(PAIRING) } })
+    fireEvent.click(screen.getByRole('button', { name: '连接' }))
+
+    const socket = FakeWebSocket.instances[0]!
+    expect(socket.url).toBe(PAIRING.wsUrl)
+    completeHandshake(socket)
+    await waitFor(() => {
+      expect(screen.getByText('已连接')).toBeInTheDocument()
+    })
+  })
+
   test('粘贴 JSON 连接成功后可发送文本', async () => {
     window.location.hash = ''
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)

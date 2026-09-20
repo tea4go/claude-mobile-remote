@@ -91,6 +91,12 @@ export function encodePairingFragment(payload: PairingPayload): string {
   return base64UrlEncode(new TextEncoder().encode(json))
 }
 
+// 解析配对页手工输入：完整 Fragment 与原始 JSON 共用同一套校验。
+export function parsePairingInput(text: string, now: number): PairingResult {
+  if (text.startsWith('#pair=')) return parsePairingFragment(text, now)
+  return parsePairingJson(text, now)
+}
+
 // 从 `#pair=<Base64URL(JSON)>` 形式的 hash 解析配对负载。
 export function parsePairingFragment(hash: string, now: number): PairingResult {
   const match = /^#pair=([A-Za-z0-9_-]+)$/.exec(hash)

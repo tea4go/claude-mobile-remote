@@ -5,7 +5,7 @@ import SessionDetail from './components/SessionDetail'
 import SessionList from './components/SessionList'
 import { PAGE_BACKGROUND } from './components/ui'
 import { ProtocolClient, type ActionResolution, type CloseInfo, type SocketFactory } from './protocol/client'
-import { encodePairingFragment, parsePairingFragment, parsePairingJson, PAIRING_PAYLOAD_VERSION, type PairingPayload } from './protocol/pairing'
+import { encodePairingFragment, parsePairingFragment, parsePairingInput, PAIRING_PAYLOAD_VERSION, type PairingPayload } from './protocol/pairing'
 import {
   actionResolutionSent,
   commandAccepted,
@@ -93,7 +93,7 @@ function App({
 
   const submitJson = useCallback(
     (json: string) => {
-      const result = parsePairingJson(json, now())
+      const result = parsePairingInput(json, now())
       if (!result.ok) {
         setPairingError(result.error)
         return

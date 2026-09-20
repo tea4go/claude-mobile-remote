@@ -3,6 +3,7 @@ import {
   PAIRING_PAYLOAD_VERSION,
   encodePairingFragment,
   parsePairingFragment,
+  parsePairingInput,
   parsePairingJson,
   type PairingPayload,
 } from './pairing'
@@ -132,6 +133,21 @@ describe('parsePairingJson：原始 JSON', () => {
     if (result.ok) throw new Error('expected failure')
     expect(result.error).not.toContain(payload.pairToken)
     expect(result.error).not.toContain(payload.wsUrl)
+  })
+})
+
+describe('parsePairingInput：手工输入', () => {
+  test('同时接受原始 JSON 与完整 Fragment', () => {
+    const payload = validPayload()
+    const jsonResult = parsePairingInput(JSON.stringify(payload), NOW)
+    const fragmentResult = parsePairingInput(`#pair=${encodePairingFragment(payload)}`, NOW)
+
+    expect(jsonResult).toEqual({ ok: true, value: payload })
+    expect(fragmentResult).toEqual(jsonResult)
+  })
+
+  test('非法输入仍返回固定错误', () => {
+    expect(parsePairingInput('#pair=garbage', NOW)).toEqual({ ok: false, error: INVALID })
   })
 })
 

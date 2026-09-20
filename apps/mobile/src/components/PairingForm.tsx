@@ -12,12 +12,12 @@ export default function PairingForm({ initialError, onSubmit }: PairingFormProps
   const [json, setJson] = useState('')
   const [emptyError, setEmptyError] = useState(false)
 
-  const error = emptyError ? '请输入配对 JSON' : initialError
+  const error = emptyError ? '请输入配对 JSON 或 Fragment' : initialError
 
   return (
     <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <h2 style={{ margin: 0 }}>连接 Claude 会话</h2>
-      <p style={{ margin: 0, color: '#666' }}>粘贴 Service 输出的配对 JSON</p>
+      <p style={{ margin: 0, color: '#666' }}>粘贴 Service 输出的配对 JSON 或完整 #pair Fragment</p>
       <TextArea
         data-testid="pairing-json"
         value={json}
