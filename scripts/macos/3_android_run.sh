@@ -32,3 +32,5 @@ else
   (cd "$MOBILE_DIR" && env -u CAP_SERVER_URL npm exec -- cap sync android)
 fi
 (cd "$MOBILE_DIR/android" && ./gradlew installDebug)
+# installDebug 只安装不启动，这里补上启动步骤（对齐 Windows 3_android_run.ps1 的 Start-AndroidApp）
+"$adb_bin" shell am start -n com.tea4go.claudemobileremote/.MainActivity
