@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -21,9 +22,14 @@ type Authenticator interface {
 type Config struct {
 	ListenAddress  string
 	AllowedOrigins []string
-	AuthTimeout    time.Duration
-	CloseTimeout   time.Duration
-	ReadLimit      int64
+	// AdvertiseURL is the address the phone is told to dial. Its host is trusted
+	// as an Origin host: the user has already declared that clients reach this
+	// server through it, and a real-device live reload shell is served from that
+	// same host. Empty contributes no host.
+	AdvertiseURL string
+	AuthTimeout  time.Duration
+	CloseTimeout time.Duration
+	ReadLimit    int64
 	// ServiceConfig gates which resolutions a remote client may even express.
 	// It must stay identical to the value handed to session.WithServiceConfig:
 	// the transport only pre-validates, the Controller still owns the verdict,
@@ -66,6 +72,7 @@ func NewServer(config Config, authenticator Authenticator, registry *channel.Reg
 	for _, origin := range config.AllowedOrigins {
 		allowedOrigins[origin] = struct{}{}
 	}
+	advertisedHost := advertiseHost(config.AdvertiseURL)
 	server := &Server{
 		config:        config,
 		authenticator: authenticator,
@@ -77,13 +84,57 @@ func NewServer(config Config, authenticator Authenticator, registry *channel.Reg
 		if origin == "" {
 			return true
 		}
-		_, allowed := allowedOrigins[origin]
-		return allowed
+		if _, allowed := allowedOrigins[origin]; allowed {
+			return true
+		}
+		return isTrustedOriginHost(origin, advertisedHost)
 	}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", server.handleWebSocket)
 	server.handler = mux
 	return server, nil
+}
+
+// advertiseHost extracts the host clients are told to dial. An empty or
+// unparseable AdvertiseURL simply contributes no host.
+func advertiseHost(advertiseURL string) string {
+	parsed, err := url.Parse(advertiseURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Hostname()
+}
+
+// isTrustedOriginHost decides by rule rather than by enumeration. An enumerated
+// list cannot keep up with the Origins a browser shell actually sends — the
+// Android shell is http://localhost when it loads its bundle and
+// http://10.0.2.2:5173 under live reload, a real device uses the LAN IP, and the
+// port follows whatever Vite picked — and every miss is an HTTP 403 that a
+// browser can only observe as an undiagnosable 1006. Ports are deliberately
+// ignored: the page and the WebSocket come from different processes with
+// unrelated ports.
+//
+// The DNS-rebinding defense is unchanged. An attacker page keeps its own Origin
+// even after its hostname resolves to 127.0.0.1, so "resolves locally" is never
+// treated as trusted, and the advertised host is compared for equality only —
+// never by suffix, so 192.168.1.10.evil.com stays rejected.
+func isTrustedOriginHost(origin string, advertisedHost string) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	// Android emulator's NAT alias for the host machine.
+	if host == "10.0.2.2" {
+		return true
+	}
+	return advertisedHost != "" && host == advertisedHost
 }
 
 func (s *Server) Handler() http.Handler {

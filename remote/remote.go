@@ -111,6 +111,7 @@ func newServer(config Config, factory transportFactory) (*Server, error) {
 
 	tcfg := transport.DefaultConfig()
 	tcfg.ListenAddress = config.ListenAddress
+	tcfg.AdvertiseURL = config.AdvertiseURL
 	if len(config.AllowedOrigins) > 0 {
 		tcfg.AllowedOrigins = append([]string(nil), config.AllowedOrigins...)
 	}
