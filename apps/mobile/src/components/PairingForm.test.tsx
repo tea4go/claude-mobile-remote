@@ -9,7 +9,7 @@ describe('PairingForm', () => {
   test('渲染标题、说明、输入框与连接按钮', () => {
     render(<PairingForm initialError={null} onSubmit={() => {}} />)
     expect(screen.getByText('连接 Claude 会话')).toBeInTheDocument()
-    expect(screen.getByText('粘贴 Service 输出的配对 JSON')).toBeInTheDocument()
+    expect(screen.getByText('粘贴 Service 输出的配对 JSON 或完整 #pair Fragment')).toBeInTheDocument()
     expect(screen.getByRole('textbox')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '连接' })).toBeInTheDocument()
   })
@@ -18,7 +18,7 @@ describe('PairingForm', () => {
     const onSubmit = vi.fn()
     render(<PairingForm initialError={null} onSubmit={onSubmit} />)
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
-    expect(screen.getByText('请输入配对 JSON')).toBeInTheDocument()
+    expect(screen.getByText('请输入配对 JSON 或 Fragment')).toBeInTheDocument()
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
