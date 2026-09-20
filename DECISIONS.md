@@ -455,4 +455,28 @@
 - **决策**：`emulator` profile 在已有 `http://localhost`（dist 壳内 Origin）之外，自动把 `http://10.0.2.2:5173`（live reload 页面 Origin，默认 dev server 端口）追加进 `allowedOrigins`；自定义 Vite 端口（≠5173）时仍需显式 `--allowed-origin http://10.0.2.2:<端口>`。
 - **理由**：live reload 下壳内页面从 dev server（`CAP_SERVER_URL=http://10.0.2.2:5173`）加载，Origin 为 `http://10.0.2.2:5173`，精确匹配的 CheckOrigin 此前会拒绝对应的 WebSocket 握手（403），用户须手工补 `--allowed-origin`，命令复杂。`10.0.2.2` 是 Android 模拟器内部 NAT 别名，只指向宿主回环，该 Origin 的页面只可能存在于模拟器内，与 profile 已内置的 `http://localhost` 暴露面同级；不改全局默认白名单，`local`/`device`/`debug` 不受影响。
 - **影响**：`cmd/claude-mobile-remote/config.go` emulator profile 追加一条 Origin；`TestParseConfigProfiles` 断言该 Origin；README 与 HANDOFF 的 live 联调说明简化；`--allowed-origin` 保留为自定义端口逃生门（符合 D55 参数分层）。不改变协议、监听、二维码地址或配对负载。
+
+## D57 · CLI 不产品化 PTY，优先 WhaleTerm 进程内无缝托管
+
+- **日期**：2026-08-31
+- **决策**：Standalone CLI 保持单 Session Remote Host 定位，不实现生产级 PC PTY/终端模拟器，不以浅层 PTY 替代用户熟悉的原生 Claude CLI 交互。后续优先实现 W1：WhaleTerm 在同一进程内复用其已有 Claude Client、Session Controller 和输入队列，按当前 Session 启动 `remote.Server`，实现不中断任务的远程管理。
+- **理由**：完整 PTY 需要处理终端尺寸、ANSI、信号、进程组、全屏界面、中文宽字符、粘贴、断线恢复和跨平台差异，复杂度高且仍不能解决外部接管已运行终端 Claude 的问题。普通终端 Claude 的 Client 不对外暴露，Standalone 无法在运行中安全共享；强行增强 PTY 会损害原生 PC 体验并偏离“重点是托管”的产品定位。
+- **影响**：Standalone CLI 只支持从创建时托管，或对已停止的 Session 执行 `--resume` 后托管；普通终端中已运行的 Claude 不支持事后无缝接管。W1 必须使用 WhaleTerm 现有 Client，不得创建第二个 SDK Client，不得通过第二个 `--resume` 进程或 stdout/JSONL 监听实现接管。README、W1 设计和验收文档应明确区分“Standalone 远程优先托管”与“WhaleTerm 已有会话无缝开启远程管理”。
 - **状态**：已定
+
+## D58 · WhaleTerm W1 支持首轮前预分配 Session 并配对
+
+- **日期**：2026-09-18
+- **决策**：W1 的“WhaleTerm 已持有 Session”包含已经由 WhaleTerm 预分配稳定 UUID、但尚未创建 SDK Client 或发送首条消息的本地 Claude 会话。用户可在首轮前开启远程管理；WhaleTerm 以当前完整 Claude 配置预备该 Session，Remote Host 返回 `starting/idle` Snapshot，PC 或手机任一端提交的首条输入都进入同一 FIFO，并由既有 Manager 创建唯一 SDK Client。SDK 首轮启动使用正式 `WithSessionID`，不再通过 `WithExtraArgs` 注入 `session-id`。
+- **理由**：SDK 和 WhaleTerm 均已验证 Claude CLI 支持在进程启动时通过 `--session-id` 绑定调用方预分配的 UUID；A5.2/D38 已证明首轮前配对可行。以“尚未收到 Claude init”为由隐藏 W1 入口会错误地把 Session 身份与 SDK Client 是否已启动绑定，并阻止手机发起首个 Turn。
+- **影响**：W1 前端入口不再依赖非空 `sessionId`；开启远程管理时若当前草稿尚无 ID，由 WhaleTerm 预分配并回传后写入当前会话。Remote Host 必须保存开启时的完整宿主配置，远程首条消息只替换输入正文、Turn ID 与已预分配 Session ID，不能用稀疏配置创建另一种 Client。既有已启动 Session、单 Host/单 Client、统一 FIFO、版本 2 wire contract、配对负载和三端状态模型不变；首轮前 `starting/idle` 已由 React Web、Capacitor 和 HarmonyOS NEXT 支持，三端可实现性核对通过。
+- **状态**：已定；替代 W1 原设计中“Session ID 为空则拒绝开启”与“仅已运行 Session 可开启”的限制
+
+## D59 · Origin 判定由枚举白名单改为规则判定
+
+- **日期**：2026-09-18
+- **决策**：`internal/transport` 的 `CheckOrigin` 由「精确字符串查表」改为「显式白名单 ∪ 三条规则」的并集判定。规则一律忽略端口，放行三类 Origin 主机：**(1) loopback**（`localhost`，或 `net.ParseIP(host).IsLoopback()`，覆盖整个 `127.0.0.0/8` 与 `::1`）；**(2) Android 模拟器 NAT 别名 `10.0.2.2`**；**(3) 等于 `AdvertiseURL` 的主机名**——即用户已经声明手机从哪个主机连过来。其余一律拒绝。显式 `AllowedOrigins`（CLI `--allowed-origin`）保留为规则之外的逃生门。`transport.Config` 新增 `AdvertiseURL` 字段，由 `remote.New` 从 `remote.Config.AdvertiseURL` 透传。
+- **理由**：枚举白名单永远追不上浏览器壳真实的 Origin，且每漏一条都是一次**不可诊断**的失败——`CheckOrigin` 不匹配由 gorilla 直接返回 HTTP 403，而浏览器对握手 403 只能观察到 `close` code `1006`，与网络不通、认证超时、服务端关闭同值，服务端又不发送任何 WebSocket close 帧，客户端无从区分。已知会漏的至少三类：Android 壳 `--dist` 的 `http://localhost`、`--live` 的 `http://10.0.2.2:5173`、真机 live reload 的 `http://<LAN IP>:5173`；自定义 Vite 端口还会让端口变化。D56 已为 CLI `emulator` profile 单独补过两条，WhaleTerm 进程内路径又漏了一次，说明枚举方式本身不可维护。规则 (3) 把「用户已声明的可达主机」变成信任依据，规则 (1) 顺带覆盖 iOS Capacitor 的 `capacitor://localhost`。
+- **影响**：**替代 A4 §9「浏览器带 Origin 时必须精确匹配允许列表」的表述**。该条的实质约束是「不允许任意 Origin 通配」，规则判定仍满足——不匹配任何规则的 Origin 依旧被拒；改变的是「允许」由枚举改为按主机类别推导。DNS rebinding 防线不变：攻击页把 `evil.com` 解析到 `127.0.0.1` 后连 `ws://evil.com:7331`，Origin 头仍是 `http://evil.com`，三条规则都不匹配；advertise 主机按**相等**比较而非后缀，`192.168.1.10.evil.com` 仍被拒。D56 为 `emulator` profile 追加的两条 Origin 与 `http://localhost` 在新规则下已冗余，但**保留不动**（不改既有 profile 配置，`--allowed-origin` 语义不变）。WhaleTerm 前端删除硬编码的 `CLAUDE_REMOTE_ALLOWED_ORIGINS` 与其传参，不再维护猜出来的清单。不改变协议、配对负载、监听地址、鉴权与 wire contract。
+- **三端可实现性**：这是**纯服务端**放行策略，客户端只是照常发送自身运行时 Origin，不需要任何改动或配合。React Web（dev server 为 loopback，命中规则 1）、Capacitor（Android `http://localhost` 命中规则 1；iOS `capacitor://localhost` 命中规则 1；live reload 命中规则 1 或 3）、HarmonyOS NEXT（Origin 主机若为回环或与 `AdvertiseURL` 同主机即命中）均无需适配；规则判定对三端未知的具体 Origin 取值比枚举更宽容。核对通过。
+- **状态**：已定；替代 A4 §9 中「精确匹配允许列表」的表述，A4 该节其余约束（无 Origin 客户端仍须鉴权、Origin 不替代应用层鉴权、日志脱敏）不变

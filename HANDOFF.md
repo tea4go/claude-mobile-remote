@@ -6,9 +6,101 @@
 
 ## 0. 一句话现状
 
-A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户验收**（2026-08-28，含三批移动端 UI 打磨；真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁（Capacitor iOS/Android 工程 + Web 接入 + 局域网明文放行 + Android 模拟器壳内连通）；服务重启后的配对恢复已闭环；**B3 已完成并通过门禁**（协议类型下放到 `protocol/`、远程能力抽取为 `remote.Server`）；**D2 已完成代码层功能拉齐并在主工作区通过 Harmony 编译门禁**；**C2-A/C2-B 已完成并通过用户验收**（终端二维码 + Mobile Web 生命周期）；**CLI 产品化配置改造已完成并通过用户验收**（网络 profile + 常用 Claude 参数）。C2-C（原生扫码/安全存储）与 C2-D（真机/VPN）暂缓。下一步：W1（依赖 B3，已就绪）。
+A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户验收**（2026-08-28，含三批移动端 UI 打磨；真实 Claude 端到端验证后置，不阻塞）；C1 已完成并通过门禁；服务重启后的配对恢复已闭环；**B3 已完成并通过门禁**；**D2 已完成代码层功能拉齐并通过 Harmony 编译门禁**；**C2-A/C2-B 已完成并通过用户验收**；**CLI 产品化配置改造已完成并通过用户验收**。**W1 代码与自动化门禁已完成，等待用户在 WhaleTerm + Mobile Web 做真实会话验收。** C2-C（原生扫码/安全存储）与 C2-D（真机/VPN）暂缓。
 
 ## 当前执行（AI 自动维护）
+
+- **子阶段**：W1 · 修复 WhaleTerm 进程内 Host 发布非法 `turn_started` 导致移动端掉线。
+- **本轮任务**：WhaleTerm 的 `ClaudeRemoteSessionHost.handleManagerEvent` 在 `onturnstart` 分支从不设置 `event.Text`，产出空正文 `turn_started`。共享传输层 `internal/transport` 的 `validateEvent` 要求该事件携带非空正文（正文即用户输入，移动端据此渲染输入气泡），校验失败即判为出站非法事件并 `connection.shutdown()` 关闭 WebSocket。现象：配对成功后任意一方开始一轮会话，移动端立即掉线，PC 侧照常执行（PC 走 Wails 事件，不经过该传输层）。本轮让 Host 用本轮 turn 的 prompt 填充 `event.Text`。
+- **范围**：只改 WhaleTerm `backend/chat`（`claude_code_cli_new.go` 的 `claudeTurnLifecycle` 增一个字段、`claude_code_cli_new_lifecycle.go` 的 `registerClaudeTurn` / `runClaudeTurnQueue` / `resolveSessionForRequest` 与新增正文访问器、`claude_remote_session_host.go` 的 `onturnstart` 分支）及对应测试。**不改** `claude_code_cli.go` 的 `promptPayload`、`claude_code_cli_new_prompt.go` 的 `buildPromptPayloadNew` / `extractPromptsFromMessagesNew`——按用户要求「remote control 相关改动集中，非必要不动原有文件」（这两个文件功能牵扯大）。不改 `internal/transport` 校验策略（该契约同时被独立 CLI host 依赖）、不改 wire protocol、不改配对负载、不改移动端、不改 `BindSession`、不创建第二个 SDK client、不执行 Git 写操作。
+- **通过条件**：新增 Host 用例先观察 RED——`turn_started` 必须携带非空且不超过 `protocol.MaxPromptBytes` 的正文、`Source` 合法、`TurnStatus == running`（即共享传输层的 `turn_started` 合法性谓词）；实现后 GREEN。既有 `TestClaudeRemoteSessionHostMapsEventsAndPermission` / `TestClaudeRemoteSessionHostReservesSessionBeforeFirstTurn` 等不回归；`go test ./backend/chat/...` 通过；`gofmt -l` 无输出；`git diff --check` 通过。
+- **当前状态**：**已完成**（2026-09-20）。两项修复均已实现并通过自动化验证，等待用户在 WhaleTerm + Android 模拟器做真实会话验收。
+- **实际完成项**：
+  1. **非法 `turn_started`（移动端掉线）**：`claudeTurnLifecycle` 增 `prompt` 字段，由 `registerClaudeTurn` 在 `c.mu` 内写入（避免与 `activeTurns` 读取竞争）；新增 `claudeTurnPrompt(chatKey, turnID)` 访问器（轮次 ID 必须匹配，否则返回空串——`activeTurns` 可能已被下一轮覆盖）；`ClaudeRemoteSessionHost.handleManagerEvent` 的 `onturnstart` 分支现在填充 `event.Text`，按 `protocol.MaxPromptBytes` 在 UTF-8 边界截断，取不到正文时**不发布并告警**而非发出非法事件。正文取本轮提交给 Claude 的 prompt（`turn.payload.prompt`）——Host 只拿得到 `chatKey` + `turnID`、看不到 payload，故必须由 manager 侧携带。**注**：曾一度引入 `promptPayload.userText` 以让手机气泡显示用户原话（prompt 已被 `preparePromptForExec` 转义并拼上技能前缀与附件说明），经用户评审后按「不过度修改原有后台代码」原则**已回退**；代价是气泡显示的是含技能前缀与附件说明的 prompt，Windows 上换行显示为字面 `\n`。
+  2. **`resolveSessionForRequest` 铸造第二个身份**：请求未带 `session_id` 且本地元数据丢失时，先查 `autonomy.SessionID(agentID)`，已绑定则复用 canonical session，仅在无绑定时才生成新 UUID。此前该路径凭空铸新 UUID，紧随其后的 `BindSession` 必然以 `session identity mismatch` 拒绝本轮。
+- **实际验证**：TDD 先 RED 再 GREEN。
+  - 非法 `turn_started` 的 RED 是**行为性**失败（测试可编译、运行时失败）：`invalid turn_started event: {... Text: ...}` —— 空正文，正是传输层判非法并 shutdown 的条件。
+  - 身份铸造的 RED 同样是行为性失败：`resolved session = "0a6f30f4-…", want the bound canonical session`。
+  - 新增/加强用例：`TestClaudeRemoteSessionHostTurnStartedIsTransportValid`（复刻 `internal/transport.validateEvent` 的 `turn_started` 合法性谓词——该谓词不可导出，故在测试内镜像）、`TestClaudeRemoteSessionHostSuppressesTurnStartedWithoutInputText`、`TestClaudeTurnPromptIsScopedToTheActiveTurn`、`TestResolveSessionForRequestKeepsAutonomyBoundSession`。
+  - 既有 `TestClaudeRemoteSessionHostMapsEventsAndPermission` 的 fixture 补上本轮正文并把断言从「只看 Kind/RequestID」加强为同时校验 `Text`——原断言正是漏掉该缺陷的原因。
+  - **回归对照（决定性）**：把两项修复在 `/tmp` 副本中还原（基线）后跑同一套用例。口径取**具体失败用例名**——分批边界随测试增删位移，按批次名不可比。当前树与基线的失败用例**完全一致**（8 个，全部为既有失败：`TestDefaultClaudeMcpGetRunnerUsesCommandContext` 的 `command type = *execplus.CmdPlus` 断言失败、`TestListTools` / `TestStartMcpTool` 需外部 MCP 服务、`TestSetClaudeCodeMcpDisabledWritesScopeAndIsIdempotent`、`TestDispatchResultMessageStopsOnSuccess`、`TestClaudeToolKeysAreUniqueWithinOneAssistantMessage`、`TestClaudeToolResultKeepsTheOriginalToolKey`、`TestResolveSkillInvocationsNewSupportsMultipleSkillsInOrder`）。基线中两项修复的用例为 RED（`turn_started text = "", want the turn's user input`；`resolved session = "d559654f-…", want the bound canonical session`），当前树 GREEN。即本次改动**未引入任何新失败**。
+  - `gofmt -l backend/chat/` 无输出。
+- **未验证项 / 已知限制**：
+  - `backend/chat` 整包 `go test` 在当前仓库**本来就无法一次跑完**（与本次改动无关，已用还原副本证明）：部分用例会留下 `go runClaudeTurnQueue` 协程，其在测试结束后调用 `emitClaudeEvent` → Wails `runtime.EventsEmit`，而测试用的 `ctx` 不是 Wails 生命周期 ctx，Wails 直接 `log.Fatal` 终止整个测试进程（报 `cannot call '…runtime.EventsEmit': An invalid context was passed`）。另有 `TestDefaultClaudeMcpGetRunnerUsesCommandContext` 等既有的真实断言失败。**均未修复**（超出本次范围）。
+  - `go test` 默认 vet 会因既有的 `deepwiki.go` / `gemini.go` / `deepwiki_file.go` 报错而 build failed，需 `-vet=off`。
+  - WhaleTerm 目录不是 Git 仓库，无法产出 `git diff --check`。
+  - 真实设备端到端（模拟器配对 → 任一方发起会话不掉线 → 两端共享上下文 → 无第二个 Claude 进程）未复验，需用户验收。
+- **未做（仍待用户决定）**：WhaleTerm 前端 `ClaudeRemoteManagement.vue` 两处回退缺陷——`:76` 的 `updateHistoryConfig(props.listenKey, …)` 在 `listenKey === ''` 时静默失效（`:117` 有 `|| props.chatKey` 回退，`:76` 没有），以及 `:119` 的 `claudeConfig.session_id = props.sessionId` 会用可能为空的 prop 覆盖 `makeChatConfig` 已解析出的 ID。后端修复后这两处已不再导致 identity mismatch，但仍会让配对使用/回写过期或空的 session id。
+- **下一步**：用户在 WhaleTerm + Android 模拟器复验；并决定是否处理上述前端回退缺陷。
+
+- **子阶段**：W1 · 将 Origin 判定由「枚举白名单」改为「规则判定」。
+- **本轮任务**：把共享 `internal/transport` 的 `CheckOrigin` 从精确字符串查表改为「显式白名单 ∪ 三条规则」的并集判定，使 loopback（任意端口）、Android 模拟器别名 `10.0.2.2`（任意端口）、以及 `AdvertiseURL` 的主机名（任意端口）一律放行；据此移除 WhaleTerm 前端那份猜出来的硬编码 Origin 清单。
+- **范围**：改 `internal/transport/server.go`（`Config` 增 `AdvertiseURL` 字段 + `CheckOrigin` 判定逻辑）、`remote/remote.go`（透传 `config.AdvertiseURL` 给 transport）、`internal/transport/server_test.go`（新增规则用例）；WhaleTerm 侧删除 `CLAUDE_REMOTE_ALLOWED_ORIGINS` 常量与组件传参、更新对应测试。不改协议、配对负载、`listenAddress`、鉴权与配对 wire contract；保留 `AllowedOrigins` 机制本身供 CLI `--allowed-origin` 使用；不执行 Git 写操作。
+- **通过条件**：三条规则各自的用例放行、公网 Origin 与 DNS rebinding 场景仍返回 403、显式白名单仍生效、既有 `TestWebSocketOriginPolicy` 不回归；WhaleTerm 前端测试与构建通过；`DECISIONS.md` 记录新决策并复核 D56 与 A4 §9。
+- **当前状态**：代码与自动化验证已完成；等待用户在模拟器/真机复验连接。失败可观测性一项仍待决策（见下条记录）。
+- **根因结论**：`CheckOrigin` 用精确字符串查表，任何未枚举到的 Origin 都被 gorilla 直接返回 HTTP 403，WebSocket 不建立；而浏览器对握手 403 只能观察到 `1006`，与网络不通、认证超时、服务端关闭同值，服务端又从不发送 WebSocket close 帧，因此该失败在客户端**不可诊断**。枚举方式本身不可维护：D56 已为 CLI `emulator` profile 补过两条，WhaleTerm 进程内路径仍漏了 `--dist` 的 `http://localhost` 与 `--live` 的 `http://10.0.2.2:5173`；真机 LAN IP 与自定义 Vite 端口还会继续漏。
+- **实际完成项**：
+  1. `internal/transport/server.go`：`Config` 新增 `AdvertiseURL` 字段；`CheckOrigin` 改为「显式白名单 ∪ 规则判定」；新增 `advertiseHost` 与 `isTrustedOriginHost`。规则忽略端口，放行 loopback（`localhost` / `net.ParseIP().IsLoopback()`，覆盖 `127.0.0.0/8` 与 `::1`）、`10.0.2.2`、以及等于 `AdvertiseURL` 主机名三类，其余拒绝。
+  2. `remote/remote.go`：`tcfg.AdvertiseURL = config.AdvertiseURL`（该值此前只传给 `pairing.NewManager`，未进 transport）。
+  3. WhaleTerm `frontend/src/utils/gpt/claudeRemotePairing.js` 删除 `CLAUDE_REMOTE_ALLOWED_ORIGINS`；`ClaudeRemoteManagement.vue` 删除该 import 与 `allowedOrigins:` 传参。`AllowedOrigins` 机制本身保留给 CLI `--allowed-origin`。
+  4. `DECISIONS.md` 新增 **D59**，并显式声明替代 A4 §9「精确匹配允许列表」的表述（其余约束不变）。
+- **实际验证**：TDD 先 RED——先观察到编译失败（`config.AdvertiseURL undefined`），随后**临时禁用规则**重跑，实测每条应放行的 Origin 都返回 **403 Forbidden / websocket: bad handshake**（`http://localhost`、`http://localhost:5174`、`http://127.0.0.1:8080`、`http://127.0.0.2:5173`、`http://[::1]:3000`、`capacitor://localhost`、`http://10.0.2.2:5174`、`http://192.168.1.10:5173`），确认 RED 是行为性失败而非仅编译失败；恢复规则后全部 GREEN。`go test ./internal/transport/... ./remote/... ./protocol/...` 全通过（含既有 `TestWebSocketOriginPolicy` 不回归）；新增 5 条用例覆盖三条规则、DNS rebinding 拒绝面（`http://evil.com`、`http://192.168.1.10.evil.com`、`http://10.0.2.2.evil.com`、`http://localhost.evil.com` 均 403）与显式白名单逃生门。`go vet` 通过、`gofmt -l` 无输出。WhaleTerm：`node --test frontend/tests/claudeRemoteManagement.test.mjs` → 10 pass / 0 fail；全量 `node --test frontend/tests/*.test.mjs` → **81 tests / 77 pass / 4 fail**，4 条失败与改动前基线完全一致，无新增回归；`frontend` 下 `npm run build` 通过（仅既有 chunk-size warning）。
+- **未验证项**：模拟器与真机内的真实连接未复验，需用户重启 WhaleTerm 后重试；`AdvertiseURL` 的主机名规则依赖用户填对地址（填 `127.0.0.1` 时真机本就拨不通，属配置问题而非放行问题）。
+- **三端可实现性**：纯服务端策略，客户端无需改动；React Web / Capacitor（Android `http://localhost`、iOS `capacitor://localhost`）/ HarmonyOS NEXT 均命中规则，核对通过（详见 D59）。
+- **下一步**：用户重启 WhaleTerm，在模拟器内用 `ws://10.0.2.2:7331/ws` 复验配对；并决定是否补服务端拒绝路径日志（可观测性）。
+
+- **子阶段**：W1 · 修复 Android 模拟器配对被 Origin 403 拒绝。
+- **本轮任务**：修复 WhaleTerm 进程内 Remote Server 因 `allowedOrigins` 未覆盖 Android 壳页面 Origin，导致模拟器内 WebSocket 握手一律被 HTTP 403 拒绝的问题；并对「失败原因不可观测」做处置决策。
+- **范围**：只改 WhaleTerm 前端组件传入的 `allowedOrigins` 取值与其纯函数常量；不改 `internal/transport` 的 `DefaultConfig()` 全局默认白名单（遵守 D56「不改全局默认白名单」）；不改协议、配对负载、`listenAddress`、鉴权与配对 wire contract；不执行 Git 写操作。
+- **通过条件**：模拟器 `--live`（`http://10.0.2.2:5173`）与 `--dist`（`http://localhost`）两种 Origin 均被放行；桌面 Web dev（`http://127.0.0.1:5173`/`http://localhost:5173`）行为不回归；前端测试与构建通过。
+- **当前状态**：Origin 修复已完成并通过自动化验证；真实模拟器连接待用户复验。失败可观测性一项待用户决策（见下）。
+- **根因结论**：服务端用 gorilla `CheckOrigin` 对 `Origin` 头做**精确字符串匹配**（`internal/transport/server.go:75-81`），不匹配由 gorilla 直接返回 **HTTP 403**，WebSocket 不建立。WhaleTerm 组件此前硬编码 transport 默认值 `['http://127.0.0.1:5173','http://localhost:5173']`，而 Android 壳两种模式的页面 Origin 都不在其中：`--live` 经 `CAP_SERVER_URL=http://10.0.2.2:5173` 加载，Origin 为 `http://10.0.2.2:5173`；`--dist` 因 `androidScheme: 'http'` 加载本地 dist，Origin 为 `http://localhost`（无端口）。已用探针实测（未改产品代码）：前两条 101，后两条 403。D56 已为 CLI `emulator` profile 修过同一问题，WhaleTerm 进程内路径未对齐；D49 亦已把 `http://localhost` 是否入白名单标记为待 C2 决定。
+- **实际完成项**：`frontend/src/utils/gpt/claudeRemotePairing.js` 新增导出 `CLAUDE_REMOTE_ALLOWED_ORIGINS`（4 条：桌面 dev 两条 + `http://localhost` + `http://10.0.2.2:5173`）并注明依据；`ClaudeRemoteManagement.vue` 改为引用该常量，不再内联数组。改动仅此两处 + 测试。
+- **实际验证**：新增测试「放行 Android 壳两种模式的 Origin」先观察 RED（模块未导出该常量，`SyntaxError: does not provide an export named`）再实现转 GREEN；`node --test frontend/tests/claudeRemoteManagement.test.mjs` → 10 pass / 0 fail；全量 `node --test frontend/tests/*.test.mjs` → **81 tests / 77 pass / 4 fail**，4 条失败与改动前基线完全一致，无新增回归；`frontend` 下 `npm run build` 通过（仅既有 chunk-size warning）；`git diff --check` 通过。
+- **未验证项**：模拟器内真实连接未复验（需用户重启 WhaleTerm 使前端改动生效后重试）；`10.0.2.2:5173` 之外的**自定义 Vite 端口**仍会 403，当前无 `--allowed-origin` 等价逃生门；真机 live reload 用 LAN IP 时同样不在白名单（`--dist` 的真机路径已由 `http://localhost` 覆盖）。
+- **失败可观测性结论（重要）**：用户原选「客户端读 close code」经查证**无效**——服务端全模块从不发送 WebSocket close 帧（无 `CloseMessage`/`WriteControl`，仅裸 `socket.Close()`），且浏览器对握手 403 只报 `1006`，与网络不通、认证超时、服务端关闭同值，读 code 不增加任何信息。唯一能区分 403 的手段是服务端在拒绝时留日志；该模块当前**全程零日志**。待用户决定是否加。
+- **下一步**：用户重启 WhaleTerm 重试模拟器连接并反馈；同时决定失败可观测性处置方式。
+
+- **子阶段**：W1 · WhaleTerm 配对入口真实环境修正。
+- **本轮任务**：修复 WhaleTerm Wails 应用内“远程管理”因使用 `window.prompt`/`window.alert` 无响应的问题；让移动端手工输入同时接受原始 Pairing JSON 与 WhaleTerm 展示的 `#pair=...` Fragment；明确并优化“手机可访问的 WebSocket 地址”的用途与模拟器填写提示。
+- **范围**：WhaleTerm 使用现有 Naive UI 组件完成地址输入、错误提示和配对展示，不再调用浏览器原生 prompt/alert；移动端不改变 Pairing wire contract，只扩展手工输入解析入口；保留 `AdvertiseURL` 作为写入 Pairing payload 的客户端连接地址，继续与服务端 `0.0.0.0:7331` 监听地址分离；补充对应测试与 W1 文档，不执行 Git 写操作。
+- **通过条件**：Wails 应用点击“远程管理”可见应用内配置界面并能启动；粘贴完整 `#pair=...` 可成功解析；Android 模拟器可按界面提示使用 `ws://10.0.2.2:7331/ws`，真机/LAN/VPN 可填写 PC 可达 IP；错误通过应用内消息展示；前端测试、构建及相关 Go 回归通过。
+- **当前状态**：代码与自动化验证已完成；真实 WhaleTerm + Mobile Web 人工验收待用户执行，完成前不宣称 W1 人工门禁通过。
+- **根因结论**：移动端手工配对表单当前只调用 `parsePairingJson`，因此把 WhaleTerm 输出的 `#pair=...` 当 JSON 必然报“配对信息无效”；WhaleTerm 入口直接调用 `window.prompt`/`window.alert`，Wails WebView 内该交互不可靠且无应用内反馈；`AdvertiseURL` 不是服务端绑定地址，而是写入 Pairing payload、供手机/模拟器主动连接 PC 的地址，无法一律使用 `127.0.0.1`（Android 模拟器需用 `10.0.2.2`，真机需用 PC 的 LAN/VPN 地址）。
+- **实际完成项**：
+  1. **移动端手工输入统一入口**：`apps/mobile/src/protocol/pairing.ts` 新增 `parsePairingInput(text, now)`，`#pair=` 开头走既有 `parsePairingFragment`，其余走既有 `parsePairingJson`，两种输入共用同一套 `validatePayload`；`App.tsx` 手工提交改调该入口；`PairingForm` 文案改为“配对 JSON 或完整 #pair Fragment”。未改 Pairing wire contract、校验规则与 token 处理，未写入任何浏览器存储。
+  2. **WhaleTerm 地址校验抽为纯函数**：新增 `frontend/src/utils/gpt/claudeRemotePairing.js`，`normalizeClaudeRemoteAdvertiseUrl` 接受 `ws://`/`wss://`、拒绝空值与 `0.0.0.0`（服务端监听地址不可拨号）并给出可操作提示；默认值 `CLAUDE_REMOTE_DEFAULT_ADVERTISE_URL = 'ws://127.0.0.1:7331/ws'` 保持既有本机开发语义。
+  3. **WhaleTerm 远程管理拆为独立组件**：新增 `frontend/src/views/chat/components/ClaudeRemoteManagement.vue`，把入口按钮、配对内容展示与复制、启动弹框（`n-modal` + `n-input`）、全部 `$message` 反馈与相关样式整体迁入；组件内部用 `isLocalClaude(chatKey)` 判定是否渲染，父组件一行即可接入。`index.vue` 的净改动为 **+5 行**（`v-model:session-id` / `:chat-key` / `:listen-key`），删除原有 5 个 ref、4 个函数、3 段样式与 2 处 import；`window.prompt`/`window.alert` 已彻底移除。
+  4. **会话 ID 回写语义不变**：组件内 `onChatSession` 与 chat 视图原实现逐字一致——仅在 sessionId 变化时 emit `update:sessionId` 并调用 `updateHistoryConfig(listenKey, { session_id })`；`listenKey`/`sessionId` 由父组件传入（二者是 chat 视图局部状态，不在 store）。
+  5. **接口保留**：`StartClaudeRemoteManagement`/`StopClaudeRemoteManagement`、`listenAddress: '0.0.0.0:7331'`、`allowedOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173']`、`agentId = listenKey || chatKey`、`claudeConfig` 构造与 `stream/messages` 语义均未改动。
+- **实际验证**：WhaleTerm 新增 `frontend/tests/claudeRemoteManagement.test.mjs`（9 条：地址校验行为 + 组件源码断言，先观察失败再实现）通过；`node --test frontend/tests/*.test.mjs` → **80 tests / 76 pass / 4 fail**，4 条失败与改动前基线完全一致（`claudeMcpDialogLayout`、`claudeMcpManagement`（`@/assets` 别名导致模块找不到）、`colorThemeGenerator`、`projectCloudSetting`），无新增回归；`npm run build` 通过（保留仓库既有 CSS `:deep()` 与 chunk-size warning）。本项目 `apps/mobile`：`npm test` → **16 文件 408 passed**；`npm run lint` 0 error（仅既有 `scripts/cdp-console.mjs:76` warning）；`npm run build`（`tsc -b && vite build`）通过。两个仓库 `git diff --check` 均通过。
+- **未验证项**：WhaleTerm `npm run lint` 在当前仓库**改动前即不可用**（eslint 9.39 需 flat config，仓库只有 `.eslintrc.cjs`，且其引用的 `.eslintrc-auto-import.json` 未被 `unplugin-auto-import` 生成）——本轮未修复该既有问题，WhaleTerm 侧仅以 `node --test` 与 `vite build` 作为自动化门禁；WhaleTerm 组件在真实 Wails WebView 内的观感与交互、`10.0.2.2` 提示文案的实际可用性、以及真实 Claude 会话的端到端配对未做人工验收。
+- **下一步**：用户在 WhaleTerm 中打开本地 Claude 会话 → 点“远程管理” → 在应用内弹框按提示填地址（模拟器 `ws://10.0.2.2:7331/ws`，真机填 PC 可达地址）→ 复制配对 Fragment → 在 Mobile Web 手工粘贴完整 `#pair=...` 连接，反馈“通过”或具体问题；AI 再记录人工结论并关闭 W1。
+
+- **子阶段**：W1 · WhaleTerm 首轮前远程配对修正。
+- **本轮任务**：推翻“只有已运行且已有 `sessionId` 的 WhaleTerm 会话才能开启远程管理”的错误限制，使新建但尚未发送首条消息的本地 Claude 会话可预分配真实 UUID、先配对，再由 PC 或手机首条输入启动同一个 Claude Session；同时将 WhaleTerm 首轮 `session-id` 参数接入从 `WithExtraArgs` 迁移到 SDK 正式的 `WithSessionID`。
+- **范围**：更新已确认的 W1 设计/计划/决策；调整 WhaleTerm 前端入口、会话预分配与 Remote Host 配置复用；保持唯一 Host/唯一 SDK Client、PC/手机统一 FIFO、既有 wire contract 和关闭远程不停止 Session 的约束；不执行 Git 写操作。
+- **通过条件**：未发首条消息的本地 Claude 会话可打开远程管理并取得稳定真实 `sessionId`；PC 或手机任一端可提交首条消息且只创建一个 SDK Client；已有会话行为不回归；首轮使用 `WithSessionID`；新增/更新 Go 与前端测试、构建和 W1 回归门禁通过。
+- **当前状态**：实现与自动化门禁已完成，等待用户执行首轮前真实 Claude + Mobile Web 验收；完成前不宣称 W1 总门禁通过。
+- **实际完成项**：新增 D58 并修订 W1 设计/计划；WhaleTerm 远程入口不再依赖已有 `sessionId`，开启时可通过现有 Manager 预分配稳定 UUID；Remote Host 接受 `IsStarted=false` 的预备 Session、返回 `starting/idle`，并保存完整 `ClaudeCodeChat` 模板供手机首条输入复用；配对返回 ID 会写回当前前端会话。首轮 SDK 参数改用正式 `WithSessionID`，不再把 `session-id` 放进 `WithExtraArgs`。
+- **实际验证**：WhaleTerm W1 Host/SessionID option 定向测试通过；对应 `go test -race -vet=off` 通过；`backend/remote` race 测试通过；`backend/services` 编译通过；前端 `npm run build` 通过（仅既有 `:deep()` warning）；本项目 `GOFLAGS=-buildvcs=false go test -race -count=1 ./protocol ./remote`、`go vet ./protocol ./remote` 和 `git diff --check` 通过。公共 Remote 首次在受限沙箱内因禁止绑定临时端口失败，沙箱外重跑通过。
+- **依赖边界**：WhaleTerm 提交基准仍依赖 SDK v0.1.1（无 `WithSessionID`）；本地 `go.mod` 已增加指向 `/Users/zhangym/code/work/utils/claude-agent-sdk-go` 的开发态 replace 以完成验证。发布/提交前需发布含正式 API 的 SDK 版本、更新 WhaleTerm 依赖基准并移除本地 replace。
+- **下一步**：用户按 `docs/testing/W1-result.md` 先验证“新建后不发消息 → 开启远程 → 手机发送首条消息”，再验证运行中接力；反馈“通过”或具体问题，AI 记录人工结论并关闭 W1。
+
+- **子阶段**：W1 · WhaleTerm 进程内 Remote Server，代码完成，等待人工验收。
+- **本轮任务**：完成 Task 3–6：真实 Session Host、Remote Server 生命周期、配对展示、自动化测试。
+- **范围**：WhaleTerm 复用现有 SDK Client、Turn FIFO、权限与取消逻辑；提供当前会话“远程管理”入口和可复制 Pairing Fragment；不修改 wire contract、不创建第二个 Client、不引入 PTY/JSONL 接管、不执行 Git 写操作。
+- **当前状态**：W1 代码与自动化验证完成；Task 7 真实 WhaleTerm + Mobile Web 人工验收待用户执行，完成前不宣称 W1 总门禁通过。
+- **实际完成项**：WhaleTerm `backend/chat/claude_remote_session_host.go` 将 Submit/Snapshot/Subscribe/审批/AskUserQuestion/当前 Turn 取消/排队取消连接到现有 Manager；Manager 事件同时发送给 Wails 与 Remote Hub。`backend/remote` 增加固定 Session Controller 与进程级单实例 Service，重复开启复用、跨 Session 拒绝、关闭只释放 Remote Server/Host。`TClaudeCodeService` 暴露启停/查询 API；聊天页增加远程管理入口、可达 WebSocket 地址输入、Pairing Fragment 展示与复制。开发态依赖继续使用 WhaleTerm 本地 `go.mod` replace，未修改 `go.mod.base`。
+- **实际验证**：WhaleTerm Host/Adapter/生命周期定向测试通过；对应 `go test -race -vet=off` 通过；前端 `npm run build` 通过（保留仓库既有 CSS `:deep()` 与 chunk-size warning）；本项目 `GOFLAGS=-buildvcs=false go test -race -count=1 ./protocol ./remote` 与 `go vet ./protocol ./remote` 通过。详细证据见 `docs/testing/W1-result.md`。
+- **已知验证边界**：WhaleTerm `backend/chat` 默认 vet 仍被既有 Go 1.25 告警阻断，因此定向测试使用 `-vet=off`；真实 Claude 会话、扫码/粘贴配对、手机输入/审批/问答、关闭重开与单 Client 进程观察由用户验收。
+- **下一步**：用户按 `docs/testing/W1-result.md` 的清单验收并反馈“通过”或具体问题；AI 再记录结果并决定是否关闭 W1。
+
+- **子阶段**：交接文档维护。
+- **本轮任务**：解决远程拉取后 `HANDOFF.md` 中 Windows 与 macOS 开发者脚本进度产生的冲突。
+- **范围**：仅合并 `HANDOFF.md` 的冲突内容；保留两侧已完成记录，不删除工作区其他改动，不执行任何 Git 写操作。
+- **通过条件**：`HANDOFF.md` 不再包含冲突标记；Windows 与 macOS 两条脚本维护记录均完整保留；`git diff --check` 无空白错误。
+- **当前状态**：冲突已按确认方案合并；只读检查通过，未发现残留冲突标记或空白错误。
 
 - **子阶段**：Windows 开发者脚本维护。
 - **本轮任务**：修复 `scripts/windows/4_web_build.ps1` 调用 `apps/mobile` 测试时，Vitest 在 Windows 下找不到 `src/setupTests.ts`、导致 16 个测试套件全部未执行的问题。
@@ -28,6 +120,15 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 - **实际完成项**：在 `scripts/windows/_common.ps1` 新增 `Set-ProcessEnvironment` / `Restore-ProcessEnvironment` / `Get-GoEnvironmentProfiles` / `Invoke-GoWithFallback` 等 helper；`1_install_base_tools.ps1` 的 `go mod tidy` 改为经由回退链执行。新逻辑先继承当前 Go 环境尝试一次，失败后自动切到 `GOPROXY=https://proxy.golang.org,direct`、`GOSUMDB=sum.golang.org`，并在每次尝试后恢复原进程环境变量。
 - **实际验证**：`powershell -File scripts/windows/1_install_base_tools.ps1 -ShowHelp` 正常输出用法；另在 `%TEMP%/cmr-go-fallback-test` 生成 mock `go.cmd` 做受控验证，模拟“继承环境使用 `https://goproxy.cn,direct` 失败、官方代理成功”的场景，`Invoke-GoWithFallback` 已按预期完成两次调用、第二次成功，且 `GOPROXY/GOSUMDB` 在函数返回后恢复原值。
 - **未验证项**：未在真实外网环境中完整重跑 `go mod tidy + npm ci`；若用户网络对 `proxy.golang.org` 不可达，仍需根据实际环境再补充额外镜像策略。
+
+- **子阶段**：开发者自动化脚本 Bug 修复。
+- **本轮任务**：修复 macOS `scripts/macos/3_android_run.sh` 执行 `installDebug` 后不启动 App 的问题。
+- **范围**：仅改 `scripts/macos/3_android_run.sh`，在 `installDebug` 后追加 `adb shell am start -n com.tea4go.claudemobileremote/.MainActivity`，对齐 Windows `3_android_run.ps1` 的 `Start-AndroidApp` 步骤；README 无需改动（其本就声明「自动拉起」，改的是脚本行为对齐文档）。
+- **通过条件**：`bash -n` 静态检查通过；`--dist` / `--live` 执行后 App 被拉起、页面显示；`git diff --check` 无空白错误。
+- **当前状态**：已完成修复并实测验证通过。
+- **实际完成项**：`scripts/macos/3_android_run.sh` 在 `installDebug` 后追加 `"$adb_bin" shell am start -n com.tea4go.claudemobileremote/.MainActivity`（`adb_bin` 已在脚本第 25 行赋值，`ANDROID_SERIAL` 由 `start_android_avd` export，live/dist 两个模式共用该行）。
+- **实际验证**：`bash -n` 通过；`git diff --check` 无空白错误；对运行中的 `emulator-5554` 实测 `am start` → logcat 出现 `Displayed com.tea4go.claudemobileremote/.MainActivity`，进程存活无 FATAL，`topResumedActivity` 为该 Activity，页面正常显示。
+- **未执行**：任何 Git 写操作。
 
 - **子阶段**：开发者自动化脚本 + 文档重构（README 与脚本命名）。
 - **本轮任务**：为 `scripts/windows` 下 8 个主入口 `ps1` 脚本补齐同名 `.bat` 包装脚本，便于 Windows 用户双击或直接通过 cmd 启动；实现参考 `wireguard-harmony/build-app.bat`，保持参数透传与暂停查看输出行为。
