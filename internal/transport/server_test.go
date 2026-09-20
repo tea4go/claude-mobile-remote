@@ -323,6 +323,94 @@ func TestWebSocketOriginPolicy(t *testing.T) {
 	}
 }
 
+// 枚举白名单永远追不上客户端真实的 Origin：Android 壳 --dist 是 http://localhost、
+// --live 是 http://10.0.2.2:5173，真机 live reload 又是 PC 的 LAN IP，端口还可能被
+// Vite 改掉。每漏一条都是一次不可诊断的 403（浏览器只报 1006）。改为按规则放行。
+func TestWebSocketOriginRulesAllowLoopbackOnAnyPort(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	for _, origin := range []string{
+		"http://localhost",
+		"http://localhost:5174",
+		"http://127.0.0.1:8080",
+		"http://127.0.0.2:5173",
+		"http://[::1]:3000",
+		// iOS Capacitor 壳的 Origin 形如 capacitor://localhost，hostname 仍是 loopback。
+		"capacitor://localhost",
+	} {
+		connection, response, err := fixture.dialWithOrigin(t, origin)
+		if connection != nil {
+			_ = connection.Close()
+		}
+		if err != nil {
+			t.Errorf("loopback origin %q rejected: response=%v error=%v", origin, response, err)
+		}
+	}
+}
+
+func TestWebSocketOriginRulesAllowEmulatorAliasOnAnyPort(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	connection, response, err := fixture.dialWithOrigin(t, "http://10.0.2.2:5174")
+	if connection != nil {
+		_ = connection.Close()
+	}
+	if err != nil {
+		t.Fatalf("emulator alias origin rejected: response=%v error=%v", response, err)
+	}
+}
+
+// AdvertiseURL 是用户已经明确告诉我们的「手机从哪个主机连过来」，该主机名下的
+// 页面 Origin 必须放行，否则真机 live reload 的 http://<LAN IP>:5173 仍会 403。
+func TestWebSocketOriginRulesAllowAdvertisedHostOnAnyPort(t *testing.T) {
+	fixture := newServerFixture(t, func(config *Config) {
+		config.AdvertiseURL = "ws://192.168.1.10:7331/ws"
+	})
+	connection, response, err := fixture.dialWithOrigin(t, "http://192.168.1.10:5173")
+	if connection != nil {
+		_ = connection.Close()
+	}
+	if err != nil {
+		t.Fatalf("advertised host origin rejected: response=%v error=%v", response, err)
+	}
+}
+
+// 规则化不能把 DNS rebinding 的防线一起放掉：攻击页把 evil.com 解析到 127.0.0.1 后
+// 连 ws://evil.com:7331，Origin 头仍是 http://evil.com，三条规则都不该匹配。
+// 后缀伪装（192.168.1.10.evil.com）同样必须拒绝，规则只能是相等而非包含。
+func TestWebSocketOriginRulesRejectUntrustedHost(t *testing.T) {
+	fixture := newServerFixture(t, func(config *Config) {
+		config.AdvertiseURL = "ws://192.168.1.10:7331/ws"
+	})
+	for _, origin := range []string{
+		"https://untrusted.example",
+		"http://evil.com",
+		"http://192.168.1.10.evil.com",
+		"http://10.0.2.2.evil.com",
+		"http://localhost.evil.com",
+	} {
+		connection, response, err := fixture.dialWithOrigin(t, origin)
+		if connection != nil {
+			_ = connection.Close()
+		}
+		if err == nil || response == nil || response.StatusCode != http.StatusForbidden {
+			t.Errorf("origin %q should be denied, got connection:%v response:%v error:%v", origin, connection, response, err)
+		}
+	}
+}
+
+// --allowed-origin 的逃生门必须保留：规则之外的显式来源仍应放行。
+func TestWebSocketOriginRulesKeepExplicitAllowList(t *testing.T) {
+	fixture := newServerFixture(t, func(config *Config) {
+		config.AllowedOrigins = []string{"http://explicit.example"}
+	})
+	connection, response, err := fixture.dialWithOrigin(t, "http://explicit.example")
+	if connection != nil {
+		_ = connection.Close()
+	}
+	if err != nil {
+		t.Fatalf("explicitly allowed origin rejected: response=%v error=%v", response, err)
+	}
+}
+
 func TestWebSocketReturnsStableMessageTooLargeError(t *testing.T) {
 	fixture := newServerFixture(t, func(config *Config) { config.ReadLimit = 128 })
 	connection := fixture.dial(t)
