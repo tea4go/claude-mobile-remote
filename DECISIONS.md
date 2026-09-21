@@ -487,3 +487,13 @@
 - **原因**：静默丢事件后继续转发更高 `seq` 会让客户端持有无法证明完整的增量状态；阻塞发布线程又会反向影响唯一 Session Host。断开并通过最新 Snapshot 恢复符合现有“重连不 replay、恢复当前状态”的产品边界。
 - **三端可实现性**：不改变 JSON envelope、字段或客户端平台依赖；React/Capacitor 与 HarmonyOS 客户端均沿用既有 WebSocket 重连和 Snapshot 恢复语义。
 - **状态**：已定
+
+## D61 · 移动端可读写 Session 权限模式，PC 侧为唯一执行者
+
+- **日期**：2026-09-21
+- **决策**：移动端通过当前 Snapshot 查看 Session 的 Claude 权限模式，并可发送 `set_permission_mode` 请求；权限模式修改必须由 PC 侧 Session Host/Manager 校验并调用 Claude Client 执行，移动端不得本地生效或绕过 PC 权限链路。权限模式变更成功后，服务端更新 Snapshot 并广播 `permission_mode_changed`，配对、重连和多客户端均以 PC 当前值为准。
+- **运行中行为**：允许在 Turn 运行中修改；SDK 当前 Client 使用新模式处理后续权限判断。已经产生的 `pendingAction` 不因模式切换自动决议，仍须显式审批或拒绝。
+- **默认与并发**：未配置时使用最低权限模式 `default`；多个已认证客户端的修改请求进入 PC Session Controller 串行处理，失败不更新对外状态，成功值才广播。
+- **理由**：WhaleTerm 已有 `UpdateClaudeCodePermissionMode`，能够更新活动 Client、排队 Turn 和后续 Client；复用该能力比在移动端复制权限逻辑更安全。Snapshot 负责首连/重连基线，变更事件负责运行中收敛，Pairing payload 继续只承载身份与凭证。
+- **三端可实现性**：新增字段和命令只使用枚举字符串及现有 command/event/seq 管道，React/Capacitor/HarmonyOS 均可展示和发起同一请求；不新增平台专属依赖。
+- **状态**：已定

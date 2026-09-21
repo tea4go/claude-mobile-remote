@@ -24,6 +24,7 @@ type (
 	QueuedRequest     = protocol.QueuedRequest
 	TurnSnapshot      = protocol.TurnSnapshot
 	Snapshot          = protocol.Snapshot
+	PermissionMode    = protocol.PermissionMode
 )
 
 const (
@@ -40,6 +41,11 @@ const (
 	TurnCompleted = protocol.TurnCompleted
 	TurnCancelled = protocol.TurnCancelled
 	TurnFailed    = protocol.TurnFailed
+
+	PermissionModeDefault           = protocol.PermissionModeDefault
+	PermissionModeAcceptEdits       = protocol.PermissionModeAcceptEdits
+	PermissionModePlan              = protocol.PermissionModePlan
+	PermissionModeBypassPermissions = protocol.PermissionModeBypassPermissions
 
 	BlockThinking   = protocol.BlockThinking
 	BlockToolUse    = protocol.BlockToolUse

@@ -18,6 +18,7 @@ import {
   eventReceived,
   noticeReceived,
   pairLoaded,
+  permissionModeSent,
   queuedCancelSent,
   reducer,
   reset,
@@ -215,6 +216,19 @@ function App({
     }
   }, [])
 
+  const handlePermissionMode = useCallback((permissionMode: import('./protocol/types').PermissionMode) => {
+    const client = clientRef.current
+    if (client === null) return
+    const commandId = generateCommandId()
+    console.info('[remote] permission mode command sending', { commandId, permissionMode })
+    const result = client.setPermissionMode(permissionMode, commandId)
+    if (result.ok) {
+      dispatch(permissionModeSent({ commandId, permissionMode }))
+      return
+    }
+    console.warn('[remote] permission mode command not sent', { commandId, permissionMode, reason: result.reason })
+  }, [])
+
   const handleReconnect = useCallback(() => {
     clientRef.current?.reconnect()
     dispatch(pairLoaded())
@@ -320,6 +334,7 @@ function App({
         onBack={backToList}
         onReconnect={handleReconnect}
         onSend={handleSend}
+        onPermissionModeChange={handlePermissionMode}
         onResolveAction={handleResolveAction}
         onCancelTurn={handleCancelTurn}
         onCancelQueued={handleCancelQueued}

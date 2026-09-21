@@ -16,8 +16,9 @@ const (
 	// EventActionRequired and EventActionResolved bracket the pending action, so
 	// a client sees the same waiting state through both the event stream and the
 	// snapshot (B2 §3.2).
-	EventActionRequired EventKind = "action_required"
-	EventActionResolved EventKind = "action_resolved"
+	EventActionRequired        EventKind = "action_required"
+	EventActionResolved        EventKind = "action_resolved"
+	EventPermissionModeChanged EventKind = "permission_mode_changed"
 	// EventUnsupported reports that something could not be represented safely.
 	// Transport carries it as its own envelope type rather than as an ordinary
 	// event, so clients handle the notice in exactly one place (B2 §4.2).
@@ -65,5 +66,6 @@ type Event struct {
 	Code          UnsupportedCode `json:"code,omitempty"`
 	// Answers only ever accompanies EventActionResolved for an answered
 	// AskUserQuestion (D52); permission decisions leave it empty.
-	Answers []ResolvedAnswer `json:"answers,omitempty"`
+	Answers        []ResolvedAnswer `json:"answers,omitempty"`
+	PermissionMode PermissionMode   `json:"permissionMode,omitempty"`
 }

@@ -21,6 +21,8 @@ export type TurnStatus =
   | 'cancelled'
   | 'failed'
 
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
+
 export type InputSource = 'terminal' | 'mobile'
 
 // unsupported 不是事件 kind：它走独立的 type=unsupported envelope。
@@ -35,6 +37,7 @@ export type EventKind =
   | 'content_block'
   | 'action_required'
   | 'action_resolved'
+  | 'permission_mode_changed'
 
 // ---- 结构化内容块（B2 §4.1）----
 
@@ -188,6 +191,7 @@ export interface SessionSnapshot {
   // 与 queuedRequests.length 恒等；服务端空队列在线上是 null。
   queueDepth: number
   queuedRequests: QueuedRequest[]
+  permissionMode?: PermissionMode
 }
 
 // 领域事件：按 kind 部分携带字段，其余枚举在线上为空字符串（Go 零值
@@ -207,6 +211,7 @@ export interface DomainEvent {
   block?: ContentBlock
   pendingAction?: PendingAction
   answers?: ResolvedAnswer[]
+  permissionMode?: PermissionMode
 }
 
 // 传输层 envelope。payload 在解码时按 type 严格校验，这里是未验证的原始值。
@@ -255,6 +260,7 @@ export type CommandKind =
   | 'resolve_action'
   | 'cancel_turn'
   | 'cancel_queued'
+  | 'set_permission_mode'
 
 export type ActionDecision = 'allow_once' | 'allow_session' | 'deny'
 
@@ -270,6 +276,7 @@ export type CommandPayload =
   | { kind: 'resolve_action'; actionId: string; answers: QuestionAnswer[] }
   | { kind: 'cancel_turn'; requestId: string }
   | { kind: 'cancel_queued'; requestId: string }
+  | { kind: 'set_permission_mode'; permissionMode: PermissionMode }
 
 // 服务端可发送给客户端的消息：envelope 关键字段与已验证的 payload 绑定。
 export type ServerMessage = {

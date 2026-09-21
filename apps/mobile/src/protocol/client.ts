@@ -7,6 +7,7 @@ import type {
   ActionDecision,
   CommandPayload,
   QuestionAnswer,
+  PermissionMode,
   UnsupportedCode,
 } from './types'
 import { PROTOCOL_VERSION } from './types'
@@ -184,6 +185,10 @@ export class ProtocolClient {
 
   cancelQueued(requestId: string, commandId: string): SendResult {
     return this.sendCommand(commandId, { kind: 'cancel_queued', requestId })
+  }
+
+  setPermissionMode(permissionMode: PermissionMode, commandId: string): SendResult {
+    return this.sendCommand(commandId, { kind: 'set_permission_mode', permissionMode })
   }
 
   // 所有命令共用单在途门控：服务端按 commandId 单次应答，并行发送无法对应结果。

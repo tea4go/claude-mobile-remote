@@ -421,6 +421,15 @@ describe('A5 闭环回归：命令后事件序列', () => {
     expect(state.phase).toBe('connected')
     expect(state.messages.filter((m) => m.kind === 'claude')).toHaveLength(0)
   })
+
+  test('text_delta 不渲染 PC 工具卡片占位符', () => {
+    let state = createInitialState()
+    state = reducer(state, pairLoaded())
+    state = reducer(state, snapshotReceived(loopSnapshot(7)))
+    state = reducer(state, eventReceived(event('turn_started', 8, { requestId: 'req-1' })))
+    state = reducer(state, eventReceived(event('text_delta', 9, { requestId: 'req-1', text: '${write-tool-1}' })))
+    expect(state.messages.filter((m) => m.kind === 'claude' && m.text !== '')).toHaveLength(0)
+  })
 })
 
 // ---- A5.1：输入消息归并（D37）----

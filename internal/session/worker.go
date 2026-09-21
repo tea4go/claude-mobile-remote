@@ -4,6 +4,7 @@ import (
 	"context"
 
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 // Host is the narrow Claude lifecycle owned exclusively by hostWorker, plus the
@@ -15,6 +16,12 @@ type Host interface {
 	Actions() <-chan *projectclaude.ActionRequest
 	Interrupt(context.Context) error
 	Close() error
+}
+
+// PermissionModeHost is optional so existing embedding hosts can adopt the
+// read/write permission contract without changing their turn lifecycle.
+type PermissionModeHost interface {
+	SetPermissionMode(context.Context, protocol.PermissionMode) error
 }
 
 type workerRequest struct {

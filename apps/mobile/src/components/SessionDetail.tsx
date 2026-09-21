@@ -11,6 +11,7 @@ import {
   SESSION_BACKGROUND,
 } from './ui'
 import type { ActionResolution } from '../protocol/client'
+import type { PermissionMode } from '../protocol/types'
 import type { MobileState } from '../session/reducer'
 import type { SessionRecord } from '../session/store'
 
@@ -24,6 +25,7 @@ interface SessionDetailProps {
   onBack: () => void
   onReconnect: () => void
   onSend: (text: string) => void
+  onPermissionModeChange?: (mode: PermissionMode) => void
   onResolveAction: (resolution: ActionResolution) => boolean | void
   onCancelTurn: (requestId: string) => boolean | void
   onCancelQueued: (requestId: string) => boolean | void
@@ -40,6 +42,7 @@ export default function SessionDetail({
   onBack,
   onReconnect,
   onSend,
+  onPermissionModeChange = () => undefined,
   onResolveAction,
   onCancelTurn,
   onCancelQueued,
@@ -92,39 +95,6 @@ export default function SessionDetail({
           enabled={commandReady}
           onCancel={onCancelQueued}
         />
-        {cancelTarget !== null && (
-          <div
-            data-testid="floating-cancel-turn"
-            style={{
-              position: 'fixed',
-              right: 16,
-              bottom: 'calc(76px + env(safe-area-inset-bottom))',
-              zIndex: 10,
-              display: 'flex',
-              gap: 8,
-              alignItems: 'center',
-              padding: 6,
-              borderRadius: 999,
-              background: 'rgba(255, 255, 255, 0.92)',
-              boxShadow: '0 4px 16px rgba(15, 23, 42, 0.16)',
-            }}
-          >
-            <Button
-              size="mini"
-              fill="outline"
-              color="danger"
-              style={COMPACT_BUTTON_STYLE}
-              disabled={!commandReady}
-              onClick={() => {
-                onCancelTurn(cancelTarget)
-              }}
-            >
-              取消当前 Turn
-            </Button>
-            {/* 发出取消请求不等于已取消（B2 §7）。 */}
-            {cancelRequested && <span style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>已请求取消</span>}
-          </div>
-        )}
         {pairingInvalid && <div style={{ color: '#e00' }}>配对已失效，请返回列表重新配对</div>}
         {state.phase === 'protocolError' && !pairingInvalid && (
           <div style={{ color: '#e00' }}>状态异常，请重新连接以获取最新状态</div>
@@ -167,7 +137,17 @@ export default function SessionDetail({
             onCancel={onCancelTurn}
           />
         )}
-        <MessageComposer enabled={state.canSend} onSend={onSend} />
+        <MessageComposer
+          enabled={state.canSend}
+          onSend={onSend}
+          permissionMode={state.permissionMode}
+          onPermissionModeChange={onPermissionModeChange}
+          turnRunning={cancelTarget !== null}
+          cancelTarget={cancelTarget}
+          cancelEnabled={commandReady && !cancelRequested}
+          onCancelTurn={onCancelTurn}
+          permissionPending={state.pendingAction?.kind === 'tool_approval'}
+        />
       </div>
     </div>
   )

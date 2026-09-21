@@ -75,6 +75,9 @@ func WithServiceConfig(config ServiceConfig) Option {
 			controller.config.ToolPreviewMaxRunes = config.ToolPreviewMaxRunes
 		}
 		controller.config.AskUserTextEnabled = config.AskUserTextEnabled
+		if config.PermissionMode.IsKnown() {
+			controller.config.PermissionMode = config.PermissionMode
+		}
 	}
 }
 
@@ -229,6 +232,13 @@ type cancelQueuedCommand struct {
 
 func (cancelQueuedCommand) isActorCommand() {}
 
+type setPermissionModeCommand struct {
+	mode     protocol.PermissionMode
+	response chan error
+}
+
+func (setPermissionModeCommand) isActorCommand() {}
+
 // NewController constructs a not-yet-started Controller with its initial state.
 func NewController(host Host, options ...Option) *Controller {
 	controller := &Controller{
@@ -248,6 +258,7 @@ func NewController(host Host, options ...Option) *Controller {
 	for _, option := range options {
 		option(controller)
 	}
+	controller.initialSnapshot.PermissionMode = controller.config.PermissionMode
 	return controller
 }
 
@@ -464,6 +475,18 @@ func (c *Controller) CancelQueued(ctx context.Context, requestID string) error {
 	})
 }
 
+// SetPermissionMode changes the Host's Claude permission mode through the same
+// actor that serializes input and action decisions. The published state changes
+// only after the Host confirms the SDK update.
+func (c *Controller) SetPermissionMode(ctx context.Context, mode protocol.PermissionMode) error {
+	if !mode.IsKnown() {
+		return protocol.ErrInvalidPermissionMode
+	}
+	return c.sendControl(ctx, func(response chan error) actorCommand {
+		return setPermissionModeCommand{mode: mode, response: response}
+	})
+}
+
 // sendControl delivers a command that answers with an error only, so the three
 // control commands share one liveness contract with Submit.
 func (c *Controller) sendControl(ctx context.Context, build func(chan error) actorCommand) error {
@@ -580,6 +603,8 @@ func (c *Controller) handleCommand(state *actorState, command actorCommand) bool
 		c.handleCancelTurn(state, command)
 	case cancelQueuedCommand:
 		c.handleCancelQueued(state, command)
+	case setPermissionModeCommand:
+		c.handleSetPermissionMode(state, command)
 	case stopCommand:
 		state.pendingStops = append(state.pendingStops, command.response)
 		if !state.stopping {
@@ -591,6 +616,31 @@ func (c *Controller) handleCommand(state *actorState, command actorCommand) bool
 		}
 	}
 	return false
+}
+
+func (c *Controller) handleSetPermissionMode(state *actorState, command setPermissionModeCommand) {
+	if !command.mode.IsKnown() {
+		command.response <- protocol.ErrInvalidPermissionMode
+		return
+	}
+	host, ok := c.worker.host.(PermissionModeHost)
+	if !ok {
+		command.response <- errors.New("session host does not support runtime permission mode")
+		return
+	}
+	if err := host.SetPermissionMode(context.Background(), command.mode); err != nil {
+		command.response <- err
+		return
+	}
+	state.snapshot.PermissionMode = command.mode
+	c.publish(state, Event{
+		Kind:           protocol.EventPermissionModeChanged,
+		SessionID:      state.snapshot.SessionID,
+		SessionStatus:  state.snapshot.SessionStatus,
+		TurnStatus:     state.snapshot.Turn.Status,
+		PermissionMode: command.mode,
+	})
+	command.response <- nil
 }
 
 // handleActionRequest admits at most one pending action per Session. Every
