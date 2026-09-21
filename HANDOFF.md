@@ -10,6 +10,14 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 
 ## 当前执行（AI 自动维护）
 
+- **子阶段**：W1 · 修复 WhaleTerm/移动端运行态同步与远程文本流粒度。
+- **本轮任务**：让 PC 与移动端对同一 Turn 进入/退出运行态一致；PC 和移动端运行中均提供可见的终止入口；远程文本增量保持顺序并避免单个 SDK 文本块过大导致移动端成片渲染。
+- **范围**：WhaleTerm 仅改远程 Host/聊天视图及对应测试；移动端仅改取消入口/必要状态测试；不改 wire protocol、字段、seq 语义、Channel 订阅模型或 Session Host 单写入边界。
+- **通过条件**：手机发起 Turn 时 PC 进入运行态并显示终止入口；PC 发起 Turn 时移动端显示运行态及终止入口；任一端终止后两端都进入取消终态；远程文本内容不变、seq 连续且单次增量受限；相关 Go/Node/移动端测试通过。
+- **当前状态**：**代码与自动化验证已完成**（2026-09-21）。PC 远程轮次会进入现有 Footer 加载态；移动端取消入口固定悬浮；远程文本块按 32 个 Unicode 字符切分并保持内容顺序。
+- **实际验证**：WhaleTerm 远程 Host/订阅相关 race 测试通过；移动端全量 Vitest 409/409 通过；本项目 Channel/remote/CLI race 测试通过；两仓库 `git diff --check` 通过。WhaleTerm `backend/chat` 全包测试仍有既有 Wails invalid context 日志导致失败，远程相关定向测试通过。
+- **未验证项 / 下一步**：尚未完成真实 WhaleTerm + 手机设备闭环，需人工确认双向运行态、悬浮终止和文本流观感。
+
 - **子阶段**：W1 · 收敛 WhaleTerm Channel 订阅语义与前端状态恢复。
 - **本轮任务**：把 WhaleTerm 内部事件桥接补齐为可注销、可检测背压的订阅模式；消除 Manager 全局回调覆盖竞态；让公共 Channel 拒绝不连续事件；恢复前端已开启状态并修正 session/listen key 回退；复用公共配对 TTL 默认值。
 - **范围**：本项目修改 `remote` 默认配对 TTL、`internal/channel` 序号连续性及测试，并记录订阅连续性决策；WhaleTerm 修改 `backend/chat` Manager 事件订阅与 Host/Hub、`backend/remote` TTL 配置、远程管理前端及对应测试。不改 wire protocol、协议字段、Session/Turn 状态模型、配对负载，不创建第二个 SDK Client，不执行 Git 写操作。

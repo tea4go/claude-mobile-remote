@@ -99,6 +99,30 @@ describe('SessionDetail：基本渲染', () => {
 })
 
 describe('SessionDetail：交互', () => {
+  test('运行中显示悬浮终止按钮并回调当前 Turn', () => {
+    const onCancelTurn = vi.fn()
+    render(
+      <SessionDetail
+        record={record()}
+        state={connectedState()}
+        turnStatus="running"
+        pairingInvalid={false}
+        cancelTarget="req-running"
+        onResolveAction={noop}
+        onCancelTurn={onCancelTurn}
+        onCancelQueued={noop}
+        onBack={noop}
+        onReconnect={noop}
+        onSend={noop}
+      />,
+    )
+
+    const button = screen.getByRole('button', { name: '取消当前 Turn' })
+    expect(screen.getByTestId('floating-cancel-turn')).toHaveStyle({ position: 'fixed' })
+    fireEvent.click(button)
+    expect(onCancelTurn).toHaveBeenCalledExactlyOnceWith('req-running')
+  })
+
   test('返回按钮回调 onBack', () => {
     const onBack = vi.fn()
     render(
