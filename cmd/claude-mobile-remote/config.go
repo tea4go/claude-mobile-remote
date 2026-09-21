@@ -13,6 +13,7 @@ import (
 	"time"
 
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
+	cmrremote "github.com/tea4go/claude-mobile-remote/remote"
 )
 
 var defaultAllowedOrigins = []string{
@@ -60,7 +61,7 @@ func parseConfig(arguments []string) (cliConfig, error) {
 		// 配对凭证可跨重启恢复，但 expiresAt 是三端共识的绝对时间，服务端
 		// 单方面续期会被客户端的本地过期校验拦下；因此用较长的默认有效期
 		// 覆盖「隔几天接着用」，仍可用 --pair-token-ttl 收紧。
-		pairTokenTTL: 30 * 24 * time.Hour,
+		pairTokenTTL: cmrremote.DefaultPairTokenTTL,
 	}
 	config.allowedOrigins = append([]string(nil), defaultAllowedOrigins...)
 	var extraOrigins stringListFlag

@@ -197,6 +197,7 @@ func TestChannelSubscriptionRejectsInvalidEvents(t *testing.T) {
 	}{
 		{name: "cross session", event: projectsession.Event{SessionID: "session-2", Seq: 8}, wantErr: projectsession.ErrSessionMismatch},
 		{name: "non increasing seq", event: projectsession.Event{SessionID: "session-1", Seq: 7}, wantErr: ErrInvalidSequence},
+		{name: "sequence gap", event: projectsession.Event{SessionID: "session-1", Seq: 9}, wantErr: ErrInvalidSequence},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -219,6 +220,21 @@ func TestChannelSubscriptionRejectsInvalidEvents(t *testing.T) {
 				t.Fatalf("timed out waiting for %v", test.wantErr)
 			}
 		})
+	}
+}
+
+func TestChannelSubscriptionReportsUnexpectedSourceClose(t *testing.T) {
+	controller := &fakeController{
+		snapshot: projectsession.Snapshot{SessionID: "session-1", Seq: 7},
+		events:   make(chan projectsession.Event),
+	}
+	subscription, err := New("session-1", controller).OpenSubscription(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(controller.events)
+	if got := <-subscription.Errors; !errors.Is(got, ErrSubscriptionClosed) {
+		t.Fatalf("subscription error = %v, want ErrSubscriptionClosed", got)
 	}
 }
 

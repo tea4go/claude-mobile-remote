@@ -480,3 +480,10 @@
 - **影响**：**替代 A4 §9「浏览器带 Origin 时必须精确匹配允许列表」的表述**。该条的实质约束是「不允许任意 Origin 通配」，规则判定仍满足——不匹配任何规则的 Origin 依旧被拒；改变的是「允许」由枚举改为按主机类别推导。DNS rebinding 防线不变：攻击页把 `evil.com` 解析到 `127.0.0.1` 后连 `ws://evil.com:7331`，Origin 头仍是 `http://evil.com`，三条规则都不匹配；advertise 主机按**相等**比较而非后缀，`192.168.1.10.evil.com` 仍被拒。D56 为 `emulator` profile 追加的两条 Origin 与 `http://localhost` 在新规则下已冗余，但**保留不动**（不改既有 profile 配置，`--allowed-origin` 语义不变）。WhaleTerm 前端删除硬编码的 `CLAUDE_REMOTE_ALLOWED_ORIGINS` 与其传参，不再维护猜出来的清单。不改变协议、配对负载、监听地址、鉴权与 wire contract。
 - **三端可实现性**：这是**纯服务端**放行策略，客户端只是照常发送自身运行时 Origin，不需要任何改动或配合。React Web（dev server 为 loopback，命中规则 1）、Capacitor（Android `http://localhost` 命中规则 1；iOS `capacitor://localhost` 命中规则 1；live reload 命中规则 1 或 3）、HarmonyOS NEXT（Origin 主机若为回环或与 `AdvertiseURL` 同主机即命中）均无需适配；规则判定对三端未知的具体 Origin 取值比枚举更宽容。核对通过。
 - **状态**：已定；替代 A4 §9 中「精确匹配允许列表」的表述，A4 该节其余约束（无 Origin 客户端仍须鉴权、Origin 不替代应用层鉴权、日志脱敏）不变
+## D60 · 订阅事件必须连续；慢消费者以断开并重新获取 Snapshot 收敛
+
+- **日期**：2026-09-21
+- **决定**：Controller 的原子 `Subscribe` 返回 `snapshot.Seq` 后，后续事件必须从 `snapshot.Seq + 1` 严格连续。Channel 发现重复、倒退或跳号都终止该订阅并报告 `ErrInvalidSequence`。宿主内部发布不得阻塞 Claude/SDK 事件线程；单个订阅者缓冲区满时关闭该慢订阅，不静默丢弃事件，由 Transport 断开连接，客户端重连后重新鉴权、订阅并获取最新 Snapshot。
+- **原因**：静默丢事件后继续转发更高 `seq` 会让客户端持有无法证明完整的增量状态；阻塞发布线程又会反向影响唯一 Session Host。断开并通过最新 Snapshot 恢复符合现有“重连不 replay、恢复当前状态”的产品边界。
+- **三端可实现性**：不改变 JSON envelope、字段或客户端平台依赖；React/Capacitor 与 HarmonyOS 客户端均沿用既有 WebSocket 重连和 Snapshot 恢复语义。
+- **状态**：已定
