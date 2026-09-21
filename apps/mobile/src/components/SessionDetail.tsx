@@ -93,7 +93,22 @@ export default function SessionDetail({
           onCancel={onCancelQueued}
         />
         {cancelTarget !== null && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div
+            data-testid="floating-cancel-turn"
+            style={{
+              position: 'fixed',
+              right: 16,
+              bottom: 'calc(76px + env(safe-area-inset-bottom))',
+              zIndex: 10,
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+              padding: 6,
+              borderRadius: 999,
+              background: 'rgba(255, 255, 255, 0.92)',
+              boxShadow: '0 4px 16px rgba(15, 23, 42, 0.16)',
+            }}
+          >
             <Button
               size="mini"
               fill="outline"
