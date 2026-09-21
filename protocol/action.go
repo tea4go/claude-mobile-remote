@@ -12,7 +12,8 @@ var (
 	// ErrInvalidAction reports a resolution that does not fit the action shape.
 	ErrInvalidAction = errors.New("invalid action resolution")
 	// ErrInvalidAnswer reports answers that do not cover the questions exactly.
-	ErrInvalidAnswer = errors.New("invalid question answers")
+	ErrInvalidAnswer         = errors.New("invalid question answers")
+	ErrInvalidPermissionMode = errors.New("invalid permission mode")
 	// ErrTurnNotCancellable reports that the named Turn is not the running one.
 	ErrTurnNotCancellable = errors.New("turn not cancellable")
 	// ErrRequestNotQueued reports that the named request is not a FIFO entry.

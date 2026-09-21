@@ -11,6 +11,7 @@ import (
 	"time"
 
 	claudecode "github.com/tea4go/claude-agent-sdk-go"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 type sdkClient interface {
@@ -19,6 +20,10 @@ type sdkClient interface {
 	ReceiveResponse(context.Context) claudecode.MessageIterator
 	Interrupt(context.Context) error
 	Disconnect() error
+}
+
+type permissionModeClient interface {
+	SetPermissionMode(context.Context, claudecode.PermissionMode) error
 }
 
 // DefaultActionTimeout 是单个 pending action 的等待上限（设计 §7）。它属于 PC
@@ -278,6 +283,40 @@ func (h *Host) Interrupt(ctx context.Context) error {
 	if err := client.Interrupt(ctx); err != nil {
 		return wrapError(ScopeTurn, "中断 Claude Turn", err)
 	}
+	return nil
+}
+
+// SetPermissionMode applies a runtime mode change to the single SDK Client.
+// Before Connect it only updates the mode used by the next client startup;
+// while connected it delegates to the SDK control protocol first and commits
+// the local value only after success.
+func (h *Host) SetPermissionMode(ctx context.Context, mode protocol.PermissionMode) error {
+	if !mode.IsKnown() {
+		return protocol.ErrInvalidPermissionMode
+	}
+	h.lifecycleMu.Lock()
+	client, connected, closed := h.client, h.connected, h.closed
+	previous := h.permissionMode
+	h.lifecycleMu.Unlock()
+	if closed {
+		return wrapError(ScopeSession, "修改权限模式", errors.New("Host 已关闭"))
+	}
+	if connected {
+		control, ok := client.(permissionModeClient)
+		if !ok {
+			return wrapError(ScopeSession, "修改权限模式", errors.New("SDK Client 不支持运行时权限模式"))
+		}
+		if err := control.SetPermissionMode(ctx, claudecode.PermissionMode(mode)); err != nil {
+			return wrapError(ScopeSession, "修改权限模式", err)
+		}
+	}
+	h.lifecycleMu.Lock()
+	if !h.closed {
+		h.permissionMode = claudecode.PermissionMode(mode)
+	} else {
+		h.permissionMode = previous
+	}
+	h.lifecycleMu.Unlock()
 	return nil
 }
 

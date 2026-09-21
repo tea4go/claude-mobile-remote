@@ -243,6 +243,8 @@ func (c *connection) dispatchCommand(payload CommandPayload) (string, error) {
 		return payload.RequestID, c.subscriptionChannel.CancelTurn(c.context, c.sessionID, payload.RequestID)
 	case CommandCancelQueued:
 		return payload.RequestID, c.subscriptionChannel.CancelQueued(c.context, c.sessionID, payload.RequestID)
+	case CommandSetPermissionMode:
+		return c.sessionID, c.subscriptionChannel.SetPermissionMode(c.context, c.sessionID, payload.PermissionMode)
 	default:
 		return "", protocolError(CodeInvalidCommand, "unknown command kind")
 	}

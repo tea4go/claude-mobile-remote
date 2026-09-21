@@ -22,6 +22,10 @@ type Controller interface {
 	CancelQueued(context.Context, string) error
 }
 
+type PermissionModeController interface {
+	SetPermissionMode(context.Context, protocol.PermissionMode) error
+}
+
 // Channel routes one exact session ID to its Controller.
 type Channel struct {
 	sessionID  string
@@ -100,6 +104,17 @@ func (c *Channel) CancelQueued(ctx context.Context, sessionID, requestID string)
 		return err
 	}
 	return c.controller.CancelQueued(ctx, requestID)
+}
+
+func (c *Channel) SetPermissionMode(ctx context.Context, sessionID string, mode protocol.PermissionMode) error {
+	if err := c.guard(sessionID); err != nil {
+		return err
+	}
+	host, ok := c.controller.(PermissionModeController)
+	if !ok {
+		return errors.New("session controller does not support permission mode")
+	}
+	return host.SetPermissionMode(ctx, mode)
 }
 
 type Subscription struct {

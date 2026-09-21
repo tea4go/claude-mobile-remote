@@ -21,6 +21,7 @@ import type {
   ToolClass,
   TurnSnapshot,
   TurnStatus,
+  PermissionMode,
   UnsupportedCode,
   UnsupportedPayload,
 } from './types'
@@ -49,6 +50,7 @@ const TURN_STATUSES: ReadonlySet<string> = new Set([
   'cancelled',
   'failed',
 ])
+const PERMISSION_MODES: ReadonlySet<string> = new Set(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
 
 const INPUT_SOURCES: ReadonlySet<string> = new Set(['terminal', 'mobile'])
 
@@ -63,6 +65,7 @@ const EVENT_KINDS: ReadonlySet<string> = new Set([
   'content_block',
   'action_required',
   'action_resolved',
+  'permission_mode_changed',
 ])
 
 // unsupported 不是第四类 block，也不是事件 kind：它走独立 envelope（B2 §4.4）。
@@ -445,6 +448,12 @@ function decodeSessionSnapshot(value: unknown): SessionSnapshot {
     turn: decodeTurnSnapshot(value.turn),
     queueDepth: requireNonNegativeInteger(value, 'queueDepth'),
     queuedRequests: decodeQueuedRequests(value),
+    permissionMode: (() => {
+      const raw = optionalString(value, 'permissionMode')
+      if (raw === '') return 'default'
+      if (!PERMISSION_MODES.has(raw)) fail('field permissionMode has unknown value')
+      return raw as PermissionMode
+    })(),
   }
   // queueDepth 与列表长度恒等（B2 §4.3）：不一致说明快照自相矛盾。
   if (snapshot.queueDepth !== snapshot.queuedRequests.length) {
@@ -513,6 +522,11 @@ function decodeEventPayload(value: unknown): EventPayload {
     const answers = decodeResolvedAnswers(rawAnswers)
     if (answers.length > 0) domainEvent.answers = answers
   }
+  if (kind === 'permission_mode_changed') {
+    const rawMode = requireNonEmptyString(event, 'permissionMode')
+    if (!PERMISSION_MODES.has(rawMode)) fail('invalid permission mode event')
+    domainEvent.permissionMode = rawMode as PermissionMode
+  }
   validateEventSemantics(domainEvent)
   return { event: domainEvent }
 }
@@ -540,6 +554,9 @@ function validateEventSemantics(event: DomainEvent): void {
   }
   if (event.kind === 'content_block') {
     if (event.requestId === '') fail('invalid content_block event')
+  }
+  if (event.kind === 'permission_mode_changed' && event.permissionMode === undefined) {
+    fail('permission mode event requires permissionMode')
   }
   if (event.kind === 'action_required') {
     // 等待待处理事项的 Turn 必然处于 waiting（B2 §4.2）。

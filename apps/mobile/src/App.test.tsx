@@ -697,7 +697,7 @@ describe('App：B2 取消与排队', () => {
       payload: { kind: 'cancel_turn', requestId: 'req-pc' },
     })
     // 发出取消请求与已取消是两个状态（§7）。
-    expect(screen.getByText(/已请求取消/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '取消当前 Turn' })).toHaveTextContent('停止中')
 
     socket.serverMessage({
       version: PROTOCOL_VERSION, type: 'command_result', sessionId: 'session-1',

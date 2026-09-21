@@ -19,6 +19,9 @@ type ServiceConfig struct {
 	// false until the CLI probe proves the SDK accepts non-option answers, and
 	// even then it must be turned on explicitly.
 	AskUserTextEnabled bool
+	// PermissionMode is the current Claude permission mode. It is owned by the
+	// Session Host and mirrored in Snapshot; empty means the conservative default.
+	PermissionMode PermissionMode
 }
 
 // DefaultServiceConfig returns the conservative defaults shared by every
@@ -27,6 +30,26 @@ func DefaultServiceConfig() ServiceConfig {
 	return ServiceConfig{
 		ToolPreviewMaxRunes: DefaultToolPreviewMaxRunes,
 		AskUserTextEnabled:  false,
+		PermissionMode:      PermissionModeDefault,
+	}
+}
+
+// PermissionMode is the closed SDK permission vocabulary exposed to clients.
+type PermissionMode string
+
+const (
+	PermissionModeDefault           PermissionMode = "default"
+	PermissionModeAcceptEdits       PermissionMode = "acceptEdits"
+	PermissionModePlan              PermissionMode = "plan"
+	PermissionModeBypassPermissions PermissionMode = "bypassPermissions"
+)
+
+func (mode PermissionMode) IsKnown() bool {
+	switch mode {
+	case PermissionModeDefault, PermissionModeAcceptEdits, PermissionModePlan, PermissionModeBypassPermissions:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -175,4 +198,5 @@ type Snapshot struct {
 	Turn           TurnSnapshot    `json:"turn"`
 	QueueDepth     int             `json:"queueDepth"`
 	QueuedRequests []QueuedRequest `json:"queuedRequests"`
+	PermissionMode PermissionMode  `json:"permissionMode"`
 }

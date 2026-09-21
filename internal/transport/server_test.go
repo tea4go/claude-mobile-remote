@@ -165,7 +165,10 @@ func newServerFixture(t *testing.T, configure func(*Config)) *serverFixture {
 		t.Fatal(err)
 	}
 	controller := &transportFakeController{
-		snapshot: projectsession.Snapshot{SessionID: "session-1", SessionStatus: projectsession.SessionReady, Seq: 7},
+		snapshot: projectsession.Snapshot{
+			SessionID: "session-1", SessionStatus: projectsession.SessionReady, Seq: 7,
+			PermissionMode: projectsession.PermissionModeDefault,
+		},
 	}
 	registry := channel.NewRegistry()
 	if err := registry.Register(channel.New("session-1", controller)); err != nil {
@@ -785,10 +788,11 @@ func reservePreTurnSnapshot(fixture *serverFixture) {
 	fixture.controller.mu.Lock()
 	defer fixture.controller.mu.Unlock()
 	fixture.controller.snapshot = projectsession.Snapshot{
-		SessionID:     "session-1",
-		SessionStatus: projectsession.SessionStarting,
-		Seq:           0,
-		Turn:          projectsession.TurnSnapshot{Status: projectsession.TurnIdle},
+		SessionID:      "session-1",
+		SessionStatus:  projectsession.SessionStarting,
+		Seq:            0,
+		Turn:           projectsession.TurnSnapshot{Status: projectsession.TurnIdle},
+		PermissionMode: projectsession.PermissionModeDefault,
 	}
 }
 
@@ -820,6 +824,9 @@ func TestWebSocketPreTurnSubscribeReceivesStartingSnapshot(t *testing.T) {
 	if payload.Snapshot.QueuedRequests != nil {
 		t.Fatalf("pre-turn queuedRequests = %#v, want none", payload.Snapshot.QueuedRequests)
 	}
+	if payload.Snapshot.PermissionMode != projectsession.PermissionModeDefault {
+		t.Fatalf("pre-turn permissionMode = %q, want default", payload.Snapshot.PermissionMode)
+	}
 
 	// 三端共用契约：首轮前 snapshot 不得新增字段或浏览器特有分支。
 	// B2 §4.4 新增 queuedRequests，它与 queueDepth 一起构成同一 FIFO 视图。
@@ -834,6 +841,7 @@ func TestWebSocketPreTurnSubscribeReceivesStartingSnapshot(t *testing.T) {
 	wantKeys := map[string]bool{
 		"sessionId": true, "sessionStatus": true, "sessionError": true,
 		"seq": true, "turn": true, "queueDepth": true, "queuedRequests": true,
+		"permissionMode": true,
 	}
 	if len(inner) != len(wantKeys) {
 		t.Fatalf("snapshot keys = %#v, want exactly %#v", inner, wantKeys)

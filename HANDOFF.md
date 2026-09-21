@@ -10,6 +10,83 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 
 ## 当前执行（AI 自动维护）
 
+- **子阶段**：W1 · 移动端输入框 UI 验收与提交。
+- **当前状态**：**用户已验收通过，正在提交**（2026-09-21）。提交范围包含输入框 UI、其依赖的权限模式共享契约/移动端接线、配套测试、SVG 与项目记忆；排除用户提供的 `docs/testing/images/` 截图和无关的 `scripts/macos/3_web_dev.sh` 权限位变化。
+- **提交前门禁**：移动端 Vitest **415/415**、TypeScript、lint、build 和 `git diff --check` 通过；Go 的 `cmd/claude-mobile-remote`、Channel、Claude、Pairing、Session、Version、Protocol、Remote 通过，首轮前 Snapshot 权限字段契约测试已更新并通过。`internal/transport` 仍有两个与本轮 UI/权限字段接线无直接代码交集的生命周期用例失败：慢客户端隔离会同时关闭快速连接、服务关闭未刷出最终事件；已单独复跑确认，后续作为传输层缺口处理。lint 仅有既有 warning，build 仅有既有大 chunk 提示。
+
+- **子阶段**：W1 · 移动端停止按钮布局收敛。
+- **本轮任务**：将运行中“取消当前 Turn”入口移动到输入框上方，缩小按钮并简化可见文案。
+- **范围**：仅修改移动端 `MessageComposer` 布局、样式和对应测试；不修改取消命令、运行态同步、协议或宿主逻辑。
+- **通过条件**：停止按钮相对输入框定位在右上方；尺寸明显小于当前版本；正常态显示“停止”、请求后显示“停止中”；点击仍携带当前 `requestId`，移动端门禁不回归。
+- **当前状态**：**代码完成，等待用户真机视觉验收**（2026-09-21）。停止入口已从屏幕 fixed 改为输入框容器右上方 absolute 定位；按钮缩至 26px 高、12px 字号，正常态显示“停止”，取消命令在途时显示“停止中”并禁用重复点击；无障碍名称与取消 requestId 行为保持不变。
+- **实际验证**：`MessageComposer` 定向测试 **10/10**、移动端全量 Vitest **415/415**、TypeScript、lint、build 和 `git diff --check` 通过；lint 仅有既有 `scripts/cdp-console.mjs` warning，build 仅有既有大 chunk 提示。
+- **未验证项 / 下一步**：需用户真机确认按钮与输入框上沿的 8px 间距、尺寸及运行中/停止中视觉。未执行 Git 写操作。
+
+- **子阶段**：W1 · 移动端工具按钮居中与 Popover 二次收敛。
+- **本轮任务**：修复权限/语音图标与 hover 背景的视觉偏移，继续压缩附件和权限 Popover，并重做权限当前项的勾选样式。
+- **范围**：仅修改移动端 `MessageComposer` 样式、渲染和对应测试；不修改 SVG 图形数据、权限同步、协议或宿主代码。
+- **通过条件**：四个工具按钮的内容盒严格水平/垂直居中；Popover 比上一版更窄、更低、更少留白；权限项文字左对齐、勾选标记位于右侧且不挤压文字；失焦关闭及既有交互测试不回归。
+- **当前状态**：**代码完成，等待用户真机视觉验收**（2026-09-21）。四个工具按钮统一增加外层与 `.adm-button-content` 双层 flex 居中，消除权限/语音图标与 hover 背景的中心偏移；Popover 最小宽度收至 132px（权限 140px）、行高收至 36px、字体 14px；权限勾选改为当前项右侧 15px 主色细勾，不再占用左侧图标列。
+- **实际验证**：`MessageComposer` 定向测试 **9/9**、移动端全量 Vitest **414/414**、TypeScript、lint、build 和 `git diff --check` 通过；lint 仅有既有 `scripts/cdp-console.mjs` warning，build 仅有既有大 chunk 提示。
+- **未验证项 / 下一步**：需用户真机确认 hover/tap 背景居中、Popover 密度及右侧勾选视觉。未执行 Git 写操作。
+
+- **子阶段**：W1 · 移动端输入工具栏视觉与弹层交互修正。
+- **本轮任务**：根据 `mobile_chat_input3.png`、`mobile_chat_input_plus.png` 和 `mobile_chat_input_permission.png` 的真机反馈，统一左右工具图标线条重量；将附件/权限弹层收敛为统一、紧凑的 antd-mobile Popover 风格，并修复点击外部无法关闭。
+- **范围**：仅修改移动端 `MessageComposer`、相关 SVG 和对应测试；不修改权限同步、协议、WhaleTerm、附件上传或语音能力边界。
+- **通过条件**：左侧添加/权限图标与右侧语音/发送视觉线宽协调；两个 Popover 的圆角、内边距、行高和项目间距一致且更紧凑；点击触发器或弹层外部均可关闭；现有附件选择、权限切换和移动端门禁不回归。
+- **当前状态**：**代码完成，等待用户真机视觉验收**（2026-09-21）。添加入口已改用 antd-mobile `AddOutline`，权限 SVG 移除额外描边并缩至 19px；附件与权限统一改用紧凑的 `Popover.Menu`，权限当前项使用左侧勾选和主色文字；显隐交回 `trigger="click"` / `onVisibleChange`，点击触发器或弹层外部均会关闭。
+- **实际验证**：`MessageComposer` 定向测试 **9/9**、移动端全量 Vitest **414/414**、TypeScript、lint、build 和 `git diff --check` 通过；lint 仅有既有 `scripts/cdp-console.mjs` warning，build 仅有既有大 chunk 提示。
+- **未验证项 / 下一步**：当前环境未做真机截图，需用户确认四个工具图标的视觉重量、两个紧凑菜单的尺寸和失焦关闭手感。未执行 Git 写操作。
+
+- **子阶段**：W1 · 移动端权限入口交互修正。
+- **本轮任务**：按用户验收反馈将底部权限入口改为纯图标；权限文字只在点击后的 antd-mobile 选择弹层内展示，当前 active 权限显示选中勾。
+- **范围**：仅修改移动端 `MessageComposer` 和对应测试；不修改权限同步、协议、WhaleTerm 或其他输入工具能力。
+- **通过条件**：工具栏权限入口无可见文字和下拉箭头；仍具备无障碍名称；弹层列出全部权限，当前项 active 并打勾；切换回调和移动端门禁通过。
+- **当前状态**：**代码完成，等待用户视觉验收**（2026-09-21）。权限入口已使用 `permission.svg` 纯图标按钮，不显示模式文字或下拉箭头；弹层使用 antd-mobile `Selector` 展示全部权限，当前模式保持 active 并显示组件自带勾选标记。
+- **实际验证**：`MessageComposer` 定向测试 9/9、移动端全量 Vitest **414/414**、TypeScript、lint、build 和 `git diff --check` 通过；lint 仅有既有 `scripts/cdp-console.mjs` warning。
+- **未验证项 / 下一步**：需用户在真机确认权限图标尺寸、弹层位置及 active 勾选视觉。未执行 Git 写操作。
+
+- **子阶段**：W1 · 移动端输入工具栏视觉返工。
+- **本轮任务**：根据 `mobile_chat_input2.png` 的验收反馈和 `codex-remote.png` 参考图重排输入区；最大限度复用 antd-mobile，把权限模式移到左下角 `+` 右侧并缩小发送按钮。
+- **范围**：仅修改移动端 `MessageComposer` 及对应测试和样式；不修改协议、权限同步逻辑、附件/语音能力边界或 WhaleTerm。
+- **通过条件**：输入区采用“上方文本、下方工具栏”的协调布局；附件菜单和权限选择使用 antd-mobile 组件；权限入口位于 `+` 右侧；发送按钮明显缩小且禁用/可发送状态清晰；移动端测试、类型检查、lint、build 与 `git diff --check` 通过。
+- **当前状态**：**代码完成，等待用户视觉验收**（2026-09-21）。输入区已改为参考图的上下两层结构；附件和权限入口分别使用 antd-mobile `Popover`，附件项使用 `Button`、权限项使用 `Selector`；权限入口位于左下方 `+` 右侧；语音与发送位于右侧，发送按钮由 42px 高亮圆形收敛为 32px 透明按钮承载 28px SVG。
+- **实际验证**：移动端定向测试 9/9、全量 Vitest **414/414**、TypeScript、lint、build 通过；lint 仅有既有 `scripts/cdp-console.mjs` warning；`git diff --check` 通过。
+- **未验证项 / 下一步**：当前环境没有可用浏览器表面，无法生成真实窄屏截图；需用户在手机或现有调试环境验收输入区整体比例、两个 Popover 和键盘弹起状态。未执行 Git 写操作。
+
+- **子阶段**：W1 · 修复权限模式配对/双向同步并补充诊断日志。
+- **本轮任务**：修复 WhaleTerm 空闲状态下 PC 权限变更无法广播、无轮次事件被 Host 丢弃导致的移动端不同步；补充配对 Snapshot、权限命令发送/结果、PC 执行/广播及移动端归并日志。
+- **范围**：CMR 协议保持现有字段和 version 2；WhaleTerm 仅增加按 agent 的权限变化订阅与远程 Host 处理，不改变 Claude Client 单实例和 Session 输入队列；新增同步回归测试。
+- **通过条件**：配对 Snapshot 展示当前 PC 权限；PC 空闲/运行中切换均能同步移动端；移动端切换能同步 PC 和其他移动端；失败回滚可诊断；相关 Go/移动端测试通过。
+- **当前状态**：**已完成修复**（2026-09-21）。WhaleTerm 新增按 agent 的权限变化订阅，权限事件不再依赖活动 Turn；远程 Host 接收无 requestId 的权限事件并更新 Snapshot/广播；移动端补充命令发送失败和事件归并日志。
+- **实际验证**：WhaleTerm `backend/chat`/`backend/remote` 权限与远程定向测试通过；移动端 Vitest **413/413**、TypeScript、lint、build 通过；CMR Go 协议/Channel/Session/Claude/Transport 编译测试通过；两仓库 `git diff --check` 通过。
+- **未验证项 / 下一步**：需用户重新配对确认：配对首个 Snapshot、PC 空闲切换、PC 运行中切换、移动端切换，以及第二个移动端是否同时收到变更。未执行 Git 写操作。
+
+- **子阶段**：W1 · 移动端活动块与输入工具栏视觉修复。
+- **本轮任务**：暂停权限同步；修复 WhaleTerm 远程 Write 工具无结构化内容时把 `${toolKey}` 占位文本发到移动端的问题；参考 `codex-remote.png` 和新增 SVG 重做底部输入工具栏与附件菜单。
+- **范围**：只改 WhaleTerm 远程事件过滤、移动端 `MessageComposer`/活动渲染及对应测试；不扩展附件上传协议、不恢复权限同步开发。
+- **通过条件**：Write 占位符不再出现在移动端；结构化工具块仍可展示；输入栏窄屏下固定、按钮可用、附件菜单具备相机/照片/文件入口并复用 SVG；移动端测试、lint、build 通过。
+- **当前状态**：**已完成**（2026-09-21）。WhaleTerm 过滤 `${toolKey}` 内部占位符；移动端 reducer 增加旧 Host 兼容过滤；输入栏改为底部胶囊工具栏，附件菜单使用新增相机/照片/文件 SVG，语音和发送入口使用对应 SVG。
+- **实际验证**：移动端 Vitest **414/414**、TypeScript、lint、build 通过；WhaleTerm 远程 Host 占位符定向测试通过；两仓库 `git diff --check` 通过。
+- **未验证项 / 下一步**：需用户实际查看窄屏输入栏、附件弹出菜单，以及 Write 工具调用的移动端显示。权限同步按用户要求暂缓。
+
+- **子阶段**：移动端输入区专项优化。
+- **本轮任务**：参考 `docs/testing/images/chatInput/`，重做会话底部输入区；保留现有文本发送闭环，增加照片/文件、相机、权限模式、语音控制和发送/终止状态入口。照片/文件、相机、语音先以不误导用户的原生能力预留为主；权限模式显示并复用当前 Session 已同步的远程权限状态，不新增协议字段或第二套权限模型。
+- **范围**：仅改 `apps/mobile/src/components/MessageComposer.tsx`、`SessionDetail.tsx` 及对应移动端测试/视觉常量；不改变 WebSocket 协议、Session Controller、配对负载和现有权限决议语义。浏览器端不伪造原生文件、相机或麦克风成功结果。
+- **通过条件**：输入区在窄屏下可用且不遮挡消息；文本输入、发送、超长校验和运行中终止不回归；照片/文件、相机、语音入口有明确的预留状态；权限模式能反映当前会话权限状态；相关移动端测试、lint、build 通过。
+- **当前状态**：**第一版已完成**（2026-09-21）。输入区已重做为胶囊式底栏：支持 Enter 发送、Shift+Enter 换行、附件/相机入口、语音入口、运行中取消和权限同步提示；附件/相机/语音当前只做浏览器可安全呈现的预留，不伪造已发送或已录音结果。
+- **实际验证**：移动端全量 Vitest 16 个文件 **412/412** 通过；`npx tsc -p tsconfig.app.json --noEmit` 通过；`npm run lint` 通过（仅既有 `scripts/cdp-console.mjs` warning）；`npm run build` 通过。
+- **已知边界 / 下一步**：当前 wire contract 没有“PC 全局权限模式”字段，移动端不能切换或读取一个未下发的全局模式；本轮只同步已有 `pendingAction` 的 PC 权限请求，并显示“权限：跟随 PC”。若要支持“读取/切换 PC 权限模式”，需另立协议与三端设计任务。原生 Capacitor 文件选择、相机、麦克风权限和附件/语音上传作为后续任务。
+- **需求修正（用户已确认）**：移动端需要展示当前 Session 的权限模式，并可在 Turn 运行中发起修改；修改最终必须由 PC 侧调用 Claude Client 执行，成功后同步给所有客户端。当前执行已切换为权限模式同步与运行时修改。
+
+- **子阶段**：W1 · 移动端权限模式只读展示与 PC 侧运行时修改。
+- **本轮任务**：在共享协议中增加当前 `permissionMode`、权限模式变更事件和 `set_permission_mode` 命令；PC 侧串行校验并执行 SDK 权限模式切换；移动端通过 Snapshot 恢复、事件实时同步并提供选择控件。
+- **范围**：不改变既有工具审批、AskUserQuestion、Session Host 单 Client 和输入队列；已产生的 `pendingAction` 不因模式切换自动决议；不接入原生附件/语音。
+- **通过条件**：默认无配置时为最低权限 `default`；配对/重连 Snapshot 展示 PC 当前模式；移动端修改请求由 PC 成功执行后才更新并广播；运行中修改、失败回滚、当前审批不被自动绕过均有测试覆盖；Go/Node/Mobile 门禁通过。
+- **当前状态**：**权限模式双向同步代码已完成**（2026-09-21）。共享协议新增 `permissionMode`、`permission_mode_changed` 和 `set_permission_mode`；Standalone Session Controller/Host 串行执行 SDK 运行时切换；WhaleTerm Host 复用既有 `UpdateClaudeCodePermissionMode`，PC 侧 hook 与移动端请求均广播变更；移动端 Snapshot/事件归并并提供选择控件。未执行 Git 写操作。
+- **实际验证**：移动端 `tsc`、Vitest **413/413**、lint、build 通过（lint 仅既有 warning）；CMR Go 非网络包通过，transport/remote 网络测试在当前沙箱因 `httptest` 监听权限失败；WhaleTerm `backend/remote` 与 `backend/chat` 权限/远程定向测试通过，已 gofmt。
+- **已知边界 / 下一步**：协议仍保持 version 2，旧 Snapshot 缺少 `permissionMode` 时移动端兼容回退 `default`；`bypassPermissions` 当前仅作为权限模式选项，未额外增加二次确认。下一步继续优化移动端输入区：权限选择器的反馈态、附件/相机/语音原生占位和窄屏布局，并补权限模式专门测试及真实 WhaleTerm + Mobile Web 验收。
+
 - **子阶段**：W1 · 修复 WhaleTerm/移动端运行态同步与远程文本流粒度。
 - **本轮任务**：让 PC 与移动端对同一 Turn 进入/退出运行态一致；PC 和移动端运行中均提供可见的终止入口；远程文本增量保持顺序并避免单个 SDK 文本块过大导致移动端成片渲染。
 - **范围**：WhaleTerm 仅改远程 Host/聊天视图及对应测试；移动端仅改取消入口/必要状态测试；不改 wire protocol、字段、seq 语义、Channel 订阅模型或 Session Host 单写入边界。

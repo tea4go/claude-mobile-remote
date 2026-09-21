@@ -92,10 +92,11 @@ type Envelope struct {
 type CommandKind string
 
 const (
-	CommandSendText      CommandKind = "send_text"
-	CommandResolveAction CommandKind = "resolve_action"
-	CommandCancelTurn    CommandKind = "cancel_turn"
-	CommandCancelQueued  CommandKind = "cancel_queued"
+	CommandSendText          CommandKind = "send_text"
+	CommandResolveAction     CommandKind = "resolve_action"
+	CommandCancelTurn        CommandKind = "cancel_turn"
+	CommandCancelQueued      CommandKind = "cancel_queued"
+	CommandSetPermissionMode CommandKind = "set_permission_mode"
 )
 
 // The decision/answer wire vocabulary now lives in protocol. These aliases keep
@@ -123,12 +124,13 @@ type HelloPayload struct {
 // Answers use the protocol package's single wire vocabulary; there is no
 // transport-local ActionDecision or QuestionAnswer copy.
 type CommandPayload struct {
-	Kind      CommandKind               `json:"kind"`
-	Text      string                    `json:"text,omitempty"`
-	ActionID  string                    `json:"actionId,omitempty"`
-	RequestID string                    `json:"requestId,omitempty"`
-	Decision  protocol.ActionDecision   `json:"decision,omitempty"`
-	Answers   []protocol.QuestionAnswer `json:"answers,omitempty"`
+	Kind           CommandKind               `json:"kind"`
+	Text           string                    `json:"text,omitempty"`
+	ActionID       string                    `json:"actionId,omitempty"`
+	RequestID      string                    `json:"requestId,omitempty"`
+	Decision       protocol.ActionDecision   `json:"decision,omitempty"`
+	Answers        []protocol.QuestionAnswer `json:"answers,omitempty"`
+	PermissionMode protocol.PermissionMode   `json:"permissionMode,omitempty"`
 }
 
 type CommandResultPayload struct {
@@ -296,6 +298,10 @@ func validateCommand(payload CommandPayload) error {
 		if payload.RequestID == "" || payload.ActionID != "" || payload.Text != "" ||
 			payload.Decision != "" || len(payload.Answers) > 0 {
 			return protocolError(CodeInvalidMessage, "invalid cancel command")
+		}
+	case CommandSetPermissionMode:
+		if payload.Text != "" || payload.ActionID != "" || payload.RequestID != "" || payload.Decision != "" || len(payload.Answers) > 0 || !payload.PermissionMode.IsKnown() {
+			return protocolError(CodeInvalidMessage, "invalid permission mode command")
 		}
 	default:
 		return protocolError(CodeInvalidMessage, "unknown command kind")
@@ -491,6 +497,10 @@ func validateEventPayloadFields(event protocol.Event) error {
 			return protocolError(CodeInvalidMessage, "unexpected action_resolved fields")
 		}
 		return validateResolvedAnswers(event.Answers)
+	case protocol.EventPermissionModeChanged:
+		if event.Block != nil || event.PendingAction != nil || event.Code != "" || len(event.Answers) > 0 || !event.PermissionMode.IsKnown() || event.TurnStatus == "" {
+			return protocolError(CodeInvalidMessage, "invalid permission mode event")
+		}
 	case protocol.EventUnsupported:
 		// The safety notice has its own envelope type, so it must never reach a
 		// client as an ordinary event (B2 §4.2).

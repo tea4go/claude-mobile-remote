@@ -6,6 +6,7 @@ import type {
   DomainEvent,
   ErrorInfo,
   PendingAction,
+  PermissionMode,
   QueuedRequest,
   ResolvedAnswer,
   SessionSnapshot,
@@ -87,6 +88,7 @@ export interface MobileState {
   sessionId: string
   sessionStatus: 'starting' | 'ready' | 'stopped' | 'failed' | null
   sessionError: ErrorInfo | null
+  permissionMode: PermissionMode
   seqBase: number
   queueDepthHint: number
   queuedRequests: QueuedRequest[]
@@ -106,6 +108,7 @@ export function createInitialState(): MobileState {
     sessionId: '',
     sessionStatus: null,
     sessionError: null,
+    permissionMode: 'default',
     seqBase: 0,
     queueDepthHint: 0,
     queuedRequests: [],
@@ -192,6 +195,16 @@ export function queuedCancelSent(info: {
     kind: 'cancel_queued',
     text: '',
     targetId: info.requestId,
+  }
+}
+
+export function permissionModeSent(info: { commandId: string; permissionMode: PermissionMode }): CommandSentAction {
+  return {
+    type: 'commandSent',
+    commandId: info.commandId,
+    kind: 'set_permission_mode',
+    text: info.permissionMode,
+    targetId: '',
   }
 }
 
@@ -313,6 +326,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     sessionId: snapshot.sessionId,
     sessionStatus: snapshot.sessionStatus,
     sessionError: snapshot.sessionError,
+    permissionMode: snapshot.permissionMode ?? 'default',
     seqBase: snapshot.seq,
     queueDepthHint: snapshot.queueDepth,
     queuedRequests: snapshot.queuedRequests,
@@ -435,6 +449,11 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       break
     }
     case 'text_delta': {
+      // WhaleTerm PC UI 的 ${toolKey} 仅是内部工具卡片占位符，不是 Claude 正文。
+      // 服务端已过滤；这里再做一次边界保护，避免旧 Host 把占位符显示给用户。
+      if (/^\$\{[^{}]+\}$/.test(event.text.trim())) {
+        return applyCanSend(next)
+      }
       // 文本必须和结构化 block 共用一条有序流。若上一个条目仍是同一
       // Turn 的 Claude 文本，则继续合并流式增量；若中间已经出现 tool/
       // thinking，则新建文本片段，避免把后续文本搬到所有工具之后。
@@ -506,6 +525,17 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
           { kind: 'answer', requestId: event.requestId, answers: event.answers },
         ]
       }
+      break
+    case 'permission_mode_changed':
+      if (event.permissionMode === undefined) {
+        return { ...next, phase: 'protocolError', canSend: false }
+      }
+      console.info('[remote] permission mode changed', {
+        sessionId: event.sessionId,
+        seq: event.seq,
+        permissionMode: event.permissionMode,
+      })
+      next.permissionMode = event.permissionMode
       break
   }
   return applyCanSend(next)
