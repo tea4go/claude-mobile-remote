@@ -10,6 +10,20 @@ A1–A6 已提交；B1 已完成并通过门禁；**B2 已完成并通过用户�
 
 ## 当前执行（AI 自动维护）
 
+- **子阶段**：W1 · 收敛 WhaleTerm Channel 订阅语义与前端状态恢复。
+- **本轮任务**：把 WhaleTerm 内部事件桥接补齐为可注销、可检测背压的订阅模式；消除 Manager 全局回调覆盖竞态；让公共 Channel 拒绝不连续事件；恢复前端已开启状态并修正 session/listen key 回退；复用公共配对 TTL 默认值。
+- **范围**：本项目修改 `remote` 默认配对 TTL、`internal/channel` 序号连续性及测试，并记录订阅连续性决策；WhaleTerm 修改 `backend/chat` Manager 事件订阅与 Host/Hub、`backend/remote` TTL 配置、远程管理前端及对应测试。不改 wire protocol、协议字段、Session/Turn 状态模型、配对负载，不创建第二个 SDK Client，不执行 Git 写操作。
+- **通过条件**：Manager 多订阅者互不覆盖且可独立注销；订阅 context 取消后 Hub 无残留；Hub 溢出关闭慢订阅而非静默丢事件；Channel 遇到 seq 缺口返回 `ErrInvalidSequence`；前端可从 `GetClaudeRemoteManagement` 恢复当前状态且不以空 prop 覆盖已解析 ID；相关 Go/Node 测试、race 测试、格式检查和 `git diff --check` 通过。
+- **当前状态**：**代码与自动化验证已完成**（2026-09-21），等待 WhaleTerm + Mobile Web/Android 模拟器真实会话验收。
+- **实际完成项**：
+  1. WhaleTerm Manager 保留既有测试钩子，同时新增可独立注销的事件/原始消息订阅集合；Host 不再替换全局回调，关闭失败或未赢得 Service 所有权的 Host 不会清掉正在工作的订阅。Service 复用同一 Session 时会关闭未采用的新 Host。
+  2. `claudeRemoteEventHub` 在订阅 context 取消时删除并关闭对应 channel；单个订阅缓冲区满时只关闭该慢订阅，不阻塞 SDK 事件线程、不静默跳过后继续发送。
+  3. 公共 Channel 要求 `event.Seq == lastSeq + 1`；跳号、重复、倒退或订阅源异常关闭都会进入错误通道，使 Transport 关闭连接并由客户端重连获取最新 Snapshot。该语义记录为 D60。
+  4. 公共 `remote.DefaultPairTokenTTL` 成为 CLI 与 WhaleTerm 共用的 30 天默认值，删除 WhaleTerm 重复常量。
+  5. WhaleTerm 前端挂载时通过 `GetClaudeRemoteManagement` 恢复属于当前 Session 的已开启状态；历史回写使用 `listenKey || chatKey`；启动参数不再以空 `props.sessionId` 覆盖 `makeChatConfig` 已解析的 `session_id`。
+- **实际验证**：本项目 `go test -race ./internal/channel ./remote ./cmd/claude-mobile-remote` 通过；WhaleTerm `backend/chat` 远程 Host/Hub/订阅针对性 race 测试通过；`backend/remote` race 测试通过；远程管理前端专项测试 18/18 通过；Vite production build 通过（仅既有 Vue `:deep`、CSS 与 chunk warning）；两仓库 `git diff --check` 通过。WhaleTerm 全量 Node 测试为 89 项中 85 通过、4 项既有失败（Claude MCP 布局/模块别名、颜色主题导出、Project Cloud 默认字段），本次专项用例无新增失败。
+- **未验证项 / 下一步**：尚未做真实设备闭环。人工验证：刷新 WhaleTerm 后仍显示当前远程管理状态；手机连接后连续收发；断开/重连恢复最新 Snapshot；关闭后重开无需重复配对；快速重复点击启动不会造成事件停止或重复。未执行任何 Git 写操作。
+
 - **子阶段**：W1 · 修复 WhaleTerm 进程内 Host 发布非法 `turn_started` 导致移动端掉线。
 - **本轮任务**：WhaleTerm 的 `ClaudeRemoteSessionHost.handleManagerEvent` 在 `onturnstart` 分支从不设置 `event.Text`，产出空正文 `turn_started`。共享传输层 `internal/transport` 的 `validateEvent` 要求该事件携带非空正文（正文即用户输入，移动端据此渲染输入气泡），校验失败即判为出站非法事件并 `connection.shutdown()` 关闭 WebSocket。现象：配对成功后任意一方开始一轮会话，移动端立即掉线，PC 侧照常执行（PC 走 Wails 事件，不经过该传输层）。本轮让 Host 用本轮 turn 的 prompt 填充 `event.Text`。
 - **范围**：只改 WhaleTerm `backend/chat`（`claude_code_cli_new.go` 的 `claudeTurnLifecycle` 增一个字段、`claude_code_cli_new_lifecycle.go` 的 `registerClaudeTurn` / `runClaudeTurnQueue` / `resolveSessionForRequest` 与新增正文访问器、`claude_remote_session_host.go` 的 `onturnstart` 分支）及对应测试。**不改** `claude_code_cli.go` 的 `promptPayload`、`claude_code_cli_new_prompt.go` 的 `buildPromptPayloadNew` / `extractPromptsFromMessagesNew`——按用户要求「remote control 相关改动集中，非必要不动原有文件」（这两个文件功能牵扯大）。不改 `internal/transport` 校验策略（该契约同时被独立 CLI host 依赖）、不改 wire protocol、不改配对负载、不改移动端、不改 `BindSession`、不创建第二个 SDK client、不执行 Git 写操作。

@@ -8,6 +8,7 @@ import (
 )
 
 var ErrInvalidSequence = errors.New("invalid event sequence")
+var ErrSubscriptionClosed = errors.New("subscription closed")
 
 // Controller is the A3/B2 boundary required by a network Session Channel. Every
 // command a remote client can issue has to travel through this interface so the
@@ -149,13 +150,16 @@ func forwardEvents(
 			return
 		case event, ok := <-source:
 			if !ok {
+				if ctx.Err() == nil {
+					errorsChannel <- ErrSubscriptionClosed
+				}
 				return
 			}
 			if event.SessionID != sessionID {
 				errorsChannel <- protocol.ErrSessionMismatch
 				return
 			}
-			if event.Seq <= lastSeq {
+			if event.Seq != lastSeq+1 {
 				errorsChannel <- ErrInvalidSequence
 				return
 			}

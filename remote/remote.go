@@ -34,6 +34,10 @@ type Controller interface {
 // ErrAlreadyStarted reports that Start was called after a successful start.
 var ErrAlreadyStarted = errors.New("remote server already started")
 
+// DefaultPairTokenTTL is shared by every host that wants the product default.
+// Hosts may still provide a shorter positive TTL through Config.PairTokenTTL.
+const DefaultPairTokenTTL = 30 * 24 * time.Hour
+
 // Config is the public Server configuration. Zero-valued optional fields fall
 // back to transport defaults; PairingPersistenceFile empty disables restart
 // recovery, which the CLI uses for fake-host sessions.
