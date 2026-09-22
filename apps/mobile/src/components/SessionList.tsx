@@ -1,14 +1,38 @@
 import { useState } from 'react'
 import { Button, Card, Input, Tag } from 'antd-mobile'
 import type { SessionLocalStatus, SessionRecord } from '../session/store'
+import type { MobileState } from '../session/reducer'
 import { BLOCK_BUTTON_STYLE, COMPACT_BUTTON_STYLE, FONT_SIZE_COMPACT } from './ui'
 
+export interface SessionListItem extends SessionRecord {
+  runtimeState?: MobileState
+  unread?: boolean
+}
+
 interface SessionListProps {
-  sessions: SessionRecord[]
+  sessions: SessionListItem[]
   onAdd: () => void
   onOpen: (sessionId: string) => void
   onRemove: (sessionId: string) => void
   onRename: (sessionId: string, name: string) => void
+}
+
+function runtimeLabel(state: MobileState | undefined): string | null {
+  if (state === undefined) return null
+  if (state.sessionStatus === 'failed') return '会话失败'
+  if (state.sessionStatus === 'stopped') return '已结束'
+  if (state.pendingAction !== null) return '等待处理'
+  const running = state.messages.some(
+    (message) => message.kind === 'claude' && message.status === 'streaming',
+  )
+  return running ? '进行中' : state.phase === 'connected' ? '空闲' : null
+}
+
+function runtimeColor(state: MobileState | undefined): 'warning' | 'primary' | 'danger' | 'default' {
+  if (state?.sessionStatus === 'failed') return 'danger'
+  if (state?.pendingAction !== null && state?.pendingAction !== undefined) return 'warning'
+  if (state?.sessionStatus === 'stopped') return 'default'
+  return 'primary'
 }
 
 const STATUS_LABELS: Record<SessionLocalStatus, string> = {
@@ -34,7 +58,7 @@ function lastConnectedLabel(lastConnectedAt: number | null): string {
   return `最近连接 ${new Date(lastConnectedAt).toLocaleTimeString()}`
 }
 
-// 会话列表（B1）：展示页面内存中的已配对记录，一次只进入一个会话。
+// 会话列表展示 App 生命周期内持续同步的多 Session 摘要。
 // 记录随页面刷新清空；这里不做任何持久化。
 export default function SessionList({
   sessions,
@@ -90,6 +114,12 @@ export default function SessionList({
                 <Tag color={session.status === 'needsPairing' ? 'warning' : 'default'}>
                   {STATUS_LABELS[session.status]}
                 </Tag>
+                {runtimeLabel(session.runtimeState) !== null && (
+                  <Tag color={runtimeColor(session.runtimeState)}>
+                    {runtimeLabel(session.runtimeState)}
+                  </Tag>
+                )}
+                {session.unread === true && <Tag color="success">未读</Tag>}
                 <span style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>
                   {lastConnectedLabel(session.lastConnectedAt)}
                 </span>

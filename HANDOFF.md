@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前执行：提交当前阶段进度。已完成移动端 App 级多 Session 同步设计与 Zustand 技术选型文档修订，并保留现有移动端状态/权限修复与 Remote `EventStream` 广播实现及测试；本次提交不包含用户测试截图、脚本权限位变化或 Zustand 运行时代码实现。后续用户确认后再按实施计划开始 TDD 改造。
+- 当前执行：移动端 App 级多 Session 同步与 Zustand 改造已完成自动化验证和双 Session 人工验收，待提交本轮实现。Zustand 按 `sessionId` 分桶保存配对、会话状态、未读和导航；独立 `SessionRuntimeManager` 持有每个 Session 的 `ProtocolClient`、连接 generation 和命令路由。返回列表或切换详情不再关闭连接，删除单个记录只关闭对应连接，App 卸载关闭全部连接；Snapshot 终态会校正旧 streaming/停止状态并保留已收正文。未修改协议、Go Remote Server、机器分组、数据库/replay、系统后台推送或浏览器持久化策略。
 
 - 最近完成：修复 Android WebView 中权限 SVG 顶部被裁剪的问题；`permission.svg` 扩展视口至完整路径范围，并移除外部 DTD/编辑器元数据。
 
@@ -14,6 +14,7 @@
 
 ## 最近验证
 
+- 本轮移动端多 Session Runtime：新增固定依赖 Zustand 5.0.8（未使用 persist）、App Store/selector 隔离测试和多连接生命周期回归；移动端全量 Vitest **425/425**、`npm run build`、`npm run lint` 通过。lint 仅有既有 `scripts/cdp-console.mjs` unused-expression warning，build 仅有既有大 chunk 提示。自动化覆盖列表期间持续连接、查看 B 时 A 接收并保留消息、未读/运行摘要、同 Session 换凭证替换旧 generation、删除单个 Session 隔离、App 卸载关闭全部连接，以及 Snapshot 终态清除旧 streaming 状态并保留正文。用户已完成两个 WhaleTerm Session 同时配对、运行、切换和状态隔离人工验收，结果通过。
 - 本次提交前核对：架构决策、需求、设计与实施计划、移动端既有状态/权限修复，以及公共 `remote.EventStream` 广播实现与测试均纳入范围；新增 D66/D67 及 `docs/specs/2026-09-22-mobile-multi-session-runtime-design.md` 与对应计划，三端可实现性核对通过。定向文档检查无新增空白错误；全仓 `git diff --check` 仍只被用户已有的 `apps/mobile/src/assets/icons/svgs/permission.svg` 行尾空白阻塞。代码测试沿用下方最近验证结果，本次未因提交重复运行。
 - 本轮 Remote 空闲态修复：WhaleTerm `node --test tests/claudeRemoteManagement.test.mjs` **20/20** 通过，`frontend npm run build` 通过；构建仅有既有 Vue `:deep`、CSS `:deep()`、动态/静态 import 和大 chunk 警告。前端全量 `node --test tests/*.test.mjs` 中本轮 Remote 用例全部通过，但仍有 4 个既有无关失败：Claude MCP 对话框静态断言、Claude MCP 路径别名加载、颜色主题导出不匹配、Project Cloud 默认字段断言。
 - 本轮多 Session 串线修复：新增公共 `remote.EventStream` 广播、跨 Session 拒绝和慢订阅者隔离测试；`go test -race -count=1 ./remote -run 'EventStream|PublicSurface|Server'` 通过。WhaleTerm 新增两个真实 `ClaudeRemoteSessionHost` 的 `chatKey` 隔离测试；`go test -race -vet=off ./backend/chat -run 'ClaudeRemote|PermissionMode' -count=1`、`go test -vet=off ./backend/remote -count=1`、`go test -vet=off ./backend/services -run '^TestRemotePairingResponse$' -count=1` 通过。本轮文件定向 `git diff --check` 通过。公共 `internal/channel` race 测试通过；`internal/transport` 全量 race 仍只有既有两个失败：慢客户端会关闭快速连接、Server Close 未刷出最终 Session 事件，与本轮修改无代码交集。
@@ -33,11 +34,9 @@
 
 ## 下一步
 
-1. 用户检查 `docs/specs/2026-09-22-mobile-multi-session-runtime-design.md` 与 `docs/plans/2026-09-22-mobile-multi-session-runtime-plan.md`，确认后开始移动端代码改造。
-2. 实施时先替换旧单连接测试，再提取 App 级 Runtime、接入列表/详情和 Snapshot 终态校正，最后运行移动端完整门禁。
-3. 人工验收两个 WhaleTerm Claude Session 同时运行：停留列表或查看另一 Session 时仍同步，Turn 结束后停止入口消失，消息、权限、审批和取消互不交叉。
-4. 机器稳定身份、列表机器分组、断线 replay、系统后台推送继续作为后续独立设计，不混入本次改造。
-5. 单独修复并验证 `internal/transport` 两个生命周期测试；后续按需推进 C2-C/C2-D。
+1. 提交已完成人工验收的本轮移动端实现。
+2. 机器稳定身份、列表机器分组、断线 replay、系统后台推送继续作为后续独立设计，不混入本次改造。
+3. 单独修复并验证 `internal/transport` 两个生命周期测试；后续按需推进 C2-C/C2-D。
 
 ## 约束提醒
 

@@ -183,6 +183,42 @@ describe('snapshot 归并', () => {
   test('Session failed 的 snapshot 禁止发送', () => {
     expect(stateWithSnapshot({ sessionStatus: 'failed' }).canSend).toBe(false)
   })
+
+  test('终态 snapshot 结束旧 streaming 消息并保留已有正文', () => {
+    let state = stateWithSnapshot()
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-2' })))
+    state = reducer(state, eventReceived(event('text_delta', 12, {
+      requestId: 'req-2',
+      text: '离开详情前已收到',
+    })))
+    state = reducer(state, snapshotReceived(snapshot({
+      seq: 20,
+      turn: {
+        status: 'completed',
+        requestId: 'req-2',
+        source: 'terminal',
+        message: '',
+        error: null,
+        pendingAction: null,
+      },
+    })))
+
+    expect(state.messages.find((message) => message.kind === 'claude')).toMatchObject({
+      requestId: 'req-2',
+      text: '离开详情前已收到',
+      status: 'done',
+    })
+  })
+
+  test('idle snapshot 清除旧连接遗留的 streaming 状态', () => {
+    let state = stateWithSnapshot()
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-2' })))
+    state = reducer(state, snapshotReceived(snapshot({ seq: 20 })))
+    expect(state.messages.find((message) => message.kind === 'claude')).toMatchObject({
+      requestId: 'req-2',
+      status: 'done',
+    })
+  })
 })
 
 describe('event 严格连续 seq', () => {

@@ -1,6 +1,6 @@
 # 移动端 App 级多 Session 同步实施计划
 
-> 状态：待用户检查设计后执行。Git 写操作仍需用户单独授权。
+> 状态：自动化实施与验证已完成，待双 Session 人工验收。Git 写操作仍需用户单独授权。
 
 **Goal:** 用独立 Session Runtime Manager + Zustand App Store 实现 App 级多连接与按 `sessionId` 分桶的内存状态，不修改服务端和协议。
 
