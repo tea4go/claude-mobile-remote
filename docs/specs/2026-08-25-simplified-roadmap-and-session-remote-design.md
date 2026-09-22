@@ -2,7 +2,7 @@
 
 - 日期：2026-08-25
 - 修订：2026-08-26
-- 状态：已按用户确认的简化方向修订，待完整书面复核
+- 状态：主体有效；移动端单连接临时方案于 2026-09-22 被 D66 替代
 - 前置成果：A1–A5.2 已完成并提交
 
 ## 1. 设计结论
@@ -12,7 +12,7 @@
 1. 一个 Standalone CLI 进程只创建或恢复一个 Claude Session；
 2. 一个 Remote Server 只服务这个 Session，允许多台手机平等连接和发送操作；
 3. 少量并行 Session 通过启动多个 CLI 进程并配置不同端口解决；
-4. 移动端可以保存多个已扫描 Session，进入一个 Session 对话后可返回列表并切换；首期一次只连接当前进入的 Session；
+4. 移动端可以保存多个已扫描 Session，并在 App 前台生命周期内分别连接和同步；进入、返回或切换详情只改变展示目标；
 5. WhaleTerm 后续为其已持有的一个 Claude Session 在进程内启动 Remote Server，不创建第二个 SDK Client；
 6. Pair Token 默认覆盖典型远程接力窗口；Remote Server 重启时恢复本地 pairing 文件中的未过期 token，不需要重复扫码；
 7. 后期公网访问采用“每个 CLI 一条可信 Relay 出站隧道”，不建设 PC 多 Session daemon 或云端会话中心。
@@ -74,10 +74,10 @@ CLI C → Session C → Pairing C ┘
 
 - 以 `sessionId` 作为逻辑身份；重新扫描同一 Session 时更新其 `wsUrl`、Pair Token 和有效期；
 - 列表展示本地名称、连接地址摘要、最后连接时间以及可连接、已连接、离线或需要重新扫码等状态；
-- 进入 Session 时才建立该 Session 的 WebSocket；返回列表时关闭连接，不影响 PC 上的 Claude Session；
-- 再次进入时使用仍有效的凭证重新认证并取得最新 snapshot；
-- 一次只保持当前进入的 Session 连接，不为列表内所有 Session 维护后台 WebSocket；
-- 切换期间不做事件 replay，未连接期间仍遵守“只恢复最新 snapshot、不恢复完整消息历史”的边界；
+- 配对成功后即建立或恢复该 Session 的 WebSocket；返回列表和切换详情不关闭连接；
+- 每个配对 Session 使用独立 Protocol Client 和按 `sessionId` 隔离的内存状态；
+- 列表展示各 Session 的连接、运行、等待决策、完成、错误和未读状态；
+- 网络断开或 App 被系统挂起期间不做事件 replay，恢复时仍遵守“只恢复最新 snapshot、不恢复完整消息历史”的边界；
 - 删除列表项只清理本机记录，不撤销服务端共享 Pair Token，避免影响其他已配对客户端。
 
 ### 3.2 本地保存与安全

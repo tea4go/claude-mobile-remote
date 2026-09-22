@@ -17,11 +17,11 @@ import {
   createInitialState,
   eventReceived,
   noticeReceived,
-  pairLoaded,
   permissionModeSent,
   queuedCancelSent,
   reducer,
   reset,
+  sessionOpened,
   snapshotReceived,
   turnCancelSent,
 } from './session/reducer'
@@ -69,6 +69,7 @@ function App({
   const [pairingError, setPairingError] = useState<string | null>(null)
   const [pairingInvalid, setPairingInvalid] = useState(false)
   const clientRef = useRef<ProtocolClient | null>(null)
+  const sessionStatesRef = useRef(new Map<string, ReturnType<typeof createInitialState>>())
   // now 的默认值是内联函数，每次渲染引用都不同。连接 effect 只能通过 ref
   // 读取它，否则依赖数组每渲染都变化会导致无限重连。
   const nowRef = useRef(now)
@@ -87,7 +88,7 @@ function App({
       setPairingInvalid(false)
       setPairingError(null)
       window.location.hash = `#pair=${encodePairingFragment(payload)}`
-      dispatch(pairLoaded())
+      dispatch(sessionOpened(sessionStatesRef.current.get(payload.sessionId) ?? null))
     },
     [],
   )
@@ -206,6 +207,12 @@ function App({
     }
   }, [activePairing, socketFactory])
 
+  useEffect(() => {
+    if (currentSessionId !== null && state.sessionId === currentSessionId) {
+      sessionStatesRef.current.set(currentSessionId, state)
+    }
+  }, [currentSessionId, state])
+
   const handleSend = useCallback((text: string) => {
     const client = clientRef.current
     if (client === null) return
@@ -231,8 +238,8 @@ function App({
 
   const handleReconnect = useCallback(() => {
     clientRef.current?.reconnect()
-    dispatch(pairLoaded())
-  }, [])
+    dispatch(sessionOpened(state))
+  }, [state])
 
   // 待处理事项决议（B2 §5）：与自由文本共用单在途门控与 commandId 语义。
   const handleResolveAction = useCallback((resolution: ActionResolution): boolean => {
@@ -268,7 +275,7 @@ function App({
     return result.ok
   }, [])
 
-  // 返回列表：关闭当前连接并清理详情状态，保留其他内存记录。
+  // 返回列表：关闭当前连接，按 sessionId 保留本次 App 生命周期内的界面状态。
   const backToList = useCallback(() => {
     clientRef.current?.close()
     clientRef.current = null
@@ -371,7 +378,10 @@ function App({
           setPairingError(null)
         }}
         onOpen={openSession}
-        onRemove={(sessionId) => setStore((current) => removeSession(current, sessionId))}
+        onRemove={(sessionId) => {
+          sessionStatesRef.current.delete(sessionId)
+          setStore((current) => removeSession(current, sessionId))
+        }}
         onRename={(sessionId, name) =>
           setStore((current) => renameSession(current, sessionId, name))
         }

@@ -1,7 +1,7 @@
 # B1 消息与移动 UI 设计
 
 - 日期：2026-08-26
-- 状态：用户已确认设计与范围，实施计划已编写
+- 状态：原阶段已完成；单连接临时方案于 2026-09-22 被 D66 替代
 - 前置阶段：A6 局域网跨机器桌面浏览器联调已通过
 - 关联决策：D29、D30、D31、D32、D35、D41、D42
 
@@ -9,7 +9,7 @@
 
 B1 在现有 Mobile Web 单 Session 文本闭环之上，提供更清晰的消息展示和已配对 Session 列表。B1 只增强浏览器端页面组织与展示能力，不改变 Go Service、WebSocket 协议、Session 状态模型或配对负载。
 
-用户可以在当前页面内保存多个已配对 Session，进入其中一个会话查看消息，返回列表后切换到另一个 Session。浏览器不持久化 Pair Token；页面刷新后不恢复列表中的其他 Session。
+用户可以在当前页面内保存多个已配对 Session，并同时观察这些 Session 的状态；进入其中一个详情只改变当前展示目标，不决定同步范围。浏览器不持久化 Pair Token；页面刷新后不恢复列表中的其他 Session。
 
 ## 2. 范围
 
@@ -18,7 +18,7 @@ B1 在现有 Mobile Web 单 Session 文本闭环之上，提供更清晰的消�
 - Session 列表页：显示本地名称、Session 标识摘要、地址摘要、连接状态和最近连接时间；
 - 配对记录新增、更新和删除；重新配对同一 `sessionId` 时更新原记录，不产生重复项；
 - 列表页与会话详情页之间的进入、返回和切换；
-- 同一时刻只保持当前详情页 Session 的 WebSocket 连接；返回列表时关闭当前连接；
+- App 前台生命周期内为每个有效配对 Session 保持独立 WebSocket 与内存状态；返回列表或切换详情不关闭连接；
 - Markdown 和代码块展示；
 - Thinking/Tool 只读展示组件的视觉占位和数据接口预留，不接入真实结构化数据；
 - Session 状态、Turn 状态、消息来源和错误状态的可见提示；
@@ -56,9 +56,11 @@ Mobile Web
 页面状态分为两层：
 
 1. `SessionStore`：仅保存在当前页面生命周期内的配对记录和列表元数据。记录以 `sessionId` 为逻辑主键，包含配对负载、用户可编辑名称、地址摘要、最近连接时间和本地连接状态。
-2. `SessionDetailState`：复用现有单连接 Protocol Client、reducer 和易失消息流，只保存当前详情页的 snapshot、事件和命令状态。
+2. Zustand `SessionStore`：以 `sessionId` 为键保存每个配对 Session 的连接状态、snapshot、事件归并结果、命令状态和未读标记。连接与页面导航解耦。
+3. `SessionRuntimeManager`：独立持有每个 Session 的 Protocol Client、连接 generation 和网络副作用，不作为 UI 响应式状态。
+4. `SessionDetailPage`：只选择并展示 Zustand Store 中的一个 Session，不拥有或销毁其连接。
 
-不引入全局状态库。列表层不复制协议类型；配对负载和消息类型继续从现有协议模块引用。
+React Web/Capacitor 使用 Zustand 和独立 Runtime Manager；现有纯 reducer 继续归并单 Session 状态。列表层不复制协议类型；配对负载和消息类型继续从现有协议模块引用。Zustand 不启用 persist middleware。
 
 ## 4. 配对记录与导航行为
 
@@ -72,9 +74,10 @@ Mobile Web
 
 ### 4.2 进入、返回和刷新
 
-- 点击列表记录进入详情页时，使用该记录创建一个 Protocol Client，并执行现有 `hello → subscribe → snapshot`；
-- 当前详情页是唯一保持 WebSocket 的 Session；切换前先关闭旧连接，再建立新连接；
-- 返回列表时关闭 WebSocket，清理当前详情页的易失消息和 pending command 状态；
+- 配对记录生效后即为该 Session 创建或恢复 Protocol Client，并执行现有 `hello → subscribe → snapshot`；
+- 点击列表记录只切换当前展示的 `sessionId`；已有连接和内存状态继续存在；
+- 返回列表不关闭 WebSocket、不清理消息或 pending 状态；
+- 删除记录、凭证失效、Remote 停止或 App 销毁时，才释放对应 Session 的连接和内存状态；
 - 刷新列表页后，内存列表清空，需要重新输入配对信息；
 - 详情页刷新沿用 A5 的 URL Fragment 自动重连当前 Session，但不恢复其他列表记录、不进行事件 replay，也不恢复完整历史；
 - 当详情页由 Fragment 自动恢复时，只重建当前 Session 的临时记录，不把其他记录写入持久存储。

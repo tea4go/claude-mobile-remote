@@ -1,9 +1,9 @@
 # W1 WhaleTerm 进程内无缝远程托管实施计划
 
 - 日期：2026-08-31
-- 状态：设计已确认，计划待执行
+- 状态：多 Session 事件隔离修订草案，待用户检查
 - 关联设计：`docs/specs/2026-08-31-W1-whaleterm-in-process-remote-design.md`
-- 关联决策：D57、D58
+- 关联决策：D57、D58、D62、D63、D64
 - 前置：B3 `remote`/`protocol` 公共包
 
 ## 1. 实施目标
@@ -103,12 +103,16 @@
 - 所有输出都使用 `protocol` 类型；
 - 所有请求和快照都校验当前 Session ID；
 - WhaleTerm 现有 PC 输入和手机输入必须进入同一个串行队列。
+- 每个 Adapter 在创建时绑定唯一 `sessionId`，只订阅所属 Session Host 的事件源；
+- 不注册 Manager 级“所有 Session 事件”回调，不接收后再按 `chatKey` 过滤；
+- 不创建 WhaleTerm 本地广播 Hub；单 Session 内对多个连接的 fan-out 由公共 Channel/Transport 完成；
+- 收到不匹配的 Snapshot 或事件时返回隔离错误，不转发给其他 Host，也不把错误事件交给移动端。
 
 **测试先行**：先为适配器写失败测试，再实现方法映射。至少覆盖输入转发、快照、事件、审批、问答、当前 Turn 取消、排队取消和错误 Session 拒绝。
 
 ### Task 4：接入 WhaleTerm 远程管理生命周期
 
-**目标**：在 WhaleTerm 当前 Session 页面增加远程管理入口，并让一个长生命周期对象持有 Remote Server。
+**目标**：在 WhaleTerm 当前 Session 页面增加远程管理入口，并让独立 Remote 模块按 `sessionId` 持有 Remote Server。
 
 **开启流程**：
 
@@ -133,9 +137,10 @@
 **边界**：
 
 - `Server.Close` 不得触发 WhaleTerm Claude 的 Stop；
-- WhaleTerm 退出时先关闭 Remote Server，再按既有流程关闭 Claude；
+- WhaleTerm 退出时先关闭全部 Remote Server，再按既有流程关闭 Claude；
 - 同一 Session 的重复点击应复用当前 Server 或给出“已开启”状态，不创建第二个 Server；
-- 首期不支持同一 WhaleTerm 进程中多个 Session 同时开启远程管理；
+- 不同 Session 可同时持有独立 Server，Start/Get/Stop 均以 `sessionId` 为作用域；
+- 首选端口冲突时分配可用端口，并保证配对 `wsUrl` 与实际监听端口一致；
 - Server 启动失败必须清理已创建资源且不影响 Claude Session。
 
 ### Task 5：接入配对展示与开发配置
@@ -175,6 +180,11 @@
 10. 配对轮换能更新展示且旧凭证不再认证。
 11. 首轮前开启返回稳定 Session ID，远程首条消息使用完整宿主配置并只创建一个 SDK Client。
 12. 首轮 SDK options 使用正式 `WithSessionID`，不再把 `session-id` 放入 `WithExtraArgs`。
+13. 两个不同 Session 可同时开启、查询和分别关闭 Remote Server，端口及事件不串线。
+14. 返回移动端列表后再次进入同一 Session，保留本次 App 生命周期内已见消息，并由最新 Snapshot 校正当前 Turn；刷新/App 销毁后不恢复消息。
+15. 两个真实 Adapter 同时运行 Turn 时，各自事件源只向所属 `remote.Server` 发布；`turn_started`、增量、结果、权限和取消状态不交叉。
+16. 同一 Session 建立两个订阅连接时，两端都收到同一事件；关闭或阻塞一个订阅者不影响另一个。
+17. 注入错误 `sessionId` 的 Snapshot/事件时在服务端失败，不向任一移动连接投递，也不存在“转发给上一个宿主”路径。
 
 ### Task 7：跨仓库人工验收
 
@@ -195,6 +205,28 @@
 11. 检查进程和日志，确认全流程只有一个 SDK Client。
 
 人工验收证据应记录实际运行命令、网络地址类型、Session ID 脱敏值、通过项和未验证项，不记录 Pair Token 或会话正文。
+
+### Task 8：收敛 WhaleTerm Remote Control 模块边界
+
+**目标**：Remote Control 独立演进，避免网络协议与配对生命周期继续散落在 Claude 业务服务和会话页面中。
+
+**实施内容**：
+
+1. 把 Controller Adapter、所属 Session 的协议映射及其测试集中到 WhaleTerm `backend/remote/`；删除 WhaleTerm 自建 Hub，不把它迁移或包装到新目录；
+2. 为 Claude Manager 提供不依赖 `protocol` 的窄宿主接口，Remote Adapter 不直接访问 Manager 私有字段；
+3. 新增独立 `TClaudeRemoteService` 并从 `TClaudeCodeService` 移除 Remote Server 所有权与管理 DTO；
+4. 把配对工具、管理组件、API 和事件同步集中到 `frontend/src/features/claudeRemote/`；
+5. 会话页只保留 feature 挂载与业务状态回调；
+6. 保持 wire protocol、配对负载和移动端实现不变，运行权限同步与 Remote 生命周期回归。
+
+**必须删除的偏离实现**：
+
+- Manager 面向所有 Remote Host 的全局事件/消息订阅列表；
+- Remote Host 对外来 `chatKey` 的过滤、告警和所谓“上一个宿主”转发；
+- WhaleTerm 内重复承担 fan-out 的 `claudeRemoteEventHub` 或等价结构；
+- 任何依靠移动端过滤其他 Session 消息来保证隔离的路径。
+
+**通过条件**：`backend/chat` 不再依赖本项目 `protocol`/Remote Server，Claude 主服务不再拥有 Remote 生命周期，前端会话页不再直接调用 Remote 管理 API；一个 Adapter 只连接一个 Session Host 事件源；仓库中不存在第二套 Remote 广播 Hub 或跨 Host 转发；Go 定向测试和前端构建通过。
 
 ## 4. 推荐实施顺序
 
@@ -217,6 +249,9 @@ Task 6 自动化测试
     │
     ▼
 Task 7 跨仓库人工验收
+    │
+    ▼
+Task 8 收敛模块边界并删除重复广播实现
 ```
 
 Task 5 可以与 Task 4 并行实现，但必须先确定 WhaleTerm 的生命周期持有对象。Task 6 中的 Adapter 测试应在 Task 3 完成后持续运行，不推迟到最后集中补写。

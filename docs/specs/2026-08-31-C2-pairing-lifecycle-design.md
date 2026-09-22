@@ -38,8 +38,8 @@ CLI 的默认输出为终端 ANSI/ASCII 二维码，二维码内容本身不改�
 3. WebSocket 断开后显示断线状态，不进行无限后台重试；
 4. 用户点击“重新连接”时重新认证和订阅；
 5. token 过期或鉴权失败时标记 `needsPairing`，要求重新扫码/输入；
-6. 切换 Session 时关闭旧连接，任一时刻只保留一个活动连接；
-7. 页面从后台恢复时只重查连接状态（如检查 WebSocket readyState），不自动重连、不绕过用户的重新连接语义。
+6. 配对成功后由 App 级运行时为每个有效 Session 保持独立连接；切换详情或返回列表不关闭其他连接；
+7. 页面从后台恢复时重查所有配对 Session 的连接状态；断开的连接是否自动重连与退避在后续生命周期阶段设计，当前不得把详情页挂载当作重连条件。
 
 ### 2.3 暂缓：C2-C 原生扫码与安全存储
 
@@ -63,7 +63,7 @@ CLI Pairing
           ↓
   PairingStorage
           ↓
-  one ProtocolClient WebSocket
+  ProtocolClient per paired session
           ↓
   hello → subscribe(sessionId) → snapshot/events/commands
 ```
@@ -85,7 +85,7 @@ CLI Pairing
 - Go QR 编码与 Mobile Web Fragment 解码互操作，编码后 JSON 字段逐项一致；Go 端与 Mobile 端 Base64URL 实现对同一 payload 产出相同字符串；
 - CLI 默认能输出可被 QR 解码器识别的终端二维码内容；
 - pairing 文件重启恢复、过期替换、损坏降级和撤销行为通过测试；
-- Mobile Web 刷新、断线、手动重连、过期和单连接约束通过自动化测试；
+- Mobile Web 刷新、断线、手动重连、过期和多 Session 隔离通过自动化测试；
 - 既有 Go/Web 门禁不回归，协议 JSON 与 B2/B3 fixture 不变。
 
 原生扫码、安全存储、原生生命周期和 VPN 属于暂缓项，不纳入本轮 C2 通过结论；将来实施 C2-C/D 后另行记录在 `docs/testing/C2-result.md`，不得用桌面浏览器测试替代真机结论。

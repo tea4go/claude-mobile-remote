@@ -15,7 +15,7 @@
 | 前期 | 单会话接力 | 扫码连接当前 `sessionId`，实时查看新消息并发送简单指令 |
 | 中期 | 完整会话控制 | 展示 Markdown、Thinking、Tool，支持审批、回答、取消和补充指令 |
 | 中期 | 移动端多 Session | 安全保存多个已扫描 Session，在列表与单个会话详情间切换 |
-| 中期 | 宿主复用 | Standalone CLI 与 WhaleTerm 均可为各自持有的单个 Session 启动 Remote Server |
+| 中期 | 宿主复用 | Standalone CLI 为自身唯一 Session 启动 Remote Server；WhaleTerm 可为其持有的多个 Session 分别启动独立的单 Session Remote Server |
 | 后期 | 原生体验 | 支持原生扫码、安全存储、语音输入、生命周期恢复和系统通知 |
 | 后期 | 三端覆盖 | iOS / Android 先行，HarmonyOS NEXT 独立开发 |
 | 后期 | 多机器与独立公网访问 | 通过多个配对记录切换 Session；使用可信的每 CLI 单隧道 Relay 脱离 VPN |
@@ -43,7 +43,7 @@ flowchart LR
     SC <-->|"生命周期事件"| SDK["claude-agent-sdk-go"]
     SDK <-->|"进程与 stdio"| A["Claude"]
     SC -->|"发布事件"| CH["Session Channel<br/>sessionId"]
-    M["手机端当前会话"] <-->|"WebSocket"| W["单 Session Remote Server"]
+    M["手机端 App 级多 Session 管理"] <-->|"每个配对 Session 一条独立 WebSocket"| W["单 Session Remote Server"]
     W -->|"订阅 / 操作"| CH
     CH -->|"会话事件"| W
     CH -->|"转交操作"| SC
@@ -59,7 +59,7 @@ flowchart LR
 - Session Controller 向 Channel 发布事件，Channel 将手机操作转回 Controller；
 - Channel 只负责路由，不保存完整会话，也不运行 Claude；
 - WebSocket 是网络传输协议，不使用操作系统 Pipe 连接手机；
-- 移动端可保存多个独立配对记录，但一次只连接当前进入的 Session；
+- 移动端可保存多个独立配对记录；App 前台生命周期内分别连接和同步全部有效配对 Session，一次只展示一个 Session 详情；
 - 手机默认先连接 VPN，再通过 WebSocket 直连 PC；不开发局域网发现或 NAT 穿透；
 - 后期 Relay 每个 CLI 只建立一条出站隧道，不保存 Claude 状态或历史。
 
@@ -97,7 +97,7 @@ flowchart LR
 | Claude 托管 | `claude-agent-sdk-go` | 已验证可覆盖生命周期、流式事件、权限与管道日志 | A2 |
 | 远程通信 | LAN/VPN + WebSocket + Session Channel | 按 `sessionId` 订阅和双向操作；A6 可显式使用 LAN 地址 | A4–A6 |
 | 单 Session Remote Server | Go 公共组件 | 复用 Pairing、Channel 和 Transport，供 Standalone 与 WhaleTerm 使用 | B3 |
-| 移动 Web | React + TypeScript + antd-mobile + Vite | 移动端组件成熟，浏览器调试方便 | A5 |
+| 移动 Web | React + TypeScript + Zustand + antd-mobile + Vite | App 级多 Session 状态可精确订阅，移动端组件成熟，浏览器调试方便 | A5 / D66 |
 | iOS / Android | Capacitor | 复用 Web UI，并接入扫码、语音和推送 | C |
 | HarmonyOS NEXT | ArkTS + ArkUI 独立开发 | 符合 HarmonyOS NEXT 原生体系 | D |
 | 公网能力 | 可信的每 CLI 单隧道 Relay | 通过出站 WSS 解决跨网络访问，不迁移 Claude 状态 | 后期 |
@@ -110,7 +110,7 @@ flowchart LR
     B --> C["后期<br/>语音、系统通知与生命周期"]
 ```
 
-iOS / Android 共用 React Web UI 和协议层，通过 Capacitor 接入系统能力；原生 App 使用系统安全存储保存多个已扫描 Session 的未过期 Pair Token，列表一次只连接当前进入的 Session。HarmonyOS NEXT 独立开发并使用等价安全存储，但必须复用同一套三端共用契约（通信协议、状态模型、配对负载、验收用例，见总体设计 §8.1）：所有规划在生效前已按「HarmonyOS NEXT 可独立实现」校验，协议与状态变更时必须重新核对三端可实现性。
+iOS / Android 共用 React Web UI 和协议层，通过 Capacitor 接入系统能力；原生 App 使用系统安全存储保存多个已扫描 Session 的未过期 Pair Token，并在 App 前台生命周期内分别维护全部有效配对 Session 的连接与内存状态。列表和详情只是状态视图，进入或退出详情不控制连接生命周期。HarmonyOS NEXT 独立开发并使用等价安全存储与多连接状态容器，但必须复用同一套三端共用契约（通信协议、状态模型、配对负载、验收用例，见总体设计 §8.1）：所有规划在生效前已按「HarmonyOS NEXT 可独立实现」校验，协议与状态变更时必须重新核对三端可实现性。
 
 ## 八、开发目录规划
 
@@ -174,7 +174,7 @@ flowchart TD
 | --- | --- |
 | B 完整会话控制 | B1 消息渲染与已配对 Session 列表；B2 结构化 Thinking/Tool 展示、工具审批、AskUserQuestion 与取消；B3 单 Session Remote Server 组件化 |
 | C iOS / Android | C1 Capacitor 工程、Web 接入与局域网明文放行；C2 扫码、安全存储、多配对列表、两端真机、VPN 与生命周期；C3 语音和通知 |
-| W WhaleTerm | W1 为 WhaleTerm 已持有的单个 Claude Session 启动进程内 Remote Server |
+| W WhaleTerm | W1 为 WhaleTerm 持有的 Claude Session 分别启动独立的进程内 Remote Server，不跨 Session 路由或创建第二个 SDK Client |
 | D HarmonyOS NEXT | D1 工程与协议；D2 功能迁移；D3 真机、推送与发布验证 |
 | E 发布与后续能力 | E1 安全与兼容验收；E2 签名与上架；E3 可信公网 Relay 与多 PC |
 
