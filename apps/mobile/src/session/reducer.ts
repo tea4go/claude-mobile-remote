@@ -324,6 +324,21 @@ function markPendingUnknown(state: MobileState): MobileState {
 }
 
 function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileState {
+  let messages = state.sessionId === snapshot.sessionId ? state.messages : []
+  const turnActive = snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting'
+  if (!turnActive) {
+    const terminalStatus: ClaudeMessage['status'] =
+      snapshot.turn.status === 'failed'
+        ? 'failed'
+        : snapshot.turn.status === 'cancelled'
+          ? 'cancelled'
+          : 'done'
+    messages = messages.map((message) => {
+      if (message.kind !== 'claude' || message.status !== 'streaming') return message
+      if (snapshot.turn.requestId !== '' && message.requestId !== snapshot.turn.requestId) return message
+      return { ...message, status: terminalStatus, error: snapshot.turn.error }
+    })
+  }
   const next: MobileState = {
     ...state,
     phase: 'connected',
@@ -337,7 +352,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     queuedRequests: snapshot.queuedRequests,
     // 同一 App 生命周期内重新进入 Session 时保留已经看到的消息；Snapshot
     // 只校正它能表达的当前 Turn，不提供离开期间的事件 replay（D64）。
-    messages: state.sessionId === snapshot.sessionId ? state.messages : [],
+    messages,
     // waiting 的 snapshot 携带待处理事项，重连后仍需禁用文本输入。
     pendingAction: snapshot.turn.pendingAction,
     pendingCommand: null,
@@ -347,8 +362,6 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
   // 运行/等待中的 Turn 即使尚无文本也创建占位消息：用户可能在 AI 回复
   // 前配对，订阅后的 text_delta 需要归并目标（A5.1 验收回归）。
   // source 为空即首轮前尚无 Turn（A5.2），此时不创建任何消息。
-  const turnActive =
-    snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting'
   const turnSource = snapshot.turn.source
   if (turnSource !== '' && (snapshot.turn.message !== '' || turnActive)) {
     const current = {
@@ -365,9 +378,13 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     if (currentIndex < 0) {
       next.messages = [...next.messages, current]
     } else {
+      const existing = next.messages[currentIndex]
+      const merged = existing?.kind === 'claude' && current.text === ''
+        ? { ...current, text: existing.text }
+        : current
       next.messages = [
         ...next.messages.slice(0, currentIndex),
-        current,
+        merged,
         ...next.messages.slice(currentIndex + 1),
       ]
     }

@@ -281,7 +281,7 @@ describe('App：断线与重连', () => {
 })
 
 describe('App：返回列表', () => {
-  test('清除 Fragment、关闭连接并保留列表记录', async () => {
+  test('清除 Fragment、保持连接并保留列表记录', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
     const socket = FakeWebSocket.instances[0]!
@@ -295,10 +295,10 @@ describe('App：返回列表', () => {
     expect(screen.getByText('会话列表')).toBeInTheDocument()
     expect(screen.getByTestId('session-list-item')).toBeInTheDocument()
     expect(window.location.hash).toBe('')
-    expect(socket.closed).toBe(true)
+    expect(socket.closed).toBe(false)
   })
 
-  test('从列表再进入会重新连接同一 Session', async () => {
+  test('从列表再进入复用同一 Session 连接', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
     completeHandshake(FakeWebSocket.instances[0]!)
@@ -309,13 +309,8 @@ describe('App：返回列表', () => {
     fireEvent.click(screen.getByText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '进入' }))
 
-    await waitFor(() => {
-      expect(FakeWebSocket.instances).toHaveLength(2)
-    })
-    completeHandshake(FakeWebSocket.instances[1]!)
-    await waitFor(() => {
-      expect(screen.getByText('已连接')).toBeInTheDocument()
-    })
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    expect(screen.getByText('已连接')).toBeInTheDocument()
   })
 
   test('返回列表再进入保留本次 App 生命周期内已见消息', async () => {
@@ -340,17 +335,13 @@ describe('App：返回列表', () => {
 
     fireEvent.click(screen.getByText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '进入' }))
-    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
-    expect(screen.getByText('已经看到的回复')).toBeInTheDocument()
-
-    completeHandshake(FakeWebSocket.instances[1]!)
-    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
+    expect(FakeWebSocket.instances).toHaveLength(1)
     expect(screen.getByText('已经看到的回复')).toBeInTheDocument()
   })
 })
 
-describe('App：单连接生命周期', () => {
-  test('切换到第二个 Session 先关闭第一个再连接', async () => {
+describe('App：多 Session 生命周期', () => {
+  test('切换到第二个 Session 时两个连接同时保持', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
     const first = FakeWebSocket.instances[0]!
@@ -361,7 +352,7 @@ describe('App：单连接生命周期', () => {
 
     // 返回列表后新增第二个配对。
     fireEvent.click(screen.getByText('返回'))
-    expect(first.closed).toBe(true)
+    expect(first.closed).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: JSON.stringify({ ...PAIRING, sessionId: 'session-2' }) },
@@ -371,33 +362,92 @@ describe('App：单连接生命周期', () => {
     await waitFor(() => {
       expect(FakeWebSocket.instances).toHaveLength(2)
     })
-    // 任意时刻只有一个未关闭连接。
-    expect(FakeWebSocket.instances.filter((s) => !s.closed)).toHaveLength(1)
+    expect(FakeWebSocket.instances.filter((s) => !s.closed)).toHaveLength(2)
 
     fireEvent.click(screen.getByText('返回'))
 
-    // 两个 Session 都在列表中，且都已断开。
+    // 两个 Session 都在列表中，且仍保持连接。
     expect(screen.getAllByTestId('session-list-item')).toHaveLength(2)
-    expect(FakeWebSocket.instances.filter((s) => !s.closed)).toHaveLength(0)
+    expect(FakeWebSocket.instances.filter((s) => !s.closed)).toHaveLength(2)
   })
 
   test('同一 sessionId 重新配对后列表不重复', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
-    completeHandshake(FakeWebSocket.instances[0]!)
+    const first = FakeWebSocket.instances[0]!
+    completeHandshake(first)
     await waitFor(() => {
       expect(screen.getByText('已连接')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: JSON.stringify(PAIRING) } })
-    fireEvent.click(screen.getByRole('button', { name: '连接' }))
-    await waitFor(() => {
-      expect(FakeWebSocket.instances).toHaveLength(2)
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: JSON.stringify({ ...PAIRING, pairToken: 'replacement-token' }) },
     })
+    fireEvent.click(screen.getByRole('button', { name: '连接' }))
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    expect(first.closed).toBe(true)
     fireEvent.click(screen.getByText('返回'))
 
+    expect(screen.getAllByTestId('session-list-item')).toHaveLength(1)
+  })
+
+  test('查看第二个 Session 时第一个仍接收消息并在列表标记未读', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const first = FakeWebSocket.instances[0]!
+    completeHandshake(first)
+    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: JSON.stringify({ ...PAIRING, sessionId: 'session-2' }) },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '连接' }))
+
+    first.serverMessage(turnStartedAt(8))
+    first.serverMessage({
+      version: PROTOCOL_VERSION, type: 'event', sessionId: 'session-1', commandId: '', requestId: 'req-pc', seq: 9,
+      payload: { event: { seq: 9, kind: 'text_delta', sessionId: 'session-1', requestId: 'req-pc', source: 'terminal', text: '后台收到的回复', sessionStatus: '', turnStatus: '', error: null } },
+    })
+
+    fireEvent.click(screen.getByText('返回'))
+    await waitFor(() => expect(screen.getByText('未读')).toBeInTheDocument())
+    expect(screen.getByText('进行中')).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: '进入' })[0]!)
+    expect(screen.getByText('后台收到的回复')).toBeInTheDocument()
+  })
+
+  test('App 卸载关闭全部 Session 连接', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    const rendered = render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    completeHandshake(FakeWebSocket.instances[0]!)
+    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
+    rendered.unmount()
+    expect(FakeWebSocket.instances.every((socket) => socket.closed)).toBe(true)
+  })
+
+  test('删除一个 Session 只关闭它自己的连接', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const first = FakeWebSocket.instances[0]!
+    completeHandshake(first)
+    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: JSON.stringify({ ...PAIRING, sessionId: 'session-2' }) },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '连接' }))
+    const second = FakeWebSocket.instances[1]!
+    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getAllByRole('button', { name: '删除' })[0]!)
+
+    expect(first.closed).toBe(true)
+    expect(second.closed).toBe(false)
     expect(screen.getAllByTestId('session-list-item')).toHaveLength(1)
   })
 
