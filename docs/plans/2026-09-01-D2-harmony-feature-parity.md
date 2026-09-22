@@ -4,7 +4,7 @@
 
 **Goal:** 让 `apps/harmony` 具备当前 Android 壳所承载的 `apps/mobile` 业务能力，包括会话列表、完整待处理事项交互、取消能力、答案回显和更完整的消息展示。
 
-**Architecture:** 保留 D1 已打通的 ArkTS 协议客户端；在 Harmony 侧补一层页面内存 Session 列表与更接近 Android 的会话 reducer/UI，不复用 React/Capacitor 运行时。
+**Architecture:** 保留 D1 已打通的 ArkTS 协议客户端；在 Harmony 侧补 App 级多 Session 连接表、内存状态表和更接近 Android 的会话 reducer/UI，不复用 React/Capacitor 运行时。
 
 **Tech Stack:** HarmonyOS NEXT Stage、ArkTS、ArkUI、`devecocli`。
 
@@ -21,8 +21,8 @@
 ## Task 1: 补齐会话列表与页面导航
 
 - [ ] 增加页面内存 Session 记录结构，支持新增、重命名、删除、最近连接时间与本地状态。
-- [ ] AppShell 改成 `list / pairing / detail` 三视图，行为对齐 Android：无记录直达配对页，有记录先显示列表，返回列表时关闭当前连接。
-- [ ] 支持从已有记录重新进入详情，并保持单连接。
+- [ ] AppShell 改成 `list / pairing / detail` 三视图，行为对齐 Android：无记录直达配对页，有记录先显示列表，返回列表只改变展示目标。
+- [ ] 为每个有效配对 Session 保持独立连接和按 `sessionId` 隔离的内存状态。
 
 ## Task 2: 补齐会话状态与命令门控
 

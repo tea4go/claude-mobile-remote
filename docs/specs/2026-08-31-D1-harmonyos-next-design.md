@@ -73,7 +73,7 @@ apps/harmony/
 设计原则：
 
 - **协议复用，UI 不复用**：复用相同字段、状态和事件语义，不复用 React/Capacitor 运行时；
-- **单连接、单 Session**：D1 与当前 Web 客户端一致，一次只连接一个当前 Session；
+- **D1 阶段单连接、单 Session**：D1 调试壳只验证一个当前 Session；产品级多 Session 连接生命周期后由 D66 与 D2 设计替代；
 - **严格解码，不偷宽容**：ArkTS 解码规则与 Go / TypeScript 契约保持一致，避免 Harmony 端自行发明兼容分支；
 - **原生能力后置**：扫码、安全存储、推送、生命周期恢复都留到 D2/D3，再按 Harmony 官方能力补齐。
 

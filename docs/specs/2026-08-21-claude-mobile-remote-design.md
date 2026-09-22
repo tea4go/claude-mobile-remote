@@ -38,13 +38,13 @@ flowchart LR
 | Session Channel | 按 `sessionId` 管理订阅、发布事件和路由操作 | 保存完整会话、运行 Claude |
 | Transport | WebSocket、鉴权、消息 envelope、连接状态 | Claude 生命周期 |
 | Pairing | 临时凭证、二维码内容和撤销 | 长期账号与设备中心 |
-| Mobile Client | 已配对列表、当前 Session 连接、状态展示和操作 | 直接访问 Claude、重建上下文或服务器端 Session 管理 |
+| Mobile Client | 已配对列表、各 Session 独立连接与内存状态、当前详情展示和操作 | 直接访问 Claude、重建上下文或服务器端 Session 管理 |
 
 Claude 的完整上下文、会话状态和操作执行始终留在 PC。Remote Server 不直接使用 SDK；手机只保存配对记录和界面状态，不保存或重建 Claude 上下文。
 
 ## 3. 会话模型
 
-一个 Standalone CLI 进程只允许一个 `SessionController` 管理一个 Claude Session。低频并行 Session 使用多个 CLI 进程和不同端口；不把 Controller 扩展为 PC 多 Session daemon。WhaleTerm 后续使用其已有队列适配同一 Remote Server，且首期只允许一个 Session 开启远程控制。
+一个 Standalone CLI 进程只允许一个 `SessionController` 管理一个 Claude Session。低频并行 Session 使用多个 CLI 进程和不同端口；不把 Controller 扩展为 PC 多 Session daemon。WhaleTerm 已有多 Session 管理能力，因此可为多个由其持有的 Session 分别启动独立的单 Session Remote Server；每个实例仍只绑定一个 `sessionId`，不建设跨 Session 路由或第二个 SDK Client。
 
 ```text
 Session
@@ -137,7 +137,7 @@ PC 始终持有完整 Claude 上下文。手机首次连接、刷新或短暂断
 
 snapshot 只用于保持手机界面与 PC 当前状态一致，不用于重建 Claude 上下文，也不读取或下发扫码前的完整 JSONL/transcript。
 
-B1 后移动端可以保存多个已扫描 Session，并在列表和会话详情间切换。列表以 `sessionId` 为逻辑身份，重复扫码更新地址、Token 和有效期；一次只连接当前进入的 Session，返回列表时关闭 WebSocket，不影响 PC Session。原生 App 使用系统安全存储保存未过期 Pair Token，浏览器继续只使用 Fragment/内存。切换或重连不触发事件 replay，未连接期间仍只恢复最新 snapshot。
+B1 后移动端可以保存多个已扫描 Session，并在列表和会话详情间切换。列表以 `sessionId` 为逻辑身份，重复扫码更新地址、Token 和有效期；App 前台且 JavaScript 运行期间，每个有效配对 Session 分别持有独立连接和内存状态，返回列表或切换详情不关闭连接。所有 Snapshot、事件和命令结果只归入其 `sessionId` 对应状态，列表从这些状态派生运行、等待决策、完成、错误和未读提示。原生 App 使用系统安全存储保存未过期 Pair Token，浏览器继续只使用 Fragment/内存。断线重连不触发事件 replay，只能用最新 snapshot 校正其可表达的状态；刷新或 App 销毁后不恢复消息正文。
 
 ## 5. 通信协议原则
 
@@ -227,7 +227,7 @@ iOS / Android 先行开发、HarmonyOS NEXT 独立开发，但以下四项是三
 ### 8.2 后续扩展
 
 - **Standalone 并行 Session**：启动多个 CLI 进程并配置不同端口，不增加单进程 Registry、daemon 或管理 API；
-- **移动端多 Session**：本地保存多个配对记录，一次只连接当前进入的 Session；不提供后台多 WebSocket、完整历史或服务器端列表；
+- **移动端多 Session**：本地保存多个配对记录，App 前台生命周期内为全部有效配对 Session 分别维护连接和内存状态；不承诺操作系统挂起后的 WebSocket 常驻，不提供完整历史或服务器端列表；
 - **多手机**：Transport 已按订阅者广播，所有客户端地位相同，输入由宿主 FIFO 串行；
 - **WhaleTerm**：B3 提取单 Session Remote Server 与薄宿主接口，W1 在 WhaleTerm 进程内复用已有 Session 和 SDK Client；
 - **Capacitor**：复用 Mobile Web、协议客户端和状态模型，增加扫码、安全存储与 NativeBridge。移动 Web 的路由自 A5 起必须使用 hash 或内存路由，不使用依赖 History API 的路径路由——Capacitor WebView 以自定义 scheme（如 `capacitor://localhost`）加载资源，路径路由存在已知解析问题；

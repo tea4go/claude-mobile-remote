@@ -128,6 +128,10 @@ export function pairLoaded() {
   return { type: 'pairLoaded' } as const
 }
 
+export function sessionOpened(state: MobileState | null) {
+  return { type: 'sessionOpened', state } as const
+}
+
 export function snapshotReceived(snapshot: SessionSnapshot) {
   return { type: 'snapshotReceived', snapshot } as const
 }
@@ -234,6 +238,7 @@ export function reset() {
 
 export type Action =
   | ReturnType<typeof pairLoaded>
+  | ReturnType<typeof sessionOpened>
   | ReturnType<typeof snapshotReceived>
   | ReturnType<typeof eventReceived>
   | ReturnType<typeof connectionStateChanged>
@@ -330,9 +335,9 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     seqBase: snapshot.seq,
     queueDepthHint: snapshot.queueDepth,
     queuedRequests: snapshot.queuedRequests,
-    // 重连/刷新以新 snapshot 重新初始化，旧易失消息清空（D32）。
-    // 结构化内容块不在 snapshot 中，不得伪造历史块（B2 §4.1）。
-    messages: [],
+    // 同一 App 生命周期内重新进入 Session 时保留已经看到的消息；Snapshot
+    // 只校正它能表达的当前 Turn，不提供离开期间的事件 replay（D64）。
+    messages: state.sessionId === snapshot.sessionId ? state.messages : [],
     // waiting 的 snapshot 携带待处理事项，重连后仍需禁用文本输入。
     pendingAction: snapshot.turn.pendingAction,
     pendingCommand: null,
@@ -346,21 +351,26 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting'
   const turnSource = snapshot.turn.source
   if (turnSource !== '' && (snapshot.turn.message !== '' || turnActive)) {
-    next.messages = [
-      {
-        kind: 'claude',
-        requestId: snapshot.turn.requestId,
-        source: turnSource,
-        text: snapshot.turn.message,
-        status:
-          snapshot.turn.status === 'failed'
-            ? 'failed'
-            : turnActive
-              ? 'streaming'
-              : 'done',
-        error: snapshot.turn.error,
-      },
-    ]
+    const current = {
+      kind: 'claude' as const,
+      requestId: snapshot.turn.requestId,
+      source: turnSource,
+      text: snapshot.turn.message,
+      status: snapshot.turn.status === 'failed' ? 'failed' as const : turnActive ? 'streaming' as const : 'done' as const,
+      error: snapshot.turn.error,
+    }
+    const currentIndex = next.messages.findIndex(
+      (message) => message.kind === 'claude' && message.requestId === current.requestId,
+    )
+    if (currentIndex < 0) {
+      next.messages = [...next.messages, current]
+    } else {
+      next.messages = [
+        ...next.messages.slice(0, currentIndex),
+        current,
+        ...next.messages.slice(currentIndex + 1),
+      ]
+    }
   }
   return applyCanSend(next)
 }
@@ -543,6 +553,15 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
 
 export function reducer(state: MobileState, action: Action): MobileState {
   switch (action.type) {
+    case 'sessionOpened':
+      return applyCanSend({
+        ...(action.state ?? createInitialState()),
+        phase: 'connecting',
+        connection: 'connecting',
+        pendingCommand: null,
+        lastError: null,
+        lastNotice: null,
+      })
     case 'pairLoaded':
       return applyCanSend({
         ...state,

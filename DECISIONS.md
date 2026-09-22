@@ -256,7 +256,7 @@
 - **决策**：A5 Mobile Web 不维护完整会话历史。首次订阅以最新 snapshot 初始化当前或最近 Turn；连接建立后的 `text_delta` 按 `requestId` 累积为 Claude 回复。手机发送的文本仅在对应 `command_result` 确认接受并返回 `requestId` 后加入消息流；终端发起的 Turn 因服务端事件不包含终端输入正文，只标记为“电脑端发起”，不伪造提示词。刷新或显式重连时清空上一连接的易失消息流，再以最新 snapshot 重新开始，不做事件 replay。
 - **理由**：该范围能够展示扫码后的实时对话和当前状态，同时遵守“手机不管理全量历史”的产品边界；A4 协议既不提供历史回放，也不在终端 `turn_started` 中传输输入正文。
 - **影响**：前端 reducer 只保存当前页面连接期的内存状态，不使用 localStorage 或持久化 transcript；重连后旧消息消失是预期行为。实现只消费 D27 的 snapshot、事件和命令结果，不增加浏览器专属协议字段，React Web、Capacitor 与 HarmonyOS NEXT 均可采用相同归并语义，三端共用契约保持不变。
-- **状态**：已定
+- **状态**：部分被 D64 替代；不持久化、不 replay 继续有效，“重连必清空已见消息”不再有效
 
 ## D33 · A5 允许 Turn 运行时继续提交文本
 
@@ -280,7 +280,7 @@
 - **决策**：A5 将配对负载解析、版本 1 协议类型与解码、WebSocket 连接生命周期、页面状态归并拆为职责单一的小模块；使用 React reducer 维护单连接 UI 状态，`App` 只负责页面编排和副作用接线。不在 A5 引入 Zustand 等状态库，也不提前创建跨端共享包。
 - **理由**：该结构能独立测试不可信 JSON、协议顺序、断线和 reducer 归并，同时保持单页面实现轻量；后续 B 阶段增加审批与取消时无需继续膨胀单一 Hook 或 `App`。
 - **影响**：TypeScript 协议类型集中维护，组件不得各自复制消息定义；模块只依赖标准 JSON、WebSocket 和 React 状态能力。未来 Capacitor 可复用 Web 实现，HarmonyOS 按同一共用契约独立实现，不受 Web 模块组织约束。
-- **状态**：已定
+- **状态**：A5 单连接阶段有效；多 Session App 级状态库选型由 D67 替代，纯 reducer 与模块拆分继续有效
 
 ## D36 · A5 不推断实时队列深度
 
@@ -312,7 +312,7 @@
 - **决策**：每个活跃 Claude Session 同时只有一个 Session Host 和一个 SDK Client。一个 Standalone CLI 进程只创建或恢复一个 Session；低频并行 Session 使用多个 CLI 进程和不同端口。WhaleTerm 后续只为其已持有的一个 Session 在进程内启动 Remote Server，不创建第二个 Client；关闭远程控制不停止 Claude Session。禁止通过 JSONL 或第二个 `--resume` Client 接管活跃 Session。
 - **理由**：同时远程控制多个 Session 的场景少，单进程多 Session daemon 会引入不必要的生命周期、管理 API、持久化和故障隔离复杂度；现有 A2–A5.2 已是单 Session 组合。
 - **影响**：保留现有 SDK Adapter、Session Controller、FIFO、Channel、Pairing、Transport 和版本 1 协议；B3 只把远程组合包装为可导入的单 Session 组件，不实现 Runtime Registry、Local Control API、PC TUI 或跨 Session 管理。本决策替代 D2“只能由 Service 启动”的绝对影响表述及 D3 对后续多会话的笼统边界。Session Host/Remote Server 是 PC 进程内概念，不进入客户端协议；React Web、Capacitor 和 HarmonyOS NEXT 均无需区分 CLI 与 WhaleTerm，三端可实现性核对通过。
-- **状态**：已定
+- **状态**：部分被 D63 替代；Standalone 单进程单 Session 及每 Session 唯一 Host/Client 继续有效，WhaleTerm 进程级单 Remote 限制不再有效
 
 ## D40 · A6 改为跨机器浏览器门禁并采用依赖式并行路线
 
@@ -328,7 +328,7 @@
 - **决策**：Pair Token 默认有效期由 10 分钟调整为 12 小时，用于覆盖典型远程接力窗口，仍可通过 `--pair-token-ttl` 收紧。移动端后续以 `sessionId` 为逻辑身份保存多个已扫描配对记录；原生 App 使用系统安全存储保存未过期 Token，重启后可直接重连，一次只连接当前进入的 Session。浏览器继续使用 Fragment/内存，不把 Token 写入 `localStorage`。过期、撤销或 Remote Server 重启后保留元数据并要求重新扫码；删除本地记录不撤销服务器共享 Token。
 - **理由**：用户离开 PC 后，锁屏、切后台和换网导致断线是正常场景，10 分钟凭证不足以覆盖典型接力窗口；移动端列表需要管理多个独立 CLI/Session，但不应反向引入 PC 聚合服务或长期设备身份。
 - **影响**：配对负载仍为 `{version, wsUrl, sessionId, pairToken, expiresAt}`，有效期内重新认证后只取得最新 snapshot，不做 replay；12 小时不保证覆盖任意长度的 Session。D28 除默认 TTL 外继续有效，D30–D34 仍约束 A5 浏览器单连接行为。本地列表属于端内 UI/存储能力，不是三端通信协议或服务器端 Session 中心；Capacitor 与 HarmonyOS 使用各自系统安全存储，React Web 不持久化凭证，三端可实现性核对通过。
-- **状态**：已定
+- **状态**：Pair Token 与安全存储部分继续有效；“一次只连接当前进入的 Session”已被 D66 替代
 
 ## D42 · B2 交互范围与 B3 组件化替代多会话阶段
 
@@ -336,7 +336,7 @@
 - **决策**：B2 覆盖 Tool 权限、AskUserQuestion（单选、多选、自由文本和一次 callback 的多个问题）、取消当前 Turn 与按 request ID 取消排队输入。Session 只维护一个可空 pending action；多入口同时回答时第一位合法解决者成功，其余返回 `stale_action`。B3 不再实现单进程多会话，而是提取单 Session Remote Server 和薄宿主接口；不再设置 B4 持久授权/Journal 阶段。
 - **理由**：审批、问答和取消是完整远程控制的必要能力；单 pending action 与第一解决者规则能覆盖多手机和 WhaleTerm UI，又不引入设备竞态模型。组件化只服务 Standalone 与 WhaleTerm 两种 Host，无需多 Runtime 管理平台。
 - **影响**：B2 的具体 JSON payload、SDK 映射和 callback 释放规则必须在 B2 分阶段设计中再固定并重新完成三端共用契约核对；当前只确认范围和竞态语义，不提前增加协议字段。B3 在 B2 后确定最小公共 Go API，关闭 Remote Server 与停止 Claude Session 保持不同语义。
-- **状态**：已定
+- **状态**：部分被 D46、D63 替代；B2 交互与 B3 单 Session Server 组件化继续有效，WhaleTerm 可组合多个独立实例
 
 ## D43 · 后期公网访问使用可信的每 CLI 单隧道 Relay
 
@@ -496,4 +496,53 @@
 - **默认与并发**：未配置时使用最低权限模式 `default`；多个已认证客户端的修改请求进入 PC Session Controller 串行处理，失败不更新对外状态，成功值才广播。
 - **理由**：WhaleTerm 已有 `UpdateClaudeCodePermissionMode`，能够更新活动 Client、排队 Turn 和后续 Client；复用该能力比在移动端复制权限逻辑更安全。Snapshot 负责首连/重连基线，变更事件负责运行中收敛，Pairing payload 继续只承载身份与凭证。
 - **三端可实现性**：新增字段和命令只使用枚举字符串及现有 command/event/seq 管道，React/Capacitor/HarmonyOS 均可展示和发起同一请求；不新增平台专属依赖。
+- **状态**：已定
+
+## D62 · WhaleTerm Remote Control 采用独立功能模块与窄宿主接口
+
+- **日期**：2026-09-22
+- **决策**：WhaleTerm 内的 Remote Control 作为独立功能组织：Remote Session Host、事件/协议适配和 Server 生命周期归入 `backend/remote/`；Wails 入口使用独立 `TClaudeRemoteService`；前端归入 `features/claudeRemote/`。`backend/chat` 只暴露与网络协议无关的窄宿主能力，会话页只保留最小挂载和状态回调。
+- **理由**：当前 Remote Host 直接访问 Claude Manager 私有状态，Remote 生命周期挂在 Claude 主业务服务上，前端管理与同步逻辑散落在会话页面，导致独立功能与 WhaleTerm 核心业务双向耦合，后续测试和演进风险较高。
+- **影响**：只调整 WhaleTerm 内部包、服务和前端目录边界；不改变公共 `remote.Controller`、wire protocol、配对负载、Session 状态、权限语义或移动端代码。PC、React/Capacitor 与 HarmonyOS NEXT 的三端共用契约均不变，无需客户端迁移。
+- **状态**：已定
+
+## D63 · WhaleTerm 按 Session 持有独立 Remote Server
+
+- **日期**：2026-09-22
+- **决策**：WhaleTerm 可为多个由其持有的 Claude Session 同时开启远程管理；每个 Session 分别持有唯一 Session Host、唯一 SDK Client 和一个单 Session `remote.Server`，由 WhaleTerm Remote 模块按 `sessionId` 管理实例、监听端口、配对信息和启停生命周期。同一 Session 重复开启复用自身实例，关闭某一实例不影响其他 Session，WhaleTerm 退出时关闭全部 Remote 实例。
+- **理由**：“一个 Remote Server 只服务一个 Session”是隔离与所有权约束，不等于“整个 WhaleTerm 进程只能运行一个 Remote Server”。此前把 Standalone CLI 的单进程单 Session 产品边界错误扩大到已有多 Session 管理能力的 WhaleTerm，导致第二个 Session 开启远程管理被进程级单例拒绝。
+- **影响**：替代 D39、D42、总体设计及 W1 设计中“WhaleTerm 同时只允许一个 Session 开启 Remote”的局部表述；Standalone CLI 仍保持一进程一 Session，公共 `remote.Server` 仍保持单 Session，不增加服务器端跨 Session 路由或第二个 SDK Client。Start/Get/Stop 必须以 `sessionId` 为作用域，不改变 wire protocol 或配对负载。移动端连接生命周期后由 D66 替代。
+- **状态**：已定
+
+## D64 · 移动端在 App 生命周期内按 Session 保留已见消息
+
+- **日期**：2026-09-22
+- **决策**：移动端按 `sessionId` 保存本次 App/页面生命周期内已经接收并展示的消息状态。返回 Session 列表只关闭当前 WebSocket，不删除该 Session 的内存消息；再次进入时先恢复已见消息，再用最新 Snapshot 校正 Session、权限、队列、待处理事项和 Snapshot 可表达的当前 Turn。页面刷新、App 销毁或用户删除配对记录时可清空对应消息，不持久化 transcript。
+- **理由**：Session 列表与详情切换是同一 App 内的导航，不应等同于销毁会话界面。此前只有配对记录 store，返回列表会重置唯一 reducer，导致用户刚刚看到的实时消息立即丢失；这不是“不管理完整历史”所必需的行为。
+- **影响**：替代 D32 中“任何重连都清空旧易失消息”的绝对表述；显式网络重连和重新进入详情均以最新 Snapshot 收敛，但允许保留同一 App 生命周期内的已见消息。服务端仍不 replay，离开期间已经结束且 Snapshot 不再表达的 Turn 不补造；浏览器仍不把消息或 Pair Token 写入 `localStorage`、`sessionStorage` 或 IndexedDB。状态缓存仅依赖端内内存 Map，React Web、Capacitor 与 HarmonyOS NEXT 均可等价实现，不新增平台专属协议，三端可实现性核对通过。
+- **状态**：按 Session 保留内存消息继续有效；“返回列表关闭当前 WebSocket”已被 D66 替代
+
+## D65 · 公共 EventStream 承担嵌入式宿主的单 Session 广播
+
+- **日期**：2026-09-22
+- **决策**：`claude-mobile-remote/remote` 提供绑定单个 `sessionId` 的公共 `EventStream`。嵌入式宿主使用它维护 Snapshot、分配事件 `seq`，并把一条事件广播到每个订阅者的独立有界 channel；慢订阅者只关闭自身。WhaleTerm 不再实现自己的 Remote Hub，只把所属 Session Host 的事件映射后发布到该 Session 的 `EventStream`。
+- **理由**：现有 `remote.Controller.Subscribe` 要求宿主提供可多订阅的事件源，但此前该广播能力只存在于 Standalone 的内部 Session Controller，导致 WhaleTerm 重复实现 Hub。把同一语义提升为公共组件，才能让嵌入式宿主真正复用 Remote 广播实现，并避免多套 seq、Snapshot 和慢消费者逻辑。
+- **影响**：新增 Go 公共嵌入 API，不改变 wire protocol、配对负载、Session/Turn 状态或客户端行为。`EventStream` 永久绑定一个 Session，拒绝不同 `sessionId` 的 Snapshot/事件；不同 WhaleTerm Session 仍各自持有独立 `remote.Server` 和 `EventStream`。React、Capacitor 与 HarmonyOS NEXT 继续使用原协议，无需修改，三端可实现性不变。
+- **状态**：已定
+
+## D66 · 移动端在 App 前台生命周期内同时管理全部有效配对 Session
+
+- **日期**：2026-09-22
+- **决策**：移动端一次只展示一个 Session 详情，但在 App 前台且 JavaScript 运行的生命周期内，为所有有效配对 Session 分别维护独立的 `ProtocolClient`、WebSocket 连接和按 `sessionId` 隔离的内存状态。配对成功即纳入同步管理；返回列表或进入其他 Session 只改变展示目标，不关闭原连接、不清空状态。删除配对、凭证失效、对应 Remote 停止或 App 销毁时才释放该 Session 的连接与内存状态。列表从各 Session 状态派生连接、运行、等待决策、完成、错误和未读提示。
+- **理由**：用户同时配对多个 Claude Session，代表要同时观察和控制这些会话；若只有进入详情才连接，列表只是配对书签，用户离开详情期间会漏掉回复、Turn 完成和待决策事件，无法实现多 Session 管理。2026-08-26 的单连接方案是为快速推进 B1、复用单 Session reducer 而采用的临时实现，并未堵死协议或服务器架构，现在以 App 级多连接和分桶状态替代。
+- **影响**：替代 D41、D63、D64、REQUIREMENTS、总体设计及 B1/C2/W1/Harmony 设计中的“只连接当前详情 Session”“返回列表关闭 WebSocket”表述。每条连接仍只认证并订阅一个 `sessionId`，每个 PC 端 `remote.Server` 仍只服务一个 Session；不增加服务器端 Session Registry、跨 Session 路由、数据库、事件 replay 或配对字段。当前无 replay 的边界继续存在：App 进程存活且连接连续时可完整接收配对后的事件；操作系统挂起、杀进程或网络断开期间可能产生缺口，恢复时只能由最新 Snapshot 校正其可表达的状态，完整离线补偿与系统推送后续单独设计。
+- **三端可实现性**：React Web/Capacitor 使用 `sessionId → ProtocolClient` 与 `sessionId → MobileState` 的 App 级容器；HarmonyOS NEXT 使用等价的连接表与状态表。三端均只依赖现有 Pairing、WebSocket 和 wire contract，不需要平台专属协议。浏览器仍不持久化 Pair Token 或 transcript；原生端后续继续使用系统安全存储保存配对凭证。核对通过。
+- **状态**：已定
+
+## D67 · 移动端多 Session 状态使用 Zustand，连接副作用由独立 Runtime 管理
+
+- **日期**：2026-09-22
+- **决策**：React Web/Capacitor 的 App 级多 Session 状态采用 Zustand。Store 保存配对记录、`sessionId → MobileState`、未读标记、当前视图和当前展示 Session；独立 `SessionRuntimeManager` 保存 `sessionId → ProtocolClient`、连接 generation 与网络副作用，并把收到的事件派发到 Zustand。现有单 Session 纯 reducer 继续作为状态归并核心，不在组件或 Runtime 中复制状态机。
+- **理由**：旧 B1 只有一个详情 Session，`useReducer + useRef` 是合理的最小实现；D66 后多个 Session 会同时更新，列表和详情需要按 Session 精确订阅，继续把多个 Map、Client 和 reducer 编排堆在 `App.tsx` 会重新耦合连接、导航与渲染。Zustand 提供轻量的外部 Store、selector 和组件外更新能力，适合该状态形态；Happy App 也采用“独立 Sync 对象负责网络、Zustand 负责可观察状态”的职责分离。
+- **影响**：`apps/mobile` 新增 Zustand 运行时依赖；不使用 `persist` middleware，不写 `localStorage`、`sessionStorage` 或 IndexedDB，不持久化 Pair Token 或消息正文。`ProtocolClient` 不作为供 UI 订阅的响应式数据；组件只通过 selector 订阅所需 Session 或列表摘要，避免其他 Session 流式事件触发无关详情重渲染。HarmonyOS NEXT 不复用 npm 库，但使用等价的 App 级状态容器和 Runtime/Store 职责边界；wire protocol、Pairing、Go Server 和状态语义不变，三端可实现性核对通过。
 - **状态**：已定

@@ -1,9 +1,9 @@
 # W1 WhaleTerm 进程内无缝远程托管设计
 
 - 日期：2026-08-31
-- 状态：用户已确认设计
+- 状态：多 Session 事件隔离修订草案，待用户检查
 - 前置：B3 单 Session Remote Server 组件化
-- 关联决策：D57、D58
+- 关联决策：D57、D58、D62、D63、D64
 
 ## 1. 目标与边界
 
@@ -16,7 +16,6 @@ W1 不实现以下能力：
 - Standalone CLI 的生产级 PTY 或终端模拟器；
 - 普通终端中已运行 Claude 进程的事后接管；
 - 第二个 SDK Client、第二个 `--resume` Host 或 stdout/JSONL 监听接管；
-- WhaleTerm 多 Session 同时远程管理；
 - Remote Server 全局 daemon、云端 Relay、多设备授权或原生 App 新能力。
 
 Standalone CLI 继续作为独立的单 Session Host；WhaleTerm 负责本地 Claude 草稿和已运行桌面 Session 的无缝远程管理。
@@ -108,6 +107,41 @@ remote.Server
 
 `remote.Server.Start()` 只启动远程服务、注册当前 Session Channel 并返回配对负载，不调用宿主的 Start/Stop。`remote.Server.Close()` 只关闭远程连接、撤销凭证并注销 Channel，不停止 WhaleTerm 的 Claude Session。
 
+### 3.4 WhaleTerm 内部模块边界
+
+Remote Control 在 WhaleTerm 内作为独立功能组织：
+
+- `backend/remote/` 持有 Controller Adapter、Session Host、事件/协议映射以及 Remote Server 生命周期；
+- `backend/services/TClaudeRemoteService` 作为独立 Wails 服务暴露开启、关闭和查询接口，不挂在 `TClaudeCodeService` 上；
+- `backend/chat/` 只提供与网络协议无关的窄宿主能力，包括统一输入队列、状态读取、事件订阅和权限/取消控制；
+- `frontend/src/features/claudeRemote/` 持有配对、管理 UI、API 与事件同步；会话页面只挂载 feature 并提供必要的会话上下文。
+
+该边界只调整 WhaleTerm 内部依赖方向，不改变 `remote.Controller`、wire protocol、配对负载或移动端状态模型。
+
+### 3.5 按 Session 的事件与广播路径
+
+每个 WhaleTerm Controller Adapter 必须绑定一个确定的 `sessionId`，并且只订阅该 Session Host 的事件源。正确路径为：
+
+```text
+Claude Session A Host ──> Adapter A.Subscribe ──> remote.Server A / Channel A
+                                                   ├── Subscriber A1 独立 channel
+                                                   └── Subscriber A2 独立 channel
+
+Claude Session B Host ──> Adapter B.Subscribe ──> remote.Server B / Channel B
+                                                   └── Subscriber B1 独立 channel
+```
+
+一条 Session A 事件只发布到 Channel A；Channel A 将其广播给 A 的每个订阅者，各订阅者拥有独立输出 channel。Session B 的适配器和订阅者不得接收该事件。`sessionId` 既是协议字段，也是适配器、Channel、Snapshot 和事件的强一致性校验，不是移动端收到跨 Session 消息后再自行丢弃的 UI 过滤条件。
+
+WhaleTerm 不得在公共 Remote 组件之外再建立广播层。特别禁止：
+
+- Manager 把所有 Session 的事件扇出给所有 Remote Host，再由 Host 按 `chatKey` 或 `sessionId` 过滤；
+- 每个 Remote Host 自建本地 Hub，重复实现订阅、广播、慢消费者或关闭语义；
+- Host 之间保存“上一个宿主”并转发不匹配事件；
+- 让一个 Session 的配对客户端收到另一个 Session 的消息，即使移动端能够按 `sessionId` 忽略。
+
+WhaleTerm 侧允许存在的唯一事件适配工作，是把所属 Session Host 的内部事件映射成 `protocol.Event`。订阅者 fan-out、连接输出和慢订阅者处理属于 `claude-mobile-remote` 的 Channel/Transport 实现。
+
 ## 4. 开启与关闭生命周期
 
 ### 4.1 开启远程管理
@@ -161,7 +195,9 @@ WhaleTerm 退出时应先关闭 Remote Server，再按自身既有流程停止 C
 
 首轮前连接时 Snapshot 为 `starting/idle`。手机首条输入与 PC 首条输入遵守同一 FIFO；获接受的第一条触发 Client 创建，之后的输入排队。Remote Host 使用开启远程管理时保存的完整 Claude 配置，只替换本轮消息、Turn ID 和规范 Session ID，禁止用仅含项目路径/模型的稀疏配置启动 Client。
 
-W1 首期只允许一个 WhaleTerm Session 开启一个 Remote Server。手机客户端是否存在多个历史配对记录不影响此限制；服务器端不新增多 Session Registry。
+WhaleTerm 可为多个由其持有的 Claude Session 分别开启 Remote Server。Remote 模块只维护 `sessionId → Remote 实例` 的宿主生命周期索引；每个实例仍是单 Session Server，拥有独立 Host、监听端口和配对信息，不提供跨 Session 协议路由。移动端在 App 前台生命周期内可同时连接这些独立实例，所有状态和操作继续按 `sessionId` 隔离。
+
+多个实例并发运行时，WhaleTerm 的宿主事件源也必须按 Session 隔离。不能因为 `remote.Server` 已按 Session 建立，就允许其上游继续使用 Manager 级全局事件回调；否则每个 Adapter 都会成为其他 Session 事件的真实订阅者，隔离依赖事后过滤，既会产生错误日志，也会把生命周期、取消和快照更新错误地关联到其他 Host。
 
 ## 6. 跨仓库依赖
 
@@ -177,7 +213,8 @@ WhaleTerm 不得依赖 `internal/session`、`internal/channel`、`internal/trans
 ## 7. 错误处理
 
 - 当前草稿不存在 Session ID：预分配 UUID 并返回给前端；预分配或配置校验失败时才拒绝开启；
-- 当前 Session 已启用 Remote Server：复用当前实例或提示已开启，不创建第二个实例；首期采用显式复用/关闭后重开，不支持多入口竞争；
+- 当前 Session 已启用 Remote Server：复用当前实例或提示已开启，不创建该 Session 的第二个实例；其他 Session 的实例不受影响；
+- 首选监听端口已被其他 Remote 实例占用：在 Remote 模块内选择可用端口，并同步生成与实际监听端口一致的配对地址；
 - `server.Start()` 任一步失败：WhaleTerm 清理适配器和 Server 资源，不影响 Claude Session；
 - 配对负载轮换：沿用 `remote.Server.Pairings()`，由 WhaleTerm 更新二维码或当前展示内容；
 - Remote Server 异常关闭：通知 WhaleTerm 远程管理已断开，但不把 Claude Session 标记为失败；
@@ -209,7 +246,11 @@ WhaleTerm 不得依赖 `internal/session`、`internal/channel`、`internal/trans
 6. 关闭远程管理后宿主 Session 仍可在 WhaleTerm 继续使用；
 7. 重新开启生成新的配对负载并可再次连接；
 8. 同一 Session 不能重复启动两个 Remote Server；
-9. 两个不同 Session 不能通过同一个 W1 实例串线。
+9. 两个不同 Session 可同时运行独立 Remote Server，分别查询、关闭且不会串线；
+10. WhaleTerm 退出时关闭全部 Remote Server，不停止顺序之外的 Claude Session。
+11. 两个 Session 同时运行 Turn 时，A/B Adapter 各自只收到所属 Host 的事件，双方 `turn_started`、增量、结果、权限和取消状态均不交叉；
+12. 同一 Session 的两个订阅者都收到同一事件，断开或阻塞其中一个不影响另一个；
+13. 任意 Snapshot 或事件的 `sessionId` 与 Adapter 绑定值不一致时在服务端拒绝并报告错误，不向移动端发送，也不转发给其他 Host。
 
 ### 8.3 人工验收
 

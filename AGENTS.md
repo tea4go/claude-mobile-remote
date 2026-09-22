@@ -13,7 +13,7 @@ Claude Mobile Remote 是独立于 WhaleTerm 的项目。Standalone CLI 通过 `g
 - 一个 Standalone CLI 进程只创建或恢复一个 Claude Session；低频并行 Session 使用多个进程和不同端口，不建设 PC 多 Session daemon；
 - WhaleTerm 后续只为其已持有的一个 Claude Session 启动进程内 Remote Server，不创建第二个 SDK Client；
 - 手机不管理全量历史，只接收当前状态、待处理事项和扫码后的消息；
-- 移动端后续可安全保存多个已扫描 Session，但一次只连接当前进入的 Session，不建设服务器端 Session 列表；
+- 移动端后续可安全保存多个已扫描 Session，并在 App 前台生命周期内分别连接和同步全部有效配对 Session；一次只展示一个详情，不建设服务器端 Session 列表；
 - Claude 的完整上下文、会话状态和操作执行始终留在 PC，手机只负责展示和回传操作；
 - 首期使用简单行式 CLI 和浏览器移动页面；
 - 里程碑 A 的手机端只收发文本消息，审批与取消在 B2 接入；

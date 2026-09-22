@@ -96,7 +96,7 @@ afterEach(() => {
   window.location.hash = ''
 })
 
-function completeHandshake(socket: FakeWebSocket) {
+function completeHandshake(socket: FakeWebSocket, snapshotMessage: unknown = SNAPSHOT) {
   socket.serverOpen()
   socket.serverMessage({
     version: PROTOCOL_VERSION, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
@@ -104,7 +104,7 @@ function completeHandshake(socket: FakeWebSocket) {
   socket.serverMessage({
     version: PROTOCOL_VERSION, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {},
   })
-  socket.serverMessage(SNAPSHOT)
+  socket.serverMessage(snapshotMessage)
 }
 
 describe('App：无配对', () => {
@@ -316,6 +316,36 @@ describe('App：返回列表', () => {
     await waitFor(() => {
       expect(screen.getByText('已连接')).toBeInTheDocument()
     })
+  })
+
+  test('返回列表再进入保留本次 App 生命周期内已见消息', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    completeHandshake(FakeWebSocket.instances[0]!, {
+      ...SNAPSHOT,
+      payload: {
+        ...SNAPSHOT.payload,
+        snapshot: {
+          ...SNAPSHOT.payload.snapshot,
+          turn: {
+            ...SNAPSHOT.payload.snapshot.turn,
+            status: 'completed',
+            requestId: 'req-seen',
+            message: '已经看到的回复',
+          },
+        },
+      },
+    })
+    await waitFor(() => expect(screen.getByText('已经看到的回复')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '进入' }))
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    expect(screen.getByText('已经看到的回复')).toBeInTheDocument()
+
+    completeHandshake(FakeWebSocket.instances[1]!)
+    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
+    expect(screen.getByText('已经看到的回复')).toBeInTheDocument()
   })
 })
 

@@ -19,6 +19,7 @@ import {
   queuedCancelSent,
   reducer,
   reset,
+  sessionOpened,
   snapshotReceived,
   turnCancelSent,
   type ConnectionState,
@@ -339,6 +340,16 @@ describe('断线与重置', () => {
     state = reducer(state, pairLoaded())
     state = reducer(state, snapshotReceived(snapshot({ seq: 20 })))
     expect(state.messages).toEqual([])
+    expect(state.seqBase).toBe(20)
+  })
+
+  test('同一 App 内重新进入 Session 保留已见消息并以 snapshot 推进状态', () => {
+    let state = stateWithSnapshot()
+    state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'req-2' })))
+    state = reducer(state, eventReceived(event('text_delta', 12, { requestId: 'req-2', text: '已见回复' })))
+    state = reducer(createInitialState(), sessionOpened(state))
+    state = reducer(state, snapshotReceived(snapshot({ seq: 20 })))
+    expect(state.messages.some((message) => message.kind === 'claude' && message.text === '已见回复')).toBe(true)
     expect(state.seqBase).toBe(20)
   })
 })
