@@ -14,6 +14,7 @@ export interface SessionRecord {
   wsUrl: string
   pairToken: string
   expiresAt: string
+  capabilities?: PairingPayload['capabilities']
   name: string
   lastConnectedAt: number | null
   status: SessionLocalStatus
@@ -49,6 +50,7 @@ export function upsertSession(store: SessionStore, payload: PairingPayload): Ses
     wsUrl: payload.wsUrl,
     pairToken: payload.pairToken,
     expiresAt: payload.expiresAt,
+    ...(payload.capabilities === undefined ? {} : { capabilities: [...payload.capabilities] }),
     name: store.records[index]?.name ?? defaultSessionName(payload.sessionId),
     lastConnectedAt: store.records[index]?.lastConnectedAt ?? null,
     status: store.records[index]?.status ?? 'new',

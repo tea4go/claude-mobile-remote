@@ -28,6 +28,14 @@ describe('createInitialSessionStore', () => {
 })
 
 describe('upsertSession', () => {
+  it('保留配对能力并在重新配对时更新', () => {
+    let store = upsertSession(createInitialSessionStore(), payload('s-1', {
+      capabilities: ['create_session', 'stop_session'],
+    }))
+    expect(listSessions(store)[0]?.capabilities).toEqual(['create_session', 'stop_session'])
+    store = upsertSession(store, payload('s-1'))
+    expect(listSessions(store)[0]?.capabilities).toBeUndefined()
+  })
   it('按配对负载新增一条记录并使用默认名称', () => {
     const store = upsertSession(createInitialSessionStore(), payload('session-aaaabbbb-1'))
     const records = listSessions(store)

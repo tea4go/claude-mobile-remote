@@ -34,6 +34,7 @@ type cliConfig struct {
 	permissionMode  string
 	model           string
 	maxTurns        int
+	maxSessions     int
 	// fakeHostScenario 为空表示使用真实 Claude Host；非空时改用脚本化桩 Host
 	// （B2 Task 4），用于把交互验证与真实 Claude 额度解耦。
 	fakeHostScenario projectclaude.FakeScenario
@@ -62,6 +63,7 @@ func parseConfig(arguments []string) (cliConfig, error) {
 		// 单方面续期会被客户端的本地过期校验拦下；因此用较长的默认有效期
 		// 覆盖「隔几天接着用」，仍可用 --pair-token-ttl 收紧。
 		pairTokenTTL: cmrremote.DefaultPairTokenTTL,
+		maxSessions:  4,
 	}
 	config.allowedOrigins = append([]string(nil), defaultAllowedOrigins...)
 	var extraOrigins stringListFlag
@@ -80,6 +82,7 @@ func parseConfig(arguments []string) (cliConfig, error) {
 	flags.StringVar(&config.permissionMode, "permission-mode", "", "Claude 权限模式: default|acceptEdits|plan|bypassPermissions")
 	flags.StringVar(&config.model, "model", "", "Claude 使用的模型")
 	flags.IntVar(&config.maxTurns, "max-turns", 0, "Claude 单次连接允许的最大 Turn 数")
+	flags.IntVar(&config.maxSessions, "max-sessions", config.maxSessions, "同时运行的 Claude 会话上限")
 	flags.StringVar(&fakeHost, "fake-host", "", "使用脚本化假 Host 而非真实 Claude："+fakeHostScenarioList())
 	if err := flags.Parse(arguments); err != nil {
 		return cliConfig{}, err
@@ -141,6 +144,9 @@ func parseConfig(arguments []string) (cliConfig, error) {
 	}
 	if isFlagSet(flags, "max-turns") && config.maxTurns <= 0 {
 		return cliConfig{}, errors.New("max turns must be positive")
+	}
+	if config.maxSessions <= 0 || config.maxSessions > 32 {
+		return cliConfig{}, errors.New("max sessions must be between 1 and 32")
 	}
 	for _, origin := range extraOrigins {
 		if err := validateOrigin(origin); err != nil {

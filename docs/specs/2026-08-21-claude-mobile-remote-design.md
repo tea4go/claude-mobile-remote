@@ -7,9 +7,9 @@
 
 ## 1. 设计目标
 
-建立独立 Standalone CLI，通过 `claude-agent-sdk-go` 托管一个 Claude Session，并用单 Session Remote Server 暴露当前 `sessionId`。里程碑 A 先完成浏览器双向文本闭环和跨机器 LAN 门禁，手机/VPN 真机验收移入 C2。
+里程碑 A 建立独立 Standalone CLI，通过 `claude-agent-sdk-go` 托管一个 Claude Session，并用单 Session Remote Server 暴露当前 `sessionId`。后续按 D68 增加 CLI 进程内多 Session 管理；新增设计见 `2026-09-23-standalone-cli-multi-session-design.md`。里程碑 A 的浏览器双向文本闭环和跨机器 LAN 门禁保持历史验收边界。
 
-后续同一 Remote Server 可嵌入 WhaleTerm 已持有的一个 Claude Session；移动端可保存多个独立配对记录。公网访问采用每个 CLI 一条可信 Relay 出站隧道。以上能力不改变“一 Host、一 SDK Client、一 Session”的所有权边界。
+公共单 Session Remote Server 不改变每 Session 唯一 Host 和 SDK Client 的所有权边界；移动端可保存多个独立配对记录。原“每 CLI 一条 Relay 隧道”设计尚未适配 CLI 多 Session，后续单独修订。
 
 ## 2. 架构
 
@@ -44,7 +44,7 @@ Claude 的完整上下文、会话状态和操作执行始终留在 PC。Remote 
 
 ## 3. 会话模型
 
-一个 Standalone CLI 进程只允许一个 `SessionController` 管理一个 Claude Session。低频并行 Session 使用多个 CLI 进程和不同端口；不把 Controller 扩展为 PC 多 Session daemon。WhaleTerm 已有多 Session 管理能力，因此可为多个由其持有的 Session 分别启动独立的单 Session Remote Server；每个实例仍只绑定一个 `sessionId`，不建设跨 Session 路由或第二个 SDK Client。
+里程碑 A/B 的 Standalone CLI 只有一个 `SessionController` 管理一个 Claude Session；这一进程级限制已由 D68 替代。新增 CLI Runtime Manager 可同时持有多个彼此独立的 Session Controller，每个 Controller 仍只管理一个 Claude Session，并由一个 Host 和一个 SDK Client 持有。现有单 Session Remote Server 公共组件仍保持原职责；具体 CLI 组合方案见新增设计。
 
 ```text
 Session
@@ -226,13 +226,13 @@ iOS / Android 先行开发、HarmonyOS NEXT 独立开发，但以下四项是三
 
 ### 8.2 后续扩展
 
-- **Standalone 并行 Session**：启动多个 CLI 进程并配置不同端口，不增加单进程 Registry、daemon 或管理 API；
+- **Standalone 并行 Session**：D68 已确认单 CLI 进程管理多个 Session，保留每 Session 唯一 Host/Client；工作目录、创建权限和协议方案见 `2026-09-23-standalone-cli-multi-session-design.md` 草案；
 - **移动端多 Session**：本地保存多个配对记录，App 前台生命周期内为全部有效配对 Session 分别维护连接和内存状态；不承诺操作系统挂起后的 WebSocket 常驻，不提供完整历史或服务器端列表；
 - **多手机**：Transport 已按订阅者广播，所有客户端地位相同，输入由宿主 FIFO 串行；
 - **WhaleTerm**：B3 提取单 Session Remote Server 与薄宿主接口，W1 在 WhaleTerm 进程内复用已有 Session 和 SDK Client；
 - **Capacitor**：复用 Mobile Web、协议客户端和状态模型，增加扫码、安全存储与 NativeBridge。移动 Web 的路由自 A5 起必须使用 hash 或内存路由，不使用依赖 History API 的路径路由——Capacitor WebView 以自定义 scheme（如 `capacitor://localhost`）加载资源，路径路由存在已知解析问题；
 - **HarmonyOS NEXT**：复用 §8.1 的共用契约，ArkTS/ArkUI 独立实现 UI；
-- **公网 Relay**：每个 CLI 为其唯一 Session 建立一条可信出站 WSS 隧道，Relay 只维护易失 route 并转发，不保存 Claude 状态或历史；CLI/隧道重启后重新扫码；
+- **公网 Relay**：原每 CLI 单 Session 隧道方案不覆盖 CLI 多 Session；待未来单独设计，Relay 仍不保存 Claude 状态或历史；
 - **推送**：只携带提醒和定位信息，重新打开 App 后仍以 Session Host 状态为准。
 
 ## 9. 测试策略

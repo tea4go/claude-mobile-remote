@@ -46,6 +46,9 @@ export struct SessionPage {
   @Prop title: string = 'Claude Mobile Remote'
   @Prop state: HarmonySessionState
   @Prop questionAnswers: Array<QuestionAnswer> = []
+  @Prop capabilities: Array<string> = []
+  @Prop managementBusy: boolean = false
+  @Prop managementFeedback: string = ''
   onBack: () => void = () => {}
   onReconnect: () => void = () => {}
   onDisconnect: () => void = () => {}
@@ -57,6 +60,8 @@ export struct SessionPage {
   onSubmitAnswers: () => void = () => {}
   onCancelTurn: (requestId: string) => void = () => {}
   onCancelQueued: (requestId: string) => void = () => {}
+  onCreateSession: () => void = () => {}
+  onStopSession: () => void = () => {}
 
   private showReconnect(): boolean {
     return this.state.connection === ConnectionStage.DISCONNECTED ||
@@ -69,7 +74,7 @@ export struct SessionPage {
 
   private commandReady(): boolean {
     return this.state.connection === ConnectionStage.READY &&
-      this.state.pendingCommand === null
+      this.state.pendingCommand === null && !this.managementBusy
   }
 
   private cancelRequested(): boolean {
@@ -117,6 +122,12 @@ export struct SessionPage {
           StatusBar({
             state: this.state,
           })
+
+          if (this.managementFeedback.length > 0) {
+            Text(this.managementFeedback)
+              .fontSize(12)
+              .width('100%')
+          }
 
           if (this.state.lastNotice !== null) {
             Text(`提示：${this.state.lastNotice.message}`)
@@ -225,8 +236,13 @@ export struct SessionPage {
       Column() {
         MessageComposer({
           composerEnabled: this.state.canSend,
+          createSessionAvailable: this.capabilities.indexOf('create_session') >= 0,
+          createSessionEnabled: this.commandReady(),
           onSend: (text: string) => {
             this.onSend(text)
+          },
+          onCreateSession: () => {
+            this.onCreateSession()
           },
         })
       }

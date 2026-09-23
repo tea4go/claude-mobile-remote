@@ -15,6 +15,7 @@ import {
   type AskUserQuestionPendingAction,
   type BlockKind,
   type CommandResultPayload,
+  type ManagementResultPayload,
   type ContentBlock,
   type DomainEvent,
   type EmptyPayload,
@@ -45,6 +46,7 @@ import {
   type UnsupportedCode,
   type UnsupportedPayload,
 } from './types'
+import { decodePairingPayload } from './pairing'
 
 interface EnvelopeCandidate {
   version?: number
@@ -178,6 +180,13 @@ interface CommandResultPayloadCandidate {
   message?: string
 }
 
+interface ManagementResultPayloadCandidate {
+  accepted?: boolean
+  code?: string
+  message?: string
+  pairing?: Object | null
+}
+
 interface ErrorPayloadCandidate {
   code?: string
   message?: string
@@ -255,6 +264,7 @@ const QUESTION_OPTION_KEYS: Array<string> = ['label', 'description']
 const QUEUED_REQUEST_KEYS: Array<string> = ['requestId', 'source', 'preview']
 const RESOLVED_ANSWER_KEYS: Array<string> = ['questionId', 'header', 'question', 'values']
 const COMMAND_RESULT_KEYS: Array<string> = ['accepted', 'code', 'message']
+const MANAGEMENT_RESULT_KEYS: Array<string> = ['accepted', 'code', 'message', 'pairing']
 const ERROR_PAYLOAD_KEYS: Array<string> = ['code', 'message', 'expectedVersion']
 const UNSUPPORTED_KEYS: Array<string> = ['code']
 
@@ -837,6 +847,34 @@ function decodeCommandResultPayload(value: Object | null): CommandResultPayload 
   return payload
 }
 
+function decodeManagementResultPayload(value: Object | null, create: boolean, sourceSessionId: string): ManagementResultPayload {
+  const candidate = requireAllowedObject(value, 'management result payload', MANAGEMENT_RESULT_KEYS) as ManagementResultPayloadCandidate
+  const accepted = readBoolean(candidate.accepted, 'accepted')
+  const code = readString(candidate.code, 'code')
+  const message = readString(candidate.message, 'message')
+  const payload: ManagementResultPayload = { accepted, code, message }
+  if (accepted) {
+    if (code.length > 0 || message.length > 0) {
+      fail('accepted management result must not carry error')
+    }
+    if (create) {
+      if (candidate.pairing === undefined || candidate.pairing === null) {
+        fail('create result missing pairing')
+      }
+      const pairing = decodePairingPayload(JSON.stringify(candidate.pairing), Date.now())
+      if (!pairing.ok || pairing.payload === null || pairing.payload.sessionId === sourceSessionId) {
+        fail('invalid created pairing')
+      }
+      payload.pairing = pairing.payload
+    } else if (candidate.pairing !== undefined) {
+      fail('stop result must not carry pairing')
+    }
+  } else if (code.length === 0 || candidate.pairing !== undefined) {
+    fail('invalid rejected management result')
+  }
+  return payload
+}
+
 function decodeErrorPayload(value: Object | null): ErrorPayload {
   const candidate = requireAllowedObject(value, 'error payload', ERROR_PAYLOAD_KEYS) as ErrorPayloadCandidate
   const payload: ErrorPayload = {
@@ -961,6 +999,22 @@ export function decodeServerMessage(raw: string): ServerMessage {
       requestId,
       seq,
       payload: commandResultPayload,
+    } as ServerMessage
+    return message
+  }
+
+  if (type === 'create_session_result' || type === 'stop_session_result') {
+    if (commandId.length === 0 || requestId.length > 0 || seq !== 0) {
+      fail('invalid management correlation fields')
+    }
+    const managementPayload = decodeManagementResultPayload(payloadValue, type === 'create_session_result', sessionId)
+    const message = {
+      type,
+      sessionId,
+      commandId,
+      requestId,
+      seq,
+      payload: managementPayload,
     } as ServerMessage
     return message
   }

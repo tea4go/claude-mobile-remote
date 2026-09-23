@@ -145,6 +145,10 @@ export type MessageType =
   | 'unsupported'
   | 'command'
   | 'command_result'
+  | 'create_session'
+  | 'create_session_result'
+  | 'stop_session'
+  | 'stop_session_result'
   | 'error'
 
 // 消息方向表（A4 设计 §5、B2 §4.4）：客户端→服务端、服务端→客户端。
@@ -153,6 +157,8 @@ export const CLIENT_TO_SERVER_TYPES: ReadonlySet<string> = new Set([
   'subscribe',
   'unsubscribe',
   'command',
+  'create_session',
+  'stop_session',
 ])
 
 export const SERVER_TO_CLIENT_TYPES: ReadonlySet<string> = new Set([
@@ -163,6 +169,8 @@ export const SERVER_TO_CLIENT_TYPES: ReadonlySet<string> = new Set([
   'event',
   'unsupported',
   'command_result',
+  'create_session_result',
+  'stop_session_result',
   'error',
 ])
 
@@ -246,6 +254,13 @@ export interface CommandResultPayload {
   message: string
 }
 
+export interface ManagementResultPayload {
+  accepted: boolean
+  code: string
+  message: string
+  pairing?: import('./pairing').PairingPayload
+}
+
 export interface ErrorPayload {
   code: string
   message: string
@@ -290,5 +305,6 @@ export type ServerMessage = {
   | { type: 'event'; payload: EventPayload }
   | { type: 'unsupported'; payload: UnsupportedPayload }
   | { type: 'command_result'; payload: CommandResultPayload }
+  | { type: 'create_session_result' | 'stop_session_result'; payload: ManagementResultPayload }
   | { type: 'error'; payload: ErrorPayload }
 )

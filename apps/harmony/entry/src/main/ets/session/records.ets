@@ -7,6 +7,7 @@ export interface SessionRecord {
   wsUrl: string
   pairToken: string
   expiresAt: string
+  capabilities?: string[]
   name: string
   lastConnectedAt: number
   hasConnectedAt: boolean
@@ -30,6 +31,7 @@ export function createSessionRecord(payload: PairingPayload): SessionRecord {
     wsUrl: payload.wsUrl,
     pairToken: payload.pairToken,
     expiresAt: payload.expiresAt,
+    capabilities: payload.capabilities === undefined ? undefined : payload.capabilities.slice(),
     name: defaultSessionName(payload.sessionId),
     lastConnectedAt: 0,
     hasConnectedAt: false,
@@ -44,6 +46,7 @@ function cloneRecord(record: SessionRecord): SessionRecord {
     wsUrl: record.wsUrl,
     pairToken: record.pairToken,
     expiresAt: record.expiresAt,
+    capabilities: record.capabilities === undefined ? undefined : record.capabilities.slice(),
     name: record.name,
     lastConnectedAt: record.lastConnectedAt,
     hasConnectedAt: record.hasConnectedAt,
@@ -66,6 +69,7 @@ export function upsertSessionRecord(records: Array<SessionRecord>, payload: Pair
       wsUrl: payload.wsUrl,
       pairToken: payload.pairToken,
       expiresAt: payload.expiresAt,
+      capabilities: payload.capabilities === undefined ? undefined : payload.capabilities.slice(),
       name: record.name,
       lastConnectedAt: record.lastConnectedAt,
       hasConnectedAt: record.hasConnectedAt,
@@ -158,5 +162,6 @@ export function pairingPayloadFromRecord(record: SessionRecord): PairingPayload 
     sessionId: record.sessionId,
     pairToken: record.pairToken,
     expiresAt: record.expiresAt,
+    capabilities: record.capabilities === undefined ? undefined : record.capabilities.slice(),
   }
 }

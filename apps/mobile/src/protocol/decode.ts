@@ -8,6 +8,7 @@ import type {
   EventPayload,
   InputSource,
   MessageType,
+  ManagementResultPayload,
   PendingAction,
   Question,
   QuestionInputType,
@@ -25,6 +26,7 @@ import type {
   UnsupportedCode,
   UnsupportedPayload,
 } from './types'
+import { parsePairingJson } from './pairing'
 import {
   ASK_USER_QUESTION_TOOL_NAME,
   MAX_TEXT_BYTES,
@@ -578,6 +580,28 @@ function decodeCommandResultPayload(value: unknown): CommandResultPayload {
   }
 }
 
+const MANAGEMENT_RESULT_KEYS: ReadonlySet<string> = new Set(['accepted', 'code', 'message', 'pairing'])
+
+function decodeManagementResultPayload(value: unknown, create: boolean, sourceSessionId: string): ManagementResultPayload {
+  if (!isObject(value)) fail('management result payload must be an object')
+  rejectUnknownKeys(value, MANAGEMENT_RESULT_KEYS, 'management result')
+  const accepted = requireBoolean(value, 'accepted')
+  const code = requireString(value, 'code')
+  const message = requireString(value, 'message')
+  if (accepted) {
+    if (code !== '' || message !== '') fail('accepted management result must not carry error')
+    if (create) {
+      const pairing = parsePairingJson(JSON.stringify(value.pairing), Date.now())
+      if (!pairing.ok || pairing.value.sessionId === sourceSessionId) fail('invalid created pairing')
+      return { accepted, code, message, pairing: pairing.value }
+    }
+    if (value.pairing !== undefined) fail('stop result must not carry pairing')
+  } else if (code === '' || value.pairing !== undefined) {
+    fail('invalid rejected management result')
+  }
+  return { accepted, code, message }
+}
+
 function decodeErrorPayload(value: unknown): ErrorPayload {
   if (!isObject(value)) fail('error payload must be an object')
   const payload: ErrorPayload = {
@@ -664,6 +688,12 @@ export function decodeServerMessage(text: string): ServerMessage {
       }
     case 'command_result':
       return { ...envelope, type, payload: decodeCommandResultPayload(payload) }
+    case 'create_session_result':
+    case 'stop_session_result':
+      if (envelope.commandId === '' || envelope.requestId !== '' || envelope.seq !== 0) {
+        fail('invalid management correlation fields')
+      }
+      return { ...envelope, type, payload: decodeManagementResultPayload(payload, type === 'create_session_result', envelope.sessionId) }
     case 'unsupported':
       return { ...envelope, type, payload: decodeUnsupportedPayload(payload) }
     case 'error':

@@ -22,6 +22,8 @@ interface MessageComposerProps {
   permissionPending?: boolean
   permissionMode?: PermissionMode
   onPermissionModeChange?: (mode: PermissionMode) => void
+  onCreateSession?: () => void
+  createSessionEnabled?: boolean
 }
 
 const SHELL_STYLE: CSSProperties = {
@@ -83,6 +85,8 @@ export default function MessageComposer({
   permissionPending = false,
   permissionMode = 'default',
   onPermissionModeChange = () => undefined,
+  onCreateSession,
+  createSessionEnabled = false,
 }: MessageComposerProps) {
   const [text, setText] = useState('')
   const [oversize, setOversize] = useState(false)
@@ -209,6 +213,19 @@ export default function MessageComposer({
           />
           <div style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 32 }}>
             <Space align="center" style={{ '--gap': '2px' }}>
+              {onCreateSession !== undefined && (
+                <Button
+                  aria-label="新建会话"
+                  className="composer-icon-button"
+                  data-testid="create-session"
+                  fill="none"
+                  style={ICON_BUTTON_STYLE}
+                  disabled={!createSessionEnabled}
+                  onClick={onCreateSession}
+                >
+                  <AddOutline aria-hidden style={{ fontSize: 21 }} />
+                </Button>
+              )}
               <Popover.Menu
                 className="composer-popover-menu"
                 placement="top-start"
@@ -225,7 +242,7 @@ export default function MessageComposer({
                   style={ICON_BUTTON_STYLE}
                   disabled={!enabled}
                 >
-                  <AddOutline aria-hidden style={{ fontSize: 21 }} />
+                  <img src={documentIcon} alt="" style={TOOL_ICON_STYLE} />
                 </Button>
               </Popover.Menu>
               <Popover.Menu

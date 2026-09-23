@@ -19,6 +19,13 @@ type Authenticator interface {
 	Authenticate(sessionID, token string) (*pairing.Lease, error)
 }
 
+// ManagementHandler is installed only by the Standalone CLI. Embedded
+// single-Session remote.Server instances leave it nil and remain unchanged.
+type ManagementHandler interface {
+	CreateSession(context.Context, string, string) (protocol.Pairing, error)
+	StopSession(context.Context, string) error
+}
+
 type Config struct {
 	ListenAddress  string
 	AllowedOrigins []string
@@ -35,6 +42,7 @@ type Config struct {
 	// the transport only pre-validates, the Controller still owns the verdict,
 	// so a divergence would surface as a rejection the UI cannot explain.
 	ServiceConfig protocol.ServiceConfig
+	Management    ManagementHandler
 }
 
 func DefaultConfig() Config {

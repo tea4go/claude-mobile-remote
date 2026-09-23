@@ -4,9 +4,11 @@
 
 ## 当前状态
 
-- 当前执行：移动端 App 级多 Session 同步与 Zustand 改造已完成自动化验证和双 Session 人工验收，W1 WhaleTerm 真实会话人工验收也已由用户确认通过，待提交本轮实现。Zustand 按 `sessionId` 分桶保存配对、会话状态、未读和导航；独立 `SessionRuntimeManager` 持有每个 Session 的 `ProtocolClient`、连接 generation 和命令路由。返回列表或切换详情不再关闭连接，删除单个记录只关闭对应连接，App 卸载关闭全部连接；Snapshot 终态会校正旧 streaming/停止状态并保留已收正文。未修改协议、Go Remote Server、机器分组、数据库/replay、系统后台推送或浏览器持久化策略。
+- 当前执行：无。本轮 Standalone CLI 多会话移动端入口优化已完成代码、自动化验证和用户体验验收。CLI 配对详情输入区左下角 `+` 新建，React 附件入口使用 `document.svg`，移动端隐藏终止入口；WhaleTerm 配对无新建和终止入口。协议及服务端停止能力不变。
 
-- 最近完成：W1 WhaleTerm 真实会话人工验收已由用户确认通过；此前修复 Android WebView 中权限 SVG 顶部被裁剪的问题；`permission.svg` 扩展视口至完整路径范围，并移除外部 DTD/编辑器元数据。
+- 阶段范围仅 Standalone，不含 WhaleTerm 或 Relay。用户确认的语义记录于 D70/D71：任一有效已订阅 Session 凭证可新建，默认最多四个活跃会话，停止后保留配对与终态入口。
+
+- 最近完成：共享监听与按 Session 鉴权的 CLI Runtime Manager、v2 可选管理消息及配对能力字段、终端 `:sessions/:use/:new/:stop/:pair`、React/Capacitor 与 Harmony 新建/停止入口。新会话从 CLI 固定工作目录启动；停止释放活跃容量但保留终态快照和配对入口。管理结果仅回请求连接，创建使用 `commandId` 幂等与容量/频率控制。已有公共单 Session Remote Server API 不变。设计和计划已按用户审阅意见更新；三端共用契约可实现性记录于 DECISIONS。
 
 - A1–A6、B1、B2、B3、C1、C2-A/C2-B、D2、CLI 产品化配置均已完成；C2-C/C2-D 暂缓。
 - W1 移动端输入框 UI 已完成用户验收并提交：`ddaeb7d feat: refine mobile composer and permission controls`。
@@ -14,6 +16,10 @@
 
 ## 最近验证
 
+- 本轮入口优化：React/Capacitor Vitest **433/433**、build、lint、`git diff --check` 通过；新增测试覆盖 CLI/WhaleTerm 能力门控、终态仍可新建、创建中禁用及附件图标。lint 只有既有脚本 warning，build 只有既有大 chunk 提示。Harmony UI 已同步调整；当前机器缺 DevEco/hvigor/ohpm，工程构建及真机体验未验证。验证记录见 `docs/testing/standalone-cli-multi-session-automated-result.md`。
+- 本轮 UI 收尾：React/Capacitor Vitest **431/431**、build、lint 及 `git diff --check` 通过；lint 只有既有脚本 warning，build 只有既有大 chunk 提示。新增测试覆盖详情底部新建、终止操作说明和终态仍可新建。Harmony UI 已对应调整，但本机缺 DevEco/hvigor/ohpm，未验证工程构建。用户反馈实际多会话测试整体通过、确认本阶段完成；未逐项回报具体验收场景。记录见 `docs/testing/standalone-cli-multi-session-automated-result.md`。
+- 本轮 Standalone 多会话：CLI/Claude/协议包 `go test -race` 定向通过；补充 Stop 调用方取消后的状态回退测试后，CLI `TestManagedCLI` race 测试再次通过。新增 loopback WebSocket 从 A 创建 B、停止 B、B 终态重连与再新建的自动化联调通过；`GOFLAGS=-buildvcs=false go build ./...` 通过。移动端 Vitest **429/429**、lint、build 通过；lint 只有既有 `scripts/cdp-console.mjs` warning，build 只有既有大 chunk 提示。Harmony 非 UI `.ets` 文件完成语法解析和内建 self-check 用例扩展；当前环境无 DevEco/hvigor/ohpm，不能宣称 Harmony 工程构建通过。全量 `go test ./... -count=1` 仅 `internal/transport` 的两个既有生命周期测试失败（慢客户端隔离导致快连接关闭、Close 最终事件未刷出）；新逻辑测试均通过。`git diff --check` 通过，新增未跟踪文件另做行尾空白检查通过。真实 SDK 同目录双 Session、手机/真机操作及容量门禁尚未人工验收。
+- 此前设计阶段仅完成设计文档与项目记忆更新，未修改业务代码；新增设计和计划为未提交文件，`git diff --stat` 不统计它们。其后已按用户确认进入代码实施，结果见上。
 - 本轮移动端多 Session Runtime：新增固定依赖 Zustand 5.0.8（未使用 persist）、App Store/selector 隔离测试和多连接生命周期回归；移动端全量 Vitest **425/425**、`npm run build`、`npm run lint` 通过。lint 仅有既有 `scripts/cdp-console.mjs` unused-expression warning，build 仅有既有大 chunk 提示。自动化覆盖列表期间持续连接、查看 B 时 A 接收并保留消息、未读/运行摘要、同 Session 换凭证替换旧 generation、删除单个 Session 隔离、App 卸载关闭全部连接，以及 Snapshot 终态清除旧 streaming 状态并保留正文。用户已完成两个 WhaleTerm Session 同时配对、运行、切换和状态隔离人工验收，结果通过。
 - 本次提交前核对：架构决策、需求、设计与实施计划、移动端既有状态/权限修复，以及公共 `remote.EventStream` 广播实现与测试均纳入范围；新增 D66/D67 及 `docs/specs/2026-09-22-mobile-multi-session-runtime-design.md` 与对应计划，三端可实现性核对通过。定向文档检查无新增空白错误；全仓 `git diff --check` 仍只被用户已有的 `apps/mobile/src/assets/icons/svgs/permission.svg` 行尾空白阻塞。代码测试沿用下方最近验证结果，本次未因提交重复运行。
 - 本轮 Remote 空闲态修复：WhaleTerm `node --test tests/claudeRemoteManagement.test.mjs` **20/20** 通过，`frontend npm run build` 通过；构建仅有既有 Vue `:deep`、CSS `:deep()`、动态/静态 import 和大 chunk 警告。前端全量 `node --test tests/*.test.mjs` 中本轮 Remote 用例全部通过，但仍有 4 个既有无关失败：Claude MCP 对话框静态断言、Claude MCP 路径别名加载、颜色主题导出不匹配、Project Cloud 默认字段断言。
@@ -31,13 +37,12 @@
 
 ## 当前工作区
 
-- 本次提交排除：`scripts/macos/3_web_dev.sh` 权限位变化、`docs/testing/images/` 用户测试截图，以及 `apps/mobile/src/assets/icons/svgs/permission.svg` 的用户已有行尾空白变化；以上内容继续保留在工作区供后续决定。
+- 本轮有未提交的 CLI/Go 协议、移动端、Harmony、设计、计划和记忆文档改动。新增 `cmd/claude-mobile-remote/manager.go`、`managed_run.go`、`manager_test.go` 等文件尚未被 `git diff --stat` 统计；未执行 Git 写操作。用户已有 `docs/testing/images/` 截图保持原样，不纳入本轮。
 
 ## 下一步
 
-1. 提交已完成人工验收的本轮移动端实现（需用户单独授权 Git 写操作）。
-2. 机器稳定身份、列表机器分组、断线 replay、系统后台推送继续作为后续独立设计，不混入本次改造。
-3. 单独修复并验证 `internal/transport` 两个生命周期测试；后续按需推进 C2-C/C2-D。
+1. 请用户在 CLI 与 WhaleTerm 配对详情人工验收本轮入口；有 DevEco 环境时构建并手测 Harmony 工程，必要时修正 ArkTS UI 编译兼容。全量 Go 门禁仍受两个既有 `internal/transport` 生命周期测试失败影响，后续单独修复。
+2. 机器稳定身份、列表机器分组、断线 replay、系统后台推送及 Relay 多 Session 映射继续作为后续独立设计；Git 提交需用户另行明确授权。
 
 ## 约束提醒
 

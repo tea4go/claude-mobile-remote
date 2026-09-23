@@ -1,6 +1,6 @@
 # claude-mobile-remote
 
-通过独立 Standalone CLI 托管一个本地 Claude Session，让用户离开电脑后可在手机上继续查看和控制。
+通过独立 Standalone CLI 托管本地 Claude Session，让用户离开电脑后可在手机上继续查看和控制，并在同一工作目录新建独立会话。
 
 ## 环境准备
 
@@ -66,15 +66,20 @@ bash scripts/macos/3_cli_run.sh --profile device    # 真机调试
 | `--pair-token-ttl` | `720h`（30 天） | 配对凭证有效期，可收紧 |
 | `--allowed-origin` | `http://127.0.0.1:5173`、`http://localhost:5173` | 额外允许的浏览器 Origin，可重复；`emulator` profile 额外内置 `http://localhost` 与 `http://10.0.2.2:5173`（live 默认端口），自定义 Vite 端口时需显式传此 flag |
 | `--resume` | 空 | 恢复已有会话的 session ID（UUID） |
-| `--cwd` | 空 | Claude 会话的工作目录 |
+| `--cwd` | CLI 启动目录 | 固定当前进程托管的全部 Claude 会话工作目录；手机不能指定其他路径 |
 | `--permission-mode` | 空 | Claude 权限模式：`default`\|`acceptEdits`\|`plan`\|`bypassPermissions` |
 | `--model` | 空 | Claude 使用的模型 |
 | `--max-turns` | `0` | Claude 单次连接允许的最大 Turn 数 |
+| `--max-sessions` | `4` | 同时活跃的 Claude 会话上限；已停止会话不计入 |
 
 - 日常启动指定 `--cwd`（工作目录）和 `--permission-mode`；
 - 恢复已有会话用 `--resume <sessionId>`（只能接续当前未被其他 Claude 进程占用的会话，不能接管运行中的会话）。
 - 不传 `--profile` 时默认 `local`。
 - `--fake-host`（脚本化假 Host）与 `--version` 用于自动化验证，一般开发用不到。
+
+CLI 启动后先创建或恢复初始会话并显示二维码。持有任一有效配对凭证的手机完成订阅后，可点“新建会话”；新会话与旧会话并行运行，使用 CLI 启动时固定的工作目录。停止单个会话只结束其 Claude Runtime，配对入口和终态快照仍保留，可继续从该入口新建。手机删除配对记录只影响本机列表。
+
+终端输入默认发往当前选中会话。`:sessions` 列表、`:use <ID 或唯一前缀>` 切换、`:new` 新建并切换、`:stop [ID]` 停止、`:pair [ID]` 重显二维码、`:quit` 退出全部托管会话。要发送以冒号开头的普通文本，输入两个冒号，例如 `::help` 将发送 `:help`。
 
 ## Web 端
 

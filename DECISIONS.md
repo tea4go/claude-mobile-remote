@@ -312,7 +312,7 @@
 - **决策**：每个活跃 Claude Session 同时只有一个 Session Host 和一个 SDK Client。一个 Standalone CLI 进程只创建或恢复一个 Session；低频并行 Session 使用多个 CLI 进程和不同端口。WhaleTerm 后续只为其已持有的一个 Session 在进程内启动 Remote Server，不创建第二个 Client；关闭远程控制不停止 Claude Session。禁止通过 JSONL 或第二个 `--resume` Client 接管活跃 Session。
 - **理由**：同时远程控制多个 Session 的场景少，单进程多 Session daemon 会引入不必要的生命周期、管理 API、持久化和故障隔离复杂度；现有 A2–A5.2 已是单 Session 组合。
 - **影响**：保留现有 SDK Adapter、Session Controller、FIFO、Channel、Pairing、Transport 和版本 1 协议；B3 只把远程组合包装为可导入的单 Session 组件，不实现 Runtime Registry、Local Control API、PC TUI 或跨 Session 管理。本决策替代 D2“只能由 Service 启动”的绝对影响表述及 D3 对后续多会话的笼统边界。Session Host/Remote Server 是 PC 进程内概念，不进入客户端协议；React Web、Capacitor 和 HarmonyOS NEXT 均无需区分 CLI 与 WhaleTerm，三端可实现性核对通过。
-- **状态**：部分被 D63 替代；Standalone 单进程单 Session 及每 Session 唯一 Host/Client 继续有效，WhaleTerm 进程级单 Remote 限制不再有效
+- **状态**：进程级限制已分别被 D63、D68 替代；每 Session 唯一 Host/Client 继续有效
 
 ## D40 · A6 改为跨机器浏览器门禁并采用依赖式并行路线
 
@@ -545,4 +545,36 @@
 - **决策**：React Web/Capacitor 的 App 级多 Session 状态采用 Zustand。Store 保存配对记录、`sessionId → MobileState`、未读标记、当前视图和当前展示 Session；独立 `SessionRuntimeManager` 保存 `sessionId → ProtocolClient`、连接 generation 与网络副作用，并把收到的事件派发到 Zustand。现有单 Session 纯 reducer 继续作为状态归并核心，不在组件或 Runtime 中复制状态机。
 - **理由**：旧 B1 只有一个详情 Session，`useReducer + useRef` 是合理的最小实现；D66 后多个 Session 会同时更新，列表和详情需要按 Session 精确订阅，继续把多个 Map、Client 和 reducer 编排堆在 `App.tsx` 会重新耦合连接、导航与渲染。Zustand 提供轻量的外部 Store、selector 和组件外更新能力，适合该状态形态；Happy App 也采用“独立 Sync 对象负责网络、Zustand 负责可观察状态”的职责分离。
 - **影响**：`apps/mobile` 新增 Zustand 运行时依赖；不使用 `persist` middleware，不写 `localStorage`、`sessionStorage` 或 IndexedDB，不持久化 Pair Token 或消息正文。`ProtocolClient` 不作为供 UI 订阅的响应式数据；组件只通过 selector 订阅所需 Session 或列表摘要，避免其他 Session 流式事件触发无关详情重渲染。HarmonyOS NEXT 不复用 npm 库，但使用等价的 App 级状态容器和 Runtime/Store 职责边界；wire protocol、Pairing、Go Server 和状态语义不变，三端可实现性核对通过。
+- **状态**：已定
+
+## D68 · Standalone CLI 支持进程内多 Session 管理
+
+- **日期**：2026-09-23
+- **决策**：Standalone CLI 要在同一进程中同时管理多个独立 Claude Session。已配对移动端可在该 CLI 的工作目录发起新建，旧 Session 保持运行；此需求不考虑 WhaleTerm 接入场景。每个 Session 的 Host、SDK Client、输入队列和状态继续独立。
+- **理由**：仅靠多个 CLI 进程和不同端口，已配对手机无法直接在当前工作目录新建并管理并行会话。
+- **影响**：替代 D39 及此前需求/总体设计中“Standalone 单进程只能有一个 Session”的限制；不改变“每个活跃 Session 只有一个 Host 和一个 SDK Client”、不接管外部活跃会话、手机不保存完整上下文等约束。原 D43 每 CLI 单隧道 Relay 方案需后续单独修订。CLI 管理器、协议与 UI 的具体方案见 `docs/specs/2026-09-23-standalone-cli-multi-session-design.md`，后续确认见 D69–D71。
+- **状态**：已定；具体契约和产品语义由 D69–D71 补充
+
+## D69 · CLI 多 Session 使用共享监听与可选管理协议
+
+- **日期**：2026-09-23
+- **决策**：用户检查多 Session 设计和实施计划后同意进入实现。Standalone CLI 在一个 WebSocket 监听上按 `sessionId` 分发鉴权、Channel 与配对；公共 `remote.Server` 保持单 Session。wire protocol v2 增加可选的 `create_session`、`create_session_result`、`stop_session`、`stop_session_result`，Pairing v1 可选增加纯数据 `capabilities` 字符串数组。管理结果仅回复请求连接，创建结果中的新 Pair Token 不进入旧 Session 广播；无能力字段的既有配对仍按旧行为使用。创建授权范围、默认容量与停止后入口保留语义另待用户对具体选项确认，不由本条决定。
+- **理由**：共享端口让同一 CLI 的新 Session 可由已配对移动端直接连接，同时保留各 Session 独立凭证和现有单 Session 嵌入 API。可选扩展避免旧配对强制迁移。
+- **三端可实现性**：消息仅使用现有 WebSocket/JSON envelope、字符串、布尔、对象和可选字符串数组；React Web/Capacitor 共用 TypeScript 协议层，HarmonyOS NEXT 在 ArkTS 协议层独立实现同样解析和请求关联。新增结果只在请求方收到，不要求任一端使用浏览器、原生安全存储或 SDK 专属协议；相同创建、失败、幂等、停止与隔离用例可跨端执行。核对通过。
+- **状态**：架构与可选契约已定；三项产品语义由 D70、D71 确认
+
+## D70 · 任一有效已订阅 Session 凭证可新建 CLI 会话
+
+- **日期**：2026-09-23
+- **决策**：用户确认持有本 CLI 任一有效 Session 配对凭证、完成 `hello` 鉴权并订阅该 Session 的客户端，可以请求该 CLI 在固定工作目录新建独立会话。凭证仍只能读取和控制自身 Session；新 Session 的独立凭证只返回创建请求所在连接，不向其他订阅者广播。
+- **理由**：移动端不依赖 PC 终端，即可从任一已配对会话继续创建新会话；跨 Session 数据权限并未随创建权限扩大。
+- **三端可实现性**：授权依据是服务端已有的 Session 凭证与连接状态，创建请求/结果为 WebSocket JSON；React Web、Capacitor 与 HarmonyOS NEXT 均可按同一流程发送和接收，不依赖平台私有能力。核对通过。
+- **状态**：已定
+
+## D71 · CLI 默认四个活跃会话，停止后保留配对入口
+
+- **日期**：2026-09-23
+- **决策**：CLI 默认同时最多托管四个活跃 Claude Session；创建中和停止中计入容量，已停止/失败的不计入。手机停止某 Session 仅结束其 Claude Runtime，保留认证、终态 Snapshot 和创建新 Session 的配对入口；本 Session 的执行命令继续被拒绝。彻底撤销入口另设操作，不由“停止会话”隐式触发。
+- **理由**：上限限制有效凭证被滥用时的进程资源消耗；保留入口避免停止后移动端无法查看结果或继续工作。
+- **三端可实现性**：容量和停止结果通过固定错误码及既有终态 Snapshot 表达，不增加平台字段；React Web、Capacitor 和 HarmonyOS NEXT 均可在原连接/重连后展示终态并继续发送创建请求。核对通过。
 - **状态**：已定

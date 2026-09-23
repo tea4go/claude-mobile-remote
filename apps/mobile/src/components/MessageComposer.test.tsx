@@ -62,6 +62,7 @@ describe('MessageComposer', () => {
   test('附件、相机和语音入口明确标记为原生能力预留', () => {
     const onSend = vi.fn()
     render(<MessageComposer enabled onSend={onSend} />)
+    expect(screen.getByTestId('attachment-toggle').querySelector('img')?.getAttribute('src')).toContain('document.svg')
     fireEvent.click(screen.getByTestId('attachment-toggle'))
     expect(screen.getByTestId('choose-photo')).toHaveTextContent('照片')
     expect(screen.getByTestId('choose-file')).toHaveTextContent('文件')

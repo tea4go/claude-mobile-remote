@@ -3,6 +3,7 @@ import {
   type ActionResolution,
   type CloseInfo,
   type CommandResultInfo,
+  type ManagementResultInfo,
   type ProtocolClientObserver,
 } from '../protocol/client'
 import { decodePairingPayload } from '../protocol/pairing'
@@ -49,6 +50,9 @@ export interface HarmonySessionStore {
   resolveAction(resolution: ActionResolution): boolean
   cancelTurn(requestId: string): boolean
   cancelQueued(requestId: string): boolean
+  createSession(): boolean
+  stopSession(): boolean
+  setManagementListener(listener: ((result: ManagementResultInfo) => void) | null): void
   canSend(): boolean
   getState(): HarmonySessionState
   subscribe(listener: StateListener): UnsubscribeListener
@@ -103,6 +107,10 @@ class SessionStoreObserver implements ProtocolClientObserver {
     this.owner.handleCommandResult(result)
   }
 
+  onManagementResult(result: ManagementResultInfo): void {
+    this.owner.handleManagementResult(result)
+  }
+
   onClosed(info: CloseInfo): void {
     this.owner.handleClosed(info)
   }
@@ -113,6 +121,8 @@ class SessionStore implements HarmonySessionStore {
   private client: ProtocolClient | null = null
   private readonly observer: SessionStoreObserver
   private listeners: Array<StateListener> = []
+  private pendingManagement: { operation: 'create_session' | 'stop_session'; commandId: string } | null = null
+  private managementListener: ((result: ManagementResultInfo) => void) | null = null
 
   constructor() {
     this.observer = new SessionStoreObserver(this)
@@ -137,15 +147,20 @@ class SessionStore implements HarmonySessionStore {
   }
 
   connectWithPairing(pairing: PairingPayload): void {
+    if (this.state.pairing !== null && this.state.pairing.sessionId !== pairing.sessionId) {
+      this.pendingManagement = null
+    }
     this.start(pairing)
   }
 
   disconnect(): void {
+    this.pendingManagement = null
     this.detachClient()
     this.dispatch(socketClosed(makeError('closed', 'connection closed by user')))
   }
 
   reset(): void {
+    this.pendingManagement = null
     this.detachClient()
     this.state = createInitialHarmonySessionState()
     this.emit()
@@ -196,6 +211,32 @@ class SessionStore implements HarmonySessionStore {
     })
   }
 
+  createSession(): boolean {
+    return this.sendManagement('create_session')
+  }
+
+  stopSession(): boolean {
+    return this.sendManagement('stop_session')
+  }
+
+  setManagementListener(listener: ((result: ManagementResultInfo) => void) | null): void {
+    this.managementListener = listener
+  }
+
+  private sendManagement(operation: 'create_session' | 'stop_session'): boolean {
+    if (this.client === null || this.pendingManagement !== null) {
+      return false
+    }
+    const commandId = nextCommandId()
+    const sent = operation === 'create_session'
+      ? this.client.createSession(commandId).ok
+      : this.client.stopSession(commandId).ok
+    if (sent) {
+      this.pendingManagement = { operation, commandId }
+    }
+    return sent
+  }
+
   canSend(): boolean {
     return this.state.canSend
   }
@@ -225,6 +266,13 @@ class SessionStore implements HarmonySessionStore {
 
   handleSnapshot(snapshot: SessionSnapshot): void {
     this.dispatch(snapshotReceived(snapshot))
+    if (this.client !== null && this.pendingManagement !== null) {
+      if (this.pendingManagement.operation === 'create_session') {
+        this.client.createSession(this.pendingManagement.commandId)
+      } else {
+        this.client.stopSession(this.pendingManagement.commandId)
+      }
+    }
   }
 
   handleEvent(event: DomainEvent): void {
@@ -243,9 +291,20 @@ class SessionStore implements HarmonySessionStore {
     this.dispatch(commandRejected(result.commandId, result.code, result.message))
   }
 
+  handleManagementResult(result: ManagementResultInfo): void {
+    if (this.pendingManagement === null || result.commandId !== this.pendingManagement.commandId ||
+      result.operation !== this.pendingManagement.operation) {
+      return
+    }
+    this.pendingManagement = null
+    if (this.managementListener !== null) {
+      this.managementListener(result)
+    }
+  }
+
   handleClosed(info: CloseInfo): void {
     this.client = null
-    if (info.pendingCommandId !== null) {
+    if (info.pendingCommandId !== null && (this.pendingManagement === null || info.pendingCommandId !== this.pendingManagement.commandId)) {
       this.dispatch(commandUnknown(info.pendingCommandId))
     }
     if (info.reason === 'PAIRING_INVALID') {

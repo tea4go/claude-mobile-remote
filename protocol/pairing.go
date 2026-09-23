@@ -11,11 +11,12 @@ const PayloadVersion = 1
 
 // Pairing is the platform-neutral pairing data shown to an authorized user.
 type Pairing struct {
-	Version   int       `json:"version"`
-	WSURL     string    `json:"wsUrl"`
-	SessionID string    `json:"sessionId"`
-	PairToken string    `json:"pairToken"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	Version      int       `json:"version"`
+	WSURL        string    `json:"wsUrl"`
+	SessionID    string    `json:"sessionId"`
+	PairToken    string    `json:"pairToken"`
+	ExpiresAt    time.Time `json:"expiresAt"`
+	Capabilities []string  `json:"capabilities,omitempty"`
 }
 
 // Marshal encodes the pairing payload without logging or decorating it.
