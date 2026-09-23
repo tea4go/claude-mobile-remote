@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tea4go/claude-mobile-remote/protocol"
 )
@@ -90,6 +91,18 @@ func (s *EventStream) UpdateSnapshot(snapshot protocol.Snapshot) error {
 		return protocol.ErrSessionMismatch
 	}
 	snapshot.Seq = s.snapshot.Seq
+	if snapshot.ProjectCwd == "" {
+		snapshot.ProjectCwd = s.snapshot.ProjectCwd
+	}
+	if snapshot.CreatedAt == "" {
+		snapshot.CreatedAt = s.snapshot.CreatedAt
+	}
+	if snapshot.SessionTitle == "" {
+		snapshot.SessionTitle = s.snapshot.SessionTitle
+	}
+	if snapshot.LastActivityAt == "" {
+		snapshot.LastActivityAt = s.snapshot.LastActivityAt
+	}
 	s.snapshot = cloneSnapshot(snapshot)
 	return nil
 }
@@ -107,6 +120,17 @@ func (s *EventStream) Publish(event protocol.Event) error {
 	}
 	if event.SessionID != s.snapshot.SessionID {
 		return protocol.ErrSessionMismatch
+	}
+	switch event.Kind {
+	case protocol.EventTurnStarted:
+		if s.snapshot.SessionTitle == "" {
+			s.snapshot.SessionTitle = protocol.SessionTitleFromInput(event.Text)
+			event.SessionTitle = s.snapshot.SessionTitle
+		}
+		fallthrough
+	case protocol.EventTurnCompleted, protocol.EventTurnFailed, protocol.EventActionRequired, protocol.EventSessionFailed, protocol.EventSessionStopped:
+		s.snapshot.LastActivityAt = time.Now().UTC().Format(time.RFC3339Nano)
+		event.LastActivityAt = s.snapshot.LastActivityAt
 	}
 	s.snapshot = applyEvent(s.snapshot, event)
 	s.snapshot.Seq++

@@ -354,6 +354,10 @@ function cloneState(state: HarmonySessionState): HarmonySessionState {
     pairing: clonePairingPayload(state.pairing),
     connection: state.connection,
     sessionId: state.sessionId,
+    projectCwd: state.projectCwd,
+    sessionTitle: state.sessionTitle,
+    createdAt: state.createdAt,
+    lastActivityAt: state.lastActivityAt,
     sessionStatus: state.sessionStatus,
     sessionError: cloneErrorInfo(state.sessionError),
     seqBase: state.seqBase,
@@ -594,6 +598,10 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   const next = cloneState(state)
   next.connection = ConnectionStage.READY
   next.sessionId = snapshot.sessionId
+  next.projectCwd = snapshot.projectCwd
+  next.sessionTitle = snapshot.sessionTitle
+  next.createdAt = snapshot.createdAt
+  next.lastActivityAt = snapshot.lastActivityAt
   next.sessionStatus = snapshot.sessionStatus
   next.sessionError = cloneErrorInfo(snapshot.sessionError)
   next.seqBase = snapshot.seq
@@ -636,6 +644,8 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
 
   let next = cloneState(state)
   next.seqBase = event.seq
+  if (event.sessionTitle !== undefined && next.sessionTitle === undefined) next.sessionTitle = event.sessionTitle
+  if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
 
   switch (event.kind) {
     case 'session_started':

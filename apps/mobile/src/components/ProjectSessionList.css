@@ -1,0 +1,142 @@
+.project-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.project-session-list__title {
+  margin: 0 0 2px;
+}
+
+.project-session-list__group {
+  --padding-left: 12px;
+  --padding-right: 10px;
+  --extra-max-width: 40%;
+}
+
+.project-session-list__group .adm-list-header {
+  padding-top: 6px;
+  padding-bottom: 5px;
+}
+
+.project-session-list__group-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.project-session-list__group-heading span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.project-session-list__item .adm-list-item-content-main {
+  min-width: 0;
+  padding: 8px 0;
+}
+
+.project-session-list__item .adm-list-item-content-extra {
+  padding-left: 8px;
+}
+
+.project-session-list__item--recent {
+  --active-background-color: #e9f3ff;
+  background: #f2f7ff;
+}
+
+.project-session-list__item--recent .adm-list-item-content {
+  background: #f2f7ff;
+}
+
+.project-session-list__main {
+  min-width: 0;
+}
+
+.project-session-list__heading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.project-session-list__session-title,
+.project-session-list__preview {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-session-list__session-title {
+  min-width: 0;
+  font-size: 14px;
+}
+
+.project-session-list__preview {
+  color: var(--adm-color-weak);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.project-session-list__unread {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--adm-color-primary);
+}
+
+.project-session-list__recent {
+  flex: none;
+  color: var(--adm-color-primary);
+  font-size: 11px;
+}
+
+.project-session-list__extra {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.project-session-list__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.project-session-list__status,
+.project-session-list__time {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--adm-color-weak);
+  font-size: 11px;
+}
+
+.project-session-list__status--attention {
+  color: var(--adm-color-warning);
+}
+
+.project-session-list__more {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  color: var(--adm-color-weak);
+}
+
+.project-session-list__rename {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.project-session-list__rename .adm-input {
+  min-width: 0;
+}

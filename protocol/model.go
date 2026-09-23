@@ -199,4 +199,9 @@ type Snapshot struct {
 	QueueDepth     int             `json:"queueDepth"`
 	QueuedRequests []QueuedRequest `json:"queuedRequests"`
 	PermissionMode PermissionMode  `json:"permissionMode"`
+	// v3-only display metadata. Transport clears these on v2 connections.
+	ProjectCwd     string `json:"projectCwd,omitempty"`
+	SessionTitle   string `json:"sessionTitle,omitempty"`
+	CreatedAt      string `json:"createdAt,omitempty"`
+	LastActivityAt string `json:"lastActivityAt,omitempty"`
 }

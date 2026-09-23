@@ -7,14 +7,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
-// Version is 2 since B2: structured content, pending actions and the control
-// commands are not understood by A4/B1 clients, so those are refused outright
-// rather than left to mis-parse the new payloads (B2 §4.1).
+// Version remains the v2 default for callers constructing legacy envelopes.
 const Version = 2
+const LatestVersion = 3
 
 var ErrInvalidMessage = errors.New("invalid protocol message")
 
@@ -165,7 +166,7 @@ type ErrorPayload struct {
 func newErrorPayload(code, message string) ErrorPayload {
 	payload := ErrorPayload{Code: code, Message: message}
 	if code == CodeUnsupportedVersion {
-		payload.ExpectedVersion = Version
+		payload.ExpectedVersion = LatestVersion
 	}
 	return payload
 }
@@ -209,9 +210,9 @@ func DecodeEnvelope(data []byte) (Envelope, error) {
 	return envelope, nil
 }
 
-// ValidateEnvelope enforces the version-two field and payload invariants.
+// ValidateEnvelope enforces the shared v2/v3 field and payload invariants.
 func ValidateEnvelope(envelope Envelope) error {
-	if envelope.Version != Version {
+	if envelope.Version != Version && envelope.Version != LatestVersion {
 		return protocolError(CodeUnsupportedVersion, "unsupported protocol version")
 	}
 	if envelope.Type == "" || envelope.SessionID == "" || len(envelope.Payload) == 0 {
@@ -266,6 +267,9 @@ func ValidateEnvelope(envelope Envelope) error {
 			payload.Snapshot.SessionID != envelope.SessionID || payload.Snapshot.Seq != envelope.Seq {
 			return protocolError(CodeInvalidMessage, "invalid snapshot message")
 		}
+		if err := validateSnapshotDisplay(envelope.Version, payload.Snapshot); err != nil {
+			return err
+		}
 	case TypeEvent:
 		var payload EventPayload
 		if envelope.CommandID != "" || DecodePayload(envelope, &payload) != nil || payload.Event.SessionID != envelope.SessionID ||
@@ -273,6 +277,9 @@ func ValidateEnvelope(envelope Envelope) error {
 			return protocolError(CodeInvalidMessage, "invalid event message")
 		}
 		if err := validateEvent(payload.Event); err != nil {
+			return err
+		}
+		if err := validateEventDisplay(envelope.Version, payload.Event); err != nil {
 			return err
 		}
 	case TypeCommandResult:
@@ -306,6 +313,49 @@ func validCreatedPairing(pairing *protocol.Pairing, sourceSessionID string) bool
 	return pairing != nil && pairing.Version == protocol.PayloadVersion && pairing.WSURL != "" &&
 		pairing.SessionID != "" && pairing.SessionID != sourceSessionID && pairing.PairToken != "" &&
 		!pairing.ExpiresAt.IsZero()
+}
+
+func validateDisplayTime(value string) bool {
+	if value == "" {
+		return true
+	}
+	if !strings.HasSuffix(value, "Z") {
+		return false
+	}
+	_, err := time.Parse(time.RFC3339Nano, value)
+	return err == nil
+}
+
+func validateDisplayTitle(value string) bool {
+	return utf8.ValidString(value) && len([]rune(value)) <= protocol.MaxSessionTitleRunes && !strings.ContainsAny(value, "\r\n")
+}
+
+func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
+	if version == Version {
+		if snapshot.ProjectCwd != "" || snapshot.SessionTitle != "" || snapshot.CreatedAt != "" || snapshot.LastActivityAt != "" {
+			return protocolError(CodeInvalidMessage, "v2 snapshot cannot carry display metadata")
+		}
+		return nil
+	}
+	if len(snapshot.ProjectCwd) > 4096 || !validateDisplayTitle(snapshot.SessionTitle) ||
+		!validateDisplayTime(snapshot.CreatedAt) || !validateDisplayTime(snapshot.LastActivityAt) {
+		return protocolError(CodeInvalidMessage, "invalid snapshot display metadata")
+	}
+	return nil
+}
+
+func validateEventDisplay(version int, event protocol.Event) error {
+	if version == Version {
+		if event.SessionTitle != "" || event.LastActivityAt != "" {
+			return protocolError(CodeInvalidMessage, "v2 event cannot carry display metadata")
+		}
+		return nil
+	}
+	if (event.SessionTitle != "" && (event.Kind != protocol.EventTurnStarted || !validateDisplayTitle(event.SessionTitle))) ||
+		!validateDisplayTime(event.LastActivityAt) {
+		return protocolError(CodeInvalidMessage, "invalid event display metadata")
+	}
+	return nil
 }
 
 // validateCommand keeps each command kind to its own disjoint field subset, so

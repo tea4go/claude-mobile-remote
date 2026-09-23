@@ -18,6 +18,7 @@ import (
 	"github.com/tea4go/claude-mobile-remote/internal/channel"
 	"github.com/tea4go/claude-mobile-remote/internal/pairing"
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 type transportResolveCall struct {
@@ -252,6 +253,78 @@ func authenticateAndSubscribe(t *testing.T, fixture *serverFixture, connection *
 		t.Fatalf("subscribe response = %#v", response)
 	}
 	return readTestEnvelope(t, connection)
+}
+
+func writeVersionedTestEnvelope(t *testing.T, connection *websocket.Conn, version int, kind MessageType, sessionID string, payload any) {
+	t.Helper()
+	envelope, err := NewEnvelope(kind, sessionID, "", "", 0, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope.Version = version
+	data, err := EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.WriteMessage(websocket.TextMessage, data); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWebSocketV2V3DisplayMetadataIsolation(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	fixture.controller.snapshot.ProjectCwd = "/work/project"
+	fixture.controller.snapshot.SessionTitle = "修复登录"
+	fixture.controller.snapshot.CreatedAt = "2026-09-23T01:00:00Z"
+	fixture.controller.snapshot.LastActivityAt = "2026-09-23T02:00:00Z"
+	connections := make(map[int]*websocket.Conn)
+	for _, version := range []int{Version, LatestVersion} {
+		connection := fixture.dial(t)
+		connections[version] = connection
+		writeVersionedTestEnvelope(t, connection, version, TypeHello, "session-1", HelloPayload{PairToken: fixture.token})
+		if got := readTestEnvelope(t, connection); got.Type != TypeHelloAck || got.Version != version {
+			t.Fatalf("hello = %+v", got)
+		}
+		writeVersionedTestEnvelope(t, connection, version, TypeSubscribe, "session-1", struct{}{})
+		if got := readTestEnvelope(t, connection); got.Type != TypeSubscribed || got.Version != version {
+			t.Fatalf("subscribed = %+v", got)
+		}
+		snapshot := readTestEnvelope(t, connection)
+		if snapshot.Type != TypeSnapshot || snapshot.Version != version {
+			t.Fatalf("snapshot = %+v", snapshot)
+		}
+		var payload SnapshotPayload
+		if err := DecodePayload(snapshot, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if version == Version && (payload.Snapshot.ProjectCwd != "" || strings.Contains(string(snapshot.Payload), "projectCwd")) {
+			t.Fatalf("v2 leaked metadata: %s", snapshot.Payload)
+		}
+		if version == LatestVersion && (payload.Snapshot.ProjectCwd != "/work/project" || payload.Snapshot.SessionTitle != "修复登录") {
+			t.Fatalf("v3 metadata = %+v", payload.Snapshot)
+		}
+	}
+	fixture.controller.emit(projectsession.Event{
+		Seq: 8, Kind: projectsession.EventTurnStarted, SessionID: "session-1", RequestID: "r1",
+		Source: protocol.InputTerminal, Text: "修复登录", TurnStatus: protocol.TurnRunning,
+		SessionTitle: "修复登录", LastActivityAt: "2026-09-23T02:01:00Z",
+	})
+	for _, version := range []int{Version, LatestVersion} {
+		got := readTestEnvelope(t, connections[version])
+		if got.Type != TypeEvent || got.Version != version {
+			t.Fatalf("event = %+v", got)
+		}
+		var payload EventPayload
+		if err := DecodePayload(got, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if version == Version && (payload.Event.SessionTitle != "" || strings.Contains(string(got.Payload), "lastActivityAt")) {
+			t.Fatalf("v2 leaked event metadata: %s", got.Payload)
+		}
+		if version == LatestVersion && (payload.Event.SessionTitle != "修复登录" || payload.Event.LastActivityAt == "") {
+			t.Fatalf("v3 event metadata = %+v", payload.Event)
+		}
+	}
 }
 
 func TestWebSocketAuthenticateSubscribeSnapshot(t *testing.T) {
@@ -1393,7 +1466,7 @@ func TestWebSocketRejectsStaleProtocolVersionWithoutSessionData(t *testing.T) {
 	if envelope.Type != TypeError || DecodePayload(envelope, &payload) != nil {
 		t.Fatalf("response = %#v, want an error", envelope)
 	}
-	if payload.Code != CodeUnsupportedVersion || payload.ExpectedVersion != Version {
+	if payload.Code != CodeUnsupportedVersion || payload.ExpectedVersion != LatestVersion {
 		t.Fatalf("error payload = %#v, want %q with expectedVersion %d", payload, CodeUnsupportedVersion, Version)
 	}
 	if envelope.SessionID != "" || envelope.RequestID != "" || envelope.Seq != 0 {

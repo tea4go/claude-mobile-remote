@@ -76,6 +76,10 @@ export interface HarmonySessionState {
   pairing: PairingPayload | null
   connection: ConnectionStage
   sessionId: string
+  projectCwd?: string
+  sessionTitle?: string
+  createdAt?: string
+  lastActivityAt?: string
   sessionStatus: SessionStatus | ''
   sessionError: ErrorInfo | null
   seqBase: number

@@ -139,7 +139,7 @@ describe('握手流程', () => {
     socket.serverOpen()
     expect(socket.sent).toHaveLength(1)
     expect(JSON.parse(socket.sent[0]!)).toEqual({
-      version: 2,
+      version: 3,
       type: 'hello',
       sessionId: 'session-1',
       commandId: '',
@@ -147,6 +147,25 @@ describe('握手流程', () => {
       seq: 0,
       payload: { pairToken: 'test-token-placeholder' },
     })
+    client.close()
+  })
+
+  test('旧服务拒绝 v3 后使用同一配对凭证重连 v2', () => {
+    const { client } = makeClient()
+    const closes: string[] = []
+    client.onClose = (info) => closes.push(info.kind)
+    client.connect()
+    const first = FakeWebSocket.instances[0]!
+    first.serverOpen()
+    first.serverMessage({
+      version: 2, type: 'error', sessionId: '', commandId: '', requestId: '', seq: 0,
+      payload: { code: 'unsupported_version', message: 'unsupported protocol version', expectedVersion: 2 },
+    })
+    expect(first.closed).toBe(true)
+    expect(closes).toEqual([])
+    const second = FakeWebSocket.instances[1]!
+    second.serverOpen()
+    expect(JSON.parse(second.sent[0]!)).toMatchObject({ version: 2, type: 'hello', sessionId: 'session-1', payload: { pairToken: 'test-token-placeholder' } })
     client.close()
   })
 

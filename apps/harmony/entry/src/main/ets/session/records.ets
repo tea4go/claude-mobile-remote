@@ -9,6 +9,14 @@ export interface SessionRecord {
   expiresAt: string
   capabilities?: string[]
   name: string
+  customName?: boolean
+  projectCwd?: string
+  sessionTitle?: string
+  createdAt?: string
+  lastActivityAt?: string
+  preview?: string
+  runtimeStatus?: string
+  unread?: boolean
   lastConnectedAt: number
   hasConnectedAt: boolean
   status: SessionLocalStatus
@@ -48,6 +56,14 @@ function cloneRecord(record: SessionRecord): SessionRecord {
     expiresAt: record.expiresAt,
     capabilities: record.capabilities === undefined ? undefined : record.capabilities.slice(),
     name: record.name,
+    customName: record.customName,
+    projectCwd: record.projectCwd,
+    sessionTitle: record.sessionTitle,
+    createdAt: record.createdAt,
+    lastActivityAt: record.lastActivityAt,
+    preview: record.preview,
+    runtimeStatus: record.runtimeStatus,
+    unread: record.unread,
     lastConnectedAt: record.lastConnectedAt,
     hasConnectedAt: record.hasConnectedAt,
     status: record.status,
@@ -71,6 +87,14 @@ export function upsertSessionRecord(records: Array<SessionRecord>, payload: Pair
       expiresAt: payload.expiresAt,
       capabilities: payload.capabilities === undefined ? undefined : payload.capabilities.slice(),
       name: record.name,
+      customName: record.customName,
+      projectCwd: record.projectCwd,
+      sessionTitle: record.sessionTitle,
+      createdAt: record.createdAt,
+      lastActivityAt: record.lastActivityAt,
+      preview: record.preview,
+      runtimeStatus: record.runtimeStatus,
+      unread: record.unread,
       lastConnectedAt: record.lastConnectedAt,
       hasConnectedAt: record.hasConnectedAt,
       status: record.status,
@@ -99,6 +123,7 @@ export function renameSessionRecord(records: Array<SessionRecord>, sessionId: st
     const record = cloneRecord(records[index])
     if (record.sessionId === sessionId) {
       record.name = trimmed.length > 0 ? trimmed : defaultSessionName(sessionId)
+      record.customName = trimmed.length > 0
     }
     next.push(record)
   }
@@ -137,20 +162,50 @@ export function listSessionRecords(records: Array<SessionRecord>): Array<Session
   }
 
   indexed.sort((left, right) => {
-    if (left.record.hasConnectedAt !== right.record.hasConnectedAt) {
-      return left.record.hasConnectedAt ? -1 : 1
-    }
-    if (left.record.hasConnectedAt && right.record.hasConnectedAt) {
-      if (left.record.lastConnectedAt !== right.record.lastConnectedAt) {
-        return right.record.lastConnectedAt - left.record.lastConnectedAt
-      }
-    }
+    const leftValue = left.record.lastActivityAt ?? left.record.createdAt
+    const rightValue = right.record.lastActivityAt ?? right.record.createdAt
+    const leftTime = leftValue === undefined ? 0 : Date.parse(leftValue)
+    const rightTime = rightValue === undefined ? 0 : Date.parse(rightValue)
+    if (leftTime !== rightTime) return rightTime - leftTime
     return left.index - right.index
   })
 
   const next: Array<SessionRecord> = []
   for (let index = 0; index < indexed.length; index += 1) {
     next.push(indexed[index].record)
+  }
+  return next
+}
+
+export function updateDisplayRecord(
+  records: Array<SessionRecord>, sessionId: string,
+  projectCwd: string | undefined, sessionTitle: string | undefined,
+  createdAt: string | undefined, lastActivityAt: string | undefined, preview: string,
+  runtimeStatus: string, unread: boolean,
+): Array<SessionRecord> {
+  const next: Array<SessionRecord> = []
+  for (let index = 0; index < records.length; index += 1) {
+    const record = cloneRecord(records[index])
+    if (record.sessionId === sessionId) {
+      record.projectCwd = projectCwd
+      record.sessionTitle = sessionTitle
+      record.createdAt = createdAt
+      record.lastActivityAt = lastActivityAt
+      record.preview = preview
+      record.runtimeStatus = runtimeStatus
+      record.unread = unread
+    }
+    next.push(record)
+  }
+  return next
+}
+
+export function markSessionRecordRead(records: Array<SessionRecord>, sessionId: string): Array<SessionRecord> {
+  const next: Array<SessionRecord> = []
+  for (let index = 0; index < records.length; index += 1) {
+    const record = cloneRecord(records[index])
+    if (record.sessionId === sessionId) record.unread = false
+    next.push(record)
   }
   return next
 }

@@ -10,7 +10,7 @@ import type {
   PermissionMode,
   UnsupportedCode,
 } from './types'
-import { PROTOCOL_VERSION } from './types'
+import { PROTOCOL_VERSION, PREFERRED_PROTOCOL_VERSION } from './types'
 
 // 连接内部阶段；onEvent 通过 connectionStateChanged 导出给 reducer。
 type Stage = 'connecting' | 'authenticating' | 'subscribing' | 'ready'
@@ -76,9 +76,9 @@ export type SocketLike = {
 
 export type SocketFactory = (url: string) => SocketLike
 
-function envelope(type: string, sessionId: string, commandId: string, requestId: string, seq: number, payload: unknown): string {
+function envelope(version: number, type: string, sessionId: string, commandId: string, requestId: string, seq: number, payload: unknown): string {
   return JSON.stringify({
-    version: PROTOCOL_VERSION,
+    version,
     type,
     sessionId,
     commandId,
@@ -97,6 +97,7 @@ export class ProtocolClient {
   private pendingKind: 'command' | 'create_session' | 'stop_session' | null = null
   private closedByUser = false
   private generation = 0
+  private wireVersion = PREFERRED_PROTOCOL_VERSION
 
   onEvent: ((event: ClientEvent) => void) | null = null
   onClose: ((info: CloseInfo) => void) | null = null
@@ -133,7 +134,7 @@ export class ProtocolClient {
       this.emit({ kind: 'connectionStateChanged', connection: 'authenticating' })
       // hello 携带 sessionId：服务端按 envelope.sessionId 校验 pair token 的会话绑定。
       socket.send(
-        envelope('hello', this.payload.sessionId, '', '', 0, {
+        envelope(this.wireVersion, 'hello', this.payload.sessionId, '', '', 0, {
           pairToken: this.payload.pairToken,
         }),
       )
@@ -216,7 +217,7 @@ export class ProtocolClient {
     if (this.pendingCommandId !== null) return { ok: false, reason: 'busy' }
     this.pendingCommandId = commandId
     this.pendingKind = kind
-    this.socket.send(envelope(kind, this.payload.sessionId, commandId, '', 0, {}))
+    this.socket.send(envelope(this.wireVersion, kind, this.payload.sessionId, commandId, '', 0, {}))
     return { ok: true }
   }
 
@@ -231,7 +232,7 @@ export class ProtocolClient {
     this.pendingCommandId = commandId
     this.pendingKind = 'command'
     this.socket.send(
-      envelope('command', this.payload.sessionId, commandId, '', 0, payload),
+      envelope(this.wireVersion, 'command', this.payload.sessionId, commandId, '', 0, payload),
     )
     return { ok: true }
   }
@@ -270,6 +271,21 @@ export class ProtocolClient {
       return
     }
 
+    if (message.version === PROTOCOL_VERSION && this.wireVersion === PREFERRED_PROTOCOL_VERSION &&
+        this.stage === 'authenticating' && message.type === 'hello_ack') {
+      // A permissive legacy server may accept the hello but answer in v2.
+      this.wireVersion = PROTOCOL_VERSION
+    }
+    if (message.version !== this.wireVersion && !(
+      message.type === 'error' && this.stage === 'authenticating' &&
+      this.wireVersion === PREFERRED_PROTOCOL_VERSION && message.version === PROTOCOL_VERSION &&
+      (message.payload.code === 'unauthorized' ||
+        (message.payload.code === 'unsupported_version' && message.payload.expectedVersion === PROTOCOL_VERSION))
+    )) {
+      this.terminate('protocolError')
+      return
+    }
+
     if (
       (message.type === 'snapshot' ||
         message.type === 'event' ||
@@ -292,7 +308,7 @@ export class ProtocolClient {
         this.stage = 'subscribing'
         this.emit({ kind: 'connectionStateChanged', connection: 'subscribing' })
         this.socket?.send(
-          envelope('subscribe', this.payload.sessionId, '', '', 0, {}),
+          envelope(this.wireVersion, 'subscribe', this.payload.sessionId, '', '', 0, {}),
         )
         return
       case 'subscribed':
@@ -365,6 +381,13 @@ export class ProtocolClient {
         this.emit({ kind: 'unsupported', code: message.payload.code, seq: message.seq })
         return
       case 'error':
+        if (message.payload.code === 'unsupported_version' && this.stage === 'authenticating' &&
+            this.wireVersion === PREFERRED_PROTOCOL_VERSION && message.payload.expectedVersion === PROTOCOL_VERSION) {
+          this.close()
+          this.wireVersion = PROTOCOL_VERSION
+          this.connect()
+          return
+        }
         if (message.payload.code === 'unauthorized') {
           this.terminate('pairingInvalid')
           return

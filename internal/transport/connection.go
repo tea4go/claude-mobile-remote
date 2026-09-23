@@ -43,6 +43,7 @@ type connection struct {
 	subMu   sync.Mutex
 
 	state               connectionState
+	version             int
 	sessionID           string
 	lease               *pairing.Lease
 	subscriptionChannel *channel.Channel
@@ -64,6 +65,7 @@ func newConnection(server *Server, socket *websocket.Conn) *connection {
 		cancel:     cancel,
 		done:       make(chan struct{}),
 		state:      stateConnected,
+		version:    Version,
 		outbox:     queue,
 		gate:       newCommandGate(queue, earlyMaxItems, earlyMaxBytes),
 		commandIDs: make(map[string]struct{}),
@@ -118,6 +120,12 @@ func (c *connection) readLoop() {
 			} else {
 				c.fail(CodeInvalidMessage, "invalid protocol message")
 			}
+			return
+		}
+		if c.state == stateConnected {
+			c.version = envelope.Version
+		} else if envelope.Version != c.version {
+			c.fail(CodeUnsupportedVersion, "protocol version changed during connection")
 			return
 		}
 		switch c.state {
@@ -266,6 +274,7 @@ func (c *connection) handleCommand(envelope Envelope) bool {
 		c.shutdown()
 		return false
 	}
+	envelopeResult.Version = c.version
 	encoded, err := EncodeEnvelope(envelopeResult)
 	if err != nil || c.gate.Finish(encoded) != nil {
 		c.shutdown()
@@ -412,9 +421,16 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 	if err := c.enqueue(TypeSubscribed, "", "", 0, struct{}{}); err != nil {
 		return false
 	}
-	if err := c.enqueue(TypeSnapshot, "", "", subscription.Snapshot.Seq, SnapshotPayload{
+	snapshot := subscription.Snapshot
+	if c.version == Version {
+		snapshot.ProjectCwd = ""
+		snapshot.SessionTitle = ""
+		snapshot.CreatedAt = ""
+		snapshot.LastActivityAt = ""
+	}
+	if err := c.enqueue(TypeSnapshot, "", "", snapshot.Seq, SnapshotPayload{
 		ConnectionStatus: "subscribed",
-		Snapshot:         subscription.Snapshot,
+		Snapshot:         snapshot,
 	}); err != nil {
 		return false
 	}
@@ -473,12 +489,20 @@ func (c *connection) outboundEvent(event protocol.Event) (Envelope, error) {
 		if !event.Code.IsKnown() {
 			return Envelope{}, ErrInvalidMessage
 		}
-		return NewEnvelope(TypeUnsupported, c.sessionID, "", event.RequestID, event.Seq, UnsupportedPayload{Code: event.Code})
+		envelope, err := NewEnvelope(TypeUnsupported, c.sessionID, "", event.RequestID, event.Seq, UnsupportedPayload{Code: event.Code})
+		envelope.Version = c.version
+		return envelope, err
 	}
 	if err := validateEvent(event); err != nil {
 		return Envelope{}, err
 	}
-	return NewEnvelope(TypeEvent, c.sessionID, "", event.RequestID, event.Seq, EventPayload{Event: event})
+	if c.version == Version {
+		event.SessionTitle = ""
+		event.LastActivityAt = ""
+	}
+	envelope, err := NewEnvelope(TypeEvent, c.sessionID, "", event.RequestID, event.Seq, EventPayload{Event: event})
+	envelope.Version = c.version
+	return envelope, err
 }
 
 func (c *connection) enqueue(messageType MessageType, commandID, requestID string, seq uint64, payload any) error {
@@ -486,6 +510,7 @@ func (c *connection) enqueue(messageType MessageType, commandID, requestID strin
 	if err != nil {
 		return err
 	}
+	envelope.Version = c.version
 	data, err := EncodeEnvelope(envelope)
 	if err != nil {
 		return err

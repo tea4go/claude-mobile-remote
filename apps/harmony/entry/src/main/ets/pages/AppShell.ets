@@ -19,11 +19,13 @@ import {
 import {
   listSessionRecords,
   markSessionRecordStatus,
+  markSessionRecordRead,
   pairingPayloadFromRecord,
   removeSessionRecord,
   renameSessionRecord,
   type SessionRecord,
   upsertSessionRecord,
+  updateDisplayRecord,
 } from '../session/records'
 import { PairingPage } from './PairingPage'
 import { SessionListPage } from './SessionListPage'
@@ -104,6 +106,8 @@ export struct AppShell {
   @State private sessions: Array<SessionRecord> = []
   @State private view: AppView = 'pairing'
   @State private currentSessionId: string = ''
+  @State private recentlyViewedId: string = ''
+  private listOrder: Array<string> = []
   @State private pairingInput: string = ''
   @State private questionAnswers: Array<QuestionAnswer> = []
   @State private trackedPendingActionId: string = ''
@@ -156,6 +160,31 @@ export struct AppShell {
   private handleStoreState(sessionId: string, nextState: HarmonySessionState): void {
     const previousState = this.states.get(sessionId) ?? createInitialHarmonySessionState()
     this.states.set(sessionId, nextState)
+    const previousRecord = this.sessions.find((record: SessionRecord) => record.sessionId === sessionId)
+    let runtimeStatus = '空闲'
+    if (nextState.sessionStatus === 'failed') runtimeStatus = '会话失败'
+    else if (nextState.sessionStatus === 'stopped') runtimeStatus = '已结束'
+    else if (nextState.pendingAction !== null) runtimeStatus = '等待处理'
+    else if (nextState.messages.some((message) => message.kind === 'claude' && message.status === 'streaming')) runtimeStatus = '进行中'
+    const currentLast = nextState.messages[nextState.messages.length - 1]
+    const previousLast = previousState.messages[previousState.messages.length - 1]
+    let changedText = false
+    if (currentLast !== undefined && previousLast !== undefined && currentLast.kind === 'claude' && previousLast.kind === 'claude') {
+      changedText = currentLast.text !== previousLast.text
+    }
+    const newContent = nextState.messages.length > previousState.messages.length || changedText
+    const unread = (previousRecord?.unread ?? false) ||
+      (newContent && !(this.view === 'detail' && this.currentSessionId === sessionId))
+    let preview = ''
+    for (let index = nextState.messages.length - 1; index >= 0; index -= 1) {
+      const message = nextState.messages[index]
+      if (message.kind === 'input' || message.kind === 'claude') {
+        preview = message.text.trim().replace(/\s+/g, ' ').slice(0, 100)
+        if (preview.length > 0) break
+      }
+    }
+    this.sessions = updateDisplayRecord(this.sessions, sessionId, nextState.projectCwd,
+      nextState.sessionTitle, nextState.createdAt, nextState.lastActivityAt, preview, runtimeStatus, unread)
     if (sessionId === this.currentSessionId) {
       this.sessionState = nextState
       this.syncPendingAnswers(nextState)
@@ -237,7 +266,16 @@ export struct AppShell {
   }
 
   private sortedSessions(): Array<SessionRecord> {
-    return listSessionRecords(this.sessions)
+    const sorted = listSessionRecords(this.sessions)
+    if (this.listOrder.length === 0) return sorted
+    sorted.sort((left, right) => {
+      const leftIndex = this.listOrder.indexOf(left.sessionId)
+      const rightIndex = this.listOrder.indexOf(right.sessionId)
+      if (leftIndex < 0) return 1
+      if (rightIndex < 0) return -1
+      return leftIndex - rightIndex
+    })
+    return sorted
   }
 
   private activeRecord(): SessionRecord | null {
@@ -258,6 +296,8 @@ export struct AppShell {
   }
 
   private openListPage(): void {
+    this.recentlyViewedId = this.currentSessionId
+    this.listOrder = listSessionRecords(this.sessions).map((record: SessionRecord) => record.sessionId)
     this.pairingInput = ''
     this.view = 'list'
   }
@@ -286,6 +326,7 @@ export struct AppShell {
     for (let index = 0; index < this.sessions.length; index += 1) {
       const record = this.sessions[index]
       if (record.sessionId === sessionId) {
+        this.sessions = markSessionRecordRead(this.sessions, sessionId)
         this.currentSessionId = sessionId
         this.view = 'detail'
         this.store = this.connectSession(pairingPayloadFromRecord(record))
@@ -504,6 +545,7 @@ export struct AppShell {
   private buildListView(): void {
     SessionListPage({
       sessions: this.sortedSessions(),
+      recentlyViewedId: this.recentlyViewedId,
       selfChecks: this.selfChecks,
       selfCheckError: this.selfCheckError,
       onAdd: () => {

@@ -16,6 +16,7 @@ export interface SessionRecord {
   expiresAt: string
   capabilities?: PairingPayload['capabilities']
   name: string
+  customName?: boolean
   lastConnectedAt: number | null
   status: SessionLocalStatus
 }
@@ -52,6 +53,7 @@ export function upsertSession(store: SessionStore, payload: PairingPayload): Ses
     expiresAt: payload.expiresAt,
     ...(payload.capabilities === undefined ? {} : { capabilities: [...payload.capabilities] }),
     name: store.records[index]?.name ?? defaultSessionName(payload.sessionId),
+    customName: store.records[index]?.customName ?? (store.records[index] !== undefined && store.records[index]!.name !== defaultSessionName(payload.sessionId)),
     lastConnectedAt: store.records[index]?.lastConnectedAt ?? null,
     status: store.records[index]?.status ?? 'new',
   }
@@ -89,6 +91,7 @@ export function renameSession(store: SessionStore, sessionId: string, name: stri
   return replaceRecord(store, sessionId, (record) => ({
     ...record,
     name: trimmed === '' ? defaultSessionName(sessionId) : trimmed,
+    customName: trimmed !== '',
   }))
 }
 

@@ -192,6 +192,12 @@ Standalone CLI 单进程多 Session 已按 D68–D71 确认并进入实现与验
 - 每个活跃 Session 只有一个 Host/SDK Client，同 Session 多入口输入仍走单一队列；凭证不得跨 Session 授权；
 - 任一有效已订阅 Session 凭证可请求创建；默认四个活跃会话上限，已停止会话不计入；停止后保留配对与终态入口。按共用协议在 Go、移动端和真机门禁验证。
 
+### 9.4 移动端项目分组与会话辨认
+
+- 已配对的 Standalone CLI 与 WhaleTerm Claude 会话均按实际工作目录 `cwd` 分组；组与组内会话按最近有意义活动从近到远排列，重连与流式增量不作为活动时间。
+- 会话主标题优先使用手动名称，否则取宿主观察到的首条非空用户输入首行并保持稳定；无可用输入时用新会话/创建时间回退。列表显示最近可见内容、状态、未读和最近活动时间，返回列表可定位刚查看的会话。
+- React/Capacitor 列表使用 antd-mobile `List`；HarmonyOS NEXT 实现等价列表。目录及展示信息只能在配对鉴权后返回，不新增服务器端全量 Session 列表；设计和计划见 `docs/specs/2026-09-23-mobile-project-session-list-design.md` 与同日实施计划。
+
 ## 十、首期验收标准
 
 - Standalone CLI 可通过 SDK 启动并结束一个 Claude 会话；

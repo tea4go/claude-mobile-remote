@@ -1,4 +1,5 @@
 export const PROTOCOL_VERSION = 2
+export const PREFERRED_PROTOCOL_VERSION = 3
 export const PAIRING_PAYLOAD_VERSION = 1
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
 export const MAX_TEXT_BYTES = 1024 * 1024
@@ -232,6 +233,10 @@ export interface SessionSnapshot {
   turn: TurnSnapshot
   queueDepth: number
   queuedRequests: QueuedRequest[]
+  projectCwd?: string
+  sessionTitle?: string
+  createdAt?: string
+  lastActivityAt?: string
 }
 
 export interface DomainEvent {
@@ -247,6 +252,8 @@ export interface DomainEvent {
   block?: ContentBlock
   pendingAction?: PendingAction
   answers?: ResolvedAnswer[]
+  sessionTitle?: string
+  lastActivityAt?: string
 }
 
 export interface EmptyPayload {}
@@ -284,6 +291,7 @@ export interface ErrorPayload {
 }
 
 export interface BaseServerMessage {
+  version: number
   type: ServerMessageType
   sessionId: string
   commandId: string

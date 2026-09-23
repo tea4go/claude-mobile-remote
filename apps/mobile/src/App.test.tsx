@@ -308,7 +308,7 @@ describe('App：返回列表', () => {
     })
 
     fireEvent.click(screen.getByText('返回'))
-    fireEvent.click(screen.getByRole('button', { name: '进入' }))
+    fireEvent.click(screen.getByTestId('session-list-item'))
 
     expect(FakeWebSocket.instances).toHaveLength(1)
     expect(screen.getByText('已连接')).toBeInTheDocument()
@@ -335,7 +335,7 @@ describe('App：返回列表', () => {
     await waitFor(() => expect(screen.getByText('已经看到的回复')).toBeInTheDocument())
 
     fireEvent.click(screen.getByText('返回'))
-    fireEvent.click(screen.getByRole('button', { name: '进入' }))
+    fireEvent.click(screen.getByTestId('session-list-item'))
     expect(FakeWebSocket.instances).toHaveLength(1)
     expect(screen.getByText('已经看到的回复')).toBeInTheDocument()
   })
@@ -447,9 +447,9 @@ describe('App：多 Session 生命周期', () => {
     })
 
     fireEvent.click(screen.getByText('返回'))
-    await waitFor(() => expect(screen.getByText('未读')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('未读')).toBeInTheDocument())
     expect(screen.getByText('进行中')).toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: '进入' })[0]!)
+    fireEvent.click(screen.getAllByTestId('session-list-item')[0]!)
     expect(screen.getByText('后台收到的回复')).toBeInTheDocument()
   })
 
@@ -477,7 +477,8 @@ describe('App：多 Session 生命周期', () => {
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     const second = FakeWebSocket.instances[1]!
     fireEvent.click(screen.getByText('返回'))
-    fireEvent.click(screen.getAllByRole('button', { name: '删除' })[0]!)
+    fireEvent.click(screen.getAllByRole('button', { name: /更多操作/ })[0]!)
+    fireEvent.click(screen.getByText('删除'))
 
     expect(first.closed).toBe(true)
     expect(second.closed).toBe(false)
@@ -493,7 +494,8 @@ describe('App：多 Session 生命周期', () => {
     })
 
     fireEvent.click(screen.getByText('返回'))
-    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    fireEvent.click(screen.getByRole('button', { name: /更多操作/ }))
+    fireEvent.click(screen.getByText('删除'))
 
     // 列表为空时直接回到配对输入页。
     expect(screen.getByText('连接 Claude 会话')).toBeInTheDocument()
