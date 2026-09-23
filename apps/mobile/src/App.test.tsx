@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from './App'
+import { parsePairingFragment } from './protocol/pairing'
 import { PROTOCOL_VERSION } from './protocol/types'
 
 // 可编程假 WebSocket（与 client.test 相同形状）。
@@ -240,12 +241,12 @@ describe('App：断线与重连', () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
     const first = FakeWebSocket.instances[0]!
-    completeHandshake(first)
+    act(() => completeHandshake(first))
     await waitFor(() => {
       expect(screen.getByText('已连接')).toBeInTheDocument()
     })
 
-    first.serverClose()
+    act(() => first.serverClose())
     await waitFor(() => {
       expect(screen.getByText('已断开')).toBeInTheDocument()
     })
@@ -341,6 +342,38 @@ describe('App：返回列表', () => {
 })
 
 describe('App：多 Session 生命周期', () => {
+  test('从已配对 A 创建 B，不关闭 A，并可用同一 commandId 断线重试', async () => {
+    window.location.hash = fragmentOf({ ...PAIRING, capabilities: ['create_session', 'stop_session'] })
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const first = FakeWebSocket.instances[0]!
+    completeHandshake(first)
+    await waitFor(() => expect(screen.getByRole('button', { name: '新建会话' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }))
+    const create = JSON.parse(first.sent.at(-1)!)
+    expect(create).toMatchObject({ type: 'create_session', sessionId: 'session-1', payload: {} })
+    first.serverClose()
+    await waitFor(() => expect(screen.getByText('重新连接')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('重新连接'))
+    const retrySocket = FakeWebSocket.instances[1]!
+    act(() => completeHandshake(retrySocket))
+    await waitFor(() => {
+      expect(JSON.parse(retrySocket.sent.at(-1)!)).toMatchObject({ type: 'create_session', commandId: create.commandId })
+    })
+    act(() => retrySocket.serverMessage({
+      version: 2, type: 'create_session_result', sessionId: 'session-1', commandId: create.commandId,
+      requestId: '', seq: 0,
+      payload: {
+        accepted: true, code: '', message: '',
+        pairing: { ...PAIRING, sessionId: 'session-2', pairToken: 'second-fixture-token', capabilities: ['create_session', 'stop_session'] },
+      },
+    }))
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(3))
+    expect(retrySocket.closed).toBe(false)
+    expect(window.location.hash).toContain('#pair=')
+    const paired = parsePairingFragment(window.location.hash, Date.now())
+    expect(paired.ok && paired.value.sessionId).toBe('session-2')
+  })
+
   test('切换到第二个 Session 时两个连接同时保持', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)

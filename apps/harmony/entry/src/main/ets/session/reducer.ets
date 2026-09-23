@@ -145,6 +145,7 @@ function clonePairingPayload(pairing: PairingPayload | null): PairingPayload | n
     sessionId: pairing.sessionId,
     pairToken: pairing.pairToken,
     expiresAt: pairing.expiresAt,
+    capabilities: pairing.capabilities === undefined ? undefined : pairing.capabilities.slice(),
   }
 }
 

@@ -26,7 +26,10 @@ function utf8ByteLength(text: string): number {
 @Component
 export struct MessageComposer {
   @Prop composerEnabled: boolean = false
+  @Prop createSessionAvailable: boolean = false
+  @Prop createSessionEnabled: boolean = false
   onSend: (text: string) => void = () => {}
+  onCreateSession: () => void = () => {}
 
   @State private text: string = ''
 
@@ -68,12 +71,24 @@ export struct MessageComposer {
         })
         .width('100%')
 
-      Button('发送')
-        .id('send-button')
-        .enabled(this.composerEnabled && this.trimmedText().length > 0 && !this.isOversize())
-        .onClick(() => {
-          this.submit()
-        })
+      Row({ space: 8 }) {
+        if (this.createSessionAvailable) {
+          Button('+')
+            .id('create-session-button')
+            .accessibilityText('新建会话')
+            .enabled(this.createSessionEnabled)
+            .onClick(() => {
+              this.onCreateSession()
+            })
+        }
+        Button('发送')
+          .id('send-button')
+          .enabled(this.composerEnabled && this.trimmedText().length > 0 && !this.isOversize())
+          .onClick(() => {
+            this.submit()
+          })
+      }
+      .width('100%')
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)

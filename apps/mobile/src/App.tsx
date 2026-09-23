@@ -47,6 +47,8 @@ function cancelTargetOf(state: MobileState): string | null {
 function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProps = {}) {
   const [appStore] = useState(createAppStore)
   const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now))
+  const [managementBusy, setManagementBusy] = useState<Record<string, boolean>>({})
+  const [managementFeedback, setManagementFeedback] = useState<Record<string, string | null>>({})
 
   const pairings = useStore(appStore, (state) => state.pairings)
   const sessionStates = useStore(appStore, (state) => state.sessions)
@@ -69,6 +71,20 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
     runtime.ensureConnected(payload)
     window.location.hash = `#pair=${encodePairingFragment(payload)}`
   }, [appStore, runtime])
+
+  useEffect(() => {
+    runtime.setManagementCallbacks(openPairing, (sessionId, operation, accepted, code) => {
+      setManagementBusy((current) => ({ ...current, [sessionId]: false }))
+      const text = accepted
+        ? (operation === 'stop_session' ? 'Claude 会话已终止；配对入口仍保留' : null)
+        : code === 'session_capacity' ? '活跃会话已达上限' :
+          code === 'create_rate_limited' ? '新建太频繁，请稍后重试' : '操作失败，请重试'
+      setManagementFeedback((current) => ({ ...current, [sessionId]: text }))
+    })
+    return () => {
+      runtime.setManagementCallbacks(null, null)
+    }
+  }, [runtime, openPairing])
 
   const submitJson = useCallback((json: string) => {
     const result = parsePairingInput(json, now())
@@ -123,6 +139,7 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
       sessionId: record.sessionId,
       pairToken: record.pairToken,
       expiresAt: record.expiresAt,
+      ...(record.capabilities === undefined ? {} : { capabilities: [...record.capabilities] }),
     }
     appStore.getState().openDetail(sessionId)
     runtime.ensureConnected(payload)
@@ -146,6 +163,14 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
         onResolveAction={(resolution: ActionResolution) => runtime.resolveAction(currentSessionId, resolution)}
         onCancelTurn={(requestId) => runtime.cancelTurn(currentSessionId, requestId)}
         onCancelQueued={(requestId) => runtime.cancelQueued(currentSessionId, requestId)}
+        managementBusy={managementBusy[currentSessionId] ?? false}
+        managementFeedback={managementFeedback[currentSessionId] ?? null}
+        onCreateSession={() => {
+          if (runtime.createSession(currentSessionId)) {
+            setManagementBusy((current) => ({ ...current, [currentSessionId]: true }))
+            setManagementFeedback((current) => ({ ...current, [currentSessionId]: null }))
+          }
+        }}
       />
     )
   }

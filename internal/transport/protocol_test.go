@@ -5,6 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/tea4go/claude-mobile-remote/protocol"
 
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 )
@@ -93,6 +96,55 @@ func TestValidateEnvelopeAcceptsCommand(t *testing.T) {
 	}
 	if err := ValidateEnvelope(envelope); err != nil {
 		t.Fatalf("ValidateEnvelope() error = %v", err)
+	}
+}
+
+func TestManagementEnvelopeContract(t *testing.T) {
+	created := protocol.Pairing{
+		Version: protocol.PayloadVersion, WSURL: "ws://127.0.0.1:8765/ws",
+		SessionID: "new-session", PairToken: "fixture-token",
+		ExpiresAt:    time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC),
+		Capabilities: []string{"create_session", "stop_session"},
+	}
+	valid := []struct {
+		typeName MessageType
+		payload  any
+	}{
+		{TypeCreateSession, struct{}{}},
+		{TypeStopSession, struct{}{}},
+		{TypeCreateSessionResult, ManagementResultPayload{Accepted: true, Pairing: &created}},
+		{TypeStopSessionResult, ManagementResultPayload{Accepted: true}},
+		{TypeCreateSessionResult, ManagementResultPayload{Code: CodeSessionUnavailable, Message: "unavailable"}},
+	}
+	for _, test := range valid {
+		envelope, err := NewEnvelope(test.typeName, "source-session", "cmd-1", "", 0, test.payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateEnvelope(envelope); err != nil {
+			t.Fatalf("type %s: %v", test.typeName, err)
+		}
+	}
+
+	invalid := []struct {
+		typeName MessageType
+		payload  any
+	}{
+		{TypeCreateSession, map[string]any{"cwd": "/tmp"}},
+		{TypeStopSession, map[string]any{"sessionId": "other"}},
+		{TypeCreateSessionResult, ManagementResultPayload{Accepted: true}},
+		{TypeCreateSessionResult, ManagementResultPayload{Accepted: true, Pairing: &protocol.Pairing{SessionID: "source-session"}}},
+		{TypeStopSessionResult, ManagementResultPayload{Accepted: true, Pairing: &created}},
+		{TypeStopSessionResult, ManagementResultPayload{Code: CodeSessionUnavailable, Pairing: &created}},
+	}
+	for _, test := range invalid {
+		envelope, err := NewEnvelope(test.typeName, "source-session", "cmd-1", "", 0, test.payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateEnvelope(envelope); err == nil {
+			t.Fatalf("type %s unexpectedly valid", test.typeName)
+		}
 	}
 }
 

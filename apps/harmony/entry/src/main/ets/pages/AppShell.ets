@@ -3,8 +3,10 @@ import {
   createAnswersResolution,
   createDecisionResolution,
   type ActionDecision,
+  type ManagementResultInfo,
 } from '../protocol/client'
-import type { QuestionAnswer } from '../protocol/types'
+import { decodePairingPayload } from '../protocol/pairing'
+import type { PairingPayload, QuestionAnswer } from '../protocol/types'
 import {
   createSessionStore,
   type HarmonySessionStore,
@@ -88,22 +90,14 @@ function upsertAnswer(
   return next
 }
 
-function currentTrackedSessionId(
-  currentSessionId: string,
-  state: HarmonySessionState,
-): string {
-  if (currentSessionId.length > 0) {
-    return currentSessionId
-  }
-  if (state.pairing !== null) {
-    return state.pairing.sessionId
-  }
-  return ''
-}
-
 @Component
 export struct AppShell {
-  private readonly store: HarmonySessionStore = createSessionStore()
+  private readonly entryStore: HarmonySessionStore = createSessionStore()
+  private store: HarmonySessionStore = this.entryStore
+  private readonly stores: Map<string, HarmonySessionStore> = new Map()
+  private readonly storeSubscriptions: Map<string, () => void> = new Map()
+  private readonly states: Map<string, HarmonySessionState> = new Map()
+  private readonly managementPendingSessions: Set<string> = new Set()
   private unsubscribe: (() => void) | null = null
 
   @State private sessionState: HarmonySessionState = createInitialHarmonySessionState()
@@ -115,13 +109,17 @@ export struct AppShell {
   @State private trackedPendingActionId: string = ''
   @State private selfChecks: string[] = ['self-check-pending']
   @State private selfCheckError: string = ''
+  @State private managementBusy: boolean = false
+  @State private managementFeedback: string = ''
 
   aboutToAppear(): void {
     this.sessionState = this.store.getState()
     this.view = defaultView(this.sessions)
     if (this.unsubscribe === null) {
-      this.unsubscribe = this.store.subscribe((nextState: HarmonySessionState) => {
-        this.handleStoreState(nextState)
+      this.unsubscribe = this.entryStore.subscribe((nextState: HarmonySessionState) => {
+        if (this.view === 'pairing') {
+          this.sessionState = nextState
+        }
       })
     }
 
@@ -141,16 +139,26 @@ export struct AppShell {
       this.unsubscribe()
       this.unsubscribe = null
     }
+    this.storeSubscriptions.forEach((unsubscribe: () => void) => unsubscribe())
+    this.storeSubscriptions.clear()
+    this.stores.forEach((store: HarmonySessionStore) => {
+      store.setManagementListener(null)
+      store.disconnect()
+    })
+    this.stores.clear()
+    this.states.clear()
+    this.managementPendingSessions.clear()
+    this.store = this.entryStore
+    this.currentSessionId = ''
+    this.managementBusy = false
   }
 
-  private handleStoreState(nextState: HarmonySessionState): void {
-    const previousState = this.sessionState
-    this.sessionState = nextState
-    this.syncPendingAnswers(nextState)
-
-    const sessionId = currentTrackedSessionId(this.currentSessionId, nextState)
-    if (sessionId.length === 0) {
-      return
+  private handleStoreState(sessionId: string, nextState: HarmonySessionState): void {
+    const previousState = this.states.get(sessionId) ?? createInitialHarmonySessionState()
+    this.states.set(sessionId, nextState)
+    if (sessionId === this.currentSessionId) {
+      this.sessionState = nextState
+      this.syncPendingAnswers(nextState)
     }
 
     if (
@@ -180,6 +188,39 @@ export struct AppShell {
       previousState.connection !== nextState.connection
     ) {
       this.sessions = markSessionRecordStatus(this.sessions, sessionId, 'disconnected')
+    }
+  }
+
+  private connectSession(pairing: PairingPayload): HarmonySessionStore {
+    let store = this.stores.get(pairing.sessionId)
+    if (store === undefined) {
+      store = createSessionStore()
+      const sessionId = pairing.sessionId
+      this.stores.set(sessionId, store)
+      const unsubscribe = store.subscribe((state: HarmonySessionState) => this.handleStoreState(sessionId, state))
+      this.storeSubscriptions.set(sessionId, unsubscribe)
+      store.setManagementListener((result: ManagementResultInfo) => this.handleManagementResult(sessionId, result))
+      store.connectWithPairing(pairing)
+    }
+    return store
+  }
+
+  private handleManagementResult(sourceSessionId: string, result: ManagementResultInfo): void {
+    this.managementPendingSessions.delete(sourceSessionId)
+    if (sourceSessionId === this.currentSessionId) {
+      this.managementBusy = false
+      this.managementFeedback = result.accepted
+        ? (result.operation === 'stop_session' ? 'Claude 会话已终止；配对入口仍保留' : '')
+        : (result.code === 'session_capacity' ? '活跃会话已达上限' : '操作失败，请重试')
+    }
+    if (result.accepted && result.operation === 'create_session' && result.pairing !== undefined) {
+      this.sessions = upsertSessionRecord(this.sessions, result.pairing)
+      this.currentSessionId = result.pairing.sessionId
+      this.store = this.connectSession(result.pairing)
+      this.sessionState = this.store.getState()
+      this.managementBusy = this.managementPendingSessions.has(this.currentSessionId)
+      this.managementFeedback = ''
+      this.view = 'detail'
     }
   }
 
@@ -222,13 +263,22 @@ export struct AppShell {
   }
 
   private handleConnect(): void {
-    const connected = this.store.connectFromRawPairing(this.pairingInput)
-    this.sessionState = this.store.getState()
-    if (!connected || this.sessionState.pairing === null) {
+    const result = decodePairingPayload(this.pairingInput)
+    if (!result.ok || result.payload === null) {
+      this.entryStore.connectFromRawPairing(this.pairingInput)
+      this.sessionState = this.entryStore.getState()
       return
     }
-    this.sessions = upsertSessionRecord(this.sessions, this.sessionState.pairing)
-    this.currentSessionId = this.sessionState.pairing.sessionId
+    this.sessions = upsertSessionRecord(this.sessions, result.payload)
+    this.currentSessionId = result.payload.sessionId
+    const existing = this.stores.has(result.payload.sessionId)
+    this.store = this.connectSession(result.payload)
+    if (existing) {
+      this.store.connectWithPairing(result.payload)
+    }
+    this.sessionState = this.store.getState()
+    this.managementBusy = this.managementPendingSessions.has(this.currentSessionId)
+    this.managementFeedback = ''
     this.view = 'detail'
   }
 
@@ -238,8 +288,13 @@ export struct AppShell {
       if (record.sessionId === sessionId) {
         this.currentSessionId = sessionId
         this.view = 'detail'
-        this.store.connectWithPairing(pairingPayloadFromRecord(record))
+        this.store = this.connectSession(pairingPayloadFromRecord(record))
         this.sessionState = this.store.getState()
+        this.managementBusy = this.managementPendingSessions.has(sessionId)
+        this.managementFeedback = ''
+        if (this.sessionState.connection === ConnectionStage.DISCONNECTED) {
+          this.store.reconnect()
+        }
         return
       }
     }
@@ -248,8 +303,18 @@ export struct AppShell {
   private handleRemoveSession(sessionId: string): void {
     if (sessionId === this.currentSessionId) {
       this.currentSessionId = ''
-      this.store.reset()
-      this.sessionState = this.store.getState()
+      this.store = this.entryStore
+      this.sessionState = createInitialHarmonySessionState()
+    }
+    const removed = this.stores.get(sessionId)
+    if (removed !== undefined) {
+      removed.setManagementListener(null)
+      this.storeSubscriptions.get(sessionId)?.()
+      removed.disconnect()
+      this.stores.delete(sessionId)
+      this.storeSubscriptions.delete(sessionId)
+      this.states.delete(sessionId)
+      this.managementPendingSessions.delete(sessionId)
     }
     this.sessions = removeSessionRecord(this.sessions, sessionId)
     if (this.sessions.length === 0) {
@@ -263,11 +328,37 @@ export struct AppShell {
 
   private handleBackFromDetail(): void {
     this.currentSessionId = ''
-    this.store.reset()
-    this.sessionState = this.store.getState()
     this.questionAnswers = []
     this.trackedPendingActionId = ''
+    this.managementBusy = false
+    this.managementFeedback = ''
     this.view = defaultView(this.sessions)
+  }
+
+  private handleCreateSession(): void {
+    if (this.store.createSession()) {
+      this.managementPendingSessions.add(this.currentSessionId)
+      this.managementBusy = true
+      this.managementFeedback = ''
+    }
+  }
+
+  private handleStopSession(): void {
+    AlertDialog.show({
+      title: '终止此 Claude 会话？',
+      message: '将关闭对应的 Claude Client，之后无法在原会话继续输入。配对入口和终态会保留，其他会话不受影响。',
+      primaryButton: {
+        value: '终止会话',
+        action: () => {
+          if (this.store.stopSession()) {
+            this.managementPendingSessions.add(this.currentSessionId)
+            this.managementBusy = true
+            this.managementFeedback = ''
+          }
+        },
+      },
+      secondaryButton: { value: '取消', action: () => {} },
+    })
   }
 
   private handleSend(text: string): void {
@@ -347,6 +438,11 @@ export struct AppShell {
       title: this.activeRecordTitle(),
       state: this.sessionState,
       questionAnswers: this.questionAnswers,
+      capabilities: this.activeRecord()?.capabilities ?? [],
+      managementBusy: this.managementBusy,
+      managementFeedback: this.managementFeedback,
+      onCreateSession: () => this.handleCreateSession(),
+      onStopSession: () => this.handleStopSession(),
       onBack: () => {
         this.handleBackFromDetail()
       },

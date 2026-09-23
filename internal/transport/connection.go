@@ -142,6 +142,12 @@ func (c *connection) readLoop() {
 				continue
 			}
 			if envelope.Type != TypeCommand {
+				if envelope.Type == TypeCreateSession || envelope.Type == TypeStopSession {
+					if !c.handleManagement(envelope) {
+						return
+					}
+					continue
+				}
 				c.fail(CodeInvalidState, "message is not allowed while subscribed")
 				return
 			}
@@ -152,6 +158,45 @@ func (c *connection) readLoop() {
 			return
 		}
 	}
+}
+
+func (c *connection) handleManagement(envelope Envelope) bool {
+	if envelope.SessionID != c.sessionID || c.subscription == nil {
+		c.fail(CodeInvalidState, "invalid connection state")
+		return false
+	}
+	result := ManagementResultPayload{}
+	if c.server.isShuttingDown() || c.server.config.Management == nil {
+		result.Code = CodeSessionUnavailable
+		result.Message = "session unavailable"
+	} else if envelope.Type == TypeCreateSession {
+		created, err := c.server.config.Management.CreateSession(c.context, c.sessionID, envelope.CommandID)
+		if err != nil {
+			result.Code, result.Message = managementError(err)
+		} else {
+			result.Accepted = true
+			result.Pairing = &created
+		}
+	} else {
+		if err := c.server.config.Management.StopSession(c.context, c.sessionID); err != nil {
+			result.Code, result.Message = managementError(err)
+		} else {
+			result.Accepted = true
+		}
+	}
+	resultType := TypeCreateSessionResult
+	if envelope.Type == TypeStopSession {
+		resultType = TypeStopSessionResult
+	}
+	return c.enqueue(resultType, envelope.CommandID, "", 0, result) == nil
+}
+
+func managementError(err error) (string, string) {
+	var protocolErr *ProtocolError
+	if errors.As(err, &protocolErr) {
+		return protocolErr.Code, protocolErr.Message
+	}
+	return CodeInternal, "management operation failed"
 }
 
 func (c *connection) handleUnsubscribe(envelope Envelope) bool {

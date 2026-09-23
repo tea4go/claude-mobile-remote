@@ -35,6 +35,15 @@ export type ClientEvent =
       code: string
       message: string
     }
+  | {
+      kind: 'managementResult'
+      operation: 'create_session' | 'stop_session'
+      commandId: string
+      accepted: boolean
+      code: string
+      message: string
+      pairing?: PairingPayload
+    }
 
 export type CloseKind =
   // 非正常 WebSocket close（含服务端溢出关闭），统一按已断开 + 结果未知处理。
@@ -85,6 +94,7 @@ export class ProtocolClient {
   private socket: SocketLike | null = null
   private stage: Stage = 'connecting'
   private pendingCommandId: string | null = null
+  private pendingKind: 'command' | 'create_session' | 'stop_session' | null = null
   private closedByUser = false
   private generation = 0
 
@@ -143,6 +153,7 @@ export class ProtocolClient {
       // 断开状态由 onClose 通知，不进入 connectionStateChanged。
       this.onClose?.({ kind: 'disconnected', pendingCommandId: this.pendingCommandId })
       this.pendingCommandId = null
+      this.pendingKind = null
     }
   }
 
@@ -156,6 +167,7 @@ export class ProtocolClient {
     this.socket = null
     this.stage = 'connecting'
     this.pendingCommandId = null
+    this.pendingKind = null
     if (socket === null) return
     this.closedByUser = true
     this.generation++
@@ -191,6 +203,23 @@ export class ProtocolClient {
     return this.sendCommand(commandId, { kind: 'set_permission_mode', permissionMode })
   }
 
+  createSession(commandId: string): SendResult {
+    return this.sendManagement('create_session', commandId)
+  }
+
+  stopSession(commandId: string): SendResult {
+    return this.sendManagement('stop_session', commandId)
+  }
+
+  private sendManagement(kind: 'create_session' | 'stop_session', commandId: string): SendResult {
+    if (this.stage !== 'ready' || this.socket === null) return { ok: false, reason: 'notReady' }
+    if (this.pendingCommandId !== null) return { ok: false, reason: 'busy' }
+    this.pendingCommandId = commandId
+    this.pendingKind = kind
+    this.socket.send(envelope(kind, this.payload.sessionId, commandId, '', 0, {}))
+    return { ok: true }
+  }
+
   // 所有命令共用单在途门控：服务端按 commandId 单次应答，并行发送无法对应结果。
   private sendCommand(commandId: string, payload: CommandPayload): SendResult {
     if (this.stage !== 'ready' || this.socket === null) {
@@ -200,6 +229,7 @@ export class ProtocolClient {
       return { ok: false, reason: 'busy' }
     }
     this.pendingCommandId = commandId
+    this.pendingKind = 'command'
     this.socket.send(
       envelope('command', this.payload.sessionId, commandId, '', 0, payload),
     )
@@ -228,6 +258,7 @@ export class ProtocolClient {
     }
     this.onClose?.({ kind, pendingCommandId: this.pendingCommandId })
     this.pendingCommandId = null
+    this.pendingKind = null
   }
 
   private handleMessage(data: string): void {
@@ -243,7 +274,9 @@ export class ProtocolClient {
       (message.type === 'snapshot' ||
         message.type === 'event' ||
         message.type === 'unsupported' ||
-        message.type === 'command_result') &&
+        message.type === 'command_result' ||
+        message.type === 'create_session_result' ||
+        message.type === 'stop_session_result') &&
       message.sessionId !== this.payload.sessionId
     ) {
       this.terminate('protocolError')
@@ -290,11 +323,12 @@ export class ProtocolClient {
           this.terminate('protocolError')
           return
         }
-        if (message.commandId !== this.pendingCommandId) {
+        if (message.commandId !== this.pendingCommandId || this.pendingKind !== 'command') {
           this.terminate('protocolError')
           return
         }
         this.pendingCommandId = null
+        this.pendingKind = null
         this.emit({
           kind: 'commandResult',
           commandId: message.commandId,
@@ -304,6 +338,23 @@ export class ProtocolClient {
           message: message.payload.message,
         })
         return
+      case 'create_session_result':
+      case 'stop_session_result': {
+        const operation = message.type === 'create_session_result' ? 'create_session' : 'stop_session'
+        if (this.stage !== 'ready' || message.commandId !== this.pendingCommandId || this.pendingKind !== operation) {
+          this.terminate('protocolError')
+          return
+        }
+        this.pendingCommandId = null
+        this.pendingKind = null
+        this.emit({
+          kind: 'managementResult', operation, commandId: message.commandId,
+          accepted: message.payload.accepted, code: message.payload.code,
+          message: message.payload.message,
+          ...(message.payload.pairing === undefined ? {} : { pairing: message.payload.pairing }),
+        })
+        return
+      }
       case 'unsupported':
         if (this.stage !== 'ready') {
           this.terminate('protocolError')

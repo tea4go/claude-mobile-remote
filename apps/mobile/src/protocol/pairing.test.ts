@@ -45,6 +45,21 @@ describe('配对负载版本与协议版本相互独立', () => {
 })
 
 describe('parsePairingJson：原始 JSON', () => {
+  test('保留已声明的多 Session 能力且旧配对保持兼容', () => {
+    const payload = validPayload()
+    payload.capabilities = ['create_session', 'stop_session']
+    expect(parsePairingJson(JSON.stringify(payload), NOW)).toEqual({ ok: true, value: payload })
+    delete payload.capabilities
+    expect(parsePairingJson(JSON.stringify(payload), NOW)).toEqual({ ok: true, value: payload })
+  })
+
+  test('拒绝未知或重复能力', () => {
+    const payload = validPayload() as unknown as Record<string, unknown>
+    payload.capabilities = ['create_session', 'unknown']
+    expect(parsePairingJson(JSON.stringify(payload), NOW)).toEqual({ ok: false, error: INVALID })
+    payload.capabilities = ['create_session', 'create_session']
+    expect(parsePairingJson(JSON.stringify(payload), NOW)).toEqual({ ok: false, error: INVALID })
+  })
   test('合法 payload 解析成功', () => {
     const result = parsePairingJson(JSON.stringify(validPayload()), NOW)
     expect(result.ok).toBe(true)

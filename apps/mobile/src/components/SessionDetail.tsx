@@ -29,6 +29,9 @@ interface SessionDetailProps {
   onResolveAction: (resolution: ActionResolution) => boolean | void
   onCancelTurn: (requestId: string) => boolean | void
   onCancelQueued: (requestId: string) => boolean | void
+  onCreateSession?: () => void
+  managementBusy?: boolean
+  managementFeedback?: string | null
 }
 
 // 会话详情页（B1）：单个 Session 的状态栏、消息流与输入区。
@@ -46,13 +49,16 @@ export default function SessionDetail({
   onResolveAction,
   onCancelTurn,
   onCancelQueued,
+  onCreateSession,
+  managementBusy = false,
+  managementFeedback = null,
 }: SessionDetailProps) {
   const showReconnect =
     (state.phase === 'disconnected' || state.phase === 'protocolError') && !pairingInvalid
   // 所有命令共用单在途门控（B2 §5）：取消类命令不依赖 canSend，
   // 因为等待待处理事项时自由文本被禁用但仍应可取消。
   const commandReady =
-    !pairingInvalid && state.phase === 'connected' && state.pendingCommand === null
+    !pairingInvalid && state.phase === 'connected' && state.pendingCommand === null && !managementBusy
   const cancelRequested = state.pendingCommand?.kind === 'cancel_turn'
 
   return (
@@ -81,6 +87,7 @@ export default function SessionDetail({
           turnStatus={turnStatus}
           queueDepthHint={state.queueDepthHint}
         />
+        {managementFeedback !== null && <div role="status">{managementFeedback}</div>}
         {/* 不支持通知（B2 §4.4）：只提示并引导回电脑端，不断开连接。 */}
         {state.lastNotice !== null && (
           <div
@@ -147,6 +154,8 @@ export default function SessionDetail({
           cancelEnabled={commandReady && !cancelRequested}
           onCancelTurn={onCancelTurn}
           permissionPending={state.pendingAction?.kind === 'tool_approval'}
+          onCreateSession={record.capabilities?.includes('create_session') ? onCreateSession : undefined}
+          createSessionEnabled={commandReady}
         />
       </div>
     </div>

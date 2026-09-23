@@ -72,7 +72,8 @@ func ParseFakeScenario(value string) (FakeScenario, error) {
 // FakeHost 是脚本化的 Host 实现，满足 session.Host 接口。它不启动子进程、不读取
 // 用户 Claude 配置，也不打开任何网络连接：全部输出来自本文件的固定假数据。
 type FakeHost struct {
-	scenario FakeScenario
+	scenario  FakeScenario
+	sessionID string
 	// actions 与真实 Host 一样是无缓冲旁路通道：脚本在这里阻塞等待决议，
 	// 因此桩同样能暴露上层的死锁问题（设计 §3.4）。
 	actions  chan *ActionRequest
@@ -90,19 +91,29 @@ type FakeHost struct {
 
 // NewFakeHost 按脚本名创建桩 Host。未知脚本名直接报错，不回退到任何默认脚本。
 func NewFakeHost(scenario FakeScenario) (*FakeHost, error) {
+	return NewFakeHostForSession(scenario, FakeSessionID)
+}
+
+// NewFakeHostForSession gives concurrent fake sessions distinct identities.
+// The historical constructor keeps its fixed ID for existing fixtures.
+func NewFakeHostForSession(scenario FakeScenario, sessionID string) (*FakeHost, error) {
 	if _, err := ParseFakeScenario(string(scenario)); err != nil {
 		return nil, err
 	}
+	if sessionID == "" {
+		return nil, errors.New("fake session ID is required")
+	}
 	return &FakeHost{
-		scenario: scenario,
-		actions:  make(chan *ActionRequest),
-		stopped:  make(chan struct{}),
+		scenario:  scenario,
+		sessionID: sessionID,
+		actions:   make(chan *ActionRequest),
+		stopped:   make(chan struct{}),
 	}, nil
 }
 
 // SessionID 返回固定的桩 session ID。它在 Connect 前即可用，因此桩可以直接走
 // A5.2 的预留 ID 装配路径。
-func (h *FakeHost) SessionID() string { return FakeSessionID }
+func (h *FakeHost) SessionID() string { return h.sessionID }
 
 // Actions 返回 pending action 的上行通道。
 func (h *FakeHost) Actions() <-chan *ActionRequest { return h.actions }
@@ -199,19 +210,19 @@ func (h *FakeHost) RunTurn(ctx context.Context, prompt string, emit func(Event))
 		emit = func(Event) {}
 	}
 	if h.markSessionStarted() {
-		emit(Event{Kind: EventSessionStarted, SessionID: FakeSessionID, Source: SessionIDFromInit})
+		emit(Event{Kind: EventSessionStarted, SessionID: h.sessionID, Source: SessionIDFromInit})
 	}
 
 	switch h.scenario {
 	case FakeScenarioText:
-		emit(Event{Kind: EventText, SessionID: FakeSessionID, Text: fakeTextScenarioReply})
-		emit(Event{Kind: EventTurnCompleted, SessionID: FakeSessionID})
+		emit(Event{Kind: EventText, SessionID: h.sessionID, Text: fakeTextScenarioReply})
+		emit(Event{Kind: EventTurnCompleted, SessionID: h.sessionID})
 		return nil
 	case FakeScenarioTurnFailure:
-		emit(Event{Kind: EventTurnFailed, SessionID: FakeSessionID, Text: fakeTurnFailureText})
+		emit(Event{Kind: EventTurnFailed, SessionID: h.sessionID, Text: fakeTurnFailureText})
 		return wrapError(ScopeTurn, "执行桩 Turn", errors.New(fakeTurnFailureText))
 	case FakeScenarioSessionFailure:
-		emit(Event{Kind: EventTurnFailed, SessionID: FakeSessionID, Text: fakeSessionFailureText})
+		emit(Event{Kind: EventTurnFailed, SessionID: h.sessionID, Text: fakeSessionFailureText})
 		return wrapError(ScopeSession, "执行桩 Turn", errors.New(fakeSessionFailureText))
 	default:
 		return h.runInteractive(ctx, turnDone, emit)
@@ -221,10 +232,10 @@ func (h *FakeHost) RunTurn(ctx context.Context, prompt string, emit func(Event))
 // runInteractive 是完整交互脚本。两次 action 之间照常产出结构化块，使上层能验证
 // 「等待决议」与「事件推进」在同一 Turn 内交替出现。
 func (h *FakeHost) runInteractive(ctx context.Context, turnDone <-chan struct{}, emit func(Event)) error {
-	emit(Event{Kind: EventContentBlock, SessionID: FakeSessionID, Block: &ContentBlock{
+	emit(Event{Kind: EventContentBlock, SessionID: h.sessionID, Block: &ContentBlock{
 		Kind: BlockThinking, Thinking: fakeThinkingText,
 	}})
-	emit(Event{Kind: EventContentBlock, SessionID: FakeSessionID, Block: &ContentBlock{
+	emit(Event{Kind: EventContentBlock, SessionID: h.sessionID, Block: &ContentBlock{
 		Kind: BlockToolUse, ToolUseID: fakeToolUseID, ToolClass: ToolBuiltin, ToolName: fakeToolName,
 	}})
 
@@ -242,11 +253,11 @@ func (h *FakeHost) runInteractive(ctx context.Context, turnDone <-chan struct{},
 	denied := approval.Kind == DecisionDeny
 	// tool_result 只带关联 ID 与成败状态（B2 §4.2）：工具名只在 tool_use 上出现，
 	// 桩不能比真实 Adapter 多下发字段。
-	emit(Event{Kind: EventContentBlock, SessionID: FakeSessionID, Block: &ContentBlock{
+	emit(Event{Kind: EventContentBlock, SessionID: h.sessionID, Block: &ContentBlock{
 		Kind: BlockToolResult, ToolUseID: fakeToolUseID, IsError: &denied,
 	}})
 
-	emit(Event{Kind: EventContentBlock, SessionID: FakeSessionID, Block: &ContentBlock{
+	emit(Event{Kind: EventContentBlock, SessionID: h.sessionID, Block: &ContentBlock{
 		Kind: BlockToolUse, ToolUseID: fakeQuestionToolUseID, ToolClass: ToolBuiltin, ToolName: askUserQuestionToolName,
 	}})
 	answered, err := h.requestAction(ctx, turnDone, ActionSpec{
@@ -259,12 +270,12 @@ func (h *FakeHost) runInteractive(ctx context.Context, turnDone <-chan struct{},
 	}
 	// 提问的 tool_result 永远不是错误：结果修正已在映射层完成（设计 §3.1）。
 	questionFailed := false
-	emit(Event{Kind: EventContentBlock, SessionID: FakeSessionID, Block: &ContentBlock{
+	emit(Event{Kind: EventContentBlock, SessionID: h.sessionID, Block: &ContentBlock{
 		Kind: BlockToolResult, ToolUseID: fakeQuestionToolUseID, IsError: &questionFailed,
 	}})
 
-	emit(Event{Kind: EventText, SessionID: FakeSessionID, Text: describeFakeOutcome(denied, answered.Answers)})
-	emit(Event{Kind: EventTurnCompleted, SessionID: FakeSessionID})
+	emit(Event{Kind: EventText, SessionID: h.sessionID, Text: describeFakeOutcome(denied, answered.Answers)})
+	emit(Event{Kind: EventTurnCompleted, SessionID: h.sessionID})
 	return nil
 }
 

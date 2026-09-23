@@ -13,6 +13,22 @@ import (
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
 )
 
+func TestMaxSessionsConfig(t *testing.T) {
+	config, err := parseConfig(nil)
+	if err != nil || config.maxSessions != 4 {
+		t.Fatalf("default max sessions = %d, err = %v", config.maxSessions, err)
+	}
+	config, err = parseConfig([]string{"--max-sessions", "8"})
+	if err != nil || config.maxSessions != 8 {
+		t.Fatalf("configured max sessions = %d, err = %v", config.maxSessions, err)
+	}
+	for _, value := range []string{"0", "33"} {
+		if _, err := parseConfig([]string{"--max-sessions", value}); err == nil {
+			t.Fatalf("invalid max sessions %s accepted", value)
+		}
+	}
+}
+
 func TestRunMainVersionDoesNotBuildRuntime(t *testing.T) {
 	called := false
 	var output bytes.Buffer

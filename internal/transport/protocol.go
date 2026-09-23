@@ -61,17 +61,21 @@ func (e *ProtocolError) Unwrap() error {
 type MessageType string
 
 const (
-	TypeHello         MessageType = "hello"
-	TypeHelloAck      MessageType = "hello_ack"
-	TypeSubscribe     MessageType = "subscribe"
-	TypeSubscribed    MessageType = "subscribed"
-	TypeUnsubscribe   MessageType = "unsubscribe"
-	TypeUnsubscribed  MessageType = "unsubscribed"
-	TypeSnapshot      MessageType = "snapshot"
-	TypeEvent         MessageType = "event"
-	TypeCommand       MessageType = "command"
-	TypeCommandResult MessageType = "command_result"
-	TypeError         MessageType = "error"
+	TypeHello               MessageType = "hello"
+	TypeHelloAck            MessageType = "hello_ack"
+	TypeSubscribe           MessageType = "subscribe"
+	TypeSubscribed          MessageType = "subscribed"
+	TypeUnsubscribe         MessageType = "unsubscribe"
+	TypeUnsubscribed        MessageType = "unsubscribed"
+	TypeSnapshot            MessageType = "snapshot"
+	TypeEvent               MessageType = "event"
+	TypeCommand             MessageType = "command"
+	TypeCommandResult       MessageType = "command_result"
+	TypeCreateSession       MessageType = "create_session"
+	TypeCreateSessionResult MessageType = "create_session_result"
+	TypeStopSession         MessageType = "stop_session"
+	TypeStopSessionResult   MessageType = "stop_session_result"
+	TypeError               MessageType = "error"
 	// TypeUnsupported reports that something could not be represented safely.
 	// It is its own type rather than a content block kind or an event kind, so a
 	// client handles the notice in exactly one place and never has to guess at
@@ -137,6 +141,15 @@ type CommandResultPayload struct {
 	Accepted bool   `json:"accepted"`
 	Code     string `json:"code"`
 	Message  string `json:"message"`
+}
+
+// ManagementResultPayload never enters a Session event stream. A successful
+// create result carries the new Session's credential only to its requester.
+type ManagementResultPayload struct {
+	Accepted bool              `json:"accepted"`
+	Code     string            `json:"code"`
+	Message  string            `json:"message"`
+	Pairing  *protocol.Pairing `json:"pairing,omitempty"`
 }
 
 type ErrorPayload struct {
@@ -206,6 +219,24 @@ func ValidateEnvelope(envelope Envelope) error {
 	}
 
 	switch envelope.Type {
+	case TypeCreateSession, TypeStopSession:
+		if envelope.CommandID == "" || envelope.RequestID != "" || envelope.Seq != 0 || !isEmptyPayload(envelope) {
+			return protocolError(CodeInvalidMessage, "invalid management request")
+		}
+	case TypeCreateSessionResult, TypeStopSessionResult:
+		var payload ManagementResultPayload
+		if envelope.CommandID == "" || envelope.RequestID != "" || envelope.Seq != 0 || DecodePayload(envelope, &payload) != nil {
+			return protocolError(CodeInvalidMessage, "invalid management result")
+		}
+		if payload.Accepted {
+			if payload.Code != "" || payload.Message != "" ||
+				(envelope.Type == TypeCreateSessionResult && !validCreatedPairing(payload.Pairing, envelope.SessionID)) ||
+				(envelope.Type == TypeStopSessionResult && payload.Pairing != nil) {
+				return protocolError(CodeInvalidMessage, "invalid accepted management result")
+			}
+		} else if payload.Code == "" || payload.Pairing != nil {
+			return protocolError(CodeInvalidMessage, "invalid rejected management result")
+		}
 	case TypeCommand:
 		if envelope.CommandID == "" || envelope.RequestID != "" || envelope.Seq != 0 {
 			return protocolError(CodeInvalidMessage, "invalid command correlation fields")
@@ -269,6 +300,12 @@ func ValidateEnvelope(envelope Envelope) error {
 		return protocolError(CodeInvalidMessage, "unknown message type")
 	}
 	return nil
+}
+
+func validCreatedPairing(pairing *protocol.Pairing, sourceSessionID string) bool {
+	return pairing != nil && pairing.Version == protocol.PayloadVersion && pairing.WSURL != "" &&
+		pairing.SessionID != "" && pairing.SessionID != sourceSessionID && pairing.PairToken != "" &&
+		!pairing.ExpiresAt.IsZero()
 }
 
 // validateCommand keeps each command kind to its own disjoint field subset, so

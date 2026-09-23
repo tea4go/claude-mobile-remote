@@ -12,6 +12,7 @@ export interface PairingPayload {
   sessionId: string
   pairToken: string
   expiresAt: string
+  capabilities?: Array<'create_session' | 'stop_session'>
 }
 
 export type PairingResult =
@@ -28,7 +29,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function validatePayload(value: unknown, now: number): PairingResult {
   if (!isObject(value)) return { ok: false, error: ERROR_INVALID }
 
-  const { version, wsUrl, sessionId, pairToken, expiresAt } = value
+  const { version, wsUrl, sessionId, pairToken, expiresAt, capabilities } = value
   if (version !== PAIRING_PAYLOAD_VERSION) return { ok: false, error: ERROR_INVALID }
   if (
     typeof wsUrl !== 'string' ||
@@ -56,9 +57,17 @@ function validatePayload(value: unknown, now: number): PairingResult {
   if (Number.isNaN(expires)) return { ok: false, error: ERROR_INVALID }
   if (expires <= now) return { ok: false, error: ERROR_EXPIRED }
 
+  if (capabilities !== undefined &&
+    (!Array.isArray(capabilities) || capabilities.length > 2 ||
+      new Set(capabilities).size !== capabilities.length ||
+      capabilities.some((item) => item !== 'create_session' && item !== 'stop_session'))) {
+    return { ok: false, error: ERROR_INVALID }
+  }
+
   return {
     ok: true,
-    value: { version, wsUrl, sessionId, pairToken, expiresAt },
+    value: { version, wsUrl, sessionId, pairToken, expiresAt,
+      ...(capabilities === undefined ? {} : { capabilities: capabilities as PairingPayload['capabilities'] }) },
   }
 }
 

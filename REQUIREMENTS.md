@@ -2,7 +2,7 @@
 
 ## 一、产品目标
 
-用户在电脑上通过 Standalone CLI 创建或恢复 Claude Session；离开电脑前扫描当前会话二维码，即可在手机上继续查看进度、发送消息和处理任务。后续同一套单 Session Remote Server 可嵌入 WhaleTerm 已持有的 Claude Session，移动端可保存并切换多个已扫描 Session。
+用户在电脑上通过 Standalone CLI 创建或恢复 Claude Session；离开电脑前扫描当前会话二维码，即可在手机上继续查看进度、发送消息和处理任务。新增目标：已配对手机可在该 CLI 的工作目录创建另一独立 Claude Session，旧会话继续运行；同一 CLI 进程管理多个 Session。移动端可保存、同步并切换多个已配对 Session。
 
 > 产品定位：远程接力当前 Claude 会话，不做全量 Claude 历史管理器。
 >
@@ -15,10 +15,11 @@
 | 前期 | 单会话接力 | 扫码连接当前 `sessionId`，实时查看新消息并发送简单指令 |
 | 中期 | 完整会话控制 | 展示 Markdown、Thinking、Tool，支持审批、回答、取消和补充指令 |
 | 中期 | 移动端多 Session | 安全保存多个已扫描 Session，在列表与单个会话详情间切换 |
-| 中期 | 宿主复用 | Standalone CLI 为自身唯一 Session 启动 Remote Server；WhaleTerm 可为其持有的多个 Session 分别启动独立的单 Session Remote Server |
+| 新增 | CLI 多 Session 管理 | 已配对手机可新建独立 Session；同一 CLI 进程内的旧 Session 继续运行，多个 Session 各自隔离 |
+| 中期 | 宿主复用 | 公共 Remote Server 保持单 Session 组件；Standalone CLI 另设多 Session 管理层 |
 | 后期 | 原生体验 | 支持原生扫码、安全存储、语音输入、生命周期恢复和系统通知 |
 | 后期 | 三端覆盖 | iOS / Android 先行，HarmonyOS NEXT 独立开发 |
-| 后期 | 多机器与独立公网访问 | 通过多个配对记录切换 Session；使用可信的每 CLI 单隧道 Relay 脱离 VPN |
+| 后期 | 多机器与独立公网访问 | 通过多个配对记录切换 Session；可信 Relay 的 CLI 多 Session 映射后续单独设计 |
 
 ## 三、核心流程
 
@@ -49,8 +50,10 @@ flowchart LR
     CH -->|"转交操作"| SC
 ```
 
+该图表示单个 Session 的内部链路；Standalone CLI 多 Session 时由 CLI Manager 并行持有多套 Host/Controller/Channel，详见新增设计。
+
 - 每个活跃 Claude Session 只有一个 Session Host 和一个 SDK Client；
-- 一个 Standalone CLI 进程只管理一个 Session；低频并行 Session 通过多个进程和不同端口解决；
+- Standalone CLI 新增进程内多 Session 管理；每个 Session 仍有独立 Host、SDK Client、Controller、输入队列、Channel 和配对凭证，手机新建使用 CLI 固定的工作目录；设计见 `docs/specs/2026-09-23-standalone-cli-multi-session-design.md`；
 - WhaleTerm 后续只暴露自身已持有的一个 Session，不启动额外 CLI 或第二个 SDK Client；
 - `github.com/tea4go/claude-agent-sdk-go` 负责启动 Claude、接收事件和执行控制；
 - Claude 的完整上下文和所有操作始终留在 PC；手机只展示 PC 推送的数据并回传操作；
@@ -61,7 +64,7 @@ flowchart LR
 - WebSocket 是网络传输协议，不使用操作系统 Pipe 连接手机；
 - 移动端可保存多个独立配对记录；App 前台生命周期内分别连接和同步全部有效配对 Session，一次只展示一个 Session 详情；
 - 手机默认先连接 VPN，再通过 WebSocket 直连 PC；不开发局域网发现或 NAT 穿透；
-- 后期 Relay 每个 CLI 只建立一条出站隧道，不保存 Claude 状态或历史。
+- 后期 Relay 与 CLI 多 Session 的隧道映射需另行设计，当前不实现；Relay 不保存 Claude 状态或历史。
 
 ## 五、首期范围
 
@@ -180,7 +183,14 @@ flowchart TD
 
 每次只展开当前子阶段的实施计划；直接依赖的门禁未通过，不进入该子阶段。C1 在 A6 后可与 B 并行，C2 依赖 C1 与 B2，W1 依赖 B3。
 
-公网中转、系统推送、单进程多 Session 和云端多机器管理在核心闭环稳定后单独排期，不反向阻塞前期设计。
+Standalone CLI 单进程多 Session 已按 D68–D71 确认并进入实现与验证；公网中转、系统推送和云端多机器管理继续单独排期。
+
+### 9.3 新增子阶段：Standalone CLI 多 Session
+
+- 已配对移动端可在启动时固定的 CLI 工作目录创建全新 Claude Session，不影响已有 Session 运行；
+- CLI 在同一进程内维护多个相互隔离的 Session，移动端能分别连接、查看和控制自身已配对的 Session；
+- 每个活跃 Session 只有一个 Host/SDK Client，同 Session 多入口输入仍走单一队列；凭证不得跨 Session 授权；
+- 任一有效已订阅 Session 凭证可请求创建；默认四个活跃会话上限，已停止会话不计入；停止后保留配对与终态入口。按共用协议在 Go、移动端和真机门禁验证。
 
 ## 十、首期验收标准
 

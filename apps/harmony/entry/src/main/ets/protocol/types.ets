@@ -41,6 +41,10 @@ export const MESSAGE_TYPE_VALUES: string[] = [
   'unsupported',
   'command',
   'command_result',
+  'create_session',
+  'create_session_result',
+  'stop_session',
+  'stop_session_result',
   'error',
 ]
 export const SERVER_MESSAGE_TYPE_VALUES: string[] = [
@@ -51,6 +55,8 @@ export const SERVER_MESSAGE_TYPE_VALUES: string[] = [
   'event',
   'unsupported',
   'command_result',
+  'create_session_result',
+  'stop_session_result',
   'error',
 ]
 export const UNSUPPORTED_CODE_VALUES: string[] = [
@@ -90,6 +96,10 @@ export type MessageType =
   | 'unsupported'
   | 'command'
   | 'command_result'
+  | 'create_session'
+  | 'create_session_result'
+  | 'stop_session'
+  | 'stop_session_result'
   | 'error'
 export type ServerMessageType =
   | 'hello_ack'
@@ -99,6 +109,8 @@ export type ServerMessageType =
   | 'event'
   | 'unsupported'
   | 'command_result'
+  | 'create_session_result'
+  | 'stop_session_result'
   | 'error'
 export type UnsupportedCode =
   | 'unknown_block'
@@ -114,6 +126,7 @@ export interface PairingPayload {
   sessionId: string
   pairToken: string
   expiresAt: string
+  capabilities?: string[]
 }
 
 export interface ErrorInfo {
@@ -257,6 +270,13 @@ export interface CommandResultPayload {
   message: string
 }
 
+export interface ManagementResultPayload {
+  accepted: boolean
+  code: string
+  message: string
+  pairing?: PairingPayload
+}
+
 export interface ErrorPayload {
   code: string
   message: string
@@ -306,6 +326,16 @@ export interface CommandResultServerMessage extends BaseServerMessage {
   payload: CommandResultPayload
 }
 
+export interface CreateSessionResultServerMessage extends BaseServerMessage {
+  type: 'create_session_result'
+  payload: ManagementResultPayload
+}
+
+export interface StopSessionResultServerMessage extends BaseServerMessage {
+  type: 'stop_session_result'
+  payload: ManagementResultPayload
+}
+
 export interface ErrorServerMessage extends BaseServerMessage {
   type: 'error'
   payload: ErrorPayload
@@ -319,4 +349,6 @@ export type ServerMessage =
   | EventServerMessage
   | UnsupportedServerMessage
   | CommandResultServerMessage
+  | CreateSessionResultServerMessage
+  | StopSessionResultServerMessage
   | ErrorServerMessage

@@ -22,11 +22,12 @@ interface PairingPayloadCandidate {
   sessionId?: string
   pairToken?: string
   expiresAt?: string
+  capabilities?: string[]
 }
 
 const INVALID_PAIRING_MESSAGE = 'Invalid pairing payload'
 const EXPIRED_PAIRING_MESSAGE = 'Pairing token expired'
-const PAIRING_KEYS: string[] = ['version', 'wsUrl', 'sessionId', 'pairToken', 'expiresAt']
+const PAIRING_KEYS: string[] = ['version', 'wsUrl', 'sessionId', 'pairToken', 'expiresAt', 'capabilities']
 const WS_URL_PATTERN = /^wss?:\/\/[^/\s?#]+(?:[/?#][^\s]*)?$/
 const BASE64_URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
 
@@ -129,14 +130,19 @@ function createPairingPayload(
   sessionId: string,
   pairToken: string,
   expiresAt: string,
+  capabilities?: string[],
 ): PairingPayload {
-  return {
+  const payload: PairingPayload = {
     version: PAIRING_PAYLOAD_VERSION,
     wsUrl,
     sessionId,
     pairToken,
     expiresAt,
   }
+  if (capabilities !== undefined) {
+    payload.capabilities = capabilities.slice()
+  }
+  return payload
 }
 
 function validatePairingPayload(value: Object | null, nowMs: number): PairingDecodeResult {
@@ -175,9 +181,24 @@ function validatePairingPayload(value: Object | null, nowMs: number): PairingDec
     return expiredResult()
   }
 
+  const capabilities = candidate.capabilities
+  if (capabilities !== undefined) {
+    if (!Array.isArray(capabilities) || capabilities.length > 2) {
+      return invalidResult()
+    }
+    const seen: string[] = []
+    for (let index = 0; index < capabilities.length; index += 1) {
+      const capability = capabilities[index]
+      if ((capability !== 'create_session' && capability !== 'stop_session') || seen.indexOf(capability) >= 0) {
+        return invalidResult()
+      }
+      seen.push(capability)
+    }
+  }
+
   return createPairingDecodeResult(
     true,
-    createPairingPayload(wsUrl, sessionId, pairToken, expiresAt),
+    createPairingPayload(wsUrl, sessionId, pairToken, expiresAt, capabilities),
     null,
   )
 }

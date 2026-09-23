@@ -49,6 +49,12 @@ export function runSelfChecks(): string[] {
   expectTrue(pairing.payload.sessionId === 'session-1', 'pairing sessionId')
   signals.push('pairing-ok')
 
+  const capable = decodePairingPayload(`{"version":1,"wsUrl":"ws://127.0.0.1:8765/ws","sessionId":"source","pairToken":"fixture","expiresAt":"2099-01-01T00:00:00Z","capabilities":["create_session","stop_session"]}`)
+  expectTrue(capable.ok && capable.payload !== null && capable.payload.capabilities?.length === 2, 'management capabilities')
+  const createResult = decodeServerMessage(`{"version":2,"type":"create_session_result","sessionId":"source","commandId":"cmd-1","requestId":"","seq":0,"payload":{"accepted":true,"code":"","message":"","pairing":{"version":1,"wsUrl":"ws://127.0.0.1:8765/ws","sessionId":"created","pairToken":"fixture-created","expiresAt":"2099-01-01T00:00:00Z","capabilities":["create_session","stop_session"]}}}`)
+  expectTrue(createResult.type === 'create_session_result' && createResult.payload.pairing?.sessionId === 'created', 'create result pairing')
+  signals.push('management-contract-ok')
+
   const expiredPairing = decodePairingPayload(EXPIRED_PAIRING_PAYLOAD, FIXTURE_NOW_MS)
   expectTrue(!expiredPairing.ok, 'expired pairing should fail')
   if (expiredPairing.ok || expiredPairing.error === null) {

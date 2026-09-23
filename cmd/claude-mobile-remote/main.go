@@ -22,7 +22,7 @@ type runtimeBuilder func(cliConfig) (sessionController, remoteService, error)
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	exitCode := runMain(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr, buildRuntime)
+	exitCode := runManagedMain(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 	os.Exit(exitCode)
 }
 

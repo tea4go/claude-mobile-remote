@@ -77,6 +77,15 @@ export interface CommandResultInfo {
   message: string
 }
 
+export interface ManagementResultInfo {
+  operation: 'create_session' | 'stop_session'
+  commandId: string
+  accepted: boolean
+  code: string
+  message: string
+  pairing?: PairingPayload
+}
+
 export interface CloseInfo {
   reason: 'DISCONNECTED' | 'PAIRING_INVALID' | 'PROTOCOL_ERROR'
   pendingCommandId: string | null
@@ -91,6 +100,7 @@ export interface ProtocolClientObserver {
   onEvent?(event: DomainEvent): void
   onUnsupported?(code: UnsupportedCode, seq: number): void
   onCommandResult?(result: CommandResultInfo): void
+  onManagementResult?(result: ManagementResultInfo): void
   onClosed?(info: CloseInfo): void
 }
 
@@ -216,6 +226,7 @@ export class ProtocolClient {
   private socket: webSocket.WebSocket | null = null
   private stage: ClientStage = 'IDLE'
   private pendingCommandId: string | null = null
+  private pendingKind: 'command' | 'create_session' | 'stop_session' | null = null
   private generation = 0
   private userClosed = false
   private observer: ProtocolClientObserver | null = null
@@ -244,6 +255,7 @@ export class ProtocolClient {
     this.stage = 'CONNECTING'
     this.userClosed = false
     this.pendingCommandId = null
+    this.pendingKind = null
 
     socket.on('open', (err: BusinessError, _value: Object) => {
       if (generation !== this.generation || this.socket !== socket) {
@@ -323,6 +335,7 @@ export class ProtocolClient {
     this.socket = null
     this.stage = 'IDLE'
     this.pendingCommandId = null
+    this.pendingKind = null
     if (socket === null) {
       return
     }
@@ -354,6 +367,28 @@ export class ProtocolClient {
     return this.sendCommand(commandId, payload)
   }
 
+  createSession(commandId: string): SendResult {
+    return this.sendManagement('create_session', commandId)
+  }
+
+  stopSession(commandId: string): SendResult {
+    return this.sendManagement('stop_session', commandId)
+  }
+
+  private sendManagement(operation: 'create_session' | 'stop_session', commandId: string): SendResult {
+    if (this.stage !== 'READY' || this.socket === null) {
+      return { ok: false, reason: 'notReady' }
+    }
+    if (this.pendingCommandId !== null) {
+      return { ok: false, reason: 'busy' }
+    }
+    this.pendingCommandId = commandId
+    this.pendingKind = operation
+    const payload = createEmptyPayload()
+    this.sendFrame(encodeEnvelope(operation, this.pairing.sessionId, commandId, '', 0, payload as Object))
+    return { ok: true }
+  }
+
   private sendCommand(commandId: string, payload: CommandPayload): SendResult {
     if (this.stage !== 'READY' || this.socket === null) {
       return { ok: false, reason: 'notReady' }
@@ -362,6 +397,7 @@ export class ProtocolClient {
       return { ok: false, reason: 'busy' }
     }
     this.pendingCommandId = commandId
+    this.pendingKind = 'command'
     this.sendFrame(
       encodeEnvelope('command', this.pairing.sessionId, commandId, '', 0, payload as Object),
     )
@@ -389,6 +425,7 @@ export class ProtocolClient {
   ): void {
     const pendingCommandId = this.pendingCommandId
     this.pendingCommandId = null
+    this.pendingKind = null
     const info: CloseInfo = {
       reason,
       pendingCommandId,
@@ -427,7 +464,9 @@ export class ProtocolClient {
       (message.type === 'snapshot' ||
         message.type === 'event' ||
         message.type === 'unsupported' ||
-        message.type === 'command_result') &&
+        message.type === 'command_result' ||
+        message.type === 'create_session_result' ||
+        message.type === 'stop_session_result') &&
       message.sessionId !== this.pairing.sessionId
     ) {
       this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'message session does not match pairing'))
@@ -465,6 +504,7 @@ export class ProtocolClient {
         }
         this.stage = 'READY'
         this.pendingCommandId = null
+        this.pendingKind = null
         if (this.observer?.onSnapshot !== undefined) {
           this.observer.onSnapshot(message.payload.snapshot)
         }
@@ -492,7 +532,7 @@ export class ProtocolClient {
           this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'command_result arrived before snapshot'))
           return
         }
-        if (message.commandId !== this.pendingCommandId) {
+        if (message.commandId !== this.pendingCommandId || this.pendingKind !== 'command') {
           this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'command_result does not match pending command'))
           return
         }
@@ -501,6 +541,7 @@ export class ProtocolClient {
           return
         }
         this.pendingCommandId = null
+        this.pendingKind = null
         const result: CommandResultInfo = {
           commandId: message.commandId,
           requestId: message.requestId,
@@ -510,6 +551,30 @@ export class ProtocolClient {
         }
         if (this.observer?.onCommandResult !== undefined) {
           this.observer.onCommandResult(result)
+        }
+        return
+      }
+      case 'create_session_result':
+      case 'stop_session_result': {
+        const operation = message.type === 'create_session_result' ? 'create_session' : 'stop_session'
+        if (this.stage !== 'READY' || message.commandId !== this.pendingCommandId || this.pendingKind !== operation) {
+          this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'management result does not match pending request'))
+          return
+        }
+        this.pendingCommandId = null
+        this.pendingKind = null
+        const result: ManagementResultInfo = {
+          operation,
+          commandId: message.commandId,
+          accepted: message.payload.accepted,
+          code: message.payload.code,
+          message: message.payload.message,
+        }
+        if (message.payload.pairing !== undefined) {
+          result.pairing = message.payload.pairing
+        }
+        if (this.observer?.onManagementResult !== undefined) {
+          this.observer.onManagementResult(result)
         }
         return
       }
