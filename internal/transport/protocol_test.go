@@ -20,6 +20,30 @@ func TestProtocolVersionIsTwo(t *testing.T) {
 	}
 }
 
+func TestValidateV3DisplayMetadataAndV2Isolation(t *testing.T) {
+	snapshot := protocol.Snapshot{SessionID: "session-1", Seq: 1, ProjectCwd: "/work/project", SessionTitle: "修复登录", LastActivityAt: "2026-09-23T01:00:00Z"}
+	envelope, err := NewEnvelope(TypeSnapshot, "session-1", "", "", 1, SnapshotPayload{ConnectionStatus: "subscribed", Snapshot: snapshot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateEnvelope(envelope); err == nil {
+		t.Fatal("v2 accepted display metadata")
+	}
+	envelope.Version = LatestVersion
+	if err := ValidateEnvelope(envelope); err != nil {
+		t.Fatalf("v3 rejected display metadata: %v", err)
+	}
+	snapshot.LastActivityAt = "2026-09-23T09:00:00+08:00"
+	envelope, err = NewEnvelope(TypeSnapshot, "session-1", "", "", 1, SnapshotPayload{ConnectionStatus: "subscribed", Snapshot: snapshot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope.Version = LatestVersion
+	if err := ValidateEnvelope(envelope); err == nil {
+		t.Fatal("v3 accepted non-UTC activity time")
+	}
+}
+
 func TestDecodeEnvelope(t *testing.T) {
 	input := []byte(`{"version":2,"type":"command","sessionId":"session-1","commandId":"command-1","requestId":"","seq":0,"payload":{"kind":"send_text","text":"hello"}}`)
 	envelope, err := DecodeEnvelope(input)
@@ -46,7 +70,7 @@ func TestValidateEnvelope(t *testing.T) {
 	}{
 		{
 			name:     "unsupported version",
-			envelope: Envelope{Version: Version + 1, Type: TypeHello, SessionID: "s", Payload: json.RawMessage(`{"pairToken":"fixture"}`)},
+			envelope: Envelope{Version: LatestVersion + 1, Type: TypeHello, SessionID: "s", Payload: json.RawMessage(`{"pairToken":"fixture"}`)},
 			wantCode: CodeUnsupportedVersion,
 		},
 		{
@@ -308,8 +332,8 @@ func TestDecodeEnvelopeRejectsUnknownAndTrailingData(t *testing.T) {
 // refusal tells the client which version to upgrade to and leaks no Session data.
 func TestUnsupportedVersionErrorPayloadCarriesExpectedVersion(t *testing.T) {
 	payload := newErrorPayload(CodeUnsupportedVersion, "unsupported protocol version")
-	if payload.ExpectedVersion != Version {
-		t.Fatalf("ExpectedVersion = %d, want %d", payload.ExpectedVersion, Version)
+	if payload.ExpectedVersion != LatestVersion {
+		t.Fatalf("ExpectedVersion = %d, want %d", payload.ExpectedVersion, LatestVersion)
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

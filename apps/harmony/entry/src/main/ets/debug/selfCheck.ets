@@ -18,6 +18,7 @@ import {
   markSessionRecordStatus,
   renameSessionRecord,
   upsertSessionRecord,
+  updateDisplayRecord,
 } from '../session/records'
 
 function expectTrue(condition: boolean, label: string): void {
@@ -71,6 +72,15 @@ export function runSelfChecks(): string[] {
   expectTrue(preturnSnapshot.payload.snapshot.turn.source === '', 'preturn source should stay empty')
   signals.push('preturn-source-ok')
 
+  const v3Wire = PRETURN_SNAPSHOT_MESSAGE.replace('"version":2', '"version":3')
+    .replace('"queuedRequests":null', '"queuedRequests":null,"projectCwd":"/work/project","sessionTitle":"修复登录","createdAt":"2026-09-23T01:00:00Z"')
+  const v3Snapshot = decodeServerMessage(v3Wire)
+  expectTrue(v3Snapshot.type === 'snapshot', 'v3 snapshot type')
+  if (v3Snapshot.type !== 'snapshot') throw new Error('unreachable')
+  expectTrue(v3Snapshot.payload.snapshot.projectCwd === '/work/project', 'v3 project cwd')
+  expectTrue(v3Snapshot.payload.snapshot.sessionTitle === '修复登录', 'v3 session title')
+  signals.push('v3-display-ok')
+
   const contentBlockEvent = decodeServerMessage(CONTENT_BLOCK_EVENT_MESSAGE)
   expectTrue(contentBlockEvent.type === 'event', 'content block event type')
   if (contentBlockEvent.type !== 'event') {
@@ -118,6 +128,8 @@ export function runSelfChecks(): string[] {
   records = renameSessionRecord(records, 'session-1', '桌面会话')
   records = markSessionRecordStatus(records, 'session-1', 'connected', FIXTURE_NOW_MS)
   records = upsertSessionRecord(records, secondPairing)
+  records = updateDisplayRecord(records, 'session-1', '/work/project', '修复登录',
+    '2026-09-23T01:00:00Z', '2026-09-23T02:00:00Z', '最新内容', '空闲', false)
   const listed = listSessionRecords(records)
   expectTrue(listed.length === 2, 'session record length')
   expectTrue(listed[0].sessionId === 'session-1', 'recent session first')

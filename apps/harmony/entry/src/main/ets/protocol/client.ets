@@ -12,7 +12,7 @@ import type {
   SessionSnapshot,
   UnsupportedCode,
 } from './types'
-import { PROTOCOL_VERSION } from './types'
+import { PROTOCOL_VERSION, PREFERRED_PROTOCOL_VERSION } from './types'
 
 export type ActionDecision = 'allow_once' | 'allow_session' | 'deny'
 
@@ -162,6 +162,7 @@ function createResolveActionAnswersPayload(
 }
 
 function createEnvelope(
+  version: number,
   type: string,
   sessionId: string,
   commandId: string,
@@ -170,7 +171,7 @@ function createEnvelope(
   payload: Object,
 ): ClientEnvelope {
   const envelope: ClientEnvelope = {
-    version: PROTOCOL_VERSION,
+    version,
     type,
     sessionId,
     commandId,
@@ -182,6 +183,7 @@ function createEnvelope(
 }
 
 function encodeEnvelope(
+  version: number,
   type: string,
   sessionId: string,
   commandId: string,
@@ -189,7 +191,7 @@ function encodeEnvelope(
   seq: number,
   payload: Object,
 ): string {
-  return JSON.stringify(createEnvelope(type, sessionId, commandId, requestId, seq, payload))
+  return JSON.stringify(createEnvelope(version, type, sessionId, commandId, requestId, seq, payload))
 }
 
 function businessErrorToInfo(err: BusinessError | null | undefined, fallback: string): ErrorInfo | null {
@@ -229,6 +231,7 @@ export class ProtocolClient {
   private pendingKind: 'command' | 'create_session' | 'stop_session' | null = null
   private generation = 0
   private userClosed = false
+  private wireVersion: number = PREFERRED_PROTOCOL_VERSION
   private observer: ProtocolClientObserver | null = null
 
   constructor(pairing: PairingPayload) {
@@ -270,7 +273,7 @@ export class ProtocolClient {
         this.observer.onSocketOpened()
       }
       const payload = createHelloPayload(this.pairing.pairToken)
-      this.sendFrame(encodeEnvelope('hello', this.pairing.sessionId, '', '', 0, payload as Object))
+      this.sendFrame(encodeEnvelope(this.wireVersion, 'hello', this.pairing.sessionId, '', '', 0, payload as Object))
     })
 
     socket.on('message', (err: BusinessError, value: string | ArrayBuffer) => {
@@ -385,7 +388,7 @@ export class ProtocolClient {
     this.pendingCommandId = commandId
     this.pendingKind = operation
     const payload = createEmptyPayload()
-    this.sendFrame(encodeEnvelope(operation, this.pairing.sessionId, commandId, '', 0, payload as Object))
+    this.sendFrame(encodeEnvelope(this.wireVersion, operation, this.pairing.sessionId, commandId, '', 0, payload as Object))
     return { ok: true }
   }
 
@@ -399,7 +402,7 @@ export class ProtocolClient {
     this.pendingCommandId = commandId
     this.pendingKind = 'command'
     this.sendFrame(
-      encodeEnvelope('command', this.pairing.sessionId, commandId, '', 0, payload as Object),
+      encodeEnvelope(this.wireVersion, 'command', this.pairing.sessionId, commandId, '', 0, payload as Object),
     )
     const result: SendResult = { ok: true }
     return result
@@ -460,6 +463,21 @@ export class ProtocolClient {
       return
     }
 
+    if (message.version === PROTOCOL_VERSION && this.wireVersion === PREFERRED_PROTOCOL_VERSION &&
+      this.stage === 'AUTHENTICATING' && message.type === 'hello_ack') {
+      this.wireVersion = PROTOCOL_VERSION
+    }
+    const fallbackError = message.type === 'error' && this.stage === 'AUTHENTICATING' &&
+      this.wireVersion === PREFERRED_PROTOCOL_VERSION && message.version === PROTOCOL_VERSION &&
+      message.payload.code === 'unsupported_version' && message.payload.expectedVersion === PROTOCOL_VERSION
+    const legacyUnauthorized = message.type === 'error' && this.stage === 'AUTHENTICATING' &&
+      this.wireVersion === PREFERRED_PROTOCOL_VERSION && message.version === PROTOCOL_VERSION &&
+      message.payload.code === 'unauthorized'
+    if (message.version !== this.wireVersion && !fallbackError && !legacyUnauthorized) {
+      this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'message version changed'))
+      return
+    }
+
     if (
       (message.type === 'snapshot' ||
         message.type === 'event' ||
@@ -484,7 +502,7 @@ export class ProtocolClient {
           this.observer.onHelloAck()
         }
         const payload = createEmptyPayload()
-        this.sendFrame(encodeEnvelope('subscribe', this.pairing.sessionId, '', '', 0, payload as Object))
+        this.sendFrame(encodeEnvelope(this.wireVersion, 'subscribe', this.pairing.sessionId, '', '', 0, payload as Object))
         return
       }
       case 'subscribed':
@@ -579,6 +597,12 @@ export class ProtocolClient {
         return
       }
       case 'error':
+        if (fallbackError) {
+          this.close()
+          this.wireVersion = PROTOCOL_VERSION
+          this.connect()
+          return
+        }
         if (message.payload.code === 'unauthorized') {
           this.terminate('PAIRING_INVALID', makeError(message.payload.code, message.payload.message))
           return

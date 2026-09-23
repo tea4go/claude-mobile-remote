@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	projectclaude "github.com/tea4go/claude-mobile-remote/internal/claude"
 	"github.com/tea4go/claude-mobile-remote/protocol"
@@ -62,6 +63,17 @@ func WithReservedSessionID(sessionID string) Option {
 	return func(controller *Controller) {
 		if sessionID != "" {
 			controller.initialSnapshot.SessionID = sessionID
+		}
+	}
+}
+
+// WithDisplayMetadata supplies the fixed working directory and, for new
+// sessions only, their actual creation time. Resume must pass a zero time.
+func WithDisplayMetadata(cwd string, createdAt time.Time) Option {
+	return func(controller *Controller) {
+		controller.initialSnapshot.ProjectCwd = cwd
+		if !createdAt.IsZero() {
+			controller.initialSnapshot.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
 		}
 	}
 }
@@ -1301,6 +1313,17 @@ func (c *Controller) failSession(state *actorState, err error) {
 }
 
 func (c *Controller) publish(state *actorState, event Event) {
+	switch event.Kind {
+	case EventTurnStarted:
+		if state.snapshot.SessionTitle == "" {
+			state.snapshot.SessionTitle = protocol.SessionTitleFromInput(event.Text)
+			event.SessionTitle = state.snapshot.SessionTitle
+		}
+		fallthrough
+	case EventTurnCompleted, EventTurnFailed, EventActionRequired, EventSessionFailed, EventSessionStopped:
+		state.snapshot.LastActivityAt = time.Now().UTC().Format(time.RFC3339Nano)
+		event.LastActivityAt = state.snapshot.LastActivityAt
+	}
 	state.snapshot.Seq++
 	event.Seq = state.snapshot.Seq
 	for subscriberID, subscriber := range state.subscribers {

@@ -31,6 +31,7 @@ import {
   ASK_USER_QUESTION_TOOL_NAME,
   MAX_TEXT_BYTES,
   PROTOCOL_VERSION,
+  PREFERRED_PROTOCOL_VERSION,
   SERVER_TO_CLIENT_TYPES,
 } from './types'
 
@@ -440,7 +441,19 @@ function decodeTurnSnapshot(value: unknown): TurnSnapshot {
   return turn
 }
 
-function decodeSessionSnapshot(value: unknown): SessionSnapshot {
+function displayField(value: Record<string, unknown>, key: string, version: number): string | undefined {
+  const raw = value[key]
+  if (raw === undefined) return undefined
+  if (version !== PREFERRED_PROTOCOL_VERSION || typeof raw !== 'string' || raw.length === 0) {
+    fail(`invalid ${key} display field`)
+  }
+  if (key === 'projectCwd' && raw.length > 4096) fail('project cwd is too long')
+  if (key === 'sessionTitle' && [...raw].length > 80) fail('session title is too long')
+  if (key.endsWith('At') && (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(raw) || Number.isNaN(Date.parse(raw)))) fail(`invalid ${key} timestamp`)
+  return raw
+}
+
+function decodeSessionSnapshot(value: unknown, version: number): SessionSnapshot {
   if (!isObject(value)) fail('snapshot must be an object')
   const snapshot: SessionSnapshot = {
     sessionId: requireString(value, 'sessionId'),
@@ -457,6 +470,10 @@ function decodeSessionSnapshot(value: unknown): SessionSnapshot {
       return raw as PermissionMode
     })(),
   }
+  for (const key of ['projectCwd', 'sessionTitle', 'createdAt', 'lastActivityAt'] as const) {
+    const field = displayField(value, key, version)
+    if (field !== undefined) snapshot[key] = field
+  }
   // queueDepth 与列表长度恒等（B2 §4.3）：不一致说明快照自相矛盾。
   if (snapshot.queueDepth !== snapshot.queuedRequests.length) {
     fail('queueDepth does not match queuedRequests')
@@ -464,15 +481,15 @@ function decodeSessionSnapshot(value: unknown): SessionSnapshot {
   return snapshot
 }
 
-function decodeSnapshotPayload(value: unknown): SnapshotPayload {
+function decodeSnapshotPayload(value: unknown, version: number): SnapshotPayload {
   if (!isObject(value)) fail('snapshot payload must be an object')
   return {
     connectionStatus: requireString(value, 'connectionStatus'),
-    snapshot: decodeSessionSnapshot(value.snapshot),
+    snapshot: decodeSessionSnapshot(value.snapshot, version),
   }
 }
 
-function decodeEventPayload(value: unknown): EventPayload {
+function decodeEventPayload(value: unknown, version: number): EventPayload {
   if (!isObject(value)) fail('event payload must be an object')
   const event = requireObject(value, 'event')
   const kind = requireNonEmptyEnum<EventKind>(event, 'kind', EVENT_KINDS)
@@ -514,6 +531,11 @@ function decodeEventPayload(value: unknown): EventPayload {
     turnStatus: requireEnum<TurnStatus>(event, 'turnStatus', TURN_STATUSES),
     error: decodeErrorInfo(event.error),
   }
+  for (const key of ['sessionTitle', 'lastActivityAt'] as const) {
+    const field = displayField(event, key, version)
+    if (field !== undefined) domainEvent[key] = field
+  }
+  if (domainEvent.sessionTitle !== undefined && kind !== 'turn_started') fail('title requires turn_started')
   if (kind === 'content_block') {
     domainEvent.block = decodeContentBlock(rawBlock)
   }
@@ -640,7 +662,7 @@ export function decodeServerMessage(text: string): ServerMessage {
   if (typeof version !== 'number' || !Number.isSafeInteger(version)) {
     fail('field version must be an integer')
   }
-  if (version !== PROTOCOL_VERSION) fail('unsupported protocol version')
+  if (version !== PROTOCOL_VERSION && version !== PREFERRED_PROTOCOL_VERSION) fail('unsupported protocol version')
 
   const type = requireString(parsed, 'type') as MessageType
   if (!SERVER_TO_CLIENT_TYPES.has(type)) {
@@ -651,6 +673,7 @@ export function decodeServerMessage(text: string): ServerMessage {
   if (!isObject(payload)) fail('field payload must be an object')
 
   const envelope = {
+    version,
     sessionId: requireString(parsed, 'sessionId'),
     commandId: requireString(parsed, 'commandId'),
     requestId: requireString(parsed, 'requestId'),
@@ -665,7 +688,7 @@ export function decodeServerMessage(text: string): ServerMessage {
       return { ...envelope, type, payload: {} }
     case 'snapshot':
       {
-        const decoded = decodeSnapshotPayload(payload)
+        const decoded = decodeSnapshotPayload(payload, version)
         if (
           decoded.snapshot.sessionId !== envelope.sessionId ||
           decoded.snapshot.seq !== envelope.seq
@@ -676,7 +699,7 @@ export function decodeServerMessage(text: string): ServerMessage {
       }
     case 'event':
       {
-        const decoded = decodeEventPayload(payload)
+        const decoded = decodeEventPayload(payload, version)
         if (
           decoded.event.sessionId !== envelope.sessionId ||
           decoded.event.requestId !== envelope.requestId ||

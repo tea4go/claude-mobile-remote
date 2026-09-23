@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NavBar } from 'antd-mobile'
 import { useStore } from 'zustand'
 import PairingForm from './components/PairingForm'
 import SessionDetail from './components/SessionDetail'
-import SessionList, { type SessionListItem } from './components/SessionList'
+import ProjectSessionList, { type SessionListItem } from './components/ProjectSessionList'
 import { PAGE_BACKGROUND } from './components/ui'
 import type { ActionResolution, SocketFactory } from './protocol/client'
 import {
@@ -17,7 +17,6 @@ import type { PermissionMode } from './protocol/types'
 import { createAppStore } from './session/appStore'
 import { createInitialState, type MobileState } from './session/reducer'
 import { SessionRuntimeManager } from './session/runtime'
-import { listSessions } from './session/store'
 
 interface AppProps {
   now?: () => number
@@ -49,6 +48,8 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
   const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now))
   const [managementBusy, setManagementBusy] = useState<Record<string, boolean>>({})
   const [managementFeedback, setManagementFeedback] = useState<Record<string, string | null>>({})
+  const [recentlyViewedId, setRecentlyViewedId] = useState<string | null>(null)
+  const listScrollY = useRef(0)
 
   const pairings = useStore(appStore, (state) => state.pairings)
   const sessionStates = useStore(appStore, (state) => state.sessions)
@@ -59,7 +60,7 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
   const adding = useStore(appStore, (state) => state.adding)
   const pairingError = useStore(appStore, (state) => state.pairingError)
 
-  const sessions = useMemo<SessionListItem[]>(() => listSessions(pairings).map((record) => ({
+  const sessions = useMemo<SessionListItem[]>(() => pairings.records.map((record) => ({
     ...record,
     runtimeState: sessionStates[record.sessionId],
     unread: unread[record.sessionId] ?? false,
@@ -126,11 +127,13 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
   const cancelTarget = useMemo(() => cancelTargetOf(currentState), [currentState])
 
   const backToList = useCallback(() => {
+    setRecentlyViewedId(appStore.getState().currentSessionId)
     appStore.getState().showList()
     window.location.hash = ''
   }, [appStore])
 
   const openSession = useCallback((sessionId: string) => {
+    listScrollY.current = window.scrollY
     const record = appStore.getState().pairings.records.find((item) => item.sessionId === sessionId)
     if (record === undefined) return
     const payload: PairingPayload = {
@@ -145,6 +148,12 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
     runtime.ensureConnected(payload)
     window.location.hash = `#pair=${encodePairingFragment(payload)}`
   }, [appStore, runtime])
+
+  useEffect(() => {
+    if (view === 'list' && recentlyViewedId !== null && typeof window.scrollTo === 'function') {
+      try { window.scrollTo(0, listScrollY.current) } catch { /* unsupported test DOM */ }
+    }
+  }, [view, recentlyViewedId])
 
   if (view === 'detail' && currentRecord !== undefined && currentSessionId !== null) {
     return (
@@ -195,8 +204,9 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
   return (
     <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
       <NavBar back={null}>Claude Mobile Remote</NavBar>
-      <SessionList
+      <ProjectSessionList
         sessions={sessions}
+        recentlyViewedId={recentlyViewedId}
         onAdd={() => {
           appStore.getState().setAdding(true)
           appStore.getState().setPairingError(null)

@@ -6,6 +6,7 @@ import {
   INPUT_SOURCE_VALUES,
   MAX_TEXT_BYTES,
   PROTOCOL_VERSION,
+  PREFERRED_PROTOCOL_VERSION,
   QUESTION_INPUT_TYPE_VALUES,
   SERVER_MESSAGE_TYPE_VALUES,
   SESSION_STATUS_VALUES,
@@ -71,6 +72,10 @@ interface SessionSnapshotCandidate {
   turn?: Object | null
   queueDepth?: number
   queuedRequests?: Array<Object> | null
+  projectCwd?: string
+  sessionTitle?: string
+  createdAt?: string
+  lastActivityAt?: string
 }
 
 interface TurnSnapshotCandidate {
@@ -104,6 +109,8 @@ interface EventCandidate {
   block?: Object | null
   pendingAction?: Object | null
   answers?: Array<Object> | null
+  sessionTitle?: string
+  lastActivityAt?: string
 }
 
 interface ThinkingBlockCandidate {
@@ -207,6 +214,7 @@ const SESSION_SNAPSHOT_KEYS: Array<string> = [
   'turn',
   'queueDepth',
   'queuedRequests',
+  'projectCwd', 'sessionTitle', 'createdAt', 'lastActivityAt',
 ]
 const TURN_SNAPSHOT_KEYS: Array<string> = ['status', 'requestId', 'source', 'message', 'error', 'pendingAction']
 const ERROR_INFO_KEYS: Array<string> = ['code', 'message']
@@ -224,6 +232,7 @@ const EVENT_KEYS: Array<string> = [
   'block',
   'pendingAction',
   'answers',
+  'sessionTitle', 'lastActivityAt',
 ]
 const THINKING_BLOCK_KEYS: Array<string> = ['id', 'kind', 'thinking']
 const TOOL_USE_BLOCK_KEYS: Array<string> = [
@@ -730,7 +739,16 @@ function decodeTurnSnapshot(value: Object | null): TurnSnapshot {
   return snapshot
 }
 
-function decodeSessionSnapshot(value: Object | null): SessionSnapshot {
+function displayField(value: string | undefined, field: string, version: number): string | undefined {
+  if (value === undefined) return undefined
+  if (version !== PREFERRED_PROTOCOL_VERSION || value.length === 0) fail(`invalid ${field} display field`)
+  if (field === 'projectCwd' && value.length > 4096) fail('project cwd is too long')
+  if (field === 'sessionTitle' && Array.from(value).length > 80) fail('session title is too long')
+  if (field.endsWith('At') && (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value) || Number.isNaN(Date.parse(value)))) fail(`invalid ${field} timestamp`)
+  return value
+}
+
+function decodeSessionSnapshot(value: Object | null, version: number): SessionSnapshot {
   const candidate = requireAllowedObject(value, 'snapshot', SESSION_SNAPSHOT_KEYS) as SessionSnapshotCandidate
   const queueDepth = readNonNegativeInteger(candidate.queueDepth, 'queueDepth')
   const queuedRequests = decodeQueuedRequests(candidate.queuedRequests)
@@ -747,14 +765,18 @@ function decodeSessionSnapshot(value: Object | null): SessionSnapshot {
     queueDepth,
     queuedRequests,
   }
+  snapshot.projectCwd = displayField(candidate.projectCwd, 'projectCwd', version)
+  snapshot.sessionTitle = displayField(candidate.sessionTitle, 'sessionTitle', version)
+  snapshot.createdAt = displayField(candidate.createdAt, 'createdAt', version)
+  snapshot.lastActivityAt = displayField(candidate.lastActivityAt, 'lastActivityAt', version)
   return snapshot
 }
 
-function decodeSnapshotPayload(value: Object | null): SnapshotPayload {
+function decodeSnapshotPayload(value: Object | null, version: number): SnapshotPayload {
   const candidate = requireAllowedObject(value, 'snapshot payload', SNAPSHOT_PAYLOAD_KEYS) as SnapshotPayloadCandidate
   const payload: SnapshotPayload = {
     connectionStatus: readString(candidate.connectionStatus, 'connectionStatus'),
-    snapshot: decodeSessionSnapshot(candidate.snapshot !== undefined ? candidate.snapshot : null),
+    snapshot: decodeSessionSnapshot(candidate.snapshot !== undefined ? candidate.snapshot : null, version),
   }
   return payload
 }
@@ -799,9 +821,10 @@ function validateEventSemantics(event: DomainEvent): void {
   }
 }
 
-function decodeEventPayload(value: Object | null): EventPayload {
+function decodeEventPayload(value: Object | null, version: number): EventPayload {
   const candidate = requireAllowedObject(value, 'event payload', EVENT_PAYLOAD_KEYS) as EventPayloadCandidate
   const eventCandidate = requireAllowedObject(candidate.event !== undefined ? candidate.event : null, 'event', EVENT_KEYS) as EventCandidate
+  if (eventCandidate.error === undefined) fail('event error field is required')
   const requestId = readString(eventCandidate.requestId, 'requestId')
 
   const event: DomainEvent = {
@@ -815,6 +838,9 @@ function decodeEventPayload(value: Object | null): EventPayload {
     turnStatus: readOptionalTurnStatus(eventCandidate.turnStatus, 'turnStatus'),
     error: decodeErrorInfo(eventCandidate.error !== undefined ? eventCandidate.error : null, 'error'),
   }
+  event.sessionTitle = displayField(eventCandidate.sessionTitle, 'sessionTitle', version)
+  event.lastActivityAt = displayField(eventCandidate.lastActivityAt, 'lastActivityAt', version)
+  if (event.sessionTitle !== undefined && event.kind !== 'turn_started') fail('title requires turn_started')
 
   if (event.kind === 'content_block') {
     event.block = decodeContentBlock(eventCandidate.block !== undefined ? eventCandidate.block : null)
@@ -914,7 +940,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
 
   const envelope = requireAllowedObject(parsedValue, 'message', ENVELOPE_KEYS) as EnvelopeCandidate
   const version = readInteger(envelope.version, 'version')
-  if (version !== PROTOCOL_VERSION) {
+  if (version !== PROTOCOL_VERSION && version !== PREFERRED_PROTOCOL_VERSION) {
     fail('unsupported protocol version')
   }
 
@@ -931,6 +957,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
   if (type === 'hello_ack' || type === 'subscribed' || type === 'unsubscribed') {
     const emptyPayload = decodeEmptyPayload(payloadValue)
     const message = {
+      version,
       type,
       sessionId,
       commandId,
@@ -942,11 +969,12 @@ export function decodeServerMessage(raw: string): ServerMessage {
   }
 
   if (type === 'snapshot') {
-    const snapshotPayload = decodeSnapshotPayload(payloadValue)
+    const snapshotPayload = decodeSnapshotPayload(payloadValue, version)
     if (snapshotPayload.snapshot.sessionId !== sessionId || snapshotPayload.snapshot.seq !== seq) {
       fail('snapshot identity does not match envelope')
     }
     const message = {
+      version,
       type,
       sessionId,
       commandId,
@@ -958,7 +986,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
   }
 
   if (type === 'event') {
-    const eventPayload = decodeEventPayload(payloadValue)
+    const eventPayload = decodeEventPayload(payloadValue, version)
     if (
       eventPayload.event.sessionId !== sessionId ||
       eventPayload.event.requestId !== requestId ||
@@ -967,6 +995,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
       fail('event identity does not match envelope')
     }
     const message = {
+      version,
       type,
       sessionId,
       commandId,
@@ -980,6 +1009,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
   if (type === 'unsupported') {
     const unsupportedPayload = decodeUnsupportedPayload(payloadValue)
     const message = {
+      version,
       type,
       sessionId,
       commandId,
@@ -993,6 +1023,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
   if (type === 'command_result') {
     const commandResultPayload = decodeCommandResultPayload(payloadValue)
     const message = {
+      version,
       type,
       sessionId,
       commandId,
@@ -1009,6 +1040,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
     }
     const managementPayload = decodeManagementResultPayload(payloadValue, type === 'create_session_result', sessionId)
     const message = {
+      version,
       type,
       sessionId,
       commandId,
@@ -1021,6 +1053,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
 
   const errorPayload = decodeErrorPayload(payloadValue)
   const message = {
+    version,
     type,
     sessionId,
     commandId,

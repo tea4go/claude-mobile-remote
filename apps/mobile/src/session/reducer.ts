@@ -86,6 +86,10 @@ export interface MobileState {
   phase: Phase
   connection: ConnectionState
   sessionId: string
+  projectCwd: string | null
+  sessionTitle: string | null
+  createdAt: string | null
+  lastActivityAt: string | null
   sessionStatus: 'starting' | 'ready' | 'stopped' | 'failed' | null
   sessionError: ErrorInfo | null
   permissionMode: PermissionMode
@@ -106,6 +110,10 @@ export function createInitialState(): MobileState {
     phase: 'unpaired',
     connection: 'connecting',
     sessionId: '',
+    projectCwd: null,
+    sessionTitle: null,
+    createdAt: null,
+    lastActivityAt: null,
     sessionStatus: null,
     sessionError: null,
     permissionMode: 'default',
@@ -344,6 +352,10 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     phase: 'connected',
     connection: 'connected',
     sessionId: snapshot.sessionId,
+    projectCwd: snapshot.projectCwd ?? null,
+    sessionTitle: snapshot.sessionTitle ?? null,
+    createdAt: snapshot.createdAt ?? null,
+    lastActivityAt: snapshot.lastActivityAt ?? null,
     sessionStatus: snapshot.sessionStatus,
     sessionError: snapshot.sessionError,
     permissionMode: snapshot.permissionMode ?? 'default',
@@ -445,6 +457,8 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
     return { ...markPendingUnknown(state), phase: 'protocolError', canSend: false }
   }
   let next: MobileState = { ...state, seqBase: event.seq }
+  if (event.sessionTitle !== undefined && next.sessionTitle === null) next.sessionTitle = event.sessionTitle
+  if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
 
   switch (event.kind) {
     // session_* 事件按协议携带非空 sessionStatus（decoder 语义校验入口）。

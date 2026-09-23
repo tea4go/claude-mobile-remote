@@ -1,7 +1,8 @@
-// 版本 2 协议类型，字段与 B2 internal/transport/protocol.go 逐字段对应。
+// v2/v3 协议类型，字段与 internal/transport/protocol.go 对应。
 // 组件不得复制消息定义，一律从本文件导入。
 
 export const PROTOCOL_VERSION = 2
+export const PREFERRED_PROTOCOL_VERSION = 3
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
@@ -200,6 +201,10 @@ export interface SessionSnapshot {
   queueDepth: number
   queuedRequests: QueuedRequest[]
   permissionMode?: PermissionMode
+  projectCwd?: string
+  sessionTitle?: string
+  createdAt?: string
+  lastActivityAt?: string
 }
 
 // 领域事件：按 kind 部分携带字段，其余枚举在线上为空字符串（Go 零值
@@ -220,6 +225,8 @@ export interface DomainEvent {
   pendingAction?: PendingAction
   answers?: ResolvedAnswer[]
   permissionMode?: PermissionMode
+  sessionTitle?: string
+  lastActivityAt?: string
 }
 
 // 传输层 envelope。payload 在解码时按 type 严格校验，这里是未验证的原始值。
@@ -295,6 +302,7 @@ export type CommandPayload =
 
 // 服务端可发送给客户端的消息：envelope 关键字段与已验证的 payload 绑定。
 export type ServerMessage = {
+  version: number
   sessionId: string
   commandId: string
   requestId: string

@@ -317,9 +317,24 @@ describe('decodeServerMessage：非法 JSON 与基础结构', () => {
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 
-  test('version = 3（未来版本）拒绝', () => {
-    const envelope = baseEnvelope({ version: 3 })
+  test('version = 4（未来版本）拒绝', () => {
+    const envelope = baseEnvelope({ version: 4 })
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
+  })
+
+  test('v3 snapshot 解码目录与稳定标题，v2 禁止新字段', () => {
+    const payload = snapshotPayload()
+    const snapshot = payload.snapshot as typeof payload.snapshot & { projectCwd?: string; sessionTitle?: string; createdAt?: string; lastActivityAt?: string }
+    snapshot.projectCwd = '/work/project'
+    snapshot.sessionTitle = '修复登录'
+    snapshot.createdAt = '2026-09-23T01:00:00Z'
+    snapshot.lastActivityAt = '2026-09-23T02:00:00Z'
+    const wire = baseEnvelope({ version: 3, type: 'snapshot', seq: 7, payload })
+    const decoded = decodeServerMessage(JSON.stringify(wire))
+    expect(decoded.type === 'snapshot' && decoded.payload.snapshot.projectCwd).toBe('/work/project')
+    expect(() => decodeServerMessage(JSON.stringify({ ...wire, version: 2 }))).toThrow()
+    snapshot.lastActivityAt = '2026-09-23T10:00:00+08:00'
+    expect(() => decodeServerMessage(JSON.stringify(wire))).toThrow()
   })
 
   test('缺 type 拒绝', () => {

@@ -68,4 +68,7 @@ type Event struct {
 	// AskUserQuestion (D52); permission decisions leave it empty.
 	Answers        []ResolvedAnswer `json:"answers,omitempty"`
 	PermissionMode PermissionMode   `json:"permissionMode,omitempty"`
+	// v3-only display metadata, absent from v2 wire events.
+	SessionTitle   string `json:"sessionTitle,omitempty"`
+	LastActivityAt string `json:"lastActivityAt,omitempty"`
 }

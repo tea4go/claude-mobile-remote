@@ -10,7 +10,7 @@ import {
   upsertSession,
   type SessionStore,
 } from '../session/store'
-import SessionList from './SessionList'
+import SessionList from './ProjectSessionList'
 
 function payload(sessionId: string, wsUrl = 'ws://127.0.0.1:8082/ws'): PairingPayload {
   return {
@@ -46,18 +46,19 @@ describe('SessionList：空态', () => {
 })
 
 describe('SessionList：记录展示', () => {
-  test('展示本地名称、会话标识摘要、地址摘要与未连接状态', () => {
+  test('列表只保留标题和预览，不常驻展示诊断信息', () => {
     const sessions = listSessions(storeWith('session-abcdefgh-1'))
     render(
       <SessionList sessions={sessions} onAdd={noop} onOpen={noop} onRemove={noop} onRename={noop} />,
     )
 
     expect(screen.getByText(defaultSessionName('session-abcdefgh-1'))).toBeInTheDocument()
-    expect(screen.getByText(/ID session- · 127\.0\.0\.1:8082/)).toBeInTheDocument()
-    expect(screen.getByText(/从未连接/)).toBeInTheDocument()
+    expect(screen.getByText('暂无会话内容')).toBeInTheDocument()
+    expect(screen.queryByText(/127\.0\.0\.1:8082/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/活动时间未知/)).not.toBeInTheDocument()
   })
 
-  test('展示自定义名称与已连接状态', () => {
+  test('展示自定义名称，不显示无须处理的已连接标签', () => {
     let store = storeWith('s-1')
     store = renameSession(store, 's-1', '重构分支')
     store = markSessionStatus(store, 's-1', { status: 'connected', lastConnectedAt: 1000 })
@@ -73,7 +74,7 @@ describe('SessionList：记录展示', () => {
     )
 
     expect(screen.getByText('重构分支')).toBeInTheDocument()
-    expect(screen.getByText(/已连接/)).toBeInTheDocument()
+    expect(screen.queryByText(/已连接/)).not.toBeInTheDocument()
     expect(screen.queryByText(/从未连接/)).not.toBeInTheDocument()
   })
 
@@ -107,7 +108,7 @@ describe('SessionList：记录展示', () => {
     )
 
     expect(screen.getAllByTestId('session-list-item')).toHaveLength(1)
-    expect(screen.getByText(/127\.0\.0\.1:9090/)).toBeInTheDocument()
+    expect(screen.queryByText(/127\.0\.0\.1:9090/)).not.toBeInTheDocument()
   })
 
   test('不渲染 Pair Token', () => {
@@ -133,26 +134,29 @@ describe('SessionList：操作', () => {
       />,
     )
 
-    fireEvent.click(screen.getAllByRole('button', { name: '进入' })[1]!)
+    fireEvent.click(screen.getAllByTestId('session-list-item')[1]!)
 
     expect(onOpen).toHaveBeenCalledExactlyOnceWith('s-2')
   })
 
   test('删除只回调目标记录', () => {
     const onRemove = vi.fn()
+    const onOpen = vi.fn()
     render(
       <SessionList
         sessions={listSessions(storeWith('s-1', 's-2'))}
         onAdd={noop}
-        onOpen={noop}
+        onOpen={onOpen}
         onRemove={onRemove}
         onRename={noop}
       />,
     )
 
-    fireEvent.click(screen.getAllByRole('button', { name: '删除' })[0]!)
+    fireEvent.click(screen.getAllByRole('button', { name: /更多操作/ })[0]!)
+    fireEvent.click(screen.getByText('删除'))
 
     expect(onRemove).toHaveBeenCalledExactlyOnceWith('s-1')
+    expect(onOpen).not.toHaveBeenCalled()
   })
 
   test('重命名提交新的本地名称', () => {
@@ -167,7 +171,8 @@ describe('SessionList：操作', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '重命名' }))
+    fireEvent.click(screen.getByRole('button', { name: /更多操作/ }))
+    fireEvent.click(screen.getByText('重命名'))
     // antd-mobile Input 把 data-testid 挂在外层容器，改由 role 定位真实 input。
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '主分支' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
@@ -187,7 +192,8 @@ describe('SessionList：操作', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '重命名' }))
+    fireEvent.click(screen.getByRole('button', { name: /更多操作/ }))
+    fireEvent.click(screen.getByText('重命名'))
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
 
     expect(onRename).not.toHaveBeenCalled()

@@ -578,3 +578,12 @@
 - **理由**：上限限制有效凭证被滥用时的进程资源消耗；保留入口避免停止后移动端无法查看结果或继续工作。
 - **三端可实现性**：容量和停止结果通过固定错误码及既有终态 Snapshot 表达，不增加平台字段；React Web、Capacitor 和 HarmonyOS NEXT 均可在原连接/重连后展示终态并继续发送创建请求。核对通过。
 - **状态**：已定
+
+## D72 · 移动端 Claude 会话按工作目录分组并使用稳定标题
+
+- **日期**：2026-09-23
+- **决策**：用户确认 Standalone CLI 与 WhaleTerm Remote 的已配对 Claude 会话均按实际 `cwd` 分组，按最近有意义的活动从近到远排序；自动标题取宿主观察到的首条非空用户输入首行，生成后保持稳定，用户手动名称优先。React/Capacitor 列表使用 antd-mobile `List`，HarmonyOS NEXT 提供等价 ArkUI 列表；会话从详情返回列表时应易于定位。无可靠目录或标题的旧会话使用明确回退展示。
+- **理由**：ID 摘要无法辨认会话，当前“最近连接时间”排序让重连后的会话跳位；工作目录、稳定标题和活动摘要能让用户在多个 Claude Session 之间直接定位。
+- **影响**：替代 D66 和移动端多 Session 设计中“本阶段不按项目分组”的局部范围限制，但不引入服务器端全量 Session 列表；同名路径跨机器只视为路径相同，不推断机器身份。目录和展示信息须在配对鉴权后按 `sessionId` 授权提供。协议方案见 `docs/specs/2026-09-23-mobile-project-session-list-design.md`：v2 wire 保持原样，v3 在已授权 Snapshot 可选增加 `projectCwd`、`sessionTitle`、`createdAt`、`lastActivityAt`，有意义活动事件可选增加 `lastActivityAt`，首次标题事件可选增加 `sessionTitle`；新客户端在旧服务 `unsupported_version` 后重新连接 v2，配对负载 v1 不变。时间使用 RFC3339 UTC，未知值省略。
+- **三端可实现性**：版本协商、纯 JSON 可选字符串和时间戳只需要 WebSocket/JSON；React Web/Capacitor 与 ArkTS/ArkUI 均可独立解码、回退、分组和展示。antd-mobile 只用于 React 展示层，不进入协议或 Harmony 工程。旧版缺字段时有回退组和标题；认证/订阅之前不返回新元数据，保持跨 Session 隔离。三端契约核对通过；互操作须由实施测试验证。
+- **状态**：产品语义与技术契约已由用户确认；本阶段用户已反馈验证通过，自动化与验收记录见 `docs/testing/2026-09-23-mobile-project-session-list-result.md`；Harmony DevEco 工程构建/真机仍待补
