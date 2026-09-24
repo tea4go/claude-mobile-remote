@@ -4,18 +4,21 @@
 
 ## 当前状态
 
-- 当前执行：`internal/transport` 两个既有生命周期缺口已修复，用户反馈测试通过并授权提交本轮修复。全量 Go race 与构建门禁通过，详见 `docs/testing/2026-09-24-transport-lifecycle-result.md`。Harmony DevEco 工程构建/真机仍待补。
+- 当前执行：C2-C iOS 顶部安全区修复已完成并通过用户真机视觉验收。用户确认本阶段问题已修复；本轮参照 Happy 的布局方式，让顶部背景延伸至屏幕顶端，详情、列表、配对导航及启动恢复提示按设备安全区定位，未改协议或原生插件。底部输入区沿用既有安全区处理。
 
 - 上一轮多会话新建范围仅 Standalone，不含 WhaleTerm 或 Relay。用户确认的语义记录于 D70/D71：任一有效已订阅 Session 凭证可新建，默认最多四个活跃会话，停止后保留配对与终态入口。本轮列表分组覆盖 CLI 与 WhaleTerm，产品语义记录于 D72。
 
 - 最近完成：共享监听与按 Session 鉴权的 CLI Runtime Manager、v2 可选管理消息及配对能力字段、终端 `:sessions/:use/:new/:stop/:pair`、React/Capacitor 与 Harmony 新建/停止入口。新会话从 CLI 固定工作目录启动；停止释放活跃容量但保留终态快照和配对入口。管理结果仅回请求连接，创建使用 `commandId` 幂等与容量/频率控制。已有公共单 Session Remote Server API 不变。设计和计划已按用户审阅意见更新；三端共用契约可实现性记录于 DECISIONS。
 
-- A1–A6、B1、B2、B3、C1、C2-A/C2-B、D2、CLI 产品化配置均已完成；C2-C/C2-D 暂缓。
+- A1–A6、B1、B2、B3、C1、C2-A/C2-B、D2、CLI 产品化配置均已完成；C2-C 纯逻辑与 Capacitor 原生接线已实施，Android 本机门禁通过，iOS 编译及 C2-D 真机门禁仍待补。
 - W1 移动端输入框 UI 已完成用户验收并提交：`ddaeb7d feat: refine mobile composer and permission controls`。
 - 本次提交包含移动端输入框、附件/权限 Popover、停止按钮、权限模式共享契约及配套测试；未包含用户测试截图和无关脚本权限位变化。
 
 ## 最近验证
 
+- 本轮 iOS 顶部安全区修复：移动端 Vitest **451/451**、lint、TypeScript/Vite 构建、`npx cap sync`、本轮文件 `git diff --check` 通过；lint 仅既有脚本 warning，构建仅既有大 chunk 提示。已核对 iOS 同步产物包含 `viewport-fit=cover` 和顶部安全区 CSS。用户已完成真机视觉验收并确认灵动岛遮挡问题修复；未报告横屏或底部键盘异常。设计和实施步骤已补入 C2-C 文档。
+- 本轮 C2-C 原生接线：移动端全量 Vitest **451/451**、lint、TypeScript/Vite 构建、`npm run sync:native`、Android `assembleDebug`、`git diff --check` 通过；lint 仅既有脚本 warning，构建仅既有大 chunk 提示。Android 模拟器使用假凭证验证保存、重载、进程结束后恢复、原生 URL 无 Fragment 和删除，测试记录已清理；关闭桥接日志后复查不再出现凭证内容。iOS plist/project 语法检查通过，但 Xcode Simulator 构建在 Swift Package 解析阶段无进展，已终止；真实扫码、iOS 原生运行和真机/VPN 未验证。见 `docs/testing/C2-result.md` §5。
+- 本轮 C2-C 纯逻辑准备：移动端新增 8 项测试通过，全量 Vitest **446/446**、`npm run lint`、`npm run build`、`git diff --check` 通过；lint 仅既有脚本 warning，构建仅大 chunk 提示。用户随后确认本轮结果，未提供额外设备或操作验证。安全存储、普通元数据、扫码与前台事件使用注入端口，测试内存端口不作为产品实现；浏览器路径未接入新端口。未进行原生插件、跨重启、真机或 VPN 验收。
 - 本轮 Transport 生命周期修复：三个真实 WebSocket 生命周期用例以 race 模式连续运行 10 轮通过；`go test -race ./internal/transport`、`go test -race ./...`、`GOFLAGS=-buildvcs=false go build ./...`、`git diff --check` 通过。用户另反馈测试通过，未提供额外命令或设备细节。快连接测试逐事件读取，慢连接独立溢出退出；订阅源正常关闭时先排空事件，Server 停机等待 writer 刷出最终事件。未做真实慢网或移动真机验证；协议与三端状态模型未变。
 - 用户已反馈本阶段验证通过，未逐项报告具体设备和操作场景；验收结果已记入 `docs/testing/2026-09-23-mobile-project-session-list-result.md`。提交前复跑 WhaleTerm `go test -vet=off ./backend/chat -run 'ClaudeRemote|PermissionMode' -count=1` 通过；两仓库暂存差异 `git diff --cached --check` 通过。Harmony DevEco 工程构建/真机仍未执行。
 - 本轮 L3 列表紧凑化：React/Capacitor Vitest **438/438**、`npm run lint`、`npm run build` 通过；lint 仅既有脚本 warning，构建仅大 chunk 提示。测试已随整行进入、“更多”菜单和未读点更新，并验证删除菜单不误进详情。`git diff --check` 通过；新增 CSS 单独检查无尾随空白。自动化未覆盖真实窄屏视觉/触控；用户随后反馈本阶段验证通过，未报告具体设备和逐项场景。详见 `docs/testing/2026-09-23-mobile-project-session-list-result.md`。
@@ -42,13 +45,16 @@
 
 ## 当前工作区
 
+- 本轮 iOS 安全区修复改动包含移动端 viewport、共用顶部 CSS、详情/列表/配对/恢复页面接线、C2-C 设计与计划及此交接记录；已随提交 `8784dfd` 提交。Capacitor 同步资源为忽略的生成产物。
+- 本轮 C2-C 原生接线的设计、计划、插件依赖与锁文件、Capacitor/Android/iOS 配置、TypeScript 适配与 App 接线、测试、README、验证和此交接记录已随提交 `8784dfd` 提交。
+- 本轮 C2-C 纯逻辑准备在工作区，包含新设计、实施计划、TypeScript 逻辑与测试、D73、验证记录和此交接记录；未执行 Git 写操作。
 - 本轮 Transport 生命周期修复包含 `internal/transport` 实现与测试、A4 实施计划、此交接记录，以及 `docs/testing/2026-09-24-transport-lifecycle-result.md`；用户已授权提交这些文件。
 - 本轮按用户授权将项目分组、展示元数据和列表紧凑化相关代码/文档分别提交至本项目与 WhaleTerm；`docs/testing/images/` 截图及 WhaleTerm `frontend/tests/claudeRemoteManagement.test.mjs` 未纳入提交，保持原样。
 
 ## 下一步
 
-1. 本阶段用户已反馈验收通过。后续在 DevEco 环境补 Harmony 工程构建与真机验收；若用户提出具体体验问题，再按反馈迭代。
-2. Transport 生命周期缺口已关闭；机器稳定身份、断线 replay、系统后台推送及 Relay 多 Session 映射继续作为后续独立设计。后续 Git 写操作需另行明确授权。
+1. 本阶段修复已完成并交付；另在能解析 Swift Package 的环境补 iOS Simulator 工程构建；C2-D 相机扫码、安全存储隔离、系统杀进程恢复、本地网络和 VPN 门禁仍待补。Harmony DevEco 工程构建/真机仍待补。
+2. 暂停的自动化测试补强可在本轮交付后恢复；机器稳定身份、断线 replay、系统后台推送及 Relay 多 Session 映射继续作为后续独立设计。后续 Git 写操作需另行明确授权。
 
 ## 约束提醒
 

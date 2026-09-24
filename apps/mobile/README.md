@@ -14,7 +14,7 @@ npm run lint         # oxlint
 npm run build        # 生成 dist（tsc -b && vite build）
 ```
 
-页面启动后粘贴 Service 输出的配对 JSON 即可连接。凭证只保留在 URL Fragment 和内存中，不写 `localStorage`。
+浏览器页面启动后粘贴 Service 输出的配对 JSON 即可连接；凭证只保留在 URL Fragment 和内存中，不写 `localStorage`。iOS/Android 原生 App 可扫码或粘贴，完整配对负载写入系统安全存储，列表名称和连接时间写入应用私有 Preferences。原生 App 重启后恢复有效配对并重新获取当前 Snapshot；过期或丢失凭证显示“需要重新配对”，不会恢复消息正文。
 
 > 配对 JSON 含控制凭证：不要写入文件、日志、截图、问题单或 Git。页面提示配对失效时，重新从 Service 取最新配对负载。
 
@@ -50,7 +50,7 @@ npm run sync:live
 npm run android:install
 ```
 
-打开 App，粘贴配对 JSON，点「连接」，发消息应看到桩回显：思考 → 工具调用 → 权限请求卡片。之后改 `src/` 保存即热更新。
+打开 App，粘贴配对 JSON 或扫描二维码，点「连接」，发消息应看到桩回显：思考 → 工具调用 → 权限请求卡片。之后改 `src/` 保存即热更新。模拟器没有真实相机时，可使用粘贴路径验证安全存取与跨重启恢复；扫码效果仍需真机验收。
 
 关键点（都有实测依据，弄错就连不上）：
 
@@ -118,4 +118,6 @@ npx cap open android   # Android Studio 打开 Android 工程
 
 Windows PowerShell 下 `emu:*` / `sync:live` / `android:install` 的内联环境变量与 `./gradlew` 不适用，改用 `emulator -avd pixel7`、`$env:CAP_SERVER_URL="http://10.0.2.2:5173"; npx cap sync android` 和 `cd android; .\gradlew.bat installDebug`。
 
-原生壳当前不含扫码、安全存储等原生能力，归 C2。
+C2-C 已接入 iOS/Android 扫码、安全存储、普通元数据和前台事件。未完成真机、VPN 和系统杀进程恢复验收；结果见 `../../docs/testing/C2-result.md`。
+
+原生构建已设置 `loggingBehavior: 'none'`：Capacitor Debug 桥接日志会包含安全存储插件的请求和返回，不能在含真实配对凭证的构建中开启。

@@ -5,10 +5,11 @@ import { BLOCK_BUTTON_STYLE } from './ui'
 interface PairingFormProps {
   initialError: string | null
   onSubmit: (json: string) => void
+  onScan?: () => void
 }
 
 // 配对页：标题、说明、原始 JSON 多行输入、连接按钮与就地错误（设计 §8）。
-export default function PairingForm({ initialError, onSubmit }: PairingFormProps) {
+export default function PairingForm({ initialError, onSubmit, onScan }: PairingFormProps) {
   const [json, setJson] = useState('')
   const [emptyError, setEmptyError] = useState(false)
 
@@ -46,6 +47,7 @@ export default function PairingForm({ initialError, onSubmit }: PairingFormProps
       >
         连接
       </Button>
+      {onScan && <Button color="primary" fill="outline" style={BLOCK_BUTTON_STYLE} onClick={onScan}>扫描二维码</Button>}
     </div>
   )
 }

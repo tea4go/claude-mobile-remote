@@ -65,6 +65,27 @@ export function upsertSession(store: SessionStore, payload: PairingPayload): Ses
   }
 }
 
+export function restoreSession(
+  store: SessionStore,
+  record: Pick<SessionRecord, 'sessionId' | 'name' | 'customName' | 'lastConnectedAt'>,
+  payload?: PairingPayload,
+): SessionStore {
+  const existing = store.records.find((item) => item.sessionId === record.sessionId)
+  const next: SessionRecord = {
+    sessionId: record.sessionId,
+    wsUrl: payload?.wsUrl ?? '',
+    pairToken: payload?.pairToken ?? '',
+    expiresAt: payload?.expiresAt ?? '',
+    ...(payload?.capabilities === undefined ? {} : { capabilities: [...payload.capabilities] }),
+    name: record.name,
+    customName: record.customName,
+    lastConnectedAt: record.lastConnectedAt,
+    status: payload === undefined ? 'needsPairing' : 'disconnected',
+  }
+  if (existing === undefined) return { records: [...store.records, next] }
+  return { records: store.records.map((item) => item.sessionId === record.sessionId ? next : item) }
+}
+
 export function removeSession(store: SessionStore, sessionId: string): SessionStore {
   return { records: store.records.filter((r) => r.sessionId !== sessionId) }
 }

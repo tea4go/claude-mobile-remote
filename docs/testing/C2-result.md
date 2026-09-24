@@ -101,3 +101,29 @@ npm test
 - 终端二维码已通过微信人工识别，并验证缩小后的显示尺寸；本记录不保存二维码截图或真实 Pair Token。
 - 原生扫码、Keychain/Android Keystore、安全存储、原生多 Session 列表、移动前后台恢复、真机网络权限和 VPN 未实施/未验证。
 - 本轮未运行真实 Claude 端到端，不影响二维码与 Web 生命周期自动测试结论。
+
+## 5. C2-C 原生接线补充（2026-09-24）
+
+本节接续已确认的纯逻辑准备，实施 Capacitor iOS/Android 的安全存储、普通元数据、扫码、前台事件与 App 多 Session UI/Runtime 接线。上文“未实施原生能力”仅描述 2026-08-31 的 C2-A/C2-B 门禁，不代表本节的当前状态。设计与计划见 `docs/specs/2026-09-24-C2-native-capacitor-integration-design.md` 和对应 `docs/plans/` 文档。
+
+- `@aparajita/capacitor-secure-storage@8.0.1` 保存完整 Pairing；`@capacitor/preferences@8.0.1` 只保存白名单元数据。Web 平台门控禁止调用两个插件的浏览器持久化回退。
+- `@capacitor/barcode-scanner@3.1.2` 提供 QR 输入，`@capacitor/app@8.1.1` 提供前台事件。过期、缺失或错绑凭证只显示重新配对占位，不启动连接；浏览器继续只使用 Fragment/内存。
+- 模拟器验证中发现 Capacitor Debug 桥接日志会显示安全存储插件的请求/返回内容；已设 `loggingBehavior: 'none'`，更新 APK 后复查启动输出不再包含桥接凭证日志。本轮仅使用测试专用假凭证，已通过 App 删除入口清理。
+
+| 验证 | 结果 |
+| --- | --- |
+| `npm test` | 21 文件、451/451 通过；新增原生 App 与插件端口测试 |
+| `npm run lint` | 通过；仅既有 `scripts/cdp-console.mjs:76` warning |
+| `npm run sync:native` | TypeScript/Vite 构建与四个 Capacitor 插件的 iOS/Android 同步通过；仅既有大 chunk 提示 |
+| Android `./gradlew assembleDebug` | 通过；merged manifest 含最低 SDK 26 与相机权限 |
+| Android 模拟器 | 安装/启动通过；测试假凭证保存、WebView 重载、App 进程结束后重启恢复、原生 URL Fragment 为空、删除并清理测试记录通过 |
+| iOS 配置 | `Info.plist`、`PrivacyInfo.xcprivacy`、Xcode project `plutil -lint` 通过；四个插件写入 SPM Package.swift |
+| `git diff --check` 与新增文件行尾扫描 | 通过 |
+
+iOS Simulator 编译尝试在 Swift Package 解析阶段长时间无进展；单独重试依赖解析时停在扫码插件的 `OSBarcodeLib-iOS` 仓库镜像下载，均已终止，不能宣称 iOS 工程构建通过。模拟器没有验证真实相机扫码、物理设备 Keychain/Keystore 行为、本地网络权限、系统杀进程或 VPN；这些仍属于后续 C2-D 门禁。测试假凭证的目标 WebSocket 端口未启动，故模拟器未验证真实服务连接及 Snapshot。
+
+## 6. C2-C 顶部安全区修复（2026-09-24）
+
+- 移动端入口启用 `viewport-fit=cover`，顶部导航与启动恢复提示统一使用 `env(safe-area-inset-top/left/right)`；详情页底部输入区继续沿用已有底部安全区处理。
+- 用户已在 iOS 真机确认详情页顶部工具栏不再被灵动岛/状态栏遮挡，反馈本阶段问题已修复；未报告横屏或底部键盘异常。
+- 自动化与资源同步门禁沿用本节上方结果：Vitest **451/451**、lint、TypeScript/Vite build、`npx cap sync` 和 `git diff --check` 通过。
