@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前执行：移动端项目分组与 React/Capacitor 列表紧凑化已完成自动化和用户本阶段验收，并按本轮授权提交两仓库相关改动。WhaleTerm Remote Host 提交为 `6c451e6b2`；本项目同轮提交包含共用协议、CLI、React/Capacitor、Harmony 代码与验收文档。截图与 WhaleTerm 未跟踪前端测试未纳入。Harmony DevEco 工程构建/真机仍待补。
+- 当前执行：`internal/transport` 两个既有生命周期缺口已修复，用户反馈测试通过并授权提交本轮修复。全量 Go race 与构建门禁通过，详见 `docs/testing/2026-09-24-transport-lifecycle-result.md`。Harmony DevEco 工程构建/真机仍待补。
 
 - 上一轮多会话新建范围仅 Standalone，不含 WhaleTerm 或 Relay。用户确认的语义记录于 D70/D71：任一有效已订阅 Session 凭证可新建，默认最多四个活跃会话，停止后保留配对与终态入口。本轮列表分组覆盖 CLI 与 WhaleTerm，产品语义记录于 D72。
 
@@ -16,6 +16,7 @@
 
 ## 最近验证
 
+- 本轮 Transport 生命周期修复：三个真实 WebSocket 生命周期用例以 race 模式连续运行 10 轮通过；`go test -race ./internal/transport`、`go test -race ./...`、`GOFLAGS=-buildvcs=false go build ./...`、`git diff --check` 通过。用户另反馈测试通过，未提供额外命令或设备细节。快连接测试逐事件读取，慢连接独立溢出退出；订阅源正常关闭时先排空事件，Server 停机等待 writer 刷出最终事件。未做真实慢网或移动真机验证；协议与三端状态模型未变。
 - 用户已反馈本阶段验证通过，未逐项报告具体设备和操作场景；验收结果已记入 `docs/testing/2026-09-23-mobile-project-session-list-result.md`。提交前复跑 WhaleTerm `go test -vet=off ./backend/chat -run 'ClaudeRemote|PermissionMode' -count=1` 通过；两仓库暂存差异 `git diff --cached --check` 通过。Harmony DevEco 工程构建/真机仍未执行。
 - 本轮 L3 列表紧凑化：React/Capacitor Vitest **438/438**、`npm run lint`、`npm run build` 通过；lint 仅既有脚本 warning，构建仅大 chunk 提示。测试已随整行进入、“更多”菜单和未读点更新，并验证删除菜单不误进详情。`git diff --check` 通过；新增 CSS 单独检查无尾随空白。自动化未覆盖真实窄屏视觉/触控；用户随后反馈本阶段验证通过，未报告具体设备和逐项场景。详见 `docs/testing/2026-09-23-mobile-project-session-list-result.md`。
 - 本轮项目分组：Go 新增协议、CLI 双会话元数据、EventStream、v2/v3 Snapshot/Event 隔离的 `go test -race` 定向通过，`GOFLAGS=-buildvcs=false go build ./...` 通过；Go 全量仍仅有既有 `internal/transport` 两个生命周期用例失败。WhaleTerm `go test -vet=off ./backend/chat -run 'ClaudeRemote|PermissionMode' -count=1` 通过。React/Capacitor Vitest **438/438**、build、lint 通过；lint 仅既有脚本 warning，build 仅大 chunk 提示。Harmony 7 个非 UI `.ets` 完成语法解析，内存转译执行的 8 项 self-check 通过；本机缺 DevEco/hvigor/ohpm，ArkUI 工程构建与真机未验证。`git diff --check` 与 WhaleTerm 改动文件 `gofmt -d` 通过。详见 `docs/testing/2026-09-23-mobile-project-session-list-result.md`。
@@ -41,12 +42,13 @@
 
 ## 当前工作区
 
+- 本轮 Transport 生命周期修复包含 `internal/transport` 实现与测试、A4 实施计划、此交接记录，以及 `docs/testing/2026-09-24-transport-lifecycle-result.md`；用户已授权提交这些文件。
 - 本轮按用户授权将项目分组、展示元数据和列表紧凑化相关代码/文档分别提交至本项目与 WhaleTerm；`docs/testing/images/` 截图及 WhaleTerm `frontend/tests/claudeRemoteManagement.test.mjs` 未纳入提交，保持原样。
 
 ## 下一步
 
 1. 本阶段用户已反馈验收通过。后续在 DevEco 环境补 Harmony 工程构建与真机验收；若用户提出具体体验问题，再按反馈迭代。
-2. 全量 Go 门禁仍受两个既有 `internal/transport` 生命周期测试失败影响，后续单独修复。机器稳定身份、断线 replay、系统后台推送及 Relay 多 Session 映射继续作为后续独立设计；Git 提交需用户另行明确授权。
+2. Transport 生命周期缺口已关闭；机器稳定身份、断线 replay、系统后台推送及 Relay 多 Session 映射继续作为后续独立设计。后续 Git 写操作需另行明确授权。
 
 ## 约束提醒
 
