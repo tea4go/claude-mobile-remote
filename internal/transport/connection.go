@@ -448,12 +448,20 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 func (c *connection) forwardSubscription(subscription *channel.Subscription) {
 	events := subscription.Events
 	errorsChannel := subscription.Errors
+	sourceClosed := false
 	for events != nil || errorsChannel != nil {
 		select {
 		case <-c.context.Done():
 			return
-		case _, ok := <-errorsChannel:
+		case err, ok := <-errorsChannel:
 			if !ok {
+				errorsChannel = nil
+				continue
+			}
+			if errors.Is(err, channel.ErrSubscriptionClosed) {
+				// The source may have closed while validated events are still
+				// buffered. Drain them before the server flushes the outbox.
+				sourceClosed = true
 				errorsChannel = nil
 				continue
 			}
@@ -475,6 +483,14 @@ func (c *connection) forwardSubscription(subscription *channel.Subscription) {
 				return
 			}
 		}
+	}
+	if sourceClosed && !c.server.isShuttingDown() {
+		c.outbox.Close()
+		select {
+		case <-c.writerDone:
+		case <-time.After(c.server.config.CloseTimeout):
+		}
+		c.shutdown()
 	}
 }
 

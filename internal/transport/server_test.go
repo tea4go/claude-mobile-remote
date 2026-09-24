@@ -700,66 +700,48 @@ func TestWebSocketSlowClientIsolation(t *testing.T) {
 	_ = authenticateAndSubscribe(t, fixture, fast)
 	_ = authenticateAndSubscribe(t, fixture, slow)
 
-	// fast 连接持续读取，避免它自己的 outbox 溢出；读取循环一直跑到底，
-	// gorilla 连接不允许并发读取，最终断言也在同一 goroutine 里做。
+	// 每次发送后都等待 fast 消费，避免测试自身的突发流量也压满快连接。
+	// slow 始终不读取，最终会由它自己的有界 outbox 触发关闭。
 	fast.SetReadLimit(4 * 1024 * 1024)
-	type readOutcome struct {
-		envelope Envelope
-		err      error
-	}
-	outcomes := make(chan readOutcome, 64)
-	go func() {
-		for {
-			_, data, err := fast.ReadMessage()
-			if err != nil {
-				outcomes <- readOutcome{err: err}
-				return
-			}
-			envelope, decodeErr := DecodeEnvelope(data)
-			outcomes <- readOutcome{envelope: envelope, err: decodeErr}
-		}
-	}()
-
 	// 反复入队大事件，直至不再读取的慢连接触发字节上限被关闭。
-	for i := range 16 {
+	slowRemoved := false
+	nextSeq := uint64(8)
+	for range 16 {
 		fixture.controller.emit(projectsession.Event{
-			SessionID: "session-1", RequestID: "request-1", Seq: uint64(8 + i),
+			SessionID: "session-1", RequestID: "request-1", Seq: nextSeq,
 			Kind:       projectsession.EventTurnStarted,
 			Source:     projectsession.InputTerminal,
 			Text:       strings.Repeat("x", 512*1024),
 			TurnStatus: projectsession.TurnRunning,
 		})
-		// 慢连接的关闭路径需要时间收敛；观察它是否已被移除。
+		_ = fast.SetReadDeadline(time.Now().Add(3 * time.Second))
+		fastEvent := readTestEnvelope(t, fast)
+		if fastEvent.Type != TypeEvent || fastEvent.Seq != nextSeq {
+			t.Fatalf("fast event = %#v, want seq %d", fastEvent, nextSeq)
+		}
+		nextSeq++
+		// 慢连接的关闭路径需要时间收敛；快连接刚收到事件，
+		// 因此只剩一条订阅时被移除的必然是慢连接。
 		fixture.controller.mu.Lock()
-		slowRemoved := len(fixture.controller.subscribers) < 2
+		slowRemoved = len(fixture.controller.subscribers) < 2
 		fixture.controller.mu.Unlock()
 		if slowRemoved {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+	if !slowRemoved {
+		t.Fatal("slow connection was not isolated")
+	}
 
 	// fast 连接必须仍然可用：发出一条小事件并读到它。
-	deadline := time.After(3 * time.Second)
 	fixture.controller.emit(projectsession.Event{
-		SessionID: "session-1", RequestID: "request-2", Seq: 100,
+		SessionID: "session-1", RequestID: "request-2", Seq: nextSeq,
 		Kind: projectsession.EventTextDelta, Text: "fast alive",
 	})
-	for {
-		select {
-		case outcome := <-outcomes:
-			if outcome.err != nil {
-				t.Fatalf("fast connection closed: %v", outcome.err)
-			}
-			if outcome.envelope.Type == TypeError {
-				t.Fatalf("fast connection got error envelope: %#v", outcome.envelope)
-			}
-			if outcome.envelope.Seq == 100 {
-				return
-			}
-		case <-deadline:
-			t.Fatal("fast connection never received the sentinel event")
-		}
+	fastEvent := readTestEnvelope(t, fast)
+	if fastEvent.Type != TypeEvent || fastEvent.Seq != nextSeq {
+		t.Fatalf("fast sentinel = %#v, want event seq %d", fastEvent, nextSeq)
 	}
 }
 
@@ -828,6 +810,27 @@ func TestWebSocketCloseFlushesFinalSessionEvent(t *testing.T) {
 	finalEvent := readTestEnvelope(t, connection)
 	if finalEvent.Type != TypeEvent || finalEvent.Seq != 8 {
 		t.Fatalf("final event = %#v", finalEvent)
+	}
+}
+
+func TestWebSocketSubscriptionCloseFlushesBufferedEvent(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	connection := fixture.dial(t)
+	_ = authenticateAndSubscribe(t, fixture, connection)
+	fixture.controller.emit(projectsession.Event{
+		SessionID: "session-1", Seq: 8, Kind: projectsession.EventSessionStopped,
+		SessionStatus: projectsession.SessionStopped,
+	})
+	fixture.controller.finishEvents()
+	_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+	finalEvent := readTestEnvelope(t, connection)
+	if finalEvent.Type != TypeEvent || finalEvent.Seq != 8 {
+		t.Fatalf("final event = %#v", finalEvent)
+	}
+	if _, _, err := connection.ReadMessage(); err == nil {
+		t.Fatal("connection remained open after its subscription closed")
+	} else if networkError, ok := err.(net.Error); ok && networkError.Timeout() {
+		t.Fatalf("connection remained open until read deadline: %v", err)
 	}
 }
 
