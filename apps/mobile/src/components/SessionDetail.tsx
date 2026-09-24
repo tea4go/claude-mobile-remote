@@ -74,7 +74,7 @@ export default function SessionDetail({
     >
       {/* 页面整体不滚动（滚动发生在消息流内部），导航栏无需 sticky；
           sticky 叠 backdropFilter 会多出一层合成层，得不到好处。 */}
-      <div style={GLASS_SURFACE_STYLE}>
+      <div className="mobile-safe-area-header" style={GLASS_SURFACE_STYLE}>
         <NavBar back="返回" onBack={onBack}>
           {record.name}
         </NavBar>

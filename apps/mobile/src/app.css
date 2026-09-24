@@ -9,3 +9,19 @@ body {
   font-family: var(--adm-font-family);
   font-size: var(--adm-font-size-9);
 }
+
+/* 背景延伸到屏幕边缘，导航控件留在状态栏和横屏切口之外。 */
+.mobile-safe-area-header {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.mobile-safe-area-content {
+  box-sizing: border-box;
+  padding: calc(16px + env(safe-area-inset-top, 0px))
+    calc(16px + env(safe-area-inset-right, 0px))
+    16px
+    calc(16px + env(safe-area-inset-left, 0px));
+}

@@ -17,10 +17,13 @@ import type { PermissionMode } from './protocol/types'
 import { createAppStore } from './session/appStore'
 import { createInitialState, type MobileState } from './session/reducer'
 import { SessionRuntimeManager } from './session/runtime'
+import { observeNativeForeground } from './native/pairingLogic'
+import type { NativePairingBindings } from './native/capacitorPorts'
 
 interface AppProps {
   now?: () => number
   socketFactory?: SocketFactory
+  native?: NativePairingBindings | null
 }
 
 const defaultSocketFactory: SocketFactory = (url) =>
@@ -43,12 +46,13 @@ function cancelTargetOf(state: MobileState): string | null {
   return streaming?.kind === 'claude' ? streaming.requestId : null
 }
 
-function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProps = {}) {
+function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = null }: AppProps = {}) {
   const [appStore] = useState(createAppStore)
   const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now))
   const [managementBusy, setManagementBusy] = useState<Record<string, boolean>>({})
   const [managementFeedback, setManagementFeedback] = useState<Record<string, string | null>>({})
   const [recentlyViewedId, setRecentlyViewedId] = useState<string | null>(null)
+  const [restoring, setRestoring] = useState(native !== null)
   const listScrollY = useRef(0)
 
   const pairings = useStore(appStore, (state) => state.pairings)
@@ -66,15 +70,28 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
     unread: unread[record.sessionId] ?? false,
   })), [pairings, sessionStates, unread])
 
-  const openPairing = useCallback((payload: PairingPayload) => {
+  const openPairing = useCallback(async (payload: PairingPayload, alreadySaved = false) => {
+    if (native !== null && !alreadySaved) {
+      try {
+        const saved = await native.logic.saveScanned(JSON.stringify(payload), now())
+        if (!saved.ok) {
+          appStore.getState().setPairingError(saved.error)
+          return
+        }
+      } catch {
+        appStore.getState().setPairingError('原生配对存储暂不可用')
+        return
+      }
+    }
+    appStore.getState().setPairingError(null)
     appStore.getState().upsertPairing(payload)
     appStore.getState().openDetail(payload.sessionId)
     runtime.ensureConnected(payload)
-    window.location.hash = `#pair=${encodePairingFragment(payload)}`
-  }, [appStore, runtime])
+    window.location.hash = native === null ? `#pair=${encodePairingFragment(payload)}` : ''
+  }, [appStore, runtime, native, now])
 
   useEffect(() => {
-    runtime.setManagementCallbacks(openPairing, (sessionId, operation, accepted, code) => {
+    runtime.setManagementCallbacks((payload) => { void openPairing(payload) }, (sessionId, operation, accepted, code) => {
       setManagementBusy((current) => ({ ...current, [sessionId]: false }))
       const text = accepted
         ? (operation === 'stop_session' ? 'Claude 会话已终止；配对入口仍保留' : null)
@@ -93,18 +110,78 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
       appStore.getState().setPairingError(result.error)
       return
     }
-    openPairing(result.value)
+    void openPairing(result.value)
   }, [appStore, now, openPairing])
 
   useEffect(() => {
+    if (native !== null && restoring) return
     if (window.location.hash === '') return
-    const result = parsePairingFragment(window.location.hash, now())
+    const fragment = window.location.hash
+    if (native !== null) window.location.hash = ''
+    const result = parsePairingFragment(fragment, now())
     if (!result.ok) {
       appStore.getState().setPairingError(result.error)
       return
     }
-    openPairing(result.value)
-  }, [appStore, now, openPairing])
+    void openPairing(result.value)
+  }, [appStore, now, openPairing, native, restoring])
+
+  useEffect(() => {
+    if (native === null) return
+    let active = true
+    void native.logic.restore(now()).then((restored) => {
+      if (!active) return
+      for (const { payload, metadata } of restored.available) {
+        if (appStore.getState().pairings.records.some((item) => item.sessionId === metadata.sessionId)) continue
+        appStore.getState().restorePairing(metadata, payload)
+        runtime.ensureConnected(payload)
+      }
+      for (const metadata of restored.needsPairing) {
+        if (appStore.getState().pairings.records.some((item) => item.sessionId === metadata.sessionId)) continue
+        appStore.getState().restorePairing(metadata)
+      }
+    }).catch(() => {
+      if (active) appStore.getState().setPairingError('原生配对存储暂不可用')
+    }).finally(() => {
+      if (active) setRestoring(false)
+    })
+    return () => { active = false }
+  }, [appStore, runtime, native, now])
+
+  useEffect(() => {
+    if (native === null) return
+    const dispose = observeNativeForeground(native.appState, () => appStore.getState().pairings.records
+      .filter((record) => record.pairToken !== '')
+      .map((record) => ({
+        version: PAIRING_PAYLOAD_VERSION, wsUrl: record.wsUrl, sessionId: record.sessionId,
+        pairToken: record.pairToken, expiresAt: record.expiresAt,
+        ...(record.capabilities === undefined ? {} : { capabilities: record.capabilities }),
+      })), now, (plan) => {
+      for (const sessionId of plan.needsPairingSessionIds) {
+        runtime.closeSession(sessionId)
+        appStore.getState().markPairingStatus(sessionId, 'needsPairing')
+        appStore.getState().setPairingInvalid(sessionId, true)
+      }
+      runtime.refreshConnectionStates()
+    })
+    return dispose
+  }, [appStore, runtime, native, now])
+
+  useEffect(() => {
+    if (native === null) return
+    const observed = new Map<string, number | null>()
+    return appStore.subscribe((state) => {
+      for (const record of state.pairings.records) {
+        const previous = observed.get(record.sessionId)
+        if (record.lastConnectedAt !== null && previous !== undefined && previous !== record.lastConnectedAt) {
+          void native.logic.markConnected(record.sessionId, record.lastConnectedAt).catch(() => {
+            appStore.getState().setPairingError('原生配对存储暂不可用')
+          })
+        }
+        observed.set(record.sessionId, record.lastConnectedAt)
+      }
+    })
+  }, [appStore, native])
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -136,6 +213,11 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
     listScrollY.current = window.scrollY
     const record = appStore.getState().pairings.records.find((item) => item.sessionId === sessionId)
     if (record === undefined) return
+    if (record.status === 'needsPairing' || record.pairToken === '') {
+      appStore.getState().setAdding(true)
+      appStore.getState().setPairingError('请重新扫码或输入此会话的配对信息')
+      return
+    }
     const payload: PairingPayload = {
       version: PAIRING_PAYLOAD_VERSION,
       wsUrl: record.wsUrl,
@@ -146,8 +228,8 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
     }
     appStore.getState().openDetail(sessionId)
     runtime.ensureConnected(payload)
-    window.location.hash = `#pair=${encodePairingFragment(payload)}`
-  }, [appStore, runtime])
+    if (native === null) window.location.hash = `#pair=${encodePairingFragment(payload)}`
+  }, [appStore, runtime, native])
 
   useEffect(() => {
     if (view === 'list' && recentlyViewedId !== null && typeof window.scrollTo === 'function') {
@@ -157,6 +239,8 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
 
   if (view === 'detail' && currentRecord !== undefined && currentSessionId !== null) {
     return (
+      <>
+      {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <SessionDetail
         record={currentRecord}
         state={currentState}
@@ -181,29 +265,43 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
           }
         }}
       />
+      </>
     )
   }
+
+  if (restoring) return <div className="mobile-safe-area-content" style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>正在恢复已配对会话…</div>
 
   if (adding || sessions.length === 0) {
     return (
       <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
-        <NavBar
-          back={sessions.length === 0 ? null : '返回'}
-          onBack={() => {
-            appStore.getState().setAdding(false)
-            appStore.getState().setPairingError(null)
-          }}
-        >
-          Claude Mobile Remote
-        </NavBar>
-        <PairingForm initialError={pairingError} onSubmit={submitJson} />
+        <div className="mobile-safe-area-header">
+          <NavBar
+            back={sessions.length === 0 ? null : '返回'}
+            onBack={() => {
+              appStore.getState().setAdding(false)
+              appStore.getState().setPairingError(null)
+            }}
+          >
+            Claude Mobile Remote
+          </NavBar>
+        </div>
+        <PairingForm initialError={pairingError} onSubmit={submitJson} onScan={native === null ? undefined : () => {
+          void native.logic.scanAndSave(native.scanner, now()).then((result) => {
+            if (result === null) return
+            if (!result.ok) appStore.getState().setPairingError(result.error)
+            else void openPairing(result.value, true)
+          }).catch(() => appStore.getState().setPairingError('扫码或原生配对存储暂不可用'))
+        }} />
       </div>
     )
   }
 
   return (
     <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
-      <NavBar back={null}>Claude Mobile Remote</NavBar>
+      <div className="mobile-safe-area-header">
+        <NavBar back={null}>Claude Mobile Remote</NavBar>
+      </div>
+      {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <ProjectSessionList
         sessions={sessions}
         recentlyViewedId={recentlyViewedId}
@@ -213,10 +311,24 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory }: AppProp
         }}
         onOpen={openSession}
         onRemove={(sessionId) => {
+          if (native !== null) {
+            void native.logic.remove(sessionId).then(() => {
+              runtime.closeSession(sessionId)
+              appStore.getState().removePairing(sessionId)
+            }).catch(() => appStore.getState().setPairingError('原生配对存储暂不可用'))
+            return
+          }
           runtime.closeSession(sessionId)
           appStore.getState().removePairing(sessionId)
         }}
-        onRename={(sessionId, name) => appStore.getState().renamePairing(sessionId, name)}
+        onRename={(sessionId, name) => {
+          if (native !== null) {
+            void native.logic.rename(sessionId, name).then(() => appStore.getState().renamePairing(sessionId, name))
+              .catch(() => appStore.getState().setPairingError('原生配对存储暂不可用'))
+            return
+          }
+          appStore.getState().renamePairing(sessionId, name)
+        }}
       />
     </div>
   )

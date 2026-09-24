@@ -9,6 +9,8 @@ const config: CapacitorConfig = {
   appId: 'com.tea4go.claudemobileremote',
   appName: 'Claude Mobile Remote',
   webDir: 'dist',
+  // Capacitor 的 Debug 桥接日志会打印插件请求/结果，包含安全存储中的 Pair Token。
+  loggingBehavior: 'none',
   server: {
     // Android 壳内页面走 http://localhost 而非默认 https://localhost：
     // 默认 https 会触发 WebView 混合内容策略，拦截到 ws:// 局域网的明文连接（见 D48）。

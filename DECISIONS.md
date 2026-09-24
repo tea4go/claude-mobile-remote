@@ -587,3 +587,18 @@
 - **影响**：替代 D66 和移动端多 Session 设计中“本阶段不按项目分组”的局部范围限制，但不引入服务器端全量 Session 列表；同名路径跨机器只视为路径相同，不推断机器身份。目录和展示信息须在配对鉴权后按 `sessionId` 授权提供。协议方案见 `docs/specs/2026-09-23-mobile-project-session-list-design.md`：v2 wire 保持原样，v3 在已授权 Snapshot 可选增加 `projectCwd`、`sessionTitle`、`createdAt`、`lastActivityAt`，有意义活动事件可选增加 `lastActivityAt`，首次标题事件可选增加 `sessionTitle`；新客户端在旧服务 `unsupported_version` 后重新连接 v2，配对负载 v1 不变。时间使用 RFC3339 UTC，未知值省略。
 - **三端可实现性**：版本协商、纯 JSON 可选字符串和时间戳只需要 WebSocket/JSON；React Web/Capacitor 与 ArkTS/ArkUI 均可独立解码、回退、分组和展示。antd-mobile 只用于 React 展示层，不进入协议或 Harmony 工程。旧版缺字段时有回退组和标题；认证/订阅之前不返回新元数据，保持跨 Session 隔离。三端契约核对通过；互操作须由实施测试验证。
 - **状态**：产品语义与技术契约已由用户确认；本阶段用户已反馈验证通过，自动化与验收记录见 `docs/testing/2026-09-23-mobile-project-session-list-result.md`；Harmony DevEco 工程构建/真机仍待补
+
+## D73 · C2-C 先实施无设备依赖的原生配对逻辑
+
+- **日期**：2026-09-24
+- **决策**：用户确认暂停原定自动化测试补强，先实施 C2-C 的纯逻辑准备：安全 Pairing 与普通元数据的分离端口、恢复与过期筛选、扫码结果解析入口和前台恢复策略。原生插件接线、系统安全存储实证、相机扫码及 C2-D 真机/VPN 验收继续后置。
+- **理由**：没有真机时仍可固定可测试的数据和生命周期规则，同时避免把内存测试端口误当成正式安全存储。
+- **影响**：细化 D54 的暂缓范围；浏览器继续只使用 Fragment 和内存，不将 Pair Token 写入 Web Storage。通信协议、Pairing 字段、Session 状态和三端共用验收语义不变；HarmonyOS NEXT 可用其独立安全存储与状态事件实现相同业务规则。
+- **状态**：已定；本轮只完成逻辑与自动化门禁，C2-C 原生接线和 C2-D 仍未完成
+
+## D74 · 继续实施 C2-C 的 Capacitor 原生接线
+
+- **日期**：2026-09-24
+- **决策**：用户确认 C2-C 纯逻辑结果后要求继续；本轮接入 iOS/Android 安全存储、普通元数据、扫码和 App 前台事件，并连接现有多 Session UI/Runtime。C2-D 真机、VPN 和真实相机验收仍后置。
+- **影响**：替代 D73 中“原生接线继续后置”的阶段范围限制。浏览器仍只用 Fragment/内存；通信协议、Pairing 字段和三端共用状态不变，Harmony 可独立实现等价行为。
+- **状态**：已定；Android 本机门禁与模拟器假凭证验证通过，iOS 工程编译和 C2-D 待补

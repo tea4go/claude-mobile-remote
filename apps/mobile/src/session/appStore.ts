@@ -11,6 +11,7 @@ import {
   markSessionStatus,
   removeSession,
   renameSession,
+  restoreSession,
   upsertSession,
   type SessionLocalStatus,
   type SessionRecord,
@@ -29,6 +30,7 @@ export interface AppStoreState {
   adding: boolean
   pairingError: string | null
   upsertPairing(payload: PairingPayload): void
+  restorePairing(record: Pick<SessionRecord, 'sessionId' | 'name' | 'customName' | 'lastConnectedAt'>, payload?: PairingPayload): void
   renamePairing(sessionId: string, name: string): void
   markPairingStatus(sessionId: string, status: SessionLocalStatus, lastConnectedAt?: number): void
   removePairing(sessionId: string): void
@@ -55,6 +57,10 @@ export function createAppStore(): AppStore {
     upsertPairing: (payload) => set((state) => ({
       pairings: upsertSession(state.pairings, payload),
       pairingInvalid: { ...state.pairingInvalid, [payload.sessionId]: false },
+    })),
+    restorePairing: (record, payload) => set((state) => ({
+      pairings: restoreSession(state.pairings, record, payload),
+      pairingInvalid: { ...state.pairingInvalid, [record.sessionId]: payload === undefined },
     })),
     renamePairing: (sessionId, name) => set((state) => ({
       pairings: renameSession(state.pairings, sessionId, name),
