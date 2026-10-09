@@ -146,6 +146,8 @@ function clonePairingPayload(pairing: PairingPayload | null): PairingPayload | n
     pairToken: pairing.pairToken,
     expiresAt: pairing.expiresAt,
     capabilities: pairing.capabilities === undefined ? undefined : pairing.capabilities.slice(),
+    pcId: pairing.pcId,
+    pcName: pairing.pcName,
   }
 }
 

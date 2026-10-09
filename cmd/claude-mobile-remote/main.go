@@ -45,6 +45,17 @@ func runMain(ctx context.Context, arguments []string, input io.Reader, output, e
 }
 
 func buildRuntime(config cliConfig) (sessionController, remoteService, error) {
+	if config.pcID == "" {
+		var err error
+		if config.fakeHostScenario == "" {
+			config.pcID, err = defaultPCID()
+		} else {
+			config.pcID, err = randomPCID()
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	host, reservedID, err := buildHost(config)
 	if err != nil {
 		return nil, nil, err
@@ -70,6 +81,8 @@ func buildRuntime(config cliConfig) (sessionController, remoteService, error) {
 		AdvertiseURL:           config.advertiseURL,
 		PairTokenTTL:           config.pairTokenTTL,
 		PairingPersistenceFile: pairingFile,
+		PCID:                   config.pcID,
+		PCName:                 cliHostName(),
 		AllowedOrigins:         append([]string(nil), config.allowedOrigins...),
 	})
 	if err != nil {

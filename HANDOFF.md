@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前执行：C2-C iOS 顶部安全区修复已完成并通过用户真机视觉验收。用户确认本阶段问题已修复；本轮参照 Happy 的布局方式，让顶部背景延伸至屏幕顶端，详情、列表、配对导航及启动恢复提示按设备安全区定位，未改协议或原生插件。底部输入区沿用既有安全区处理。
+- 当前执行：C2-C 移动端体验及 PC 管理改动已获用户体验验收，相关代码和文档已按本轮提交授权核对暂存范围。范围含页面转场、键盘和输入栏交互、抽屉、设置与 PC 分组及配对元数据；用户测试截图和参考图片留在工作区。Go 全包 race、build，React/Capacitor 468 项测试、lint、原生同步及暂存差异空白检查通过；iOS 工程编译、C2-D 真机门禁与 Harmony DevEco 构建仍待补。验收记录见 `docs/testing/C2-result.md` §14。
 
 - 上一轮多会话新建范围仅 Standalone，不含 WhaleTerm 或 Relay。用户确认的语义记录于 D70/D71：任一有效已订阅 Session 凭证可新建，默认最多四个活跃会话，停止后保留配对与终态入口。本轮列表分组覆盖 CLI 与 WhaleTerm，产品语义记录于 D72。
 
@@ -16,6 +16,16 @@
 
 ## 最近验证
 
+- 本轮抽屉与 PC 管理层级：Go 全包 `go test -race ./...` 与 `go build ./...` 通过（临时 GOCACHE、`GOFLAGS=-buildvcs=false`）；移动端 Vitest **468/468**（23 文件）、lint、`npm run sync:native`、`git diff --check` 通过。lint 仅既有脚本 warning，Vite 仅既有大 chunk 提示。Harmony 四个 `.ets` 文件语法解析通过；iOS 真机与 Harmony DevEco 构建未验证。见 `docs/testing/C2-result.md` §14。
+
+- 本轮固定状态/边缘返回/PC 设置：`GOCACHE=/tmp/cmr-go-cache GOFLAGS=-buildvcs=false go test -race ./...` 全包通过，`go build ./...` 通过；移动端 Vitest **465/465**（23 文件）、lint、`npm run sync:native`、`git diff --check` 通过。lint 仅既有脚本 warning，Vite 仅既有大 chunk 提示。Harmony 四个改动的非 UI `.ets` 文件通过语法解析，DevEco 构建与 iOS 真机未验证。见 `docs/testing/C2-result.md` §13。
+
+- 本轮输入栏交互：移动端 Vitest **459/459**（22 文件）、lint、TypeScript/Vite 构建、`npm run sync:native`、`git diff --check` 通过；lint 仅既有脚本 warning，构建仅既有大 chunk 提示。iOS WKWebView 真机保焦/禁用触控手感未验证，见 `docs/testing/C2-result.md` §12。
+- 本轮 iOS 键盘跟随与详情滚动：移动端 Vitest **456/456**（22 文件）、lint、TypeScript/Vite 构建、`npm run sync:native`、Swift 语法解析、`git diff --check` 通过；lint 仅既有脚本 warning，构建仅既有大 chunk 提示。iOS Simulator 构建被 CoreSimulatorService 与 Xcode 缓存权限/Swift Package 解析阻断，Swift 类型检查及物理设备手感未验证。详见 `docs/testing/C2-result.md` §11。
+- 本轮键盘二次返工：移动端 Vitest **456/456**（23 文件）、lint、TypeScript/Vite 构建、`npm run sync:native`、Info.plist 语法、Swift 文件解析及 `git diff --check` 通过；lint 仅既有脚本 warning，构建仅既有大 chunk 提示。同步配置核对为 `resize: none`、`autoBackdropColor: auto`、浅色背景，无输入法颜色覆盖。iOS Simulator 构建被 CoreSimulatorService 不可用及 Swift Package 网络代理连接失败阻断，未完成 Swift 类型检查或真机验证。见 `docs/testing/C2-result.md` §10。
+- 本轮 iOS 键盘返工：移动端 Vitest **456/456**（23 文件）、lint、TypeScript/Vite 构建、`npm run sync:native`、`git diff --check` 通过；lint 仅既有脚本 warning，构建仅既有大 chunk 提示。iOS/Android 工程同步包含 Keyboard 插件，iOS 配置确认 `native` resize 和根滚动关闭；iOS 真机仍待复核。见 `docs/testing/C2-result.md` §9。
+- 本轮转场/键盘：移动端 Vitest **455/455**（23 文件）、lint、TypeScript/Vite 构建及 `npm run sync:native`、`git diff --check` 通过；lint 仅既有脚本 warning，构建仅既有大 chunk 提示。键盘视口模拟测试覆盖高度、底部偏移及清理；iOS 真机键盘与动画手感尚未复核。见 `docs/testing/C2-result.md` §8。
+- 本轮页面转场：移动端全量 Vitest **454/454**、lint、TypeScript/Vite 构建、`npm run sync:native`、`git diff --check` 通过；lint 仅既有脚本 warning，构建仅既有大 chunk 提示。定向测试覆盖前进/返回、快速切换不叠页、减少动态效果和列表滚动恢复。iOS 真机动画手感、边缘返回手势、键盘和长列表仍待用户验收；见 `docs/testing/C2-result.md` §7。
 - 本轮 iOS 顶部安全区修复：移动端 Vitest **451/451**、lint、TypeScript/Vite 构建、`npx cap sync`、本轮文件 `git diff --check` 通过；lint 仅既有脚本 warning，构建仅既有大 chunk 提示。已核对 iOS 同步产物包含 `viewport-fit=cover` 和顶部安全区 CSS。用户已完成真机视觉验收并确认灵动岛遮挡问题修复；未报告横屏或底部键盘异常。设计和实施步骤已补入 C2-C 文档。
 - 本轮 C2-C 原生接线：移动端全量 Vitest **451/451**、lint、TypeScript/Vite 构建、`npm run sync:native`、Android `assembleDebug`、`git diff --check` 通过；lint 仅既有脚本 warning，构建仅既有大 chunk 提示。Android 模拟器使用假凭证验证保存、重载、进程结束后恢复、原生 URL 无 Fragment 和删除，测试记录已清理；关闭桥接日志后复查不再出现凭证内容。iOS plist/project 语法检查通过，但 Xcode Simulator 构建在 Swift Package 解析阶段无进展，已终止；真实扫码、iOS 原生运行和真机/VPN 未验证。见 `docs/testing/C2-result.md` §5。
 - 本轮 C2-C 纯逻辑准备：移动端新增 8 项测试通过，全量 Vitest **446/446**、`npm run lint`、`npm run build`、`git diff --check` 通过；lint 仅既有脚本 warning，构建仅大 chunk 提示。用户随后确认本轮结果，未提供额外设备或操作验证。安全存储、普通元数据、扫码与前台事件使用注入端口，测试内存端口不作为产品实现；浏览器路径未接入新端口。未进行原生插件、跨重启、真机或 VPN 验收。
@@ -45,6 +55,9 @@
 
 ## 当前工作区
 
+- 本轮新增 `cmd/claude-mobile-remote/pc_id.go` 及测试、`apps/mobile/src/components/PCSettings.tsx`/`pcGroups.ts` 及测试；这些新文件与此前 C2-C 未提交改动共处工作区。用户已完成本轮体验验收并授权提交这些相关改动；测试截图与参考图片不在提交范围。`pc_id.go` 及测试被既有 `.gitignore` 的 CLI 名称规则误匹配，已明确加入暂存。原生同步资源为生成产物。
+
+- 本轮页面转场改动包含 `apps/mobile` 的 App 导航呈现、转场组件/CSS与测试、C2-C 设计和计划、D75、需求、C2 验证记录及此交接文档；尚未执行 Git 写操作。Capacitor 同步资源为忽略的生成产物。
 - 本轮 iOS 安全区修复改动包含移动端 viewport、共用顶部 CSS、详情/列表/配对/恢复页面接线、C2-C 设计与计划及此交接记录；已随提交 `8784dfd` 提交。Capacitor 同步资源为忽略的生成产物。
 - 本轮 C2-C 原生接线的设计、计划、插件依赖与锁文件、Capacitor/Android/iOS 配置、TypeScript 适配与 App 接线、测试、README、验证和此交接记录已随提交 `8784dfd` 提交。
 - 本轮 C2-C 纯逻辑准备在工作区，包含新设计、实施计划、TypeScript 逻辑与测试、D73、验证记录和此交接记录；未执行 Git 写操作。
@@ -53,8 +66,8 @@
 
 ## 下一步
 
-1. 本阶段修复已完成并交付；另在能解析 Swift Package 的环境补 iOS Simulator 工程构建；C2-D 相机扫码、安全存储隔离、系统杀进程恢复、本地网络和 VPN 门禁仍待补。Harmony DevEco 工程构建/真机仍待补。
-2. 暂停的自动化测试补强可在本轮交付后恢复；机器稳定身份、断线 replay、系统后台推送及 Relay 多 Session 映射继续作为后续独立设计。后续 Git 写操作需另行明确授权。
+1. 用户已反馈本轮体验验证完成，未逐项报告具体设备场景。iOS 工程编译、C2-D 真机扫码/安全存储/VPN 门禁与 Harmony DevEco 工程构建仍待补；旧配对需重新扫描新 CLI 二维码才能取得机器名。
+2. WhaleTerm 嵌入宿主如需稳定 PC 分组与主机名，后续需向公共 Remote Server 传入同机编码与名称；当前仍兼容旧版地址分组。暂停的自动化测试补强、断线 replay、系统后台推送与 Relay 多 Session 映射继续作为后续独立设计。后续 Git 写操作需另行明确授权。
 
 ## 约束提醒
 

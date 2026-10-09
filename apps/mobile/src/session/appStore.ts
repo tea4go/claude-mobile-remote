@@ -30,7 +30,7 @@ export interface AppStoreState {
   adding: boolean
   pairingError: string | null
   upsertPairing(payload: PairingPayload): void
-  restorePairing(record: Pick<SessionRecord, 'sessionId' | 'name' | 'customName' | 'lastConnectedAt'>, payload?: PairingPayload): void
+  restorePairing(record: Pick<SessionRecord, 'sessionId' | 'name' | 'customName' | 'lastConnectedAt' | 'pcId' | 'pcName'>, payload?: PairingPayload): void
   renamePairing(sessionId: string, name: string): void
   markPairingStatus(sessionId: string, status: SessionLocalStatus, lastConnectedAt?: number): void
   removePairing(sessionId: string): void

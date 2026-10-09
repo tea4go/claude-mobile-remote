@@ -15,6 +15,8 @@ export interface SessionRecord {
   pairToken: string
   expiresAt: string
   capabilities?: PairingPayload['capabilities']
+  pcId?: string
+  pcName?: string
   name: string
   customName?: boolean
   lastConnectedAt: number | null
@@ -52,6 +54,8 @@ export function upsertSession(store: SessionStore, payload: PairingPayload): Ses
     pairToken: payload.pairToken,
     expiresAt: payload.expiresAt,
     ...(payload.capabilities === undefined ? {} : { capabilities: [...payload.capabilities] }),
+    ...(payload.pcId === undefined ? {} : { pcId: payload.pcId }),
+    ...(payload.pcName === undefined ? {} : { pcName: payload.pcName }),
     name: store.records[index]?.name ?? defaultSessionName(payload.sessionId),
     customName: store.records[index]?.customName ?? (store.records[index] !== undefined && store.records[index]!.name !== defaultSessionName(payload.sessionId)),
     lastConnectedAt: store.records[index]?.lastConnectedAt ?? null,
@@ -67,7 +71,7 @@ export function upsertSession(store: SessionStore, payload: PairingPayload): Ses
 
 export function restoreSession(
   store: SessionStore,
-  record: Pick<SessionRecord, 'sessionId' | 'name' | 'customName' | 'lastConnectedAt'>,
+  record: Pick<SessionRecord, 'sessionId' | 'name' | 'customName' | 'lastConnectedAt' | 'pcId' | 'pcName'>,
   payload?: PairingPayload,
 ): SessionStore {
   const existing = store.records.find((item) => item.sessionId === record.sessionId)
@@ -77,6 +81,8 @@ export function restoreSession(
     pairToken: payload?.pairToken ?? '',
     expiresAt: payload?.expiresAt ?? '',
     ...(payload?.capabilities === undefined ? {} : { capabilities: [...payload.capabilities] }),
+    ...(payload?.pcId === undefined && record.pcId === undefined ? {} : { pcId: payload?.pcId ?? record.pcId }),
+    ...(payload?.pcName === undefined && record.pcName === undefined ? {} : { pcName: payload?.pcName ?? record.pcName }),
     name: record.name,
     customName: record.customName,
     lastConnectedAt: record.lastConnectedAt,

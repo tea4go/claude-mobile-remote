@@ -25,6 +25,11 @@ function metadataValue(value: unknown): NativePairingMetadata | null {
   const record = value as Record<string, unknown>
   if (typeof record.sessionId !== 'string' || record.sessionId === '' ||
     typeof record.name !== 'string' || typeof record.customName !== 'boolean' ||
+    (record.pcId !== undefined && (typeof record.pcId !== 'string' || !/^[0-9a-f]{32}$/.test(record.pcId))) ||
+    (record.pcName !== undefined && (typeof record.pcName !== 'string' || record.pcName.trim() === '' || [...record.pcName].length > 255 || [...record.pcName].some((character) => {
+      const code = character.codePointAt(0) ?? 0
+      return code < 32 || code === 127
+    }))) ||
     (record.lastConnectedAt !== null &&
       (typeof record.lastConnectedAt !== 'number' || !Number.isFinite(record.lastConnectedAt)))) return null
   return {
@@ -32,6 +37,8 @@ function metadataValue(value: unknown): NativePairingMetadata | null {
     name: record.name,
     customName: record.customName,
     lastConnectedAt: record.lastConnectedAt as number | null,
+    ...(record.pcId === undefined ? {} : { pcId: record.pcId as string }),
+    ...(record.pcName === undefined ? {} : { pcName: record.pcName as string }),
   }
 }
 

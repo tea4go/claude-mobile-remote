@@ -71,3 +71,28 @@
   font-size: 15px;
   color: var(--adm-color-primary);
 }
+
+.composer-disabled-hit-area {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.composer-disabled-feedback {
+  position: absolute;
+  left: 12px;
+  bottom: calc(100% + 6px);
+  z-index: 11;
+  max-width: calc(100% - 24px);
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: #8a4b00;
+  background: #fff7e6;
+  border: 1px solid #f1cc85;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .12);
+  pointer-events: none;
+}

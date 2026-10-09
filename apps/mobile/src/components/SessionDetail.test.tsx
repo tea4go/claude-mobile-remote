@@ -30,6 +30,31 @@ function connectedState(overrides: Partial<MobileState> = {}): MobileState {
 function noop() {}
 
 describe('SessionDetail：基本渲染', () => {
+  test('状态和重连固定在标题栏，消息使用全宽滚动区，输入栏固定在滚动区外', () => {
+    render(
+      <SessionDetail
+        record={record()}
+        state={connectedState({ lastNotice: { code: 'unknown_block', message: '请到电脑端处理' } })}
+        turnStatus="idle"
+        pairingInvalid={false}
+        cancelTarget={null}
+        onResolveAction={noop}
+        onCancelTurn={noop}
+        onCancelQueued={noop}
+        onBack={noop}
+        onReconnect={noop}
+        onSend={noop}
+      />,
+    )
+    const scroll = screen.getByTestId('detail-scroll')
+    expect(scroll).not.toContainElement(screen.getByTestId('session-status-compact'))
+    expect(scroll).toContainElement(screen.getByTestId('session-notice'))
+    expect(scroll).toContainElement(screen.getByTestId('message-feed'))
+    expect(scroll).not.toContainElement(screen.getByRole('textbox'))
+    expect(scroll.style.paddingRight).toBe('')
+    expect(scroll.style.overflowY).toBe('auto')
+  })
+
   test('CLI 配对在输入区左下角新建，终止入口隐藏', () => {
     const onCreateSession = vi.fn()
     render(
@@ -283,6 +308,7 @@ describe('SessionDetail：错误与重连', () => {
       />,
     )
 
+    expect(screen.getByTestId('detail-scroll')).not.toContainElement(screen.getByRole('button', { name: '重新连接' }))
     fireEvent.click(screen.getByRole('button', { name: '重新连接' }))
 
     expect(onReconnect).toHaveBeenCalledOnce()
@@ -327,6 +353,26 @@ describe('SessionDetail：错误与重连', () => {
     )
 
     expect(screen.getByText(/状态异常/)).toBeInTheDocument()
+  })
+
+  test('断开连接时触碰禁用输入区说明原因', () => {
+    render(
+      <SessionDetail
+        record={record()}
+        state={connectedState({ phase: 'disconnected', connection: 'disconnected', canSend: false })}
+        turnStatus="idle"
+        pairingInvalid={false}
+        cancelTarget={null}
+        onResolveAction={noop}
+        onCancelTurn={noop}
+        onCancelQueued={noop}
+        onBack={noop}
+        onReconnect={noop}
+        onSend={noop}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '输入暂不可用' }))
+    expect(screen.getByRole('status')).toHaveTextContent('连接不可用，暂时无法输入')
   })
 
   test('展示命令错误信息', () => {

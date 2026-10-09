@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { NavBar } from 'antd-mobile'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { List, NavBar } from 'antd-mobile'
 import { useStore } from 'zustand'
 import PairingForm from './components/PairingForm'
 import SessionDetail from './components/SessionDetail'
 import ProjectSessionList, { type SessionListItem } from './components/ProjectSessionList'
+import PCSettings from './components/PCSettings'
+import PageTransition from './components/PageTransition'
 import { PAGE_BACKGROUND } from './components/ui'
 import type { ActionResolution, SocketFactory } from './protocol/client'
 import {
@@ -52,6 +54,8 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
   const [managementBusy, setManagementBusy] = useState<Record<string, boolean>>({})
   const [managementFeedback, setManagementFeedback] = useState<Record<string, string | null>>({})
   const [recentlyViewedId, setRecentlyViewedId] = useState<string | null>(null)
+  const [settingsPage, setSettingsPage] = useState<'settings' | 'pcs' | null>(null)
+  const [settingsDirection, setSettingsDirection] = useState<'forward' | 'back'>('forward')
   const [restoring, setRestoring] = useState(native !== null)
   const listScrollY = useRef(0)
 
@@ -156,6 +160,8 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
         version: PAIRING_PAYLOAD_VERSION, wsUrl: record.wsUrl, sessionId: record.sessionId,
         pairToken: record.pairToken, expiresAt: record.expiresAt,
         ...(record.capabilities === undefined ? {} : { capabilities: record.capabilities }),
+        ...(record.pcId === undefined ? {} : { pcId: record.pcId }),
+        ...(record.pcName === undefined ? {} : { pcName: record.pcName }),
       })), now, (plan) => {
       for (const sessionId of plan.needsPairingSessionIds) {
         runtime.closeSession(sessionId)
@@ -204,13 +210,15 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
   const cancelTarget = useMemo(() => cancelTargetOf(currentState), [currentState])
 
   const backToList = useCallback(() => {
+    setSettingsPage(null)
     setRecentlyViewedId(appStore.getState().currentSessionId)
     appStore.getState().showList()
     window.location.hash = ''
   }, [appStore])
 
   const openSession = useCallback((sessionId: string) => {
-    listScrollY.current = window.scrollY
+    const listPage = document.querySelector<HTMLElement>('[data-mobile-page-active="true"][data-mobile-page="list"]')
+    if (listPage !== null) listScrollY.current = listPage.scrollTop
     const record = appStore.getState().pairings.records.find((item) => item.sessionId === sessionId)
     if (record === undefined) return
     if (record.status === 'needsPairing' || record.pairToken === '') {
@@ -225,20 +233,39 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
       pairToken: record.pairToken,
       expiresAt: record.expiresAt,
       ...(record.capabilities === undefined ? {} : { capabilities: [...record.capabilities] }),
+      ...(record.pcId === undefined ? {} : { pcId: record.pcId }),
+      ...(record.pcName === undefined ? {} : { pcName: record.pcName }),
     }
     appStore.getState().openDetail(sessionId)
     runtime.ensureConnected(payload)
     if (native === null) window.location.hash = `#pair=${encodePairingFragment(payload)}`
   }, [appStore, runtime, native])
 
-  useEffect(() => {
-    if (view === 'list' && recentlyViewedId !== null && typeof window.scrollTo === 'function') {
-      try { window.scrollTo(0, listScrollY.current) } catch { /* unsupported test DOM */ }
+  const removePairing = useCallback(async (sessionId: string): Promise<boolean> => {
+    if (native !== null) {
+      try { await native.logic.remove(sessionId) } catch {
+        appStore.getState().setPairingError('原生配对存储暂不可用')
+        return false
+      }
     }
-  }, [view, recentlyViewedId])
+    runtime.closeSession(sessionId)
+    appStore.getState().removePairing(sessionId)
+    return true
+  }, [appStore, runtime, native])
 
-  if (view === 'detail' && currentRecord !== undefined && currentSessionId !== null) {
-    return (
+  const pageKey = view === 'detail' && currentRecord !== undefined && currentSessionId !== null
+    ? `detail:${currentSessionId}`
+    : restoring ? 'restoring' : adding ? 'pairing' : settingsPage ?? (sessions.length === 0 ? 'pairing' : 'list')
+
+  useLayoutEffect(() => {
+    if (pageKey !== 'list') return
+    const page = document.querySelector<HTMLElement>('[data-mobile-page-active="true"][data-mobile-page="list"]')
+    if (page !== null) page.scrollTop = listScrollY.current
+  }, [pageKey])
+
+  let pageContent
+  if (pageKey.startsWith('detail:') && currentRecord !== undefined && currentSessionId !== null) {
+    pageContent = (
       <>
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <SessionDetail
@@ -267,12 +294,10 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
       />
       </>
     )
-  }
-
-  if (restoring) return <div className="mobile-safe-area-content" style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>正在恢复已配对会话…</div>
-
-  if (adding || sessions.length === 0) {
-    return (
+  } else if (restoring) {
+    pageContent = <div className="mobile-safe-area-content" style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>正在恢复已配对会话…</div>
+  } else if (adding || (sessions.length === 0 && settingsPage === null)) {
+    pageContent = (
       <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
         <div className="mobile-safe-area-header">
           <NavBar
@@ -294,12 +319,30 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
         }} />
       </div>
     )
-  }
-
-  return (
+  } else if (settingsPage === 'settings') {
+    pageContent = <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
+      <div className="mobile-safe-area-header"><NavBar back="返回" onBack={() => setSettingsPage(null)}>设置</NavBar></div>
+      <List className="mobile-settings-list">
+        <List.Item arrow onClick={() => { setSettingsDirection('forward'); setSettingsPage('pcs') }}>PC 管理</List.Item>
+      </List>
+    </div>
+  } else if (settingsPage === 'pcs') {
+    pageContent = <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
+      <div className="mobile-safe-area-header"><NavBar back="返回" onBack={() => { setSettingsDirection('back'); setSettingsPage('settings') }}>PC 管理</NavBar></div>
+      {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
+      <PCSettings sessions={sessions}
+        onRemovePC={(sessionIds) => { void (async () => {
+          for (const sessionId of sessionIds) {
+            if (!await removePairing(sessionId)) break
+          }
+        })() }}
+      />
+    </div>
+  } else {
+    pageContent = (
     <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
       <div className="mobile-safe-area-header">
-        <NavBar back={null}>Claude Mobile Remote</NavBar>
+        <NavBar back={null} right={<button className="mobile-settings-button" onClick={() => { setSettingsDirection('forward'); setSettingsPage('settings') }}>设置</button>}>Claude Mobile Remote</NavBar>
       </div>
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <ProjectSessionList
@@ -310,17 +353,7 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
           appStore.getState().setPairingError(null)
         }}
         onOpen={openSession}
-        onRemove={(sessionId) => {
-          if (native !== null) {
-            void native.logic.remove(sessionId).then(() => {
-              runtime.closeSession(sessionId)
-              appStore.getState().removePairing(sessionId)
-            }).catch(() => appStore.getState().setPairingError('原生配对存储暂不可用'))
-            return
-          }
-          runtime.closeSession(sessionId)
-          appStore.getState().removePairing(sessionId)
-        }}
+        onRemove={(sessionId) => { void removePairing(sessionId) }}
         onRename={(sessionId, name) => {
           if (native !== null) {
             void native.logic.rename(sessionId, name).then(() => appStore.getState().renamePairing(sessionId, name))
@@ -331,7 +364,17 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
         }}
       />
     </div>
-  )
+    )
+  }
+
+  return <PageTransition
+    pageKey={pageKey}
+    direction={pageKey === 'list' ? 'back' : pageKey === 'settings' || pageKey === 'pcs' ? settingsDirection : 'forward'}
+    onListScroll={(scrollTop) => { listScrollY.current = scrollTop }}
+    onEdgeBack={pageKey.startsWith('detail:') ? backToList : pageKey === 'settings' ? () => setSettingsPage(null) : pageKey === 'pcs' ? () => { setSettingsDirection('back'); setSettingsPage('settings') } : undefined}
+  >
+    {pageContent}
+  </PageTransition>
 }
 
 export default App

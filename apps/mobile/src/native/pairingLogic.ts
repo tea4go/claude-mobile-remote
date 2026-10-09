@@ -19,6 +19,8 @@ export interface NativePairingMetadata {
   name: string
   customName: boolean
   lastConnectedAt: number | null
+  pcId?: string
+  pcName?: string
 }
 
 export interface PairingMetadataPort {
@@ -59,6 +61,8 @@ function publicMetadata(record: NativePairingMetadata): NativePairingMetadata {
     name: record.name,
     customName: record.customName,
     lastConnectedAt: record.lastConnectedAt,
+    ...(record.pcId === undefined ? {} : { pcId: record.pcId }),
+    ...(record.pcName === undefined ? {} : { pcName: record.pcName }),
   }
 }
 
@@ -139,7 +143,13 @@ export class NativePairingLogic {
         name: defaultSessionName(parsed.value.sessionId),
         customName: false,
         lastConnectedAt: null,
-      } : publicMetadata(previous))
+        ...(parsed.value.pcId === undefined ? {} : { pcId: parsed.value.pcId }),
+        ...(parsed.value.pcName === undefined ? {} : { pcName: parsed.value.pcName }),
+      } : {
+        ...publicMetadata(previous),
+        pcId: parsed.value.pcId,
+        pcName: parsed.value.pcName,
+      })
       await this.secure.write(parsed.value)
     } catch {
       throw storageError()

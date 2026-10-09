@@ -74,7 +74,8 @@ export const DRAWER_SHEET_STYLE: CSSProperties = {
   boxShadow: '0 -12px 40px rgba(15, 23, 42, 0.12)',
   borderTopLeftRadius: 16,
   borderTopRightRadius: 16,
-  maxHeight: '72vh',
+  maxHeight: 'min(86dvh, calc(100dvh - 48px))',
+  minHeight: 'min(42dvh, 320px)',
   display: 'flex',
   flexDirection: 'column',
 } as CSSProperties

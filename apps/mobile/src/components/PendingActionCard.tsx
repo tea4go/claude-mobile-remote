@@ -1,10 +1,9 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
-import { Button, Checkbox, Popup, Radio, Space, TextArea } from 'antd-mobile'
+import { Button, Checkbox, Radio, Space, TextArea } from 'antd-mobile'
+import BottomDrawer from './BottomDrawer'
 import {
   COMPACT_BUTTON_STYLE,
   DRAWER_HEADER_STYLE,
-  DRAWER_MASK_STYLE,
-  DRAWER_SHEET_STYLE,
   ICON_BUTTON_STYLE,
   FONT_SIZE_BODY,
   FONT_SIZE_COMPACT,
@@ -55,13 +54,8 @@ function Drawer({
 }) {
   return (
     <div data-testid="pending-action" data-drawer={visible ? 'open' : 'closed'}>
-      <Popup
+      <BottomDrawer
         visible={visible}
-        position="bottom"
-        destroyOnClose
-        closeOnMaskClick={false}
-        bodyStyle={DRAWER_SHEET_STYLE}
-        maskStyle={DRAWER_MASK_STYLE}
       >
         <div style={DRAWER_HEADER_STYLE}>
           <span style={{ width: 32, flexShrink: 0 }} />
@@ -92,7 +86,7 @@ function Drawer({
           <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>关闭此面板将取消当前 Turn</div>
           {children}
         </div>
-      </Popup>
+      </BottomDrawer>
     </div>
   )
 }

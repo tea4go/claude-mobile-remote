@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,6 +56,16 @@ func WithPersistenceFile(path string) Option {
 	}
 }
 
+// WithPCID adds a stable, non-secret PC display identifier to pairing payloads.
+func WithPCID(id string) Option {
+	return func(manager *Manager) { manager.pcID = id }
+}
+
+// WithPCName adds the host's display name without affecting authentication.
+func WithPCName(name string) Option {
+	return func(manager *Manager) { manager.pcName = name }
+}
+
 type credential struct {
 	sessionID string
 	digest    [sha256.Size]byte
@@ -74,6 +85,8 @@ type Manager struct {
 	clock           Clock
 	random          io.Reader
 	persistenceFile string
+	pcID            string
+	pcName          string
 	current         *credential
 	invalidated     bool
 	leases          map[uint64]*leaseState
@@ -107,6 +120,17 @@ func NewManager(wsURL string, ttl time.Duration, options ...Option) (*Manager, e
 	for _, option := range options {
 		option(manager)
 	}
+	if manager.pcID != "" {
+		_, err := hex.DecodeString(manager.pcID)
+		if len(manager.pcID) != 32 || strings.ToLower(manager.pcID) != manager.pcID || err != nil {
+			return nil, errors.New("invalid PC ID")
+		}
+	}
+	if manager.pcName != "" {
+		if len([]rune(manager.pcName)) > 255 || strings.IndexFunc(manager.pcName, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 || strings.TrimSpace(manager.pcName) == "" {
+			return nil, errors.New("invalid PC name")
+		}
+	}
 	return manager, nil
 }
 
@@ -128,6 +152,8 @@ func (m *Manager) Issue(sessionID string) (Payload, error) {
 func (m *Manager) issueLocked(sessionID string) (Payload, error) {
 	if m.persistenceFile != "" {
 		if payload, ok := m.loadPersistedLocked(sessionID); ok {
+			payload.PCID = m.pcID
+			payload.PCName = m.pcName
 			m.current = credentialFromPayload(payload)
 			m.invalidated = false
 			return payload, nil
@@ -145,6 +171,8 @@ func (m *Manager) issueLocked(sessionID string) (Payload, error) {
 		SessionID: sessionID,
 		PairToken: token,
 		ExpiresAt: expiresAt,
+		PCID:      m.pcID,
+		PCName:    m.pcName,
 	}
 	if m.persistenceFile != "" {
 		// A failed save only costs restart recovery; the credential below still
@@ -195,6 +223,8 @@ func (m *Manager) loadPersistedLocked(sessionID string) (Payload, bool) {
 		SessionID: stored.SessionID,
 		PairToken: stored.PairToken,
 		ExpiresAt: stored.ExpiresAt,
+		PCID:      m.pcID,
+		PCName:    m.pcName,
 	}, true
 }
 
