@@ -39,4 +39,14 @@ describe('项目分组', () => {
     expect(screen.getAllByText('/work/alpha')).toHaveLength(1)
     expect(screen.getAllByTestId('session-list-item').map((element) => element.getAttribute('data-session-id'))).toEqual(['a', 'b'])
   })
+
+  test('相同工作目录在不同 PC 下分别显示', () => {
+    const noop = () => {}
+    const first = { ...item('a', '/work/shared', null), pcId: '0123456789abcdef0123456789abcdef', pcName: 'Mac mini' }
+    const second = { ...item('b', '/work/shared', null), pcId: 'abcdef0123456789abcdef0123456789', pcName: 'Studio' }
+    render(<ProjectSessionList sessions={[first, second]} onAdd={noop} onOpen={noop} onRemove={noop} onRename={noop} />)
+    expect(screen.getByText('Mac mini')).toBeInTheDocument()
+    expect(screen.getByText('Studio')).toBeInTheDocument()
+    expect(screen.getAllByText('/work/shared')).toHaveLength(2)
+  })
 })

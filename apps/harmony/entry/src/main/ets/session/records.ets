@@ -8,6 +8,8 @@ export interface SessionRecord {
   pairToken: string
   expiresAt: string
   capabilities?: string[]
+  pcId?: string
+  pcName?: string
   name: string
   customName?: boolean
   projectCwd?: string
@@ -40,6 +42,8 @@ export function createSessionRecord(payload: PairingPayload): SessionRecord {
     pairToken: payload.pairToken,
     expiresAt: payload.expiresAt,
     capabilities: payload.capabilities === undefined ? undefined : payload.capabilities.slice(),
+    pcId: payload.pcId,
+    pcName: payload.pcName,
     name: defaultSessionName(payload.sessionId),
     lastConnectedAt: 0,
     hasConnectedAt: false,
@@ -55,6 +59,8 @@ function cloneRecord(record: SessionRecord): SessionRecord {
     pairToken: record.pairToken,
     expiresAt: record.expiresAt,
     capabilities: record.capabilities === undefined ? undefined : record.capabilities.slice(),
+    pcId: record.pcId,
+    pcName: record.pcName,
     name: record.name,
     customName: record.customName,
     projectCwd: record.projectCwd,
@@ -86,6 +92,8 @@ export function upsertSessionRecord(records: Array<SessionRecord>, payload: Pair
       pairToken: payload.pairToken,
       expiresAt: payload.expiresAt,
       capabilities: payload.capabilities === undefined ? undefined : payload.capabilities.slice(),
+      pcId: payload.pcId,
+      pcName: payload.pcName,
       name: record.name,
       customName: record.customName,
       projectCwd: record.projectCwd,
@@ -218,5 +226,7 @@ export function pairingPayloadFromRecord(record: SessionRecord): PairingPayload 
     pairToken: record.pairToken,
     expiresAt: record.expiresAt,
     capabilities: record.capabilities === undefined ? undefined : record.capabilities.slice(),
+    pcId: record.pcId,
+    pcName: record.pcName,
   }
 }

@@ -4,6 +4,7 @@ import { MoreOutline } from 'antd-mobile-icons'
 import { defaultSessionName, type SessionRecord } from '../session/store'
 import type { MobileState } from '../session/reducer'
 import { projectGroups } from './projectGroups'
+import { groupPCs } from './pcGroups'
 import './ProjectSessionList.css'
 
 export interface SessionListItem extends SessionRecord {
@@ -63,25 +64,40 @@ function activityTime(session: SessionListItem): string {
 
 export default function ProjectSessionList({ sessions, recentlyViewedId, onAdd, onOpen, onRemove, onRename }: Props) {
   // The component remounts on list entry, so order is stable while visible.
-  const [initialGroups] = useState(() => projectGroups(sessions))
+  const [initialGroups] = useState(() => groupPCs(sessions).map((pc) => ({
+    key: pc.key, label: pc.label, projects: projectGroups(pc.sessions),
+  })))
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [menuId, setMenuId] = useState<string | null>(null)
   const byId = new Map(sessions.map((session) => [session.sessionId, session]))
-  const known = new Set(initialGroups.flatMap((group) => group.ids))
-  const groups = initialGroups.map((group) => ({ ...group, ids: group.ids.filter((id) => byId.has(id)) }))
+  const currentPCs = groupPCs(sessions)
+  const known = new Set(initialGroups.flatMap((pc) => pc.projects.flatMap((group) => group.ids)))
+  const groups = initialGroups.map((pc) => ({
+    ...pc,
+    label: currentPCs.find((current) => current.key === pc.key)?.label ?? pc.label,
+    projects: pc.projects.map((group) => ({ ...group, ids: group.ids.filter((id) => byId.has(id)) })),
+  }))
   for (const session of sessions) {
     if (known.has(session.sessionId)) continue
+    const currentPC = groupPCs([session])[0]!
+    let pc = groups.find((item) => item.key === currentPC.key)
+    if (pc === undefined) {
+      pc = { key: currentPC.key, label: currentPC.label, projects: [] }
+      groups.push(pc)
+    }
     const cwd = session.runtimeState?.projectCwd ?? null
-    const group = groups.find((item) => item.cwd === cwd)
+    const group = pc.projects.find((item) => item.cwd === cwd)
     if (group) group.ids.push(session.sessionId)
-    else groups.push(projectGroups([session])[0]!)
+    else pc.projects.push(projectGroups([session])[0]!)
   }
   return <div className="project-session-list">
     <h2 className="project-session-list__title">会话列表</h2>
     {sessions.length === 0 && <p>还没有已配对的会话，粘贴配对 JSON 新增一个。刷新页面后列表会清空。</p>}
-    {groups.filter((group) => group.ids.length > 0).map((group) => <List
-      key={group.cwd ?? '_unknown'}
+    {groups.filter((pc) => pc.projects.some((group) => group.ids.length > 0)).map((pc) => <section key={pc.key} className="project-session-list__pc">
+      <h3 className="project-session-list__pc-title">{pc.label}</h3>
+      {pc.projects.filter((group) => group.ids.length > 0).map((group) => <List
+      key={`${pc.key}:${group.cwd ?? '_unknown'}`}
       className="project-session-list__group"
       header={<div className="project-session-list__group-heading"><strong>{group.title}</strong><span title={group.cwd ?? undefined}>{group.cwd ?? '旧版服务未提供工作目录'}</span></div>}
     >
@@ -127,6 +143,7 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, onAdd, 
         </List.Item>
       })}
     </List>)}
+    </section>)}
     <Button color="primary" fill="outline" onClick={onAdd}>新增配对</Button>
   </div>
 }

@@ -314,6 +314,21 @@ describe('App：返回列表', () => {
     expect(screen.getByText('已连接')).toBeInTheDocument()
   })
 
+  test('从详情返回列表恢复列表滚动位置', async () => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    await waitFor(() => expect(screen.getByText('返回')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText('返回'))
+    const list = document.querySelector<HTMLElement>('[data-mobile-page="list"]')!
+    list.scrollTop = 74
+    fireEvent.scroll(list)
+    fireEvent.click(screen.getByTestId('session-list-item'))
+    fireEvent.click(screen.getByText('返回'))
+
+    expect(document.querySelector<HTMLElement>('[data-mobile-page="list"]')?.scrollTop).toBe(74)
+  })
+
   test('返回列表再进入保留本次 App 生命周期内已见消息', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)

@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { Button, NavBar } from 'antd-mobile'
 import MessageComposer from './MessageComposer'
 import MessageFeed from './MessageFeed'
@@ -5,7 +6,6 @@ import PendingActionCard from './PendingActionCard'
 import QueuedRequestList from './QueuedRequestList'
 import SessionStatus from './SessionStatus'
 import {
-  COMPACT_BUTTON_STYLE,
   FONT_SIZE_COMPACT,
   GLASS_SURFACE_STYLE,
   SESSION_BACKGROUND,
@@ -60,32 +60,63 @@ export default function SessionDetail({
   const commandReady =
     !pairingInvalid && state.phase === 'connected' && state.pendingCommand === null && !managementBusy
   const cancelRequested = state.pendingCommand?.kind === 'cancel_turn'
+  const contentScrollRef = useRef<HTMLDivElement>(null)
+  const disabledReason = pairingInvalid
+    ? '配对已失效，请返回列表重新配对'
+    : state.sessionStatus === 'stopped'
+      ? '会话已结束，无法输入'
+      : state.sessionStatus === 'failed'
+        ? '会话已失败，无法输入'
+        : state.phase !== 'connected'
+          ? '连接不可用，暂时无法输入'
+          : state.pendingAction !== null
+            ? '请先处理待确认事项'
+            : state.pendingCommand !== null
+              ? '正在处理上一项操作，请稍后'
+              : '当前会话暂不可输入'
+  const showDetailNotices = state.sessionStatus === 'stopped' || state.sessionStatus === 'failed' ||
+    state.sessionError !== null || managementFeedback !== null || state.lastNotice !== null ||
+    state.queuedRequests.length > 0 || pairingInvalid || state.phase === 'protocolError' || state.lastError !== null
 
   return (
     <div
       style={{
-        height: '100dvh',
-        minHeight: '100vh',
+        height: '100%',
         background: SESSION_BACKGROUND,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
       }}
     >
-      {/* 页面整体不滚动（滚动发生在消息流内部），导航栏无需 sticky；
-          sticky 叠 backdropFilter 会多出一层合成层，得不到好处。 */}
-      <div className="mobile-safe-area-header" style={GLASS_SURFACE_STYLE}>
-        <NavBar back="返回" onBack={onBack}>
-          {record.name}
+      {/* 导航、状态与输入栏固定，中间的详情和消息共用滚动区。 */}
+      <div className="mobile-safe-area-header session-detail-header" style={GLASS_SURFACE_STYLE}>
+        <NavBar back="返回" onBack={onBack} right={<div className="session-detail-header-actions">
+          <SessionStatus
+            connection={pairingInvalid ? 'disconnected' : state.connection}
+            sessionStatus={state.sessionStatus}
+            sessionError={state.sessionError}
+            turnStatus={turnStatus}
+            queueDepthHint={state.queueDepthHint}
+            variant="compact"
+          />
+          {showReconnect && <Button size="mini" color="primary" onClick={onReconnect}>重新连接</Button>}
+        </div>}>
+          <span className="session-detail-title">{record.name}</span>
         </NavBar>
       </div>
-      <div style={{ flexShrink: 0, padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div
+        ref={contentScrollRef}
+        data-testid="detail-scroll"
+        style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain' }}
+      >
+      {showDetailNotices && <div style={{ flexShrink: 0, padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <SessionStatus
           connection={pairingInvalid ? 'disconnected' : state.connection}
           sessionStatus={state.sessionStatus}
           sessionError={state.sessionError}
           turnStatus={turnStatus}
           queueDepthHint={state.queueDepthHint}
+          variant="details"
         />
         {managementFeedback !== null && <div role="status">{managementFeedback}</div>}
         {/* 不支持通知（B2 §4.4）：只提示并引导回电脑端，不断开连接。 */}
@@ -109,24 +140,15 @@ export default function SessionDetail({
         {state.lastError !== null && (
           <div style={{ color: '#e00' }}>{state.lastError.message}</div>
         )}
-        {showReconnect && (
-          <Button
-            color="primary"
-            size="small"
-            style={{ ...COMPACT_BUTTON_STYLE, alignSelf: 'flex-start' }}
-            onClick={onReconnect}
-          >
-            重新连接
-          </Button>
-        )}
+      </div>}
+      <div style={{ padding: '0 16px' }}>
+        <MessageFeed messages={state.messages} scrollContainerRef={contentScrollRef} />
       </div>
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', padding: '0 16px' }}>
-        <MessageFeed messages={state.messages} />
       </div>
       <div
         style={{
           ...GLASS_SURFACE_STYLE,
-          padding: '8px 16px calc(8px + env(safe-area-inset-bottom))',
+          padding: '8px 16px calc(8px + env(safe-area-inset-bottom, 0px))',
           borderTop: '1px solid rgba(15, 23, 42, 0.06)',
           display: 'flex',
           flexDirection: 'column',
@@ -146,6 +168,7 @@ export default function SessionDetail({
         )}
         <MessageComposer
           enabled={state.canSend}
+          disabledReason={disabledReason}
           onSend={onSend}
           permissionMode={state.permissionMode}
           onPermissionModeChange={onPermissionModeChange}

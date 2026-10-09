@@ -83,6 +83,26 @@ test('原生启动恢复有效配对并保留失效占位；占位不会连接',
   expect(FakeSocket.instances).toHaveLength(1)
 })
 
+test('设置页按 PC 编码移除本地配对，其他 PC 保留且安全记录同步删除', async () => {
+  const firstPC = '0123456789abcdef0123456789abcdef'
+  const secondPC = 'abcdef0123456789abcdef0123456789'
+  const native = bindings(['a', 'b', 'c'].map((id) => ({
+    metadata: { sessionId: id, name: `会话 ${id}`, customName: true, lastConnectedAt: null },
+    payload: { ...pairing(id), pcId: id === 'c' ? secondPC : firstPC },
+  })))
+  render(<App native={native.native} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(screen.getAllByTestId('session-list-item')).toHaveLength(3))
+  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  fireEvent.click(screen.getByText('PC 管理'))
+  expect(screen.getAllByRole('button', { name: '移除此 PC' })).toHaveLength(2)
+  fireEvent.click(screen.getAllByRole('button', { name: '移除此 PC' })[0]!)
+  fireEvent.click(screen.getByRole('button', { name: '确认移除' }))
+  await waitFor(() => expect(native.metadata.has('a') || native.metadata.has('b')).toBe(false))
+  expect(native.secure.has('a') || native.secure.has('b')).toBe(false)
+  expect(native.secure.has('c')).toBe(true)
+  expect(screen.getAllByRole('button', { name: '移除此 PC' })).toHaveLength(1)
+})
+
 test('原生扫码安全保存后建立连接，URL 不留配对凭证；前台过期后不重连', async () => {
   let currentTime = Date.parse('2026-09-24T00:00:00Z')
   const native = bindings()

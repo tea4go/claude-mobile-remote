@@ -17,6 +17,8 @@ type Pairing struct {
 	PairToken    string    `json:"pairToken"`
 	ExpiresAt    time.Time `json:"expiresAt"`
 	Capabilities []string  `json:"capabilities,omitempty"`
+	PCID         string    `json:"pcId,omitempty"`
+	PCName       string    `json:"pcName,omitempty"`
 }
 
 // Marshal encodes the pairing payload without logging or decorating it.

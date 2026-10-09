@@ -1,5 +1,5 @@
-import { useRef, useState, type CSSProperties } from 'react'
-import { Button, Popover, Space, TextArea } from 'antd-mobile'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { Button, Popover, Space, TextArea, type TextAreaRef } from 'antd-mobile'
 import { AddOutline, CheckOutline } from 'antd-mobile-icons'
 import { MAX_TEXT_BYTES, type PermissionMode } from '../protocol/types'
 import { COMPACT_BUTTON_STYLE, FONT_SIZE_COMPACT, FONT_SIZE_BODY } from './ui'
@@ -24,6 +24,7 @@ interface MessageComposerProps {
   onPermissionModeChange?: (mode: PermissionMode) => void
   onCreateSession?: () => void
   createSessionEnabled?: boolean
+  disabledReason?: string
 }
 
 const SHELL_STYLE: CSSProperties = {
@@ -87,6 +88,7 @@ export default function MessageComposer({
   onPermissionModeChange = () => undefined,
   onCreateSession,
   createSessionEnabled = false,
+  disabledReason = '当前会话暂不可输入',
 }: MessageComposerProps) {
   const [text, setText] = useState('')
   const [oversize, setOversize] = useState(false)
@@ -96,6 +98,36 @@ export default function MessageComposer({
   const [nativeNotice, setNativeNotice] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+  const textAreaRef = useRef<TextAreaRef>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [blockedFeedback, setBlockedFeedback] = useState(false)
+
+  // antd-mobile 的菜单渲染在 Portal 中，按下菜单项同样不能抢走输入焦点。
+  // Button 未暴露 pointerdown 属性，因此在文档捕获阶段只筛选指定控件。
+  useEffect(() => {
+    const keepComposerFocus = (event: PointerEvent) => {
+      if (document.activeElement !== textAreaRef.current?.nativeElement) return
+      if (event.target instanceof Element && event.target.closest(
+        '[data-testid="attachment-toggle"], [data-testid="permission-mode"], .composer-popover-menu',
+      )) {
+        event.preventDefault()
+      }
+    }
+    document.addEventListener('pointerdown', keepComposerFocus, true)
+    return () => document.removeEventListener('pointerdown', keepComposerFocus, true)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current !== null) clearTimeout(feedbackTimerRef.current)
+    }
+  }, [])
+
+  const showBlockedFeedback = () => {
+    setBlockedFeedback(true)
+    if (feedbackTimerRef.current !== null) clearTimeout(feedbackTimerRef.current)
+    feedbackTimerRef.current = setTimeout(() => setBlockedFeedback(false), 2200)
+  }
 
   const trimmed = text.trim()
   const oversizeNow = trimmed !== '' && new TextEncoder().encode(trimmed).length > MAX_TEXT_BYTES
@@ -165,6 +197,7 @@ export default function MessageComposer({
       {nativeNotice !== null && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#64748b' }}>{nativeNotice}</div>}
       {((oversize && oversizeNow) || oversizeNow) && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#dc2626' }}>文本超出长度上限</div>}
       <div style={{ position: 'relative' }}>
+        {blockedFeedback && !enabled && <div className="composer-disabled-feedback" role="status">{disabledReason}</div>}
         {turnRunning && cancelTarget !== null && onCancelTurn !== undefined && (
           <Button
             aria-label="取消当前 Turn"
@@ -192,25 +225,34 @@ export default function MessageComposer({
             {cancelEnabled ? '停止' : '停止中'}
           </Button>
         )}
-        <div style={SHELL_STYLE}>
-          <TextArea
-            data-testid="composer-input"
-            style={INPUT_STYLE}
-            value={text}
-            onChange={(value) => {
-              setText(value)
-              if (!oversizeNow) setOversize(false)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                submit()
-              }
-            }}
-            placeholder="发送文本给 Claude"
-            autoSize={{ minRows: 1, maxRows: 4 }}
-            disabled={!enabled}
-          />
+        <div style={{ ...SHELL_STYLE, ...(blockedFeedback && !enabled ? { borderColor: '#d97706', boxShadow: '0 0 0 3px rgba(217, 119, 6, 0.18)' } : {}) }}>
+          <div style={{ position: 'relative' }}>
+            <TextArea
+              ref={textAreaRef}
+              data-testid="composer-input"
+              style={INPUT_STYLE}
+              value={text}
+              onChange={(value) => {
+                setText(value)
+                if (!oversizeNow) setOversize(false)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  submit()
+                }
+              }}
+              placeholder="发送文本给 Claude"
+              autoSize={{ minRows: 1, maxRows: 4 }}
+              disabled={!enabled}
+            />
+            {!enabled && <button
+              type="button"
+              className="composer-disabled-hit-area"
+              aria-label="输入暂不可用"
+              onClick={showBlockedFeedback}
+            />}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 32 }}>
             <Space align="center" style={{ '--gap': '2px' }}>
               {onCreateSession !== undefined && (

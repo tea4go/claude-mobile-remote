@@ -41,6 +41,17 @@ function ports() {
 }
 
 describe('原生配对纯逻辑', () => {
+  test('普通元数据保留 PC 编码，失效占位仍可归属设备且不保存凭证', async () => {
+    const state = ports()
+    const payload = { ...pairing('a'), pcId: '0123456789abcdef0123456789abcdef', pcName: 'zhanglingsiMac-mini.local' }
+    await state.logic.saveScanned(JSON.stringify(payload), now)
+    expect(state.records.get('a')?.pcId).toBe(payload.pcId)
+    expect(state.records.get('a')?.pcName).toBe(payload.pcName)
+    expect(JSON.stringify(state.records.get('a'))).not.toContain(payload.pairToken)
+    state.secrets.delete('a')
+    expect((await state.logic.restore(now)).needsPairing[0]?.pcId).toBe(payload.pcId)
+    expect((await state.logic.restore(now)).needsPairing[0]?.pcName).toBe(payload.pcName)
+  })
   test('扫码 Fragment 复用现有校验，过期或无效内容不触发存储', async () => {
     const state = ports()
     const valid = pairing('a')

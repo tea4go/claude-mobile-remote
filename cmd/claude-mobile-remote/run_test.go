@@ -1308,6 +1308,7 @@ func TestBuildRuntimeReservesSessionIDBeforeConnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseConfig(nil) error = %v", err)
 	}
+	baseConfig.pcID = "0123456789abcdef0123456789abcdef"
 
 	newSessionController, _, err := buildRuntime(baseConfig)
 	if err != nil {

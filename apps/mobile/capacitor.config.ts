@@ -9,8 +9,20 @@ const config: CapacitorConfig = {
   appId: 'com.tea4go.claudemobileremote',
   appName: 'Claude Mobile Remote',
   webDir: 'dist',
+  backgroundColor: '#fafbfd',
   // Capacitor 的 Debug 桥接日志会打印插件请求/结果，包含安全存储中的 Pair Token。
   loggingBehavior: 'none',
+  ios: {
+    // 页面内部滚动，避免 iOS 将整个 WebView 卷到状态栏下。
+    scrollEnabled: false,
+  },
+  plugins: {
+    Keyboard: {
+      // 插件 native 模式会延迟缩放；iOS 根控制器改由 keyboardLayoutGuide 约束 WebView。
+      resize: 'none',
+      autoBackdropColor: 'auto',
+    },
+  },
   server: {
     // Android 壳内页面走 http://localhost 而非默认 https://localhost：
     // 默认 https 会触发 WebView 混合内容策略，拦截到 ws:// 局域网的明文连接（见 D48）。

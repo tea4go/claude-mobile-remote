@@ -1,0 +1,35 @@
+.mobile-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.mobile-drawer-mask {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: auto;
+  transition: opacity 260ms ease-out;
+}
+
+.mobile-drawer-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  pointer-events: auto;
+  transform: translate3d(0, 100%, 0);
+  transition: transform 260ms cubic-bezier(.2, .75, .3, 1);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.mobile-drawer--entered .mobile-drawer-mask { opacity: 1; }
+.mobile-drawer--entered .mobile-drawer-sheet { transform: translate3d(0, 0, 0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-drawer-mask,
+  .mobile-drawer-sheet { transition-duration: 0ms; }
+}

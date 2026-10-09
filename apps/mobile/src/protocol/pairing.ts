@@ -13,6 +13,8 @@ export interface PairingPayload {
   pairToken: string
   expiresAt: string
   capabilities?: Array<'create_session' | 'stop_session'>
+  pcId?: string
+  pcName?: string
 }
 
 export type PairingResult =
@@ -29,7 +31,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function validatePayload(value: unknown, now: number): PairingResult {
   if (!isObject(value)) return { ok: false, error: ERROR_INVALID }
 
-  const { version, wsUrl, sessionId, pairToken, expiresAt, capabilities } = value
+  const { version, wsUrl, sessionId, pairToken, expiresAt, capabilities, pcId, pcName } = value
   if (version !== PAIRING_PAYLOAD_VERSION) return { ok: false, error: ERROR_INVALID }
   if (
     typeof wsUrl !== 'string' ||
@@ -64,10 +66,23 @@ function validatePayload(value: unknown, now: number): PairingResult {
     return { ok: false, error: ERROR_INVALID }
   }
 
+  if (pcId !== undefined && (typeof pcId !== 'string' || !/^[0-9a-f]{32}$/.test(pcId))) {
+    return { ok: false, error: ERROR_INVALID }
+  }
+
+  if (pcName !== undefined && (typeof pcName !== 'string' || pcName.trim() === '' || [...pcName].length > 255 || [...pcName].some((character) => {
+    const code = character.codePointAt(0) ?? 0
+    return code < 32 || code === 127
+  }))) {
+    return { ok: false, error: ERROR_INVALID }
+  }
+
   return {
     ok: true,
     value: { version, wsUrl, sessionId, pairToken, expiresAt,
-      ...(capabilities === undefined ? {} : { capabilities: capabilities as PairingPayload['capabilities'] }) },
+      ...(capabilities === undefined ? {} : { capabilities: capabilities as PairingPayload['capabilities'] }),
+      ...(pcId === undefined ? {} : { pcId }),
+      ...(pcName === undefined ? {} : { pcName }) },
   }
 }
 

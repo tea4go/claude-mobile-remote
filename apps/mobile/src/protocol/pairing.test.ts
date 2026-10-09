@@ -45,6 +45,17 @@ describe('配对负载版本与协议版本相互独立', () => {
 })
 
 describe('parsePairingJson：原始 JSON', () => {
+  test('可选 PC 编码保留，旧配对兼容，错误编码拒绝', () => {
+    const payload = { ...validPayload(), pcId: '0123456789abcdef0123456789abcdef' }
+    expect(parsePairingJson(JSON.stringify(payload), NOW)).toEqual({ ok: true, value: payload })
+    expect(parsePairingJson(JSON.stringify(validPayload()), NOW).ok).toBe(true)
+    expect(parsePairingJson(JSON.stringify({ ...payload, pcId: 'machine-1' }), NOW)).toEqual({ ok: false, error: INVALID })
+  })
+  test('可选 PC 名称保留并拒绝控制字符', () => {
+    const payload = { ...validPayload(), pcName: 'zhanglingsiMac-mini.local' }
+    expect(parsePairingJson(JSON.stringify(payload), NOW)).toEqual({ ok: true, value: payload })
+    expect(parsePairingJson(JSON.stringify({ ...payload, pcName: 'bad\nname' }), NOW)).toEqual({ ok: false, error: INVALID })
+  })
   test('保留已声明的多 Session 能力且旧配对保持兼容', () => {
     const payload = validPayload()
     payload.capabilities = ['create_session', 'stop_session']

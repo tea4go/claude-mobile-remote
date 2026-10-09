@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { useRef } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import MessageFeed from './MessageFeed'
 import type { Message } from '../session/reducer'
@@ -31,6 +32,32 @@ function input(overrides: Partial<Extract<Message, { kind: 'input' }>> = {}): Me
 }
 
 describe('MessageFeed', () => {
+  test('外部内容滚动区向上阅读时不被新消息拉到底部', () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    function DetailFeed({ text }: { text: string }) {
+      const scrollRef = useRef<HTMLDivElement>(null)
+      return <div ref={scrollRef} data-testid="detail-scroll">
+        <MessageFeed messages={[claude({ text })]} scrollContainerRef={scrollRef} />
+      </div>
+    }
+    const { rerender } = render(<DetailFeed text="第一段" />)
+    const scroll = screen.getByTestId('detail-scroll')
+    Object.defineProperties(scroll, {
+      scrollTop: { configurable: true, value: 100, writable: true },
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 400 },
+    })
+    fireEvent.scroll(scroll)
+    scrollIntoView.mockClear()
+    rerender(<DetailFeed text="第一段第二段" />)
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(screen.getByTestId('message-feed').style.overflowY).toBe('')
+  })
+
   test('流式文本变化时在底部自动滚动', () => {
     const scrollIntoView = vi.fn()
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {

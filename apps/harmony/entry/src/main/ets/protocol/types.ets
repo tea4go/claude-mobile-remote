@@ -128,6 +128,8 @@ export interface PairingPayload {
   pairToken: string
   expiresAt: string
   capabilities?: string[]
+  pcId?: string
+  pcName?: string
 }
 
 export interface ErrorInfo {

@@ -117,7 +117,7 @@ describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
         onCancel={onCancel}
       />,
     )
-    const mask = document.querySelector('.adm-mask')
+    const mask = document.querySelector('.mobile-drawer-mask')
     expect(mask).not.toBeNull()
     fireEvent.click(mask!)
     expect(onCancel).not.toHaveBeenCalled()
@@ -129,12 +129,12 @@ describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
   // 这里锁住「遮罩显著淡」和「靠 brightness 提亮暗部」两条，不锁具体色值。
   test('抽屉遮罩显著淡于默认档，玻璃靠 brightness 提亮', () => {
     render(<Card action={approval()} />)
-    const mask = document.querySelector('.adm-mask')
+    const mask = document.querySelector('.mobile-drawer-mask')
     expect(mask).not.toBeNull()
     const alpha = /rgba\([^)]*,\s*([\d.]+)\s*\)/.exec(mask!.getAttribute('style') ?? '')?.[1]
     expect(alpha).toBeDefined()
     expect(Number(alpha)).toBeLessThan(0.3)
-    const sheet = document.querySelector('.adm-popup-body')
+    const sheet = document.querySelector('.mobile-drawer-sheet')
     expect(sheet).not.toBeNull()
     expect(sheet!.getAttribute('style')).toContain('brightness')
   })

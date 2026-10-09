@@ -23,11 +23,13 @@ interface PairingPayloadCandidate {
   pairToken?: string
   expiresAt?: string
   capabilities?: string[]
+  pcId?: string
+  pcName?: string
 }
 
 const INVALID_PAIRING_MESSAGE = 'Invalid pairing payload'
 const EXPIRED_PAIRING_MESSAGE = 'Pairing token expired'
-const PAIRING_KEYS: string[] = ['version', 'wsUrl', 'sessionId', 'pairToken', 'expiresAt', 'capabilities']
+const PAIRING_KEYS: string[] = ['version', 'wsUrl', 'sessionId', 'pairToken', 'expiresAt', 'capabilities', 'pcId', 'pcName']
 const WS_URL_PATTERN = /^wss?:\/\/[^/\s?#]+(?:[/?#][^\s]*)?$/
 const BASE64_URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
 
@@ -131,6 +133,8 @@ function createPairingPayload(
   pairToken: string,
   expiresAt: string,
   capabilities?: string[],
+  pcId?: string,
+  pcName?: string,
 ): PairingPayload {
   const payload: PairingPayload = {
     version: PAIRING_PAYLOAD_VERSION,
@@ -142,6 +146,8 @@ function createPairingPayload(
   if (capabilities !== undefined) {
     payload.capabilities = capabilities.slice()
   }
+  if (pcId !== undefined) { payload.pcId = pcId }
+  if (pcName !== undefined) { payload.pcName = pcName }
   return payload
 }
 
@@ -182,6 +188,17 @@ function validatePairingPayload(value: Object | null, nowMs: number): PairingDec
   }
 
   const capabilities = candidate.capabilities
+  const pcId = candidate.pcId
+  const pcName = candidate.pcName
+  if (pcId !== undefined && (typeof pcId !== 'string' || !/^[0-9a-f]{32}$/.test(pcId))) {
+    return invalidResult()
+  }
+  if (pcName !== undefined && (typeof pcName !== 'string' || pcName.trim().length === 0 || Array.from(pcName).length > 255 || Array.from(pcName).some((character: string) => {
+    const code = character.codePointAt(0) ?? 0
+    return code < 32 || code === 127
+  }))) {
+    return invalidResult()
+  }
   if (capabilities !== undefined) {
     if (!Array.isArray(capabilities) || capabilities.length > 2) {
       return invalidResult()
@@ -198,7 +215,7 @@ function validatePairingPayload(value: Object | null, nowMs: number): PairingDec
 
   return createPairingDecodeResult(
     true,
-    createPairingPayload(wsUrl, sessionId, pairToken, expiresAt, capabilities),
+    createPairingPayload(wsUrl, sessionId, pairToken, expiresAt, capabilities, pcId, pcName),
     null,
   )
 }

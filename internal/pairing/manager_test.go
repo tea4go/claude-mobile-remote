@@ -51,6 +51,36 @@ func TestManagerIssueAndAuthenticate(t *testing.T) {
 	}
 }
 
+func TestManagerPCNameOnIssueAndRestore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pairing.json")
+	options := []Option{WithPersistenceFile(path), WithPCID("0123456789abcdef0123456789abcdef"), WithPCName("zhanglingsiMac-mini.local"), WithRandom(bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)))}
+	first, err := NewManager("ws://127.0.0.1:8765/ws", time.Hour, options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := first.Issue("session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.PCName != "zhanglingsiMac-mini.local" {
+		t.Fatalf("PCName = %q", payload.PCName)
+	}
+	second, err := NewManager("ws://127.0.0.1:8765/ws", time.Hour, options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := second.Issue("session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.PCName != payload.PCName || restored.PairToken != payload.PairToken {
+		t.Fatal("restored pairing lost PC name or token")
+	}
+	if _, err := NewManager("ws://127.0.0.1:8765/ws", time.Hour, WithPCName("bad\nname")); err == nil {
+		t.Fatal("control character in PC name accepted")
+	}
+}
+
 func TestManagerRestoresUnexpiredCredentialAfterRestart(t *testing.T) {
 	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 	path := filepath.Join(t.TempDir(), "pairing.json")
@@ -85,6 +115,39 @@ func TestManagerRestoresUnexpiredCredentialAfterRestart(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("pairing file mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
+func TestManagerPCIDSurvivesCredentialRestoreAndRotation(t *testing.T) {
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	path := filepath.Join(t.TempDir(), "pairing.json")
+	pcID := "0123456789abcdef0123456789abcdef"
+	first, err := NewManager("ws://127.0.0.1:8765/ws", time.Hour, WithClock(func() time.Time { return now }), WithPersistenceFile(path), WithPCID(pcID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, err := first.Issue("session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued.PCID != pcID {
+		t.Fatal("issued PC ID missing")
+	}
+	second, err := NewManager("ws://127.0.0.1:8765/ws", time.Hour, WithClock(func() time.Time { return now }), WithPersistenceFile(path), WithPCID(pcID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := second.Issue("session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.PCID != pcID || restored.PairToken != issued.PairToken {
+		t.Fatal("restored pairing changed PC ID or token")
+	}
+	now = now.Add(2 * time.Hour)
+	rotated, ok, err := second.RotateIfExpired()
+	if err != nil || !ok || rotated.PCID != pcID {
+		t.Fatalf("rotated PC ID = %q, ok = %v, err = %v", rotated.PCID, ok, err)
 	}
 }
 

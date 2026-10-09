@@ -9,6 +9,7 @@ interface SessionStatusProps {
   sessionError: ErrorInfo | null
   turnStatus: string
   queueDepthHint: number
+  variant?: 'full' | 'compact' | 'details'
 }
 
 const CONNECTION_LABELS: Record<ConnectionState, string> = {
@@ -49,13 +50,24 @@ export default function SessionStatus({
   sessionError,
   turnStatus,
   queueDepthHint,
+  variant = 'full',
 }: SessionStatusProps) {
   const terminalBanner =
     sessionStatus === null ? undefined : TERMINAL_BANNERS[sessionStatus]
 
+  if (variant === 'compact') {
+    const sessionLabel = sessionStatus === null ? '' : ` · ${SESSION_LABELS[sessionStatus] ?? sessionStatus}`
+    return <span data-testid="session-status-compact" title={`${CONNECTION_LABELS[connection]}${sessionLabel} · ${TURN_LABELS[turnStatus] ?? turnStatus}`}>
+      <span className="session-detail-connection-line"><span>{CONNECTION_LABELS[connection]}</span>
+        {sessionLabel !== '' && <span className="session-detail-secondary-status">· {SESSION_LABELS[sessionStatus!] ?? sessionStatus}</span>}
+      </span>
+      <span>Turn：{TURN_LABELS[turnStatus] ?? turnStatus}</span>
+    </span>
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      {variant === 'full' && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <Tag color={connection === 'connected' ? 'success' : 'default'}>
           {CONNECTION_LABELS[connection]}
         </Tag>
@@ -66,7 +78,7 @@ export default function SessionStatus({
         )}
         <Tag>{`Turn：${TURN_LABELS[turnStatus] ?? turnStatus}`}</Tag>
         {queueDepthHint > 0 && <Tag color="warning">连接时有 {queueDepthHint} 条等待任务</Tag>}
-      </div>
+      </div>}
       {terminalBanner !== undefined && (
         <div
           data-testid="session-terminal-banner"

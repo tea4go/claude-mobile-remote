@@ -46,7 +46,7 @@ describe('SessionList：空态', () => {
 })
 
 describe('SessionList：记录展示', () => {
-  test('列表只保留标题和预览，不常驻展示诊断信息', () => {
+  test('列表展示 PC 地址分组与会话预览，不常驻展示诊断信息', () => {
     const sessions = listSessions(storeWith('session-abcdefgh-1'))
     render(
       <SessionList sessions={sessions} onAdd={noop} onOpen={noop} onRemove={noop} onRename={noop} />,
@@ -54,7 +54,7 @@ describe('SessionList：记录展示', () => {
 
     expect(screen.getByText(defaultSessionName('session-abcdefgh-1'))).toBeInTheDocument()
     expect(screen.getByText('暂无会话内容')).toBeInTheDocument()
-    expect(screen.queryByText(/127\.0\.0\.1:8082/)).not.toBeInTheDocument()
+    expect(screen.getByText('127.0.0.1:8082')).toBeInTheDocument()
     expect(screen.queryByText(/活动时间未知/)).not.toBeInTheDocument()
   })
 
@@ -108,7 +108,7 @@ describe('SessionList：记录展示', () => {
     )
 
     expect(screen.getAllByTestId('session-list-item')).toHaveLength(1)
-    expect(screen.queryByText(/127\.0\.0\.1:9090/)).not.toBeInTheDocument()
+    expect(screen.getByText('127.0.0.1:9090')).toBeInTheDocument()
   })
 
   test('不渲染 Pair Token', () => {

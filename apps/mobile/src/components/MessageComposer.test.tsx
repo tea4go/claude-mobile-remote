@@ -17,6 +17,42 @@ describe('MessageComposer', () => {
     render(<MessageComposer enabled={false} onSend={onSend} />)
     expect(screen.getByRole('textbox')).toBeDisabled()
     expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '输入暂不可用' }))
+    expect(screen.getByRole('status')).toHaveTextContent('当前会话暂不可输入')
+    expect(screen.getByRole('textbox')).not.toHaveFocus()
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  test('连接不可用时点击输入区有具体反馈，恢复后反馈消失', () => {
+    const { rerender } = render(<MessageComposer enabled={false} disabledReason="连接不可用，暂时无法输入" onSend={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '输入暂不可用' }))
+    expect(screen.getByRole('status')).toHaveTextContent('连接不可用，暂时无法输入')
+    rerender(<MessageComposer enabled onSend={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: '输入暂不可用' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  test('附件和权限触控保留已聚焦输入，菜单项仍可执行；外部和其他按钮不拦截', () => {
+    const onPermissionModeChange = vi.fn()
+    render(<MessageComposer enabled onSend={vi.fn()} onPermissionModeChange={onPermissionModeChange} />)
+    const input = screen.getByRole('textbox')
+    input.focus()
+    const pointerDown = (target: Element) => {
+      const event = new Event('pointerdown', { bubbles: true, cancelable: true })
+      target.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    expect(pointerDown(screen.getByRole('button', { name: '添加照片或文件' }))).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '添加照片或文件' }))
+    expect(pointerDown(screen.getByTestId('choose-file'))).toBe(true)
+    fireEvent.click(document.body)
+    expect(pointerDown(screen.getByRole('button', { name: '权限模式' }))).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '权限模式' }))
+    expect(pointerDown(screen.getByTestId('permission-option-plan'))).toBe(true)
+    fireEvent.click(screen.getByTestId('permission-option-plan'))
+    expect(onPermissionModeChange).toHaveBeenCalledWith('plan')
+    expect(pointerDown(screen.getByRole('button', { name: '语音输入（原生能力预留）' }))).toBe(false)
+    expect(pointerDown(document.body)).toBe(false)
   })
 
   test('空白文本不发送', () => {

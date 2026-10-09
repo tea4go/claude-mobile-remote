@@ -48,6 +48,8 @@ type Config struct {
 	AdvertiseURL           string
 	PairTokenTTL           time.Duration
 	PairingPersistenceFile string
+	PCID                   string
+	PCName                 string
 	AllowedOrigins         []string
 	AuthTimeout            time.Duration
 	CloseTimeout           time.Duration
@@ -106,6 +108,12 @@ func newServer(config Config, factory transportFactory) (*Server, error) {
 	var managerOptions []pairing.Option
 	if config.PairingPersistenceFile != "" {
 		managerOptions = append(managerOptions, pairing.WithPersistenceFile(config.PairingPersistenceFile))
+	}
+	if config.PCID != "" {
+		managerOptions = append(managerOptions, pairing.WithPCID(config.PCID))
+	}
+	if config.PCName != "" {
+		managerOptions = append(managerOptions, pairing.WithPCName(config.PCName))
 	}
 	manager, err := pairing.NewManager(config.AdvertiseURL, config.PairTokenTTL, managerOptions...)
 	if err != nil {

@@ -1,10 +1,9 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
-import { Popup, Tag } from 'antd-mobile'
+import { Tag } from 'antd-mobile'
+import BottomDrawer from './BottomDrawer'
 import type { ContentBlock } from '../protocol/types'
 import {
   DRAWER_HEADER_STYLE,
-  DRAWER_MASK_STYLE,
-  DRAWER_SHEET_STYLE,
   GLASS_PANEL_STYLE,
   ICON_BUTTON_STYLE,
   FONT_SIZE_BODY,
@@ -336,14 +335,9 @@ export default function ActivityGroup({ activities }: { activities: Activity[] }
         <Chevron direction="right" />
       </button>
 
-      <Popup
+      <BottomDrawer
         visible={drawer.open}
-        position="bottom"
-        destroyOnClose
-        bodyStyle={DRAWER_SHEET_STYLE}
-        maskStyle={DRAWER_MASK_STYLE}
         onMaskClick={close}
-        onClose={close}
       >
         {detail === undefined ? (
           <>
@@ -391,7 +385,7 @@ export default function ActivityGroup({ activities }: { activities: Activity[] }
             <ActivityDetail activity={detail} />
           </>
         )}
-      </Popup>
+      </BottomDrawer>
     </div>
   )
 }

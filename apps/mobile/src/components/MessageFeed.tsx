@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 import { Tag } from 'antd-mobile'
 import MessageMarkdown from './MessageMarkdown'
 import ActivityGroup, { type Activity } from './ActivityGroup'
@@ -7,6 +7,7 @@ import type { Message } from '../session/reducer'
 
 interface MessageFeedProps {
   messages: Message[]
+  scrollContainerRef?: RefObject<HTMLDivElement | null>
 }
 
 // tool_result 关联工具名（B2 §6）：向前找同一 toolUseId 的 tool_use。
@@ -104,10 +105,21 @@ function buildDisplayItems(messages: Message[]): DisplayItem[] {
 
 // 易失消息流（D32）：本连接期内手机输入、来源标记、Claude 流式文本与失败反馈。
 // Claude 文本经受限 Markdown 渲染（B1）；输入消息保持纯文本，不解析语法。
-export default function MessageFeed({ messages }: MessageFeedProps) {
+export default function MessageFeed({ messages, scrollContainerRef }: MessageFeedProps) {
   const feedRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
+
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef?.current
+    if (scrollContainer === undefined || scrollContainer === null) return
+    const updateNearBottom = () => {
+      nearBottomRef.current =
+        scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight <= 48
+    }
+    scrollContainer.addEventListener('scroll', updateNearBottom)
+    return () => scrollContainer.removeEventListener('scroll', updateNearBottom)
+  }, [scrollContainerRef])
 
   // 用户接近底部时自动滚动；向上阅读时不强制拉回（§8）。
   useEffect(() => {
@@ -121,12 +133,13 @@ export default function MessageFeed({ messages }: MessageFeedProps) {
       ref={feedRef}
       data-testid="message-feed"
       onScroll={() => {
+        if (scrollContainerRef !== undefined) return
         const feed = feedRef.current
         if (feed === null) return
         nearBottomRef.current =
           feed.scrollHeight - feed.scrollTop - feed.clientHeight <= 48
       }}
-      style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', overflowY: 'auto', padding: '8px 0' }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 12, height: scrollContainerRef === undefined ? '100%' : undefined, overflowY: scrollContainerRef === undefined ? 'auto' : undefined, padding: '8px 0' }}
     >
       {buildDisplayItems(messages).map((item, index) => {
         if (item.kind === 'activities') {

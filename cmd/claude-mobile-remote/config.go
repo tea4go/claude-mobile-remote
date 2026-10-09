@@ -22,6 +22,7 @@ var defaultAllowedOrigins = []string{
 }
 
 type cliConfig struct {
+	pcID            string
 	showVersion     bool
 	profile         string
 	listen          string
