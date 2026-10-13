@@ -4,7 +4,9 @@
 
 ## 当前状态
 
-- 当前执行：C2-C 移动端体验及 PC 管理改动已获用户体验验收，相关代码和文档已按本轮提交授权核对暂存范围。范围含页面转场、键盘和输入栏交互、抽屉、设置与 PC 分组及配对元数据；用户测试截图和参考图片留在工作区。Go 全包 race、build，React/Capacitor 468 项测试、lint、原生同步及暂存差异空白检查通过；iOS 工程编译、C2-D 真机门禁与 Harmony DevEco 构建仍待补。验收记录见 `docs/testing/C2-result.md` §14。
+- 用户当前没有可用 Android 设备，明确要求暂缓 Android 设备测试并提交本轮改动。Android 自动化与 debug 构建通过，设备体验和 C2-D 门禁继续标记为未验证；本次提交范围为列表与导航 UI、Android 同步配置及相关记忆/验证文档，测试截图和 APK 等生成产物不纳入提交。
+
+- 当前执行：C2-C 当前完整 React/Capacitor 功能与体验已同步 Android，Web Vitest 468/468、lint、build、Capacitor Android sync 和 Gradle assembleDebug 均通过，已生成 debug APK；Android 真机键盘、返回手势、抽屉及原生扫码仍待验收。用户反馈 iOS 本轮真机验证暂时结束，未提供逐项结果，不据此扩大为 C2-D/VPN 门禁通过。HarmonyOS NEXT 按用户要求暂不同步代码，平台中立契约及 ArkUI/ArkTS 等价实现路径已核对并记录于 C2-result §15；下一步为 Android 人工验收。
 
 - 上一轮多会话新建范围仅 Standalone，不含 WhaleTerm 或 Relay。用户确认的语义记录于 D70/D71：任一有效已订阅 Session 凭证可新建，默认最多四个活跃会话，停止后保留配对与终态入口。本轮列表分组覆盖 CLI 与 WhaleTerm，产品语义记录于 D72。
 
@@ -15,6 +17,10 @@
 - 本次提交包含移动端输入框、附件/权限 Popover、停止按钮、权限模式共享契约及配套测试；未包含用户测试截图和无关脚本权限位变化。
 
 ## 最近验证
+
+- 本轮顶部导航精简：配对页、设置页、PC 管理页和会话详情页统一为仅图标返回入口，测试改按图标的无障碍名称定位，并断言不再显示“返回”文字。移动端 Vitest **468/468**（23 文件）、SessionDetail 定向测试 16/16、lint、TypeScript/Vite 构建及 `git diff --check` 通过；lint 仅既有 `scripts/cdp-console.mjs` warning，构建仅既有大 chunk 提示。真机导航栏视觉待用户验收。
+
+- 本轮 iOS 设置风格列表返工：移动端 Vitest **468/468**（23 文件）、lint、TypeScript/Vite 构建及 `git diff --check` 通过；lint 仅既有 `scripts/cdp-console.mjs` warning，构建仅既有大 chunk 提示。自动化覆盖原有整行进入、更多菜单、重命名、删除与新增配对交互；灰底、白色圆角模块和真机窄屏视觉待用户验收。
 
 - 本轮抽屉与 PC 管理层级：Go 全包 `go test -race ./...` 与 `go build ./...` 通过（临时 GOCACHE、`GOFLAGS=-buildvcs=false`）；移动端 Vitest **468/468**（23 文件）、lint、`npm run sync:native`、`git diff --check` 通过。lint 仅既有脚本 warning，Vite 仅既有大 chunk 提示。Harmony 四个 `.ets` 文件语法解析通过；iOS 真机与 Harmony DevEco 构建未验证。见 `docs/testing/C2-result.md` §14。
 

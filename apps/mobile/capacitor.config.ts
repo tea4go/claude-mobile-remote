@@ -9,7 +9,7 @@ const config: CapacitorConfig = {
   appId: 'com.tea4go.claudemobileremote',
   appName: 'Claude Mobile Remote',
   webDir: 'dist',
-  backgroundColor: '#fafbfd',
+  backgroundColor: '#f2f2f7',
   // Capacitor 的 Debug 桥接日志会打印插件请求/结果，包含安全存储中的 Pair Token。
   loggingBehavior: 'none',
   ios: {

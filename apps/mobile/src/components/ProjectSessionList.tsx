@@ -144,6 +144,8 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, onAdd, 
       })}
     </List>)}
     </section>)}
-    <Button color="primary" fill="outline" onClick={onAdd}>新增配对</Button>
+    <div className="project-session-list__add">
+      <Button color="primary" fill="none" block onClick={onAdd}>新增配对</Button>
+    </div>
   </div>
 }
