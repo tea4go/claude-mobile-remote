@@ -185,3 +185,12 @@ iOS Simulator 编译尝试在 Swift Package 解析阶段长时间无进展；单
 - 验证：Go `GOCACHE=/tmp/cmr-go-cache GOFLAGS=-buildvcs=false go test -race ./...` 全包通过，`GOCACHE=/tmp/cmr-go-cache GOFLAGS=-buildvcs=false go build ./...` 通过；移动端 Vitest **468/468**（23 文件）、lint、`npm run sync:native`、`git diff --check` 通过。lint 仅既有脚本 warning，构建仅既有大 chunk 提示。Harmony 四个改动的非 UI `.ets` 文件通过 TypeScript 语法解析；DevEco 工程构建未运行。
 - 自动化覆盖同目录跨 PC 分离、设备整机删除隔离、机器名解码/失效占位恢复、抽屉关闭语义。iOS 真机抽屉速度和位置、键盘唤起后的待回答抽屉、窄屏设备列表、扫码后机器名及连接状态尚待用户验收；本机未验证原生 iOS 工程编译。
 - 用户已反馈本轮体验验证完成，并明确授权提交相关改动；未逐项报告设备操作与结果，故不将未报告的具体场景或 iOS 工程编译记为已验证。
+
+## 15. C2-C Android 完整同步与 Harmony 实现边界（2026-10-13）
+
+- 用户反馈 iOS 本轮真机验证暂时结束，要求先同步完整 C2-C 至 Android；HarmonyOS NEXT 暂不同步代码。未逐项提供 iOS 设备和操作结果，本记录不扩展为 C2-D/VPN 门禁结论。
+- Android 已复制当前完整生产 Web 资源，包含列表灰底白色圆角模块、纯图标返回、PC 管理与分组、转场与滚动恢复、固定状态、抽屉和输入栏交互，以及既有原生配对、安全存储、扫码和前台生命周期接线。Capacitor 背景更新为 #f2f2f7；同步配置无开发 server.url，loggingBehavior 为 none。iOS 原生键盘约束属于平台实现，Android 沿用其窗口/WebView 视口布局路径，实际键盘手感待验收。
+- 验证：Vitest **468/468**（23 文件）、lint、TypeScript/Vite build、`npx cap sync android` 和 `./gradlew assembleDebug` 通过。Gradle 初次因沙箱限制不能访问用户缓存，获准重跑后 BUILD SUCCESSFUL（4m23s，246 tasks）。既有 lint warning、大 chunk 提示、Gradle flatDir 和 SDK XML 版本提示保留。debug APK 位于 `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`。
+- Harmony 可实现性核对：当前 JSON/WebSocket 契约及状态语义无需 React/DOM/Capacitor；PC 与目录分组、设备删除与确认、实时状态、未读、导航和列表滚动恢复可由 ArkTS 状态与 ArkUI 列表/导航实现；抽屉及动画、固定标题和输入栏、键盘避让、附件/权限保焦和禁用提示由 ArkUI 布局、焦点及手势机制独立实现。安全存储、扫码、跨重启恢复与前台事件需原生平台适配，保持凭证保密、Session 绑定和删除顺序。当前未发现需要改变共用契约的依赖；此结论为实现路径核对，Harmony 代码同步、DevEco 构建与真机验证均未执行。
+- 下一步 Android 人工验收：列表/设置/PC 管理与图标返回；详情固定状态、页面和抽屉转场；键盘弹出收起、附件/权限保焦及禁用提示；扫码、重启恢复和设备移除隔离。Android 构建不替代这些设备验证。
+- 用户当前没有可用 Android 设备，明确要求本轮跳过设备测试并提交。上述 Android 人工验收暂缓，未记为通过；后续设备可用时补测。

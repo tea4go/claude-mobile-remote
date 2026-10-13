@@ -1,35 +1,50 @@
 .project-session-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 18px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 18px 16px calc(24px + env(safe-area-inset-bottom, 0px));
 }
 
 .project-session-list__title {
-  margin: 0 0 2px;
+  margin: 0 0 -4px;
+  font-size: 22px;
+  line-height: 1.25;
 }
 
 .project-session-list__pc {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 14px;
+  min-width: 0;
 }
 
 .project-session-list__pc-title {
-  margin: 6px 2px 0;
-  font-size: 15px;
+  margin: 0 4px -7px;
+  color: #6e6e73;
+  font-size: 13px;
   font-weight: 600;
+  line-height: 18px;
 }
 
 .project-session-list__group {
   --padding-left: 12px;
   --padding-right: 10px;
   --extra-max-width: 40%;
+  min-width: 0;
+}
+
+.project-session-list__group .adm-list-body {
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
 }
 
 .project-session-list__group .adm-list-header {
-  padding-top: 6px;
-  padding-bottom: 5px;
+  padding: 0 4px 6px;
+  color: #6e6e73;
 }
 
 .project-session-list__group-heading {
@@ -44,6 +59,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+}
+
+.project-session-list__group-heading strong {
+  color: #3a3a3c;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .project-session-list__item .adm-list-item-content-main {
@@ -151,4 +172,17 @@
 
 .project-session-list__rename .adm-input {
   min-width: 0;
+}
+
+.project-session-list__add {
+  overflow: hidden;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.project-session-list__add .adm-button {
+  min-height: 46px;
+  border: 0;
+  border-radius: 0;
+  font-size: 16px;
 }

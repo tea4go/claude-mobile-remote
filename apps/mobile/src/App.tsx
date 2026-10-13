@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { List, NavBar } from 'antd-mobile'
+import { LeftOutline } from 'antd-mobile-icons'
 import { useStore } from 'zustand'
 import PairingForm from './components/PairingForm'
 import SessionDetail from './components/SessionDetail'
@@ -301,7 +302,8 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
       <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
         <div className="mobile-safe-area-header">
           <NavBar
-            back={sessions.length === 0 ? null : '返回'}
+            back={sessions.length === 0 ? null : ''}
+            backIcon={<LeftOutline aria-label="返回" />}
             onBack={() => {
               appStore.getState().setAdding(false)
               appStore.getState().setPairingError(null)
@@ -321,14 +323,14 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
     )
   } else if (settingsPage === 'settings') {
     pageContent = <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
-      <div className="mobile-safe-area-header"><NavBar back="返回" onBack={() => setSettingsPage(null)}>设置</NavBar></div>
+      <div className="mobile-safe-area-header"><NavBar back="" backIcon={<LeftOutline aria-label="返回" />} onBack={() => setSettingsPage(null)}>设置</NavBar></div>
       <List className="mobile-settings-list">
         <List.Item arrow onClick={() => { setSettingsDirection('forward'); setSettingsPage('pcs') }}>PC 管理</List.Item>
       </List>
     </div>
   } else if (settingsPage === 'pcs') {
     pageContent = <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
-      <div className="mobile-safe-area-header"><NavBar back="返回" onBack={() => { setSettingsDirection('back'); setSettingsPage('settings') }}>PC 管理</NavBar></div>
+      <div className="mobile-safe-area-header"><NavBar back="" backIcon={<LeftOutline aria-label="返回" />} onBack={() => { setSettingsDirection('back'); setSettingsPage('settings') }}>PC 管理</NavBar></div>
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <PCSettings sessions={sessions}
         onRemovePC={(sessionIds) => { void (async () => {

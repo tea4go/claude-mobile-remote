@@ -10,7 +10,7 @@ body,
 body {
   font-family: var(--adm-font-family);
   font-size: var(--adm-font-size-9);
-  background-color: #fafbfd;
+  background-color: #f2f2f7;
 }
 
 /* 背景延伸到屏幕边缘，导航控件留在状态栏和横屏切口之外。 */
@@ -74,14 +74,16 @@ body {
   white-space: nowrap;
 }
 
-.pc-settings { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.pc-settings { box-sizing: border-box; width: 100%; padding: 18px 16px calc(24px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 16px; }
 .pc-settings p { margin: 0; color: #667085; font-size: 13px; line-height: 1.5; }
 .pc-settings .adm-list { --extra-max-width: 42%; }
+.pc-settings .adm-list-body { overflow: hidden; border: 0; border-radius: 12px; background: #fff; }
 .pc-settings .adm-list-item-content-main { min-width: 0; overflow: hidden; }
 .pc-settings-device { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .pc-settings-device strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pc-settings-device span { flex: none; color: var(--adm-color-weak); font-size: 11px; }
 .pc-settings .adm-list-item-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pc-settings-heading-actions { display: flex; align-items: center; flex-shrink: 0; }
-.mobile-settings-list { margin: 16px; }
+.mobile-settings-list { margin: 18px 16px; }
+.mobile-settings-list .adm-list-body { overflow: hidden; border: 0; border-radius: 12px; background: #fff; }
 .mobile-settings-button { border: 0; background: none; color: #1677ff; font: inherit; padding: 6px; cursor: pointer; }

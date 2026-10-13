@@ -291,7 +291,7 @@ describe('App：返回列表', () => {
       expect(screen.getByText('已连接')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
 
     expect(screen.getByText('会话列表')).toBeInTheDocument()
     expect(screen.getByTestId('session-list-item')).toBeInTheDocument()
@@ -307,7 +307,7 @@ describe('App：返回列表', () => {
       expect(screen.getByText('已连接')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByTestId('session-list-item'))
 
     expect(FakeWebSocket.instances).toHaveLength(1)
@@ -317,14 +317,14 @@ describe('App：返回列表', () => {
   test('从详情返回列表恢复列表滚动位置', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
-    await waitFor(() => expect(screen.getByText('返回')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     const list = document.querySelector<HTMLElement>('[data-mobile-page="list"]')!
     list.scrollTop = 74
     fireEvent.scroll(list)
     fireEvent.click(screen.getByTestId('session-list-item'))
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
 
     expect(document.querySelector<HTMLElement>('[data-mobile-page="list"]')?.scrollTop).toBe(74)
   })
@@ -349,7 +349,7 @@ describe('App：返回列表', () => {
     })
     await waitFor(() => expect(screen.getByText('已经看到的回复')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByTestId('session-list-item'))
     expect(FakeWebSocket.instances).toHaveLength(1)
     expect(screen.getByText('已经看到的回复')).toBeInTheDocument()
@@ -399,7 +399,7 @@ describe('App：多 Session 生命周期', () => {
     })
 
     // 返回列表后新增第二个配对。
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     expect(first.closed).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
     fireEvent.change(screen.getByRole('textbox'), {
@@ -412,7 +412,7 @@ describe('App：多 Session 生命周期', () => {
     })
     expect(FakeWebSocket.instances.filter((s) => !s.closed)).toHaveLength(2)
 
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
 
     // 两个 Session 都在列表中，且仍保持连接。
     expect(screen.getAllByTestId('session-list-item')).toHaveLength(2)
@@ -428,7 +428,7 @@ describe('App：多 Session 生命周期', () => {
       expect(screen.getByText('已连接')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: JSON.stringify({ ...PAIRING, pairToken: 'replacement-token' }) },
@@ -436,7 +436,7 @@ describe('App：多 Session 生命周期', () => {
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
     expect(first.closed).toBe(true)
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
 
     expect(screen.getAllByTestId('session-list-item')).toHaveLength(1)
   })
@@ -448,7 +448,7 @@ describe('App：多 Session 生命周期', () => {
     completeHandshake(first)
     await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: JSON.stringify({ ...PAIRING, sessionId: 'session-2' }) },
@@ -461,7 +461,7 @@ describe('App：多 Session 生命周期', () => {
       payload: { event: { seq: 9, kind: 'text_delta', sessionId: 'session-1', requestId: 'req-pc', source: 'terminal', text: '后台收到的回复', sessionStatus: '', turnStatus: '', error: null } },
     })
 
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     await waitFor(() => expect(screen.getByLabelText('未读')).toBeInTheDocument())
     expect(screen.getByText('进行中')).toBeInTheDocument()
     fireEvent.click(screen.getAllByTestId('session-list-item')[0]!)
@@ -484,14 +484,14 @@ describe('App：多 Session 生命周期', () => {
     completeHandshake(first)
     await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: JSON.stringify({ ...PAIRING, sessionId: 'session-2' }) },
     })
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     const second = FakeWebSocket.instances[1]!
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getAllByRole('button', { name: /更多操作/ })[0]!)
     fireEvent.click(screen.getByText('删除'))
 
@@ -508,7 +508,7 @@ describe('App：多 Session 生命周期', () => {
       expect(screen.getByText('已连接')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByRole('button', { name: /更多操作/ }))
     fireEvent.click(screen.getByText('删除'))
 
@@ -537,7 +537,7 @@ describe('App：刷新边界', () => {
 
     // 只有 Fragment 中的这一个会话，且消息流为空（不做 replay）。
     expect(screen.getByTestId('message-feed').textContent).toBe('')
-    fireEvent.click(screen.getByText('返回'))
+    fireEvent.click(screen.getByLabelText('返回'))
     expect(screen.getAllByTestId('session-list-item')).toHaveLength(1)
   })
 })
@@ -562,7 +562,7 @@ describe('App：unauthorized 配对失效', () => {
     })
     expect(screen.queryByRole('button', { name: '重新连接' })).not.toBeInTheDocument()
     // 配对失效后通过返回列表重新配对。
-    expect(screen.getByText('返回')).toBeInTheDocument()
+    expect(screen.getByLabelText('返回')).toBeInTheDocument()
   })
 
   test('已连接后配对失效会禁用发送并标记 pending 结果未知', async () => {

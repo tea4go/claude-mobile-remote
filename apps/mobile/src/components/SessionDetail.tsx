@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { Button, NavBar } from 'antd-mobile'
+import { LeftOutline } from 'antd-mobile-icons'
 import MessageComposer from './MessageComposer'
 import MessageFeed from './MessageFeed'
 import PendingActionCard from './PendingActionCard'
@@ -90,7 +91,7 @@ export default function SessionDetail({
     >
       {/* 导航、状态与输入栏固定，中间的详情和消息共用滚动区。 */}
       <div className="mobile-safe-area-header session-detail-header" style={GLASS_SURFACE_STYLE}>
-        <NavBar back="返回" onBack={onBack} right={<div className="session-detail-header-actions">
+        <NavBar back="" backIcon={<LeftOutline aria-label="返回" />} onBack={onBack} right={<div className="session-detail-header-actions">
           <SessionStatus
             connection={pairingInvalid ? 'disconnected' : state.connection}
             sessionStatus={state.sessionStatus}

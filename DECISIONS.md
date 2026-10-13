@@ -628,3 +628,11 @@
 - **三端核对**：Pairing v1 可选 `pcName` 为纯文本显示元数据，Go、React/Capacitor 与 HarmonyOS NEXT 均可解析，旧负载可继续解码。`pcId` 仍是稳定分组键；`pcName`、连接地址和连接状态均不参与鉴权。UI 层级由各端独立实现，协议中没有平台依赖。
 - **影响**：新 CLI 配对携带机器名；既有配对需要重新扫码才可获得机器名。WhaleTerm 可选传入 `PCName`；本地 PC 状态不是设备级网络探测。
 - **状态**：已实施，本机门禁通过；iOS 真机体验待验收
+
+## D78 · C2-C 完整体验先同步 Android，Harmony 延期
+
+- **日期**：2026-10-13
+- **决策**：用户要求当前完整 C2-C 功能与体验先同步 Android；HarmonyOS NEXT 本轮暂不同步代码，仅保证功能具备平台等价实现路径。
+- **三端核对**：配对字段、WebSocket 消息和 Session 状态为纯数据，Harmony 既有协议层已支持相关可选 PC 字段。PC→目录分组、设备移除、固定状态、图标返回、页面转场、滚动恢复、抽屉、聚焦与禁用反馈可由 ArkUI 状态和组件实现；扫码、安全存储及前台生命周期需独立平台适配。键盘避让使用各端窗口布局能力，不要求 Harmony 复用 iOS keyboardLayoutGuide、DOM 或 Capacitor 插件。后续 Harmony 工程构建与真机验收仍需补齐。
+- **影响**：Android 复用当前 React UI 和原生端口；Harmony 完整 C2-C UI 与原生能力接线延期，保留同一业务及安全语义。
+- **状态**：已定；Android 同步和 debug 构建通过，真机验收待补。

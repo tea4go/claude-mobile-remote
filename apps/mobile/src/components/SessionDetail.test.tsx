@@ -259,7 +259,8 @@ describe('SessionDetail：交互', () => {
       />,
     )
 
-    fireEvent.click(screen.getByText('返回'))
+    expect(screen.queryByText('返回')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('返回'))
 
     expect(onBack).toHaveBeenCalledOnce()
   })

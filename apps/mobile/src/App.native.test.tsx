@@ -116,7 +116,7 @@ test('原生扫码安全保存后建立连接，URL 不留配对凭证；前台�
 
   currentTime = Date.parse('2100-01-01T00:00:00Z')
   act(() => native.foreground())
-  fireEvent.click(screen.getByText('返回'))
+  fireEvent.click(screen.getByLabelText('返回'))
   expect(screen.getByText('需要重新配对')).toBeInTheDocument()
   expect(FakeSocket.instances[0]?.closed).toBe(true)
 })
