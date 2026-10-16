@@ -46,6 +46,8 @@ bash scripts/macos/3_cli_run.sh --profile emulator  # Android 模拟器内调试
 bash scripts/macos/3_cli_run.sh --profile device    # 真机调试
 ```
 
+CLI 脚本会按 Go 包编译 `cmd/claude-mobile-remote` 的全部源码；手工启动也应使用 `go run ./cmd/claude-mobile-remote --profile local`。不要只运行 `main.go`，那样不会编译同目录的其他文件。
+
 ### 网络 profile 参数
 
 | profile | 监听地址 | 二维码中的客户端地址 | 适用场景 |
