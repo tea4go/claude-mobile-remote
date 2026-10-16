@@ -636,3 +636,10 @@
 - **三端核对**：配对字段、WebSocket 消息和 Session 状态为纯数据，Harmony 既有协议层已支持相关可选 PC 字段。PC→目录分组、设备移除、固定状态、图标返回、页面转场、滚动恢复、抽屉、聚焦与禁用反馈可由 ArkUI 状态和组件实现；扫码、安全存储及前台生命周期需独立平台适配。键盘避让使用各端窗口布局能力，不要求 Harmony 复用 iOS keyboardLayoutGuide、DOM 或 Capacitor 插件。后续 Harmony 工程构建与真机验收仍需补齐。
 - **影响**：Android 复用当前 React UI 和原生端口；Harmony 完整 C2-C UI 与原生能力接线延期，保留同一业务及安全语义。
 - **状态**：已定；Android 同步和 debug 构建通过，真机验收待补。
+
+## D79 · C2-D 先验证 iOS 真机与 WhaleTerm Remote Control
+
+- **日期**：2026-10-13
+- **决策**：用户当前没有 Android 设备，C2-D 先以 iOS 真机验证 WhaleTerm 已植入的 Remote Control 完整功能；Android 与 HarmonyOS NEXT 后续对照 iOS 验收结果补齐。测试使用 `/Users/zhangym/code/work/whale-term` 仓库实现，不以已安装桌面 App 的存在替代源码版本核对。
+- **影响**：优先验证 WhaleTerm 已持有 Session 的配对、消息与状态同步、审批与问答、取消、关闭远程管理、恢复和多 Session 隔离。协议及状态模型不变；Android/Harmony 的设备门禁保持未通过，不以 iOS 结果代替。
+- **状态**：已定；iOS 真机联调进行中。
