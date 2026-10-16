@@ -84,6 +84,8 @@
 
 `3_cli_run.sh` 先调用 `ensure_go_module`，再执行 `go run ./cmd/claude-mobile-remote "$@"`；不替用户增加 `--profile`、`--cwd`、`--resume` 或配对参数，不回显参数中的 token。
 
+本轮补充：核对 CLI 全包源码在仓库中可见，将 `.gitignore` 的根目录 CLI 二进制规则锚定到仓库根，避免忽略 `cmd/claude-mobile-remote/` 内新源码；macOS 启动说明标明必须按包运行。用 CLI 包测试和 `darwin/amd64` 构建验证。
+
 - [ ] **Step 5: 验证 macOS 基础入口**
 
 运行 `bash -n scripts/macos/*.sh`、每个脚本的 `--help`，并运行 `scripts/macos/2_check.sh`。预期帮助均成功，check 对本机现有工具给出明确结果；不得生成 token、修改 Git 状态或覆盖已有 `go.mod`。
