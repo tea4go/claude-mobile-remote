@@ -194,3 +194,10 @@ iOS Simulator 编译尝试在 Swift Package 解析阶段长时间无进展；单
 - Harmony 可实现性核对：当前 JSON/WebSocket 契约及状态语义无需 React/DOM/Capacitor；PC 与目录分组、设备删除与确认、实时状态、未读、导航和列表滚动恢复可由 ArkTS 状态与 ArkUI 列表/导航实现；抽屉及动画、固定标题和输入栏、键盘避让、附件/权限保焦和禁用提示由 ArkUI 布局、焦点及手势机制独立实现。安全存储、扫码、跨重启恢复与前台事件需原生平台适配，保持凭证保密、Session 绑定和删除顺序。当前未发现需要改变共用契约的依赖；此结论为实现路径核对，Harmony 代码同步、DevEco 构建与真机验证均未执行。
 - 下一步 Android 人工验收：列表/设置/PC 管理与图标返回；详情固定状态、页面和抽屉转场；键盘弹出收起、附件/权限保焦及禁用提示；扫码、重启恢复和设备移除隔离。Android 构建不替代这些设备验证。
 - 用户当前没有可用 Android 设备，明确要求本轮跳过设备测试并提交。上述 Android 人工验收暂缓，未记为通过；后续设备可用时补测。
+
+## 16. 当前 iOS 已实现功能同步 Android 与 debug APK（2026-10-16）
+
+- React/Capacitor 业务实现为 iOS/Android 共用源码；本轮将当前生产 Web 资源重新同步到 Android，原生配对、安全存储、扫码、前台事件与键盘插件均由 Capacitor sync 识别。iOS 的 UIKit 键盘约束是平台实现，Android 使用自己的窗口/WebView 布局，键盘手感仍需设备验收。
+- `npm test` 468/468、`npm run lint`、`npm run build`、`env -u CAP_SERVER_URL npx cap sync android` 和 `./gradlew assembleDebug` 通过。macOS 完整打包脚本在预设测试用 `CAP_SERVER_URL` 的环境中重跑亦通过；包内 Capacitor 配置无 `server.url`。随后 `./gradlew clean assembleDebug --console=plain -q` 成功重新生成 APK；包内 `index.html` 与本轮 `dist/index.html` 一致。
+- 产物：`apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`，SHA-256 `9848bc61e410ea168f7ef613ebbbe7bf5f495dc474ffe01856e5eea9e2c46949`。脚本 `scripts/macos/4_android_build.sh` 已确保打包不继承 live reload 地址并输出 APK 路径；Windows 同名脚本也输出路径。lint 仍有既有 `cdp-console.mjs` warning，Vite 仍有大 chunk 提示。
+- 未验证：本轮没有 Android 物理设备操作；扫码、Keystore 跨重启、键盘、返回手势、抽屉及 VPN/WhaleTerm C2-D 联调不能据此记为通过。

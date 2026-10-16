@@ -74,6 +74,7 @@ iOS 入口不提供，并在 README 中明确说明仅 macOS 支持。`_common.p
 - `3_web_dev` 默认监听 localhost；传 `--host` 才允许局域网/模拟器访问。
 - `3_android_run --live` 自动使用 `CAP_SERVER_URL=http://10.0.2.2:5173`、Android sync 和 debug 安装；脚本不启动 Service，避免凭证和 Claude 生命周期被脚本接管。
 - `3_android_run --dist` 先执行生产 Web build（`4_web_build`），再无 `CAP_SERVER_URL` 地 sync，避免旧 live reload 配置残留。
+- `4_android_build` 同样在未设置 `CAP_SERVER_URL` 的子进程中执行 Android sync；Gradle debug 产物命名为 `ClaudeMobileRemote.apk`，构建脚本核对文件存在并输出完整路径。release 仍输出 `app-release-unsigned.apk`，不处理签名。
 - `3_cli_run` 只负责 Go CLI，不替用户决定 `--profile`、`--cwd`、`--resume` 或配对参数；所有剩余参数原样透传。
 - macOS/Windows 的 `3_cli_run` 均用 `go run ./cmd/claude-mobile-remote` 编译整个包；根目录构建产物可忽略，但 `.gitignore` 不得忽略同名的 `cmd/claude-mobile-remote/` 源码目录。启动文档明确区分整包命令与只编译 `main.go` 的命令。
 - 需要 Service + Mobile Web 的联调仍由 README 提供安全示例，脚本只打印下一步，不保存或回显配对 token。
