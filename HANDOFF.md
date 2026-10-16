@@ -4,6 +4,20 @@
 
 ## 当前状态
 
+- 最近完成：用户确认只调整 Android debug 包名。Gradle 现在直接生成 `apps/mobile/android/app/build/outputs/apk/debug/ClaudeMobileRemote.apk`；macOS/Windows 打包脚本和 README 的取包、安装路径均已同步。release 未签名包名保持 `app-release-unsigned.apk`。Android 相关 7 个文件已按用户授权提交为 `0071aa4`；用户随后授权单独提交 `DECISIONS.md` 与本交接文档。APK 构建产物未纳入提交，未推送。
+
+- 最近完成：Android APK 取包说明已补入根目录 README，包含 macOS/Windows 打包命令、debug/release 产物相对路径、`adb install -r` 安装方法及构建产物不随 Git 分发的提示。debug 包现已更名，见上一条。
+
+- 最近完成：定位 macOS Intel 工作区启动 CLI 的 `undefined: runManagedMain`：macOS 脚本按包运行正确，但仓库索引缺少本地存在的 `managed_run.go`、`manager.go` 和 `manager_test.go`；`.gitignore` 的裸 `claude-mobile-remote` 规则误覆盖同名源码目录。已将规则锚定到根目录二进制并补 macOS 启动说明；三份源码与本轮文档已按用户授权提交为 `9c4d98c`。尚未推送，其他机器取得该提交后才能复核。
+
+- 最近完成：按用户确认，将当前 iOS 已实现的共用 React/Capacitor 功能同步 Android，并生成可安装的 debug APK。macOS/Windows 打包脚本现会输出产物路径，macOS sync 会隔离继承的 `CAP_SERVER_URL`。Android 物理设备体验尚未验收；WhaleTerm P4/Remote 兼容修正的审阅与 C2-D 真机联调仍待后续继续。
+
+- 当前执行：W1/C2-D 前的 WhaleTerm 分支整合已完成一轮本地兼容修正，待用户审阅和决定是否提交。用户报告已提交恢复结果、拉取 P4 并推送；本轮明确以 `/Users/zhangym/code/work/whale-term` 的 `origin/P4`（核对时为 `650aa937`）为基线，不读取或修改独立的 `/Users/zhangym/code/work/P4/whale-term` 工作区。`origin/P4` 相对当前分支的 36 个文件差异集中在 Remote 接入；本轮修复审批解决事件与 P4 的 `requestId` 语义冲突、阻止迟到事件清掉下一项审批，恢复 P4 事件测试替身分流，保留 P4 的 `docs/codex/` 忽略规则。没有执行 Git 合并、暂存、提交或推送；C2-D 真机联调仍未由本轮验证。
+
+- 最近完成（紧急恢复的历史状态）：用户在 `/Users/zhangym/code/work/whale-term` 执行 `git reset --hard 19ae63c7ba3b3792e07d05dec75738f2206d95ba` 并强推后，当时仅在本地从回退前合并提交 `4e542a2ce75c4ac0ba3f4a24c941621e38394cec` 恢复相对 `19ae63c7b` 的 35 个文件，并修正重复声明和 SDK 权限 request ID 缺失。原未提交的 `frontend/tests/claudeRemoteManagement.test.mjs` 未能原样找回，现有文件为重建版。此后用户自行提交恢复结果、拉取 P4 并推送；当时“远端仍为回退状态”已不再适用。
+
+- 当前执行：C2-D 优先开展 iOS 真机与 WhaleTerm Remote Control 完整联调。用户确认 Android 当前无设备，后续按 iOS 结果补测；HarmonyOS NEXT 后续对照 iOS 补齐。本轮先核对已连接 iPhone、已安装 App 和 WhaleTerm 运行态，执行可用的构建/自动化检查，再由真机实际操作验证配对、当前状态、消息、权限/问答、取消、多会话隔离、关闭远程管理与前后台恢复。通过条件为每项均有可复核的真机结果；未实际操作的项继续标记未验证，配对凭证不得写入日志或文档。
+
 - 用户当前没有可用 Android 设备，明确要求暂缓 Android 设备测试并提交本轮改动。Android 自动化与 debug 构建通过，设备体验和 C2-D 门禁继续标记为未验证；本次提交范围为列表与导航 UI、Android 同步配置及相关记忆/验证文档，测试截图和 APK 等生成产物不纳入提交。
 
 - 当前执行：C2-C 当前完整 React/Capacitor 功能与体验已同步 Android，Web Vitest 468/468、lint、build、Capacitor Android sync 和 Gradle assembleDebug 均通过，已生成 debug APK；Android 真机键盘、返回手势、抽屉及原生扫码仍待验收。用户反馈 iOS 本轮真机验证暂时结束，未提供逐项结果，不据此扩大为 C2-D/VPN 门禁通过。HarmonyOS NEXT 按用户要求暂不同步代码，平台中立契约及 ArkUI/ArkTS 等价实现路径已核对并记录于 C2-result §15；下一步为 Android 人工验收。
@@ -17,6 +31,18 @@
 - 本次提交包含移动端输入框、附件/权限 Popover、停止按钮、权限模式共享契约及配套测试；未包含用户测试截图和无关脚本权限位变化。
 
 ## 最近验证
+
+- 本轮 APK 更名：Android `./gradlew clean assembleDebug --console=plain -q` 通过，输出目录仅有 `ClaudeMobileRemote.apk` 与元数据；新包约 34 MB，SHA-256 为 `9848bc61e410ea168f7ef613ebbbe7bf5f495dc474ffe01856e5eea9e2c46949`。包内 `index.html` 与当前 `apps/mobile/dist/index.html` 的 SHA-256 一致。`bash -n scripts/macos/4_android_build.sh`、`git diff --check`、提交前 `git diff --cached --check` 通过。Windows 脚本未在 Windows 执行，release 未重新构建，Android 设备安装与体验未验证；下一步按 README 安装 debug 包并反馈结果。
+
+- 本轮 APK 文档：核对 macOS/Windows 打包脚本输出路径与 README 一致，现有 debug APK 文件存在且 SHA-256 与 `docs/testing/C2-result.md` §16 记录的 `9848bc61e410ea168f7ef613ebbbe7bf5f495dc474ffe01856e5eea9e2c46949` 一致；`git diff --check` 通过。本轮未重新构建、未在 Android 设备安装或运行，Windows 脚本仍未在 Windows 验证。下一步由用户在有设备时按 README 安装并反馈体验结果。
+
+- 本轮 CLI 缺文件修复：`GOOS=darwin GOARCH=amd64 GOFLAGS=-buildvcs=false go build -o /tmp/cmr-darwin-amd64 ./cmd/claude-mobile-remote`、整包 `go run ... -version` 和 CLI 包测试通过；CLI 包测试首次在沙箱内因 `127.0.0.1:0` 监听受限失败，放行本机回环后通过。单文件 `go run cmd/claude-mobile-remote/main.go` 可复现 `undefined: runManagedMain` 等符号缺失，说明启动必须按包编译。`git diff --check`、暂存时的 `git diff --cached --check` 通过；授权范围内的修正已提交为 `9c4d98c`，未推送；未在报错的 Intel 机器直接验证，也未在该机器核对源码文件。
+
+- 本轮 Android APK：移动端 Vitest 468/468、lint、TypeScript/Vite build、Android Capacitor sync、完整 macOS 打包脚本及 Gradle `clean assembleDebug` 通过。APK 内 `index.html` 与当前 `dist` 一致，Capacitor 配置无开发服务器 URL；SHA-256 与未验证项见 `docs/testing/C2-result.md` §16。脚本 `bash -n`、`git diff --check` 通过；Windows 脚本未在 Windows 执行。Android 真机与 VPN 未验证。
+
+- WhaleTerm P4/Remote 整合验证：`origin/P4` 与先前远端查询到的 `650aa937` 内容一致；当前分支相对它有 36 个文件差异（3,431 行新增、147 行删除，含大量新增 Remote 文件和聊天页格式差异），不代表按时间覆盖 P4 整文件。定向 `go test -mod=mod -race -vet=off ./backend/chat -run 'ClaudeRemote|PermissionMode|RespondPermission'`、`./backend/remote` 全包、`./backend/services -run '^TestRemotePairingResponse$'` 通过；重建版前端 Remote 测试 23/23 通过；前端 `npm run build` 与完整 `wails build -m -nosyncgomod -skipbindings` 通过，Go 改动的 `gofmt -l` 和 `git diff --check` 通过。完整 `backend/chat` 测试仍在 `TestClaudeCodeCancelNotifiesLocalStreamBeforeAsyncAbort` 因无有效 Wails 生命周期上下文退出；完整 `backend/services` 测试在 `TestGetRemoteConn` 因云连接返回对象类型断言失败，与本轮 Remote 差异文件无交集。前端全量 `node --test frontend/tests/*.test.mjs` 也有非 Remote 的模块别名/既有断言失败，不能记为全量通过。最后一项 Go 宿主安全补丁后已重跑定向测试，但未重跑整套 Wails 构建或真机操作。
+
+- WhaleTerm 恢复验证：恢复时 35 个目标文件逐字节匹配 `4e542a2ce`；随后仅在 `frontend/src/views/chat/index.vue`、`backend/chat/claude_remote_session_host.go` 和对应测试上补最小修正。`go test -mod=mod -race -vet=off ./backend/chat -run 'ClaudeRemote|PermissionMode' -count=1 -timeout=90s`、`./backend/remote` 全包、`./backend/services -run '^TestRemotePairingResponse$'` 通过；重建版前端测试 19/19 通过，`npm run build` 与完整 `wails build -m -nosyncgomod -skipbindings` 通过。WhaleTerm 与本项目 `git diff --check` 通过。首次前端构建发现重复声明，首次宿主测试因 request ID 缺失运行超六分钟后主动中断，修正后通过；首次无特权测试因沙箱回环监听/构建写入限制失败，不计为代码失败。iOS 真机、扫码/配对、审批交互仍未验证；未提交、未推送。
 
 - 本轮顶部导航精简：配对页、设置页、PC 管理页和会话详情页统一为仅图标返回入口，测试改按图标的无障碍名称定位，并断言不再显示“返回”文字。移动端 Vitest **468/468**（23 文件）、SessionDetail 定向测试 16/16、lint、TypeScript/Vite 构建及 `git diff --check` 通过；lint 仅既有 `scripts/cdp-console.mjs` warning，构建仅既有大 chunk 提示。真机导航栏视觉待用户验收。
 
@@ -72,7 +98,7 @@
 
 ## 下一步
 
-1. 用户已反馈本轮体验验证完成，未逐项报告具体设备场景。iOS 工程编译、C2-D 真机扫码/安全存储/VPN 门禁与 Harmony DevEco 工程构建仍待补；旧配对需重新扫描新 CLI 二维码才能取得机器名。
+1. 本地 CLI 修正已提交为 `9c4d98c`；用户推送或同步该提交后，让报错机器更新并在 Intel Mac 执行 `bash scripts/macos/3_cli_run.sh --profile local` 复核，本轮未获推送授权。将本轮 debug APK 安装到 Android 设备后，人工验收列表/设置/PC 管理、扫码、重启恢复、消息和权限、键盘/抽屉/返回手势；无 Android 设备时这些结果保持未验证。此前 WhaleTerm P4/Remote 兼容修正仍待审阅，随后继续 C2-D iOS 真机联调；iOS 工程编译、安全存储/VPN 门禁与 Harmony DevEco 构建仍待补。
 2. WhaleTerm 嵌入宿主如需稳定 PC 分组与主机名，后续需向公共 Remote Server 传入同机编码与名称；当前仍兼容旧版地址分组。暂停的自动化测试补强、断线 replay、系统后台推送与 Relay 多 Session 映射继续作为后续独立设计。后续 Git 写操作需另行明确授权。
 
 ## 约束提醒
