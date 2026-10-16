@@ -16,10 +16,14 @@ while [[ $# -gt 0 ]]; do
 done
 require_android_tools
 "$SCRIPT_DIR/4_web_build.sh"
-mobile_command npm exec -- cap sync android
+mobile_command env -u CAP_SERVER_URL npm exec -- cap sync android
 if [[ "$release" -eq 1 ]]; then
   log_warn "正在构建 release；签名需由外部发布流程处理。"
   (cd "$MOBILE_DIR/android" && ./gradlew assembleRelease)
+  apk_path="$MOBILE_DIR/android/app/build/outputs/apk/release/app-release-unsigned.apk"
 else
   (cd "$MOBILE_DIR/android" && ./gradlew assembleDebug)
+  apk_path="$MOBILE_DIR/android/app/build/outputs/apk/debug/ClaudeMobileRemote.apk"
 fi
+[[ -f "$apk_path" ]] || die "构建结束但未找到 APK：$apk_path"
+log_info "APK：$apk_path"

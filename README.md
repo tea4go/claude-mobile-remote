@@ -164,6 +164,14 @@ macOS：
 bash scripts/macos/4_android_build.sh  # debug；加 --release 构建未签名 release
 ```
 
+上述命令均从仓库根目录执行。构建结束后，脚本会打印 APK 的完整路径；默认 debug 包位于 `apps/mobile/android/app/build/outputs/apk/debug/ClaudeMobileRemote.apk`。需要安装到已连接的 Android 设备或模拟器时，在仓库根目录执行：
+
+```bash
+adb install -r apps/mobile/android/app/build/outputs/apk/debug/ClaudeMobileRemote.apk
+```
+
+Windows PowerShell 也使用相同的 `adb install -r` 命令。`-Release` / `--release` 的输出位于 `apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk`，该包未签名，需完成签名后才能安装。APK 是本地构建产物，不随 Git 仓库分发；其他机器需自行运行对应打包脚本。
+
 ### iOS（仅 macOS）
 
 ```bash

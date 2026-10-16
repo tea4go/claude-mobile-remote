@@ -20,3 +20,8 @@ try {
   if ($hadCap) { $env:CAP_SERVER_URL = $oldCap } else { Remove-Item Env:CAP_SERVER_URL -ErrorAction SilentlyContinue }
 }
 if ($Release) { Write-Warn 'release 产物未签名；签名需由外部发布流程处理，本脚本不读取 keystore。' }
+$apkName = if ($Release) { 'app-release-unsigned.apk' } else { 'ClaudeMobileRemote.apk' }
+$apkVariant = if ($Release) { 'release' } else { 'debug' }
+$apkPath = Join-Path $RepoRoot "apps/mobile/android/app/build/outputs/apk/$apkVariant/$apkName"
+if (-not (Test-Path $apkPath)) { Fail "构建结束但未找到 APK：$apkPath" }
+Write-Host "APK：$apkPath"

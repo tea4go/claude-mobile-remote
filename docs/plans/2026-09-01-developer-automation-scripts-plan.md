@@ -111,6 +111,10 @@
 
 `4_android_build.sh` 默认运行 Web build、Capacitor sync 和 `./gradlew assembleDebug`；`--release` 只运行 `assembleRelease` 并提示产物可能需要外部签名，不读取 keystore、不生成签名配置。
 
+本轮补充：macOS/Windows 构建入口的 sync 均需隔离继承的 `CAP_SERVER_URL`，完成后检查对应 APK 文件并打印绝对路径；验证 debug APK 内的 Web 资源与本轮 `dist` 一致，且 Capacitor 配置不含开发服务器 URL。
+
+debug 包名调整：在 Android Gradle 配置中将 debug 输出文件名设为 `ClaudeMobileRemote.apk`，macOS/Windows 构建脚本与根目录 README 使用该路径；`assembleRelease` 的未签名输出文件名保持不变。运行 `clean assembleDebug` 确认真实产物，并核对文档、脚本及 APK 内容。
+
 - [ ] **Step 4: 实现 iOS 运行和构建流程**
 
 `3_ios_run.sh` 支持 `--simulator NAME`，默认使用当前可用的 iPhone Simulator；先运行 Web build 和 `npm exec cap sync ios`，再调用 `npx cap run ios --target NAME`。`4_ios_build.sh` 运行 Web build 和 sync，再调用 `xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build`；缺少 CocoaPods/Xcode 时提前失败，不触碰签名。
