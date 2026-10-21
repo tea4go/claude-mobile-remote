@@ -95,3 +95,11 @@ iOS 入口不提供，并在 README 中明确说明仅 macOS 支持。`_common.p
 - `3_android_run --live` 与 `3_android_run --dist` 不会互相遗留 `CAP_SERVER_URL`。
 - Web test/lint/build 与 Go `GOFLAGS=-buildvcs=false go test ./...` 仍可独立运行。
 - 脚本静态检查通过，且不把 token、签名配置、`go.mod`、`go.sum`、dist 或 Android/iOS 构建产物加入版本控制。
+
+## 2026-10-21 iOS 模拟器检测修复
+
+兼容 simctl 设备行尾空白，自动选择输出设备 UUID 供 Capacitor target 使用；保留 --simulator 显式参数。验证覆盖 Booted/Shutdown、行尾空白、无设备及实际 simctl 输出。cap open ios 仅打开工程，与运行模拟器入口的前置条件不同。
+
+## 2026-10-21 iOS 真机 Xcode 入口
+
+新增 `3_ios_device.sh`，按 npm ci、npm run build、cap sync ios、cap open ios 顺序准备并打开工程。隔离 CAP_SERVER_URL，使用打包资源；不依赖模拟器运行时。真机目标、开发团队和签名由 Xcode 现有配置及用户选择，点击 Run 编译安装。验证脚本语法与命令顺序；真机运行由用户验收。

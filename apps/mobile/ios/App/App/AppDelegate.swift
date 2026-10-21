@@ -1,5 +1,7 @@
 import UIKit
 import Capacitor
+import UserNotifications
+import JPushBridge
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -7,8 +9,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        UNUserNotificationCenter.current().delegate = SessionNotificationRouter.shared
+        SessionPush.shared.launch(launchOptions)
         return true
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        JPUSHService.registerDeviceToken(deviceToken)
+        SessionPush.shared.registeredAPNs()
+    }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        SessionPush.shared.failedAPNs()
+        // Do not log device tokens or APNs signing details.
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

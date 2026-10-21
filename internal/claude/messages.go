@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	claudecode "github.com/tea4go/claude-agent-sdk-go"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 type resultFact struct {
@@ -173,7 +174,7 @@ func previewForTool(toolName string, input map[string]any) string {
 	return preview
 }
 
-// mapToolResult 只下发关联 ID 与成败状态，结果正文不进协议。
+// mapToolResult 下发关联 ID、成败状态和有界纯文本结果（v4）。
 func (m *blockMapper) mapToolResult(block *claudecode.ToolResultBlock) parsedItem {
 	if block.ToolUseID == "" {
 		return unsupportedItem(UnsupportedUnknownBlock)
@@ -186,7 +187,9 @@ func (m *blockMapper) mapToolResult(block *claudecode.ToolResultBlock) parsedIte
 	if isError && m.toolNames[block.ToolUseID] == askUserQuestionToolName {
 		isError = false
 	}
+	output, truncated := protocol.ToolOutput(block.Content)
 	return parsedItem{kind: EventContentBlock, block: &ContentBlock{
+		Output: output, Truncated: truncated,
 		Kind:      BlockToolResult,
 		ToolUseID: block.ToolUseID,
 		IsError:   &isError,

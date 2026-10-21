@@ -75,6 +75,7 @@ func buildRuntime(config cliConfig) (sessionController, remoteService, error) {
 	}
 
 	remoteServer, err := remoteserver.New(remoteserver.Config{
+		EnablePush:             config.fakeHostScenario == "",
 		SessionID:              reservedID,
 		Controller:             controller,
 		ListenAddress:          config.listen,

@@ -1,6 +1,7 @@
 // 单连接 UI 状态归并（D32/D33/D36）。纯函数，不依赖 React 运行时。
 
 import type {
+  Attachment,
   CommandKind,
   ContentBlock,
   DomainEvent,
@@ -46,6 +47,7 @@ export interface InputMessage {
   source: 'terminal' | 'mobile'
   requestId: string | null
   text: string
+  attachments?: Attachment[]
   status: 'accepted' | 'unknown' | null
 }
 
@@ -74,6 +76,7 @@ export interface PendingCommand {
   kind: CommandKind
   text: string
   targetId: string
+  attachments?: Attachment[]
 }
 
 // 不支持通知（B2 §4.4）：只提示，不影响连接阶段与可发送状态。
@@ -159,14 +162,16 @@ interface CommandSentAction {
   kind: CommandKind
   text: string
   targetId: string
+  attachments?: Attachment[]
 }
 
-export function commandSent(info: { commandId: string; text: string }): CommandSentAction {
+export function commandSent(info: { commandId: string; text: string; attachments?: Attachment[] }): CommandSentAction {
   return {
     type: 'commandSent',
     commandId: info.commandId,
     kind: 'send_text',
     text: info.text,
+    attachments: info.attachments,
     targetId: '',
   }
 }
@@ -322,6 +327,7 @@ function markPendingUnknown(state: MobileState): MobileState {
     source: 'mobile',
     requestId: null,
     text: state.pendingCommand.text,
+    attachments: state.pendingCommand.attachments,
     status: 'unknown',
   }
   return {
@@ -394,11 +400,12 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
       const merged = existing?.kind === 'claude' && current.text === ''
         ? { ...current, text: existing.text }
         : current
-      next.messages = [
-        ...next.messages.slice(0, currentIndex),
-        merged,
-        ...next.messages.slice(currentIndex + 1),
-      ]
+      // Snapshot text is the whole current Turn. Keep tool/answer items, but
+      // remove its other text fragments so recovery cannot duplicate them.
+      next.messages = next.messages.flatMap((message, index) => {
+        if (index === currentIndex) return [merged]
+        return message.kind === 'claude' && message.requestId === current.requestId && current.text !== '' ? [] : [message]
+      })
     }
   }
   return applyCanSend(next)
@@ -424,7 +431,10 @@ function mergeTurnStarted(
   const source = event.source as InputMessage['source']
   if (inputIndex >= 0) {
     const existing = state.messages[inputIndex] as InputMessage
-    if (existing.source !== event.source || existing.text !== event.text) {
+    // An accepted attachment command has a server-generated execution prompt
+    // containing staged paths. Match its acknowledged request ID/source while
+    // keeping the user's caption and image preview; ordinary text stays strict.
+    if (existing.source !== event.source || (existing.attachments === undefined && existing.text !== event.text)) {
       return null
     }
   } else {
@@ -619,6 +629,7 @@ export function reducer(state: MobileState, action: Action): MobileState {
           commandId: action.commandId,
           kind: action.kind,
           text: action.text,
+          attachments: action.attachments,
           targetId: action.targetId,
         },
       })
@@ -648,6 +659,7 @@ export function reducer(state: MobileState, action: Action): MobileState {
             source: 'mobile',
             requestId: action.requestId,
             text: pending.text,
+            attachments: pending.attachments,
             status: 'accepted',
           }
           next.messages = [...state.messages, accepted]

@@ -726,7 +726,7 @@ describe('App：B2 工具审批', () => {
       expect(screen.getByTestId('pending-action-card')).toBeInTheDocument()
     })
     expect(screen.getByTestId('action-preview').textContent).toBe('go test ./...')
-    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '发送' })).not.toBeInTheDocument()
     // 自由文本输入框本身也禁用（B2 §6），不只禁用发送按钮。
     expect(screen.getByRole('textbox')).toBeDisabled()
     expect(screen.getByText(/Turn：等待中/)).toBeInTheDocument()
@@ -827,7 +827,7 @@ describe('App：B2 取消与排队', () => {
       payload: { kind: 'cancel_turn', requestId: 'req-pc' },
     })
     // 发出取消请求与已取消是两个状态（§7）。
-    expect(screen.getByRole('button', { name: '取消当前 Turn' })).toHaveTextContent('停止中')
+    expect(screen.getByRole('button', { name: '取消当前 Turn' })).toBeDisabled()
 
     socket.serverMessage({
       version: PROTOCOL_VERSION, type: 'command_result', sessionId: 'session-1',
@@ -932,5 +932,29 @@ describe('App：B2 终态与不支持通知', () => {
     })
     expect(screen.getByText('已连接')).toBeInTheDocument()
     expect(socket.closed).toBe(false)
+  })
+})
+
+describe('App attachment transport', () => {
+  test.each(['accepted', 'rejected', 'disconnected'] as const)('attachment %s result is reflected in composer', async (outcome) => {
+    window.location.hash = fragmentOf(PAIRING)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} experience={null} />)
+    const socket = FakeWebSocket.instances[0]!
+    act(() => completeHandshake(socket))
+    fireEvent.change(screen.getByTestId('file-picker'), { target: { files: [new File(['remote bytes'], 'notes.txt', { type: 'text/plain' })] } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(socket.sent.map((data) => JSON.parse(data)).some((message) => message.payload?.kind === 'send_attachments')).toBe(true))
+    const command = socket.sent.map((data) => JSON.parse(data)).find((message) => message.payload?.kind === 'send_attachments')!
+    expect(command.sessionId).toBe('session-1')
+    expect(command.payload.attachments).toEqual([{ name: 'notes.txt', mediaType: 'text/plain', data: btoa('remote bytes') }])
+    act(() => {
+      if (outcome === 'disconnected') socket.serverClose()
+      else socket.serverMessage({ version: PROTOCOL_VERSION, type: 'command_result', sessionId: 'session-1', commandId: command.commandId, requestId: outcome === 'accepted' ? 'attachment-request' : '', seq: 0,
+        payload: { accepted: outcome === 'accepted', code: outcome === 'accepted' ? '' : 'queue_full', message: '' } })
+    })
+    await waitFor(() => {
+      if (outcome === 'accepted') expect(screen.queryByTestId('composer-attachments')).not.toBeInTheDocument()
+      else expect(screen.getByText(/草稿已保留/)).toBeInTheDocument()
+    })
   })
 })

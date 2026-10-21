@@ -1,18 +1,24 @@
+import { encodeFile, needsPhotoPreparation, preparePickedFile, validateFiles } from '../native/attachments'
+import type { Attachment, AttachmentSendResult } from '../protocol/types'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Button, Popover, Space, TextArea, type TextAreaRef } from 'antd-mobile'
+import { Button, DotLoading, Popover, Space, TextArea, type TextAreaRef } from 'antd-mobile'
 import { AddOutline, CheckOutline } from 'antd-mobile-icons'
 import { MAX_TEXT_BYTES, type PermissionMode } from '../protocol/types'
-import { COMPACT_BUTTON_STYLE, FONT_SIZE_COMPACT, FONT_SIZE_BODY } from './ui'
+import { FONT_SIZE_COMPACT, FONT_SIZE_BODY } from './ui'
 import './MessageComposer.css'
 import cameraIcon from '../assets/icons/svgs/camara.svg'
 import documentIcon from '../assets/icons/svgs/document.svg'
 import permissionIcon from '../assets/icons/svgs/permission.svg'
 import uploadImageIcon from '../assets/icons/svgs/uploadImage.svg'
 import voiceIcon from '../assets/icons/svgs/voice.svg'
+import { iosExperience, type ExperiencePort } from '../native/experience'
+import { useSpeechDraft } from '../native/useSpeechDraft'
 import sendIcon from '../assets/icons/svgs/send.svg'
 
 interface MessageComposerProps {
   enabled: boolean
+  experience?: ExperiencePort | null
+  onSendAttachments?: (text: string, attachments: Attachment[]) => Promise<AttachmentSendResult>
   onSend: (text: string) => void
   turnRunning?: boolean
   cancelTarget?: string | null
@@ -57,16 +63,6 @@ const ICON_BUTTON_STYLE: CSSProperties = {
   lineHeight: 1,
 }
 const TOOL_ICON_STYLE: CSSProperties = { width: 20, height: 20, display: 'block' }
-const META_STYLE: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 8,
-  minHeight: 28,
-  fontSize: FONT_SIZE_COMPACT,
-  color: '#64748b',
-}
-
 const PERMISSION_OPTIONS = [
   { label: '默认', value: 'default' },
   { label: '自动接受编辑', value: 'acceptEdits' },
@@ -74,11 +70,23 @@ const PERMISSION_OPTIONS = [
   { label: '绕过权限', value: 'bypassPermissions' },
 ] satisfies Array<{ label: string; value: PermissionMode }>
 
-// 当前 wire contract 仍是文本 command。文件和相机入口先接入浏览器选择器，
-// 但明确提示“尚未发送”，避免把本地选中文件伪装成 Claude 已收到附件。
+function AttachmentPreview({ file }: { file: File }) {
+  const [preview, setPreview] = useState<{ file: File; source: string } | null>(null)
+  useEffect(() => {
+    if (!file.type.startsWith('image/')) return
+    const reader = new FileReader()
+    reader.onload = () => { if (typeof reader.result === 'string') setPreview({ file, source: reader.result }) }
+    reader.readAsDataURL(file)
+    return () => { reader.onload = null; if (reader.readyState === FileReader.LOADING) reader.abort() }
+  }, [file])
+  return preview?.file !== file ? null : <img src={preview.source} alt={file.name} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8 }} />
+}
+
 export default function MessageComposer({
   enabled,
+  experience = iosExperience,
   onSend,
+  onSendAttachments,
   turnRunning = false,
   cancelTarget = null,
   cancelEnabled = false,
@@ -91,11 +99,18 @@ export default function MessageComposer({
   disabledReason = '当前会话暂不可输入',
 }: MessageComposerProps) {
   const [text, setText] = useState('')
+  const speech = useSpeechDraft(experience, enabled, (value) => setText((draft) => draft + (draft.trim() ? '\n' : '') + value))
   const [oversize, setOversize] = useState(false)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false)
   const [permissionMenuOpen, setPermissionMenuOpen] = useState(false)
-  const [selectedFiles, setSelectedFiles] = useState<string[]>([])
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [nativeNotice, setNativeNotice] = useState<string | null>(null)
+  const [sendingAttachments, setSendingAttachments] = useState(false)
+  const [preparingAttachments, setPreparingAttachments] = useState(false)
+  const pickingRef = useRef(false)
+  const mountedRef = useRef(true)
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
+  const photoInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const textAreaRef = useRef<TextAreaRef>(null)
@@ -133,20 +148,51 @@ export default function MessageComposer({
   const oversizeNow = trimmed !== '' && new TextEncoder().encode(trimmed).length > MAX_TEXT_BYTES
 
   const submit = () => {
-    if (trimmed === '' || oversizeNow || !enabled) {
+    if ((trimmed === '' && selectedFiles.length === 0) || oversizeNow || !enabled || speech.recording || sendingAttachments || preparingAttachments) {
       if (oversizeNow) setOversize(true)
       return
     }
     setOversize(false)
-    onSend(trimmed)
-    setText('')
+    if (selectedFiles.length === 0) { onSend(trimmed); setText(''); return }
+    if (onSendAttachments === undefined) { setNativeNotice('当前连接未启用附件发送，请更新电脑端'); return }
+    setSendingAttachments(true)
+    setNativeNotice(null)
+    void (async () => {
+      try {
+        validateFiles(selectedFiles)
+        const attachments = await Promise.all(selectedFiles.map(encodeFile))
+        if (!mountedRef.current) return
+        const result = await onSendAttachments(trimmed, attachments)
+        if (!mountedRef.current) return
+        if (result === 'accepted') { setText(''); setSelectedFiles([]); setNativeNotice('附件已传到电脑，Claude 将按现有权限读取。') }
+        else setNativeNotice(result === 'unknown' ? '发送结果未知，草稿已保留。请先查看会话结果再决定是否重试，避免重复发送。' : '附件未被接收，草稿已保留。请确认电脑端已更新并检查连接。')
+      } catch (error) {
+        if (mountedRef.current) setNativeNotice(error instanceof Error ? error.message : '附件发送失败，草稿已保留')
+      } finally { if (mountedRef.current) setSendingAttachments(false) }
+    })()
   }
 
   const chooseFiles = (files: FileList | null) => {
-    if (files === null || files.length === 0) return
-    setSelectedFiles(Array.from(files).map((file) => file.name))
-    setNativeNotice('文件已选择；当前版本仍只发送文本，原生附件发送待接入。')
+    if (files === null || files.length === 0 || !enabled || sendingAttachments || pickingRef.current) return
+    const picked = Array.from(files)
+    if (selectedFiles.length + picked.length > 4) { setNativeNotice('最多添加 4 个附件'); return }
+    if (!picked.some(needsPhotoPreparation)) {
+      try { const combined = [...selectedFiles, ...picked]; validateFiles(combined); setSelectedFiles(combined); setNativeNotice(null) }
+      catch (error) { setNativeNotice(error instanceof Error ? error.message : '附件无效') }
+      setAttachmentMenuOpen(false)
+      return
+    }
+    pickingRef.current = true
+    setPreparingAttachments(true)
     setAttachmentMenuOpen(false)
+    void (async () => {
+      try {
+        const combined = [...selectedFiles, ...await Promise.all(picked.map(preparePickedFile))]
+        validateFiles(combined)
+        if (mountedRef.current) { setSelectedFiles(combined); setNativeNotice(null) }
+      } catch (error) { if (mountedRef.current) setNativeNotice(error instanceof Error ? error.message : '附件无效') }
+      finally { pickingRef.current = false; if (mountedRef.current) setPreparingAttachments(false) }
+    })()
   }
 
   const attachmentActions = [
@@ -160,7 +206,7 @@ export default function MessageComposer({
       key: 'photo',
       icon: <img src={uploadImageIcon} alt="" style={TOOL_ICON_STYLE} />,
       text: <span data-testid="choose-photo">照片</span>,
-      onClick: () => fileInputRef.current?.click(),
+      onClick: () => photoInputRef.current?.click(),
     },
     {
       key: 'file',
@@ -187,44 +233,24 @@ export default function MessageComposer({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {selectedFiles.length > 0 && (
-        <div data-testid="composer-attachments" style={{ ...META_STYLE, justifyContent: 'flex-start' }}>
-          <span>已选 {selectedFiles.length} 个文件：{selectedFiles.join('、')}</span>
-          <Button fill="none" size="mini" style={{ color: '#64748b' }} onClick={() => setSelectedFiles([])}>
-            清除
-          </Button>
+        <div data-testid="composer-attachments" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span>已选 {selectedFiles.length} 个附件（每个最多 4 MiB，合计 8 MiB）</span>
+          {selectedFiles.map((file, index) => <div key={`${index}-${file.name}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AttachmentPreview file={file} /><span>{file.name} · {Math.ceil(file.size / 1024)} KiB</span>
+            <Button size="mini" fill="none" disabled={sendingAttachments || preparingAttachments} aria-label={`移除 ${file.name}`} onClick={() => setSelectedFiles((items) => items.filter((_, i) => i !== index))}>移除</Button>
+          </div>)}
+          <Button fill="none" size="mini" disabled={sendingAttachments || preparingAttachments} onClick={() => setSelectedFiles([])}>清除</Button>
         </div>
       )}
+      {preparingAttachments && <div role="status">正在处理照片或文件…</div>}
+      {sendingAttachments && <div role="status">正在发送附件，等待电脑确认…</div>}
+      {speech.recording && <div role="status">正在聆听，点击语音按钮结束（最长 60 秒）</div>}
+      {speech.error !== null && <div role="alert">{speech.error}</div>}
       {nativeNotice !== null && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#64748b' }}>{nativeNotice}</div>}
       {((oversize && oversizeNow) || oversizeNow) && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#dc2626' }}>文本超出长度上限</div>}
+      {turnRunning && <div className="composer-running" role="status">Claude 正在处理<DotLoading color="primary" /></div>}
       <div style={{ position: 'relative' }}>
         {blockedFeedback && !enabled && <div className="composer-disabled-feedback" role="status">{disabledReason}</div>}
-        {turnRunning && cancelTarget !== null && onCancelTurn !== undefined && (
-          <Button
-            aria-label="取消当前 Turn"
-            data-testid="floating-cancel-turn"
-            size="mini"
-            fill="outline"
-            color="danger"
-            style={{
-              ...COMPACT_BUTTON_STYLE,
-              position: 'absolute',
-              right: 8,
-              bottom: 'calc(100% + 8px)',
-              zIndex: 10,
-              minWidth: 0,
-              height: 26,
-              padding: '2px 10px',
-              borderRadius: 13,
-              background: 'rgba(255, 255, 255, 0.96)',
-              boxShadow: '0 3px 10px rgba(15, 23, 42, 0.12)',
-              fontSize: 12,
-            }}
-            disabled={!cancelEnabled}
-            onClick={() => onCancelTurn(cancelTarget)}
-          >
-            {cancelEnabled ? '停止' : '停止中'}
-          </Button>
-        )}
         <div style={{ ...SHELL_STYLE, ...(blockedFeedback && !enabled ? { borderColor: '#d97706', boxShadow: '0 0 0 3px rgba(217, 119, 6, 0.18)' } : {}) }}>
           <div style={{ position: 'relative' }}>
             <TextArea
@@ -242,9 +268,9 @@ export default function MessageComposer({
                   submit()
                 }
               }}
-              placeholder="发送文本给 Claude"
+              placeholder="输入消息或添加附件"
               autoSize={{ minRows: 1, maxRows: 4 }}
-              disabled={!enabled}
+              disabled={!enabled || sendingAttachments || preparingAttachments}
             />
             {!enabled && <button
               type="button"
@@ -282,7 +308,7 @@ export default function MessageComposer({
                   data-testid="attachment-toggle"
                   fill="none"
                   style={ICON_BUTTON_STYLE}
-                  disabled={!enabled}
+                  disabled={!enabled || sendingAttachments || preparingAttachments}
                 >
                   <img src={documentIcon} alt="" style={TOOL_ICON_STYLE} />
                 </Button>
@@ -310,32 +336,43 @@ export default function MessageComposer({
             <div style={{ flex: 1 }} />
             <Space align="center" style={{ '--gap': '4px' }}>
               <Button
-                aria-label="语音输入（原生能力预留）"
+                aria-label={experience === null ? '语音输入（原生能力预留）' : speech.recording ? '结束语音输入' : '语音输入'}
+                aria-pressed={speech.recording}
                 className="composer-icon-button"
                 data-testid="voice-input"
                 fill="none"
                 style={ICON_BUTTON_STYLE}
-                disabled={!enabled}
-                onClick={() => setNativeNotice('语音输入需要原生麦克风能力，当前 Web 版本暂未启用。')}
+                disabled={!enabled || sendingAttachments || preparingAttachments}
+                onClick={() => {
+                  if (experience === null) setNativeNotice('语音输入需要原生麦克风能力，当前 Web 版本暂未启用。')
+                  else void speech.toggle()
+                }}
               >
                 <img src={voiceIcon} alt="" style={TOOL_ICON_STYLE} />
               </Button>
+              {turnRunning && cancelTarget !== null && onCancelTurn !== undefined ? (
+                <Button aria-label="取消当前 Turn" data-testid="floating-cancel-turn" className="composer-icon-button" fill="none" style={ICON_BUTTON_STYLE} disabled={!cancelEnabled} onClick={() => onCancelTurn(cancelTarget)}>
+                  <span className="composer-stop" aria-hidden="true">■</span>
+                </Button>
+              ) : (
               <Button
                 aria-label="发送"
                 className="composer-icon-button"
                 fill="none"
                 style={ICON_BUTTON_STYLE}
-                disabled={!enabled || trimmed === '' || oversizeNow}
+                disabled={!enabled || sendingAttachments || preparingAttachments || speech.recording || (trimmed === '' && selectedFiles.length === 0) || oversizeNow}
                 onClick={submit}
               >
-                <img src={sendIcon} alt="" style={{ width: 28, height: 28, display: 'block', opacity: !enabled || trimmed === '' || oversizeNow ? 0.28 : 0.9 }} />
+                <img src={sendIcon} alt="" style={{ width: 28, height: 28, display: 'block', opacity: !enabled || sendingAttachments || (trimmed === '' && selectedFiles.length === 0) || oversizeNow ? 0.28 : 0.9 }} />
               </Button>
+              )}
             </Space>
           </div>
         </div>
       </div>
-      <input ref={fileInputRef} hidden type="file" accept="image/*,.pdf,.txt,.md,.json" multiple onChange={(event) => chooseFiles(event.target.files)} />
-      <input ref={cameraInputRef} hidden type="file" accept="image/*" capture="environment" onChange={(event) => chooseFiles(event.target.files)} />
+      <input ref={photoInputRef} data-testid="photo-picker" hidden type="file" accept="image/*" multiple disabled={!enabled || sendingAttachments || preparingAttachments} onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} />
+      <input ref={fileInputRef} data-testid="file-picker" hidden type="file" multiple disabled={!enabled || sendingAttachments || preparingAttachments} onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} />
+      <input ref={cameraInputRef} data-testid="camera-picker" hidden type="file" accept="image/*" capture="environment" disabled={!enabled || sendingAttachments || preparingAttachments} onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} />
     </div>
   )
 }

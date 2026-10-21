@@ -4,10 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tea4go/claude-mobile-remote/hostinfo"
 )
 
 func randomPCID() (string, error) {
@@ -26,21 +27,9 @@ func validPCID(id string) bool {
 	return err == nil && id == strings.ToLower(id)
 }
 
-func cliHostName() string {
-	name, err := os.Hostname()
-	if err != nil || strings.TrimSpace(name) == "" || len([]rune(name)) > 255 || strings.IndexFunc(name, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
-		return ""
-	}
-	return name
-}
+func cliHostName() string { return hostinfo.Name() }
 
-func defaultPCID() (string, error) {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user config directory: %w", err)
-	}
-	return loadOrCreatePCID(filepath.Join(configDir, "claude-mobile-remote", "pc-id"))
-}
+func defaultPCID() (string, error) { return hostinfo.PCID() }
 
 func loadOrCreatePCID(path string) (string, error) {
 	read := func() (string, error) {

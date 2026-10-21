@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import MessageComposer from './MessageComposer'
 
@@ -124,8 +124,8 @@ describe('MessageComposer', () => {
       />,
     )
     expect(screen.getByRole('button', { name: '权限请求待确认' })).toBeDisabled()
-    expect(screen.getByTestId('floating-cancel-turn')).toHaveStyle({ position: 'absolute', height: '26px' })
-    expect(screen.getByTestId('floating-cancel-turn')).toHaveTextContent('停止')
+    expect(screen.queryByRole('button', { name: '发送' })).not.toBeInTheDocument()
+    expect(screen.getByText('Claude 正在处理')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '取消当前 Turn' }))
     expect(onCancelTurn).toHaveBeenCalledWith('turn-1')
   })
@@ -142,7 +142,7 @@ describe('MessageComposer', () => {
       />,
     )
     const stopButton = screen.getByRole('button', { name: '取消当前 Turn' })
-    expect(stopButton).toHaveTextContent('停止中')
+    expect(screen.queryByRole('button', { name: '发送' })).not.toBeInTheDocument()
     expect(stopButton).toBeDisabled()
   })
 
@@ -165,5 +165,47 @@ describe('MessageComposer', () => {
     expect(screen.getByTestId('permission-option-default').querySelector('.composer-permission-check')).toBeNull()
     fireEvent.click(screen.getByTestId('permission-option-acceptEdits'))
     expect(onPermissionModeChange).toHaveBeenCalledWith('acceptEdits')
+  })
+})
+
+
+describe('attachment sending', () => {
+  test('separate pickers, append files, remove one, and send exact bytes without text', async () => {
+    let finish!: (result: 'accepted') => void
+    const onSendAttachments = vi.fn(() => new Promise<'accepted'>((resolve) => { finish = resolve }))
+    const onSend = vi.fn()
+    render(<MessageComposer enabled experience={null} onSend={onSend} onSendAttachments={onSendAttachments} />)
+    expect(screen.getByTestId('photo-picker')).toHaveAttribute('accept', 'image/*')
+    expect(screen.getByTestId('file-picker')).not.toHaveAttribute('accept')
+    expect(screen.getByTestId('camera-picker')).toHaveAttribute('capture', 'environment')
+    fireEvent.change(screen.getByTestId('photo-picker'), { target: { files: [new File(['pixels'], 'photo.png', { type: 'image/png' })] } })
+    fireEvent.change(screen.getByTestId('file-picker'), { target: { files: [new File(['notes'], 'notes.txt')] } })
+    fireEvent.click(screen.getByRole('button', { name: '移除 notes.txt' }))
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(onSendAttachments).toHaveBeenCalledWith('', [{ name: 'photo.png', mediaType: 'image/png', data: btoa('pixels') }]))
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.getByTestId('composer-attachments')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    await act(async () => { finish('accepted') })
+    expect(screen.queryByTestId('composer-attachments')).not.toBeInTheDocument()
+  })
+
+  test.each(['rejected', 'unknown'] as const)('%s keeps text and attachments', async (result) => {
+    render(<MessageComposer enabled experience={null} onSend={vi.fn()} onSendAttachments={vi.fn(async () => result)} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'read file' } })
+    fireEvent.change(screen.getByTestId('file-picker'), { target: { files: [new File(['document'], 'report.pdf', { type: 'application/pdf' })] } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(screen.getByText(/草稿已保留/)).toBeInTheDocument())
+    expect(screen.getByRole('textbox')).toHaveValue('read file')
+    expect(screen.getByTestId('composer-attachments')).toHaveTextContent('report.pdf')
+  })
+
+  test('oversize selection is rejected and does not replace existing files', () => {
+    render(<MessageComposer enabled onSend={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('file-picker'), { target: { files: [new File(['ok'], 'ok.txt')] } })
+    fireEvent.change(screen.getByTestId('file-picker'), { target: { files: [new File([new Uint8Array(4 * 1024 * 1024 + 1)], 'large.pdf')] } })
+    expect(screen.getByText('附件不能为空，每个附件最多 4 MiB')).toBeInTheDocument()
+    expect(screen.getByTestId('composer-attachments')).toHaveTextContent('ok.txt')
+    expect(screen.queryByRole('button', { name: '移除 large.pdf' })).not.toBeInTheDocument()
   })
 })

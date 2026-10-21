@@ -198,6 +198,7 @@ const TOOL_USE_BLOCK_KEYS: ReadonlySet<string> = new Set([
   'preview',
 ])
 const TOOL_RESULT_BLOCK_KEYS: ReadonlySet<string> = new Set([
+  'output', 'truncated',
   'id',
   'kind',
   'toolUseId',
@@ -205,6 +206,13 @@ const TOOL_RESULT_BLOCK_KEYS: ReadonlySet<string> = new Set([
 ])
 
 // 结构化内容块（B2 §4.1）：只解码展示所需字段，不接受工具参数或结果正文。
+function decodeToolOutput(value: Record<string, unknown>): { output?: string; truncated?: boolean } {
+  const output = optionalString(value, 'output')
+  if (new TextEncoder().encode(output).length > 16384) fail('tool output exceeds limit')
+  const truncated = value.truncated === undefined ? false : requireBoolean(value, 'truncated')
+  return { ...(output === '' ? {} : { output }), ...(truncated ? { truncated } : {}) }
+}
+
 function decodeContentBlock(value: unknown): ContentBlock {
   if (!isObject(value)) fail('block must be an object')
   const id = requireNonEmptyString(value, 'id')
@@ -238,6 +246,7 @@ function decodeContentBlock(value: unknown): ContentBlock {
         kind,
         toolUseId: requireNonEmptyString(value, 'toolUseId'),
         isError: requireBoolean(value, 'isError'),
+        ...decodeToolOutput(value),
       }
   }
 }
@@ -444,7 +453,7 @@ function decodeTurnSnapshot(value: unknown): TurnSnapshot {
 function displayField(value: Record<string, unknown>, key: string, version: number): string | undefined {
   const raw = value[key]
   if (raw === undefined) return undefined
-  if (version !== PREFERRED_PROTOCOL_VERSION || typeof raw !== 'string' || raw.length === 0) {
+  if (version < 3 || typeof raw !== 'string' || raw.length === 0) {
     fail(`invalid ${key} display field`)
   }
   if (key === 'projectCwd' && raw.length > 4096) fail('project cwd is too long')
@@ -538,6 +547,7 @@ function decodeEventPayload(value: unknown, version: number): EventPayload {
   if (domainEvent.sessionTitle !== undefined && kind !== 'turn_started') fail('title requires turn_started')
   if (kind === 'content_block') {
     domainEvent.block = decodeContentBlock(rawBlock)
+    if (version < 4 && domainEvent.block.kind === 'tool_result' && (domainEvent.block.output !== undefined || domainEvent.block.truncated)) fail('tool output requires v4')
   }
   if (kind === 'action_required') {
     domainEvent.pendingAction = decodePendingAction(rawAction, requestId)
@@ -662,7 +672,7 @@ export function decodeServerMessage(text: string): ServerMessage {
   if (typeof version !== 'number' || !Number.isSafeInteger(version)) {
     fail('field version must be an integer')
   }
-  if (version !== PROTOCOL_VERSION && version !== PREFERRED_PROTOCOL_VERSION) fail('unsupported protocol version')
+  if (version !== PROTOCOL_VERSION && version !== 3 && version !== PREFERRED_PROTOCOL_VERSION) fail('unsupported protocol version')
 
   const type = requireString(parsed, 'type') as MessageType
   if (!SERVER_TO_CLIENT_TYPES.has(type)) {

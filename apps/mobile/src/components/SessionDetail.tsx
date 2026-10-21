@@ -1,4 +1,6 @@
+import type { Attachment, AttachmentSendResult } from '../protocol/types'
 import { useRef } from 'react'
+import type { ExperiencePort } from '../native/experience'
 import { Button, NavBar } from 'antd-mobile'
 import { LeftOutline } from 'antd-mobile-icons'
 import MessageComposer from './MessageComposer'
@@ -17,6 +19,7 @@ import type { MobileState } from '../session/reducer'
 import type { SessionRecord } from '../session/store'
 
 interface SessionDetailProps {
+  experience?: ExperiencePort | null
   record: SessionRecord
   state: MobileState
   turnStatus: string
@@ -25,6 +28,7 @@ interface SessionDetailProps {
   cancelTarget: string | null
   onBack: () => void
   onReconnect: () => void
+  onSendAttachments?: (text: string, attachments: Attachment[]) => Promise<AttachmentSendResult>
   onSend: (text: string) => void
   onPermissionModeChange?: (mode: PermissionMode) => void
   onResolveAction: (resolution: ActionResolution) => boolean | void
@@ -38,6 +42,7 @@ interface SessionDetailProps {
 // 会话详情页（B1）：单个 Session 的状态栏、消息流与输入区。
 // 连接生命周期由 App 持有，这里只呈现状态并回传操作。
 export default function SessionDetail({
+  experience,
   record,
   state,
   turnStatus,
@@ -46,6 +51,7 @@ export default function SessionDetail({
   onBack,
   onReconnect,
   onSend,
+  onSendAttachments,
   onPermissionModeChange = () => undefined,
   onResolveAction,
   onCancelTurn,
@@ -58,6 +64,7 @@ export default function SessionDetail({
     (state.phase === 'disconnected' || state.phase === 'protocolError') && !pairingInvalid
   // 所有命令共用单在途门控（B2 §5）：取消类命令不依赖 canSend，
   // 因为等待待处理事项时自由文本被禁用但仍应可取消。
+  const sessionUsable = state.sessionStatus !== 'stopped' && state.sessionStatus !== 'failed'
   const commandReady =
     !pairingInvalid && state.phase === 'connected' && state.pendingCommand === null && !managementBusy
   const cancelRequested = state.pendingCommand?.kind === 'cancel_turn'
@@ -168,14 +175,16 @@ export default function SessionDetail({
           />
         )}
         <MessageComposer
+          experience={experience}
           enabled={state.canSend}
           disabledReason={disabledReason}
           onSend={onSend}
+          onSendAttachments={onSendAttachments}
           permissionMode={state.permissionMode}
           onPermissionModeChange={onPermissionModeChange}
-          turnRunning={cancelTarget !== null}
+          turnRunning={sessionUsable && cancelTarget !== null}
           cancelTarget={cancelTarget}
-          cancelEnabled={commandReady && !cancelRequested}
+          cancelEnabled={sessionUsable && commandReady && !cancelRequested}
           onCancelTurn={onCancelTurn}
           permissionPending={state.pendingAction?.kind === 'tool_approval'}
           onCreateSession={record.capabilities?.includes('create_session') ? onCreateSession : undefined}

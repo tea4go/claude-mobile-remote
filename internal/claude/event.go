@@ -67,7 +67,9 @@ type ContentBlock struct {
 	// the raw tool input and is safe to show beside the tool title.
 	Preview string
 	// IsError 是指针：只有 tool_result 带该字段，且必须显式区分 true/false。
-	IsError *bool
+	IsError   *bool
+	Output    string
+	Truncated bool
 }
 
 // SessionIDSource 标识真实 session ID 的 SDK 消息来源。

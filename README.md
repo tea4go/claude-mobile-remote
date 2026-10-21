@@ -1,5 +1,7 @@
 # claude-mobile-remote
 
+> iOS 极光系统推送：下载官方 JPush 6.2.2 完整包后执行 `bash scripts/macos/ios_import_jpush.sh <解压目录>`，导入 JPush / JCore noidfa。SDK 二进制不入库。AppKey、APNs 与 PC 端配置见 [iOS 反馈修复与推送验收](docs/testing/2026-10-21-ios-feedback-result.md)。未配置时仍只有在线本地提醒。
+
 通过独立 Standalone CLI 托管本地 Claude Session，让用户离开电脑后可在手机上继续查看和控制，并在同一工作目录新建独立会话。
 
 ## 环境准备
@@ -175,9 +177,12 @@ Windows PowerShell 也使用相同的 `adb install -r` 命令。`-Release` / `--
 ### iOS（仅 macOS）
 
 ```bash
+bash scripts/macos/3_ios_device.sh # 真机：准备资源并打开 Xcode
 bash scripts/macos/3_ios_run.sh    # Simulator 运行
 bash scripts/macos/4_ios_build.sh  # Simulator 构建
 ```
+
+真机请使用 `3_ios_device.sh`：脚本自动执行依赖安装、Web 构建、iOS 同步并打开 Xcode。连接并解锁 iPhone，在 Xcode 顶部选择该手机，确认 Signing & Capabilities 的开发团队，点击 Run（▶）编译安装；首次运行按设备提示信任开发者并开启开发者模式。脚本不会自动启动模拟器。
 
 Windows 无 Xcode/iOS Simulator 环境，改用 Android 或 Web 入口。
 
@@ -187,7 +192,7 @@ Windows 无 Xcode/iOS Simulator 环境，改用 Android 或 Web 入口。
 - **缺少 Android SDK / adb / 模拟器 / 平台组件**：执行 `1_install_android_sdk`，再跑带 Android 选项的 `2_check`（`bash scripts/macos/2_check.sh --android` / `powershell -ExecutionPolicy Bypass -File scripts/windows/2_check.ps1 -Android`）。先用 `emulator -list-avds` 确认存在 AVD。
 - **Android live 白屏或连接失败**：确认 Web dev server 仍在运行、端口与 `--port`/`-Port` 一致（默认 5173，`emulator` profile 已放行对应 Origin），并确认模拟器走 `10.0.2.2`；改端口需给 CLI 加 `--allowed-origin http://10.0.2.2:<端口>`。真机不要套用该地址，改用 CLI 的 `device` profile。
 - **Android dist 仍显示旧页面**：重新执行 `3_android_run --dist`/`-Dist`，确认没有残留 live server 配置；必要时卸载旧 Debug 包重装。
-- **iOS 命令失败**：仅在有 Xcode 和命令行工具的 macOS 上运行，并先打开目标 Simulator。
+- **iOS 命令失败**：仅在有 Xcode 和命令行工具的 macOS 上运行，真机使用 `3_ios_device.sh` 在 Xcode 选择 iPhone；模拟器使用 `3_ios_run.sh`。
 - **脚本检查通过但 CLI 启动失败**：保留第一条错误，用 [docs/advanced-usage.md](docs/advanced-usage.md) 里的手工命令复现，区分 Go / SDK / Claude 配置 / 网络问题。
 
 ## 高级用法与排障

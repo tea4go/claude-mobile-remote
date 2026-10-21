@@ -16,6 +16,7 @@ import (
 	"github.com/tea4go/claude-mobile-remote/internal/pairing"
 	"github.com/tea4go/claude-mobile-remote/internal/transport"
 	"github.com/tea4go/claude-mobile-remote/protocol"
+	"github.com/tea4go/claude-mobile-remote/push"
 )
 
 // Controller is the public single-session control boundary a host provides. It
@@ -42,6 +43,8 @@ const DefaultPairTokenTTL = 30 * 24 * time.Hour
 // back to transport defaults; PairingPersistenceFile empty disables restart
 // recovery, which the CLI uses for fake-host sessions.
 type Config struct {
+	EnablePush             bool
+	PushSender             push.Sender
 	SessionID              string
 	Controller             Controller
 	ListenAddress          string
@@ -74,11 +77,15 @@ func defaultTransportFactory(cfg transport.Config, auth transport.Authenticator,
 // Server owns the pairing credential, the single Session Channel and the
 // WebSocket transport for one session. It is not safe for concurrent Start.
 type Server struct {
-	sessionID  string
-	controller channel.Controller
-	manager    *pairing.Manager
-	registry   *channel.Registry
-	server     transportServer
+	sessionID   string
+	pushSender  push.Sender
+	pushPairing protocol.Pairing
+	pushCancel  context.CancelFunc
+	pushDone    chan struct{}
+	controller  channel.Controller
+	manager     *pairing.Manager
+	registry    *channel.Registry
+	server      transportServer
 
 	mu          sync.Mutex
 	started     bool
@@ -105,6 +112,16 @@ func newServer(config Config, factory transportFactory) (*Server, error) {
 		return nil, errors.New("controller is required")
 	}
 
+	sender := config.PushSender
+	if sender == nil && config.EnablePush {
+		configured, err := push.LoadDefault()
+		if err != nil {
+			return nil, err
+		}
+		if configured != nil {
+			sender = configured
+		}
+	}
 	var managerOptions []pairing.Option
 	if config.PairingPersistenceFile != "" {
 		managerOptions = append(managerOptions, pairing.WithPersistenceFile(config.PairingPersistenceFile))
@@ -148,6 +165,7 @@ func newServer(config Config, factory transportFactory) (*Server, error) {
 	}
 	return &Server{
 		sessionID:  config.SessionID,
+		pushSender: sender,
 		controller: config.Controller,
 		manager:    manager,
 		registry:   registry,
@@ -189,6 +207,8 @@ func (s *Server) Start() (protocol.Pairing, error) {
 		s.ticker = time.NewTicker(time.Second)
 		s.ticks = s.ticker.C
 	}
+	s.pushPairing = payload
+	s.startPush()
 	s.started = true
 	s.mu.Unlock()
 	go s.rotateLoop()
@@ -205,6 +225,9 @@ func (s *Server) Pairings() <-chan protocol.Pairing {
 // idempotent.
 func (s *Server) BeginShutdown() {
 	s.shutdown.Do(func() {
+		if s.pushCancel != nil {
+			s.pushCancel()
+		}
 		s.manager.Invalidate()
 		s.server.BeginShutdown()
 		close(s.stop)
@@ -227,6 +250,13 @@ func (s *Server) Close(ctx context.Context) error {
 	case <-s.done:
 	case <-ctx.Done():
 		waitErr = ctx.Err()
+	}
+	if s.pushDone != nil {
+		select {
+		case <-s.pushDone:
+		case <-ctx.Done():
+			waitErr = ctx.Err()
+		}
 	}
 	serverErr := s.server.Close(ctx)
 	s.manager.Revoke()
@@ -267,6 +297,9 @@ func (s *Server) rotateLoop() {
 }
 
 func (s *Server) publishLatest(payload protocol.Pairing) {
+	s.mu.Lock()
+	s.pushPairing = payload
+	s.mu.Unlock()
 	select {
 	case s.pairings <- payload:
 		return

@@ -338,3 +338,13 @@ describe('MessageFeed：结构化活动分组（B2 §6）', () => {
     expect(screen.getByText('已输出一半')).toBeInTheDocument()
   })
 })
+
+test('发送后的图片保留预览，任意 HTML 附件不按图片加载', () => {
+  render(<MessageFeed messages={[{ kind: 'input', source: 'mobile', requestId: 'r', text: '查看图片', status: 'accepted', attachments: [
+    {name:'photo.png',mediaType:'image/png',data:'aGVsbG8='},
+    {name:'unsafe.html',mediaType:'text/html',data:'aGVsbG8='},
+  ] }]} />)
+  expect(screen.getByAltText('photo.png')).toHaveAttribute('src','data:image/png;base64,aGVsbG8=')
+  expect(screen.getAllByRole('img')).toHaveLength(1)
+  expect(screen.getByText('unsafe.html')).toBeInTheDocument()
+})

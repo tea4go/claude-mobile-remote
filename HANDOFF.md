@@ -4,6 +4,26 @@
 
 ## 当前状态
 
+- 当前安排（2026-10-21，用户授权提交）：保存本轮 C 阶段/iOS 修复及 WhaleTerm 配套改动，不推送。用户明确将真机与极光通知验收推迟至明天（2026-10-22）；今天不继续设备或送达测试。明日先更新两端、重扫旧配对验证图片/连续消息/工具/UI/机器名，再配置 AppKey、APNs 和 PC 极光凭证验证系统通知。测试截图留在本地，SDK 二进制、真实凭证与构建产物不入库。已有自动化结果见下方及 docs/testing/2026-10-21-ios-feedback-result.md。
+
+- 提交检查点：WhaleTerm `claude_remote_manage` 配套修改已提交为 `914822707`，未推送；移动项目的实现、设计/计划/验证记录及本条交接一并保存到本次提交，提交号以 Git 记录和本轮最终回复为准。两仓库提交前 diff 检查通过，今天没有增加真机验证结论。
+
+- 当前执行（2026-10-21，iOS 人工反馈修复完成待真机复验）：C-ios-result.md 第 1–4 项已完成代码修复：附件受理回显差异不再误判断线、手机/PC 图片预览、WhaleTerm 长回复减少突发并恢复最新 Turn 快照、v4 工具纯文本结果（v2/v3 兼容）、抽屉内部滚动、运行中停止/加载状态、首页分层及共享稳定 PC ID/macOS 显示名。用户提供的 JPush 6.2.2/JCore noidfa 5.5.1 已导入，原生 APNs/tag/点击桥接与 WhaleTerm/真实 CLI 的独立 PC 发送链路完成。移动端 491/491、build/lint（仅既有 warning）、最终 cap sync ios，Go 全套/vet、push/remote/transport race、hostinfo/CLI race，WhaleTerm Remote 全套/前端 22/22/chat 与 services 定向测试及完整 Wails 构建，iOS 模拟器与 iPhone arm64 无签名编译、SDK 隐私资源入包及两仓库 diff 检查通过。WhaleTerm 默认测试遇到既有无关 vet 错误，定向使用 -vet=off；产物 build/bin/WhaleTerm。未操作真机/未实际向极光发送，尚缺 AppKey/APNs/PC 密钥配置与用户最终复验；旧配对需重扫更新机器名，Android/Harmony 原生未同步。最新 Turn 正文最多 1 MiB，无跨 Turn 离线历史。验收/配置见 docs/testing/2026-10-21-ios-feedback-result.md。SDK 二进制与本机配置忽略；无 Git 写操作。
+
+- 当前执行（2026-10-21，iOS 真机 Xcode 入口完成）：新增 scripts/macos/3_ios_device.sh，执行 npm ci、Web 构建、仅同步 iOS 并打开 Xcode，隔离 CAP_SERVER_URL；用户在 Xcode 选择 iPhone 与现有签名运行。README 已说明真机与模拟器入口。Bash 语法、help、模拟命令编排/环境隔离检查和 diff --check 通过；本轮未实际运行依赖安装或打开 Xcode、未操作真机，待用户验收。无 Git 写操作。
+
+- 当前执行（2026-10-21，iOS 启动脚本修复完成）：已兼容 simctl 行尾空白，自动选择改传 UUID，保留显式 --simulator 参数。9 个格式用例、真实 simctl 列表选中 iPhone 17 Pro、Bash 语法及 git diff --check 通过。未执行完整脚本安装运行；用户重新执行 scripts/macos/3_ios_run.sh 验收。cap open ios 只打开工程，不经过模拟器检测。无 Git 写操作。
+
+- 当前执行（2026-10-21，地址输入移除完成待验收）：WhaleTerm 点击远程管理直接启动并展示二维码，移除模拟器遗留输入框；后端自动优先 VPN、其次 LAN IPv4，排除回环/link-local/常见容器接口，无地址明确提示，保留显式地址 API 与端口顺延。22/22 Remote 前端检查、自动选址与配对响应 Go 测试、完整 wails build、两仓库 diff --check 通过。新产物 /Users/zhangym/code/work/whale-term/build/bin/WhaleTerm。实际扫码及多网卡环境手机可达性待用户验收；自动选址不保证任意 VPN 路由可达。未执行 Git 写操作。
+
+- 当前执行（2026-10-21，附件补全待人工验收）：已修复图片/拍照/文件只选择未发送的缺口；独立选择器、追加/预览/移除、仅附件或文字组合发送、等待 PC 受理才清空、拒绝/断线/超时保留当前页面草稿且不自动重发。HEIC/HEIF 与超限照片尝试缩放转 JPEG；转换失败明确提示。新增平台中立 send_attachments（最多4项、单项4 MiB、总8 MiB），从已鉴权 Session 连接写 PC 私有临时缓存，再经既有 SubmitText/FIFO 交给唯一 Host，Claude 按已有工具权限读取；不直接注入视觉块。拒绝即清理，受理后缓存满7天在下一次上传清理，总上限128 MiB。Go全套/ vet/附件定向race通过，真实超过旧1MiB预算的WebSocket文件字节一致；移动端27文件486/486、build、lint（仅既有脚本warning）、最终cap sync ios与iOS模拟器编译通过。WhaleTerm实际Remote定向测试与完整wails构建通过，产物 build/bin/WhaleTerm；首次宽泛测试触发既有无关 TestGetRemoteConn panic，已收窄实际测试名称重跑通过。两仓库diff检查通过，无Git写操作。未操作真机或真实Claude读取，iOS HEIC解码/相机授权/拍照/大图仍待用户验收；Android/Harmony原生未同步。详见 docs/testing/2026-10-21-mobile-attachments-result.md。
+
+- 当前执行（2026-10-21，配对展示完善完成，待人工验收）：WhaleTerm Remote 启动成功自动弹出本地生成的二维码，已开启可再次查看；显示实际地址/到期时间，弹窗每 5 秒查询配对轮换，过期隐藏二维码，切换会话/关闭弹窗/卸载清理刷新。保留单独关闭 Remote；修复 Session ID 回写时误关弹窗的竞态。移动端设置增加本地保存说明：安全配对/设备名称可跨重启恢复，消息/状态仅内存，不提供离线消息历史。Remote 定向检查 23/23、WhaleTerm 前端 build、移动端 476/476、移动端 build、cap sync ios、两仓库 diff --check 通过；构建仍有既有警告。实际扫码、过期轮换、关闭后 PC 连续使用待用户验收；本轮未重新编译原生工程。未执行 Git 写操作。范围见 docs/plans/2026-10-21-whaleterm-remote-pairing-ui.md。
+
+- 当前执行（2026-10-21，交付用户验收）：用户授权 AI 直接实施 C 阶段，不再要求中途确认；iOS 优先，Android/Harmony 原生同步待其验收。已补齐 C3 iOS Speech/AVAudioEngine 语音草稿、停止/取消/60 秒限时、权限/后台/中断清理；实现在线领域事件本地系统提醒、设置授权、seq 去重、当前详情抑制、隐私文案、通知点击冷启动定位与删除清理。移动端 476/476 测试、lint（仅既有脚本警告）、build、cap sync ios、Xcode 模拟器与真机 arm64 无签名构建、模拟器最终包安装启动、diff 检查均通过。模拟器截图中文缺字，当前 runtime 未找到 PingFang，视觉体验未标记通过；物理 iPhone unavailable，本轮未安装/操作真机。C2-D 扫码/Keychain/VPN/前后台及 C3 实际识别/通知/冷启动仍待用户验收。系统挂起/杀进程后的离线推送未实现，不能以本地通知代替。设计/计划与完整真机清单见 `docs/specs/2026-10-21-C3-ios-voice-notifications-design.md`、`docs/plans/2026-10-21-C3-ios-voice-notifications.md`、`docs/testing/2026-10-21-C3-ios-result.md`。本轮未执行 Git 写操作。
+
+- 最近完成：处理 `/Users/zhangym/code/work/whale-term` 的 `claude_remote_manage` 合并 P4 后的 4 个冲突文件，工作树冲突标记已清零。Manager 保留 P4 task/实时状态和 Remote Control 事件订阅，取消路径同时保留远程事件及 `streamCancel()`；聊天页同时保留远程管理入口与 P4 时间线。WhaleTerm 本地忽略的 `go.mod` 已按 P4 的 SDK v0.1.4 基准改用本机维护的 SDK 源码，Wails 构建重新生成忽略的前端绑定。定向 `backend/chat` race 测试、`backend/services` 定向 race 测试、Remote 前端 23/23 测试、完整 `wails build -m -nosyncgomod -nopackage` 和 `git diff --check` 通过；构建前仅因旧本地 SDK 和旧绑定失败，修正环境后通过。未运行完整 Go/前端测试和真机操作。按用户确认，本轮未暂存、提交或推送，因此 Git index 仍将这 4 个文件显示为 `UU`，合并提交尚未完成。
+
 - 最近完成：用户确认只调整 Android debug 包名。Gradle 现在直接生成 `apps/mobile/android/app/build/outputs/apk/debug/ClaudeMobileRemote.apk`；macOS/Windows 打包脚本和 README 的取包、安装路径均已同步。release 未签名包名保持 `app-release-unsigned.apk`。Android 相关 7 个文件已按用户授权提交为 `0071aa4`；用户随后授权单独提交 `DECISIONS.md` 与本交接文档。APK 构建产物未纳入提交，未推送。
 
 - 最近完成：Android APK 取包说明已补入根目录 README，包含 macOS/Windows 打包命令、debug/release 产物相对路径、`adb install -r` 安装方法及构建产物不随 Git 分发的提示。debug 包现已更名，见上一条。
@@ -98,7 +118,10 @@
 
 ## 下一步
 
+0. 当前优先：用户在 Xcode 打开 `apps/mobile/ios/App/App.xcodeproj`，选择 iPhone 和现有签名运行，按 `docs/testing/2026-10-21-C3-ios-result.md` 清单反馈。AI 据实际结果修复并记录 C2-D/C3 门禁；通过后同步 Android 与 HarmonyOS NEXT。模拟器中文字体环境仍有缺字，不视为视觉通过；离线 APNs 推送未实施。以下为先前遗留事项。
+
 1. 本地 CLI 修正已提交为 `9c4d98c`；用户推送或同步该提交后，让报错机器更新并在 Intel Mac 执行 `bash scripts/macos/3_cli_run.sh --profile local` 复核，本轮未获推送授权。将本轮 debug APK 安装到 Android 设备后，人工验收列表/设置/PC 管理、扫码、重启恢复、消息和权限、键盘/抽屉/返回手势；无 Android 设备时这些结果保持未验证。此前 WhaleTerm P4/Remote 兼容修正仍待审阅，随后继续 C2-D iOS 真机联调；iOS 工程编译、安全存储/VPN 门禁与 Harmony DevEco 构建仍待补。
+   WhaleTerm 的 P4 合并冲突工作树已解决；须在获得该次 Git 写操作的明确授权后，才可暂存 4 个冲突文件并完成合并提交。随后复核实际合并结果及 Remote Control 真机路径。
 2. WhaleTerm 嵌入宿主如需稳定 PC 分组与主机名，后续需向公共 Remote Server 传入同机编码与名称；当前仍兼容旧版地址分组。暂停的自动化测试补强、断线 replay、系统后台推送与 Relay 多 Session 映射继续作为后续独立设计。后续 Git 写操作需另行明确授权。
 
 ## 约束提醒

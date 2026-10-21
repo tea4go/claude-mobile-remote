@@ -78,3 +78,7 @@ apps/mobile/android/app/capacitor.build.gradle
 *.cer
 
 .qoder/
+
+# Downloaded JPush binaries and local public AppKey configuration
+apps/mobile/ios/App/JPushSDK/Binaries/
+apps/mobile/ios/App/Push.local.xcconfig

@@ -17,6 +17,10 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		74C2000128EF000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 74C2000228EF000000000001 /* PrivacyInfo.xcprivacy */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
+		C30000000000000000000001 /* SessionExperiencePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000002 /* SessionExperiencePlugin.swift */; };
+ C38200000000000000000001 /* JPushBridge in Frameworks */ = {isa = PBXBuildFile; productRef = C38200000000000000000002 /* JPushBridge */; };
+ C38200000000000000000004 /* JPushPrivacy.bundle in Resources */ = {isa = PBXBuildFile; fileRef = C38200000000000000000006; };
+ C38200000000000000000005 /* JCorePrivacy.bundle in Resources */ = {isa = PBXBuildFile; fileRef = C38200000000000000000007; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +36,9 @@
 		74C2000228EF000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		C30000000000000000000002 /* SessionExperiencePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionExperiencePlugin.swift; sourceTree = "<group>"; };
+ C38200000000000000000006 /* JPushPrivacy.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.plug-in; path = JPushSDK/Binaries/JPushPrivacy.bundle; sourceTree = SOURCE_ROOT; };
+ C38200000000000000000007 /* JCorePrivacy.bundle */ = {isa = PBXFileReference; lastKnownFileType = wrapper.plug-in; path = JPushSDK/Binaries/JCorePrivacy.bundle; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,6 +47,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+ C38200000000000000000001 /* JPushBridge in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -67,6 +75,7 @@
 			isa = PBXGroup;
 			children = (
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
+				C30000000000000000000002 /* SessionExperiencePlugin.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -98,6 +107,7 @@
 			name = App;
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
+ C38200000000000000000002 /* JPushBridge */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -116,6 +126,7 @@
 						CreatedOnToolsVersion = 9.2;
 						LastSwiftMigration = 1100;
 						ProvisioningStyle = Automatic;
+ SystemCapabilities = { com.apple.Push = { enabled = 1; }; };
 					};
 				};
 			};
@@ -130,6 +141,7 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
+ C38200000000000000000003 /* XCLocalSwiftPackageReference "JPushSDK" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -147,6 +159,8 @@
 			files = (
 				504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */,
 				74C2000128EF000000000001 /* PrivacyInfo.xcprivacy in Resources */,
+ C38200000000000000000005 /* JCorePrivacy.bundle in Resources */,
+ C38200000000000000000004 /* JPushPrivacy.bundle in Resources */,
 				50B271D11FEDC1A000F3C39B /* public in Resources */,
 				504EC30F1FED79650016851F /* Assets.xcassets in Resources */,
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
@@ -164,6 +178,7 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
+				C30000000000000000000001 /* SessionExperiencePlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -307,6 +322,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = V433VP6KV4;
 				INFOPLIST_FILE = App/Info.plist;
+ CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
+ CMR_APNS_ENVIRONMENT = development;
+
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -318,18 +336,23 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.0;
+ OTHER_LDFLAGS = "$(inherited) -ObjC";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
 		504EC3181FED79650016851F /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 958DCC722DB07C7200EA8C5F;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = V433VP6KV4;
 				INFOPLIST_FILE = App/Info.plist;
+ CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
+ CMR_APNS_ENVIRONMENT = production;
+
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -340,6 +363,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;
+ OTHER_LDFLAGS = "$(inherited) -ObjC";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -372,6 +396,7 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "CapApp-SPM";
 		};
+ C38200000000000000000003 /* XCLocalSwiftPackageReference "JPushSDK" */ = {isa = XCLocalSwiftPackageReference; relativePath = JPushSDK; };
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -380,6 +405,7 @@
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;
 			productName = "CapApp-SPM";
 		};
+ C38200000000000000000002 /* JPushBridge */ = {isa = XCSwiftPackageProductDependency; package = C38200000000000000000003; productName = JPushBridge; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 504EC2FC1FED79650016851F /* Project object */;

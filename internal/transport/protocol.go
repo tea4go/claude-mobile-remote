@@ -15,7 +15,7 @@ import (
 
 // Version remains the v2 default for callers constructing legacy envelopes.
 const Version = 2
-const LatestVersion = 3
+const LatestVersion = 4
 
 var ErrInvalidMessage = errors.New("invalid protocol message")
 
@@ -98,6 +98,7 @@ type CommandKind string
 
 const (
 	CommandSendText          CommandKind = "send_text"
+	CommandSendAttachments   CommandKind = "send_attachments"
 	CommandResolveAction     CommandKind = "resolve_action"
 	CommandCancelTurn        CommandKind = "cancel_turn"
 	CommandCancelQueued      CommandKind = "cancel_queued"
@@ -129,6 +130,7 @@ type HelloPayload struct {
 // Answers use the protocol package's single wire vocabulary; there is no
 // transport-local ActionDecision or QuestionAnswer copy.
 type CommandPayload struct {
+	Attachments    []protocol.Attachment     `json:"attachments,omitempty"`
 	Kind           CommandKind               `json:"kind"`
 	Text           string                    `json:"text,omitempty"`
 	ActionID       string                    `json:"actionId,omitempty"`
@@ -212,7 +214,7 @@ func DecodeEnvelope(data []byte) (Envelope, error) {
 
 // ValidateEnvelope enforces the shared v2/v3 field and payload invariants.
 func ValidateEnvelope(envelope Envelope) error {
-	if envelope.Version != Version && envelope.Version != LatestVersion {
+	if envelope.Version != Version && envelope.Version != 3 && envelope.Version != LatestVersion {
 		return protocolError(CodeUnsupportedVersion, "unsupported protocol version")
 	}
 	if envelope.Type == "" || envelope.SessionID == "" || len(envelope.Payload) == 0 {
@@ -345,6 +347,9 @@ func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
 }
 
 func validateEventDisplay(version int, event protocol.Event) error {
+	if version < 4 && event.Block != nil && (event.Block.Output != "" || event.Block.Truncated) {
+		return protocolError(CodeInvalidMessage, "tool output requires v4")
+	}
 	if version == Version {
 		if event.SessionTitle != "" || event.LastActivityAt != "" {
 			return protocolError(CodeInvalidMessage, "v2 event cannot carry display metadata")
@@ -361,7 +366,17 @@ func validateEventDisplay(version int, event protocol.Event) error {
 // validateCommand keeps each command kind to its own disjoint field subset, so
 // an extra field is a hard rejection rather than a silently ignored hint.
 func validateCommand(payload CommandPayload) error {
+	if payload.Kind != CommandSendAttachments && len(payload.Attachments) != 0 {
+		return protocolError(CodeInvalidMessage, "unexpected attachments")
+	}
 	switch payload.Kind {
+	case CommandSendAttachments:
+		if payload.ActionID != "" || payload.RequestID != "" || payload.Decision != "" || len(payload.Answers) > 0 || payload.PermissionMode != "" || len(payload.Text) > protocol.MaxPromptBytes {
+			return protocolError(CodeInvalidMessage, "invalid attachment command")
+		}
+		if _, err := protocol.DecodeAttachments(payload.Attachments); err != nil {
+			return protocolError(CodeInvalidMessage, "invalid attachments")
+		}
 	case CommandSendText:
 		if payload.ActionID != "" || payload.RequestID != "" || payload.Decision != "" || len(payload.Answers) > 0 {
 			return protocolError(CodeInvalidMessage, "invalid send_text command")
@@ -627,6 +642,9 @@ func validateResolvedAnswers(answers []protocol.ResolvedAnswer) error {
 // unknown or incomplete is rejected here instead of being forwarded, because the
 // Adapter is expected to degrade such input to the unsupported notice.
 func validateContentBlock(block protocol.ContentBlock) error {
+	if (block.Kind != protocol.BlockToolResult && (block.Output != "" || block.Truncated)) || len(block.Output) > protocol.MaxToolOutputBytes {
+		return protocolError(CodeInvalidMessage, "invalid tool output")
+	}
 	if block.ID == "" {
 		return protocolError(CodeInvalidMessage, "content block without an id")
 	}

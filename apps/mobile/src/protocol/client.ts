@@ -4,13 +4,14 @@
 import { decodeServerMessage } from './decode'
 import type { PairingPayload } from './pairing'
 import type {
+  Attachment,
   ActionDecision,
   CommandPayload,
   QuestionAnswer,
   PermissionMode,
   UnsupportedCode,
 } from './types'
-import { PROTOCOL_VERSION, PREFERRED_PROTOCOL_VERSION } from './types'
+import { PREFERRED_PROTOCOL_VERSION } from './types'
 
 // 连接内部阶段；onEvent 通过 connectionStateChanged 导出给 reducer。
 type Stage = 'connecting' | 'authenticating' | 'subscribing' | 'ready'
@@ -179,6 +180,10 @@ export class ProtocolClient {
     socket.close()
   }
 
+  sendAttachments(text: string, attachments: Attachment[], commandId: string): SendResult {
+    return this.sendCommand(commandId, { kind: 'send_attachments', text, attachments })
+  }
+
   sendText(text: string, commandId: string): SendResult {
     return this.sendCommand(commandId, { kind: 'send_text', text })
   }
@@ -271,17 +276,14 @@ export class ProtocolClient {
       return
     }
 
-    if (message.version === PROTOCOL_VERSION && this.wireVersion === PREFERRED_PROTOCOL_VERSION &&
-        this.stage === 'authenticating' && message.type === 'hello_ack') {
-      // A permissive legacy server may accept the hello but answer in v2.
-      this.wireVersion = PROTOCOL_VERSION
+    const legacyVersion = message.version === 2 || message.version === 3
+    if (legacyVersion && message.version < this.wireVersion && this.stage === 'authenticating' && message.type === 'hello_ack') {
+      this.wireVersion = message.version
     }
-    if (message.version !== this.wireVersion && !(
-      message.type === 'error' && this.stage === 'authenticating' &&
-      this.wireVersion === PREFERRED_PROTOCOL_VERSION && message.version === PROTOCOL_VERSION &&
-      (message.payload.code === 'unauthorized' ||
-        (message.payload.code === 'unsupported_version' && message.payload.expectedVersion === PROTOCOL_VERSION))
-    )) {
+    const downgradeError = message.type === 'error' && this.stage === 'authenticating' && legacyVersion &&
+      (message.payload.code === 'unauthorized' || (message.payload.code === 'unsupported_version' &&
+        (message.payload.expectedVersion === 2 || message.payload.expectedVersion === 3) && message.payload.expectedVersion < this.wireVersion))
+    if (message.version !== this.wireVersion && !downgradeError) {
       this.terminate('protocolError')
       return
     }
@@ -382,9 +384,9 @@ export class ProtocolClient {
         return
       case 'error':
         if (message.payload.code === 'unsupported_version' && this.stage === 'authenticating' &&
-            this.wireVersion === PREFERRED_PROTOCOL_VERSION && message.payload.expectedVersion === PROTOCOL_VERSION) {
+            (message.payload.expectedVersion === 2 || message.payload.expectedVersion === 3) && message.payload.expectedVersion < this.wireVersion) {
           this.close()
-          this.wireVersion = PROTOCOL_VERSION
+          this.wireVersion = message.payload.expectedVersion!
           this.connect()
           return
         }
