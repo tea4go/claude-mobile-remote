@@ -120,3 +120,7 @@ require_ios_tools() {
     log_info "检测到 Capacitor SPM 工程，不要求 CocoaPods。"
   fi
 }
+
+ensure_jpush_sdk() {
+  [[ -d "$MOBILE_DIR/ios/App/JPushSDK/Binaries/jpush-ios-6.2.2.xcframework" && -d "$MOBILE_DIR/ios/App/JPushSDK/Binaries/jcore-noidfa-ios-5.5.1.xcframework" ]] || die "缺少极光 iOS SDK。请下载官方 6.2.2 完整包，再执行 bash scripts/macos/ios_import_jpush.sh <解压目录>。"
+}

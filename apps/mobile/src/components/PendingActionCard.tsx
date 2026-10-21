@@ -31,6 +31,8 @@ const BODY_STYLE: CSSProperties = {
   gap: 10,
   padding: '10px 12px 20px',
   overflowY: 'auto',
+  minHeight: 0,
+  flex: '1 1 auto',
 }
 
 // 待处理事项抽屉（B2 §6 + D53）：工具审批与 AskUserQuestion 共用同一形态，

@@ -997,7 +997,7 @@ func (c *Controller) startNext(state *actorState) {
 			SessionID:  state.snapshot.SessionID,
 			RequestID:  next.RequestID,
 			Source:     next.Input.Source,
-			Text:       next.Input.Text,
+			Text:       protocol.DisplayInputText(next.Input),
 			TurnStatus: TurnRunning,
 		})
 	}
@@ -1086,7 +1086,7 @@ func (c *Controller) handleWorkerEvent(state *actorState, event workerEvent) {
 				SessionID:  state.snapshot.SessionID,
 				RequestID:  state.current.RequestID,
 				Source:     state.current.Input.Source,
-				Text:       state.current.Input.Text,
+				Text:       protocol.DisplayInputText(state.current.Input),
 				TurnStatus: TurnRunning,
 			})
 		}
@@ -1248,6 +1248,7 @@ func newContentBlock(blockID string, block projectclaude.ContentBlock) *ContentB
 		MCPServer: block.MCPServer,
 		ToolName:  block.ToolName,
 		Preview:   block.Preview,
+		Output:    block.Output, Truncated: block.Truncated,
 	}
 	if block.IsError != nil {
 		// Copy the value instead of the pointer: the published event outlives the

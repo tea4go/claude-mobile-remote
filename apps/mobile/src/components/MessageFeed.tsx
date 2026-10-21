@@ -164,7 +164,11 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
           return (
             <div key={index} style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
               <div style={{ background: '#e6f4ff', borderRadius: 8, padding: '8px 12px' }}>
-                {message.text}
+                <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.text}</div>
+                {message.attachments?.map((attachment, i) => <div key={i} style={{ marginTop: 6 }}>
+                  {/^image\/(jpeg|png|gif|webp)$/.test(attachment.mediaType) && <img alt={attachment.name} src={`data:${attachment.mediaType};base64,${attachment.data}`} style={{ display: 'block', maxWidth: '100%', maxHeight: 240, borderRadius: 8, objectFit: 'contain' }} />}
+                  <span style={{ fontSize: FONT_SIZE_COMPACT }}>{attachment.name}</span>
+                </div>)}
               </div>
               <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888', textAlign: 'right' }}>
                 {sourceLabel}

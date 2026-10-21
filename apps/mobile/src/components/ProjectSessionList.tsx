@@ -36,6 +36,7 @@ function preview(session: SessionListItem): string {
     if (message?.kind !== 'input' && message?.kind !== 'claude') continue
     const text = message.text.trim().replace(/\s+/g, ' ')
     if (text) return text.slice(0, 100)
+    if (message.kind === 'input' && message.attachments?.length) return message.attachments.map((item) => item.name).join('、').slice(0, 100)
   }
   return session.runtimeState?.pendingAction ? '等待处理' : '暂无会话内容'
 }

@@ -186,3 +186,10 @@
   border-radius: 0;
   font-size: 16px;
 }
+
+.project-session-list__pc { gap: 12px; }
+.project-session-list__pc-title { color: #333; font-size: 16px; line-height: 24px; margin: 0 4px; }
+.project-session-list__group { padding: 12px 10px 10px; border-radius: 18px; background: #e6e8ef; }
+.project-session-list__group .adm-list-header { padding: 0 3px 9px; }
+.project-session-list__group-heading strong { font-weight: 600; }
+.project-session-list__group .adm-list-item { background: #fff; }

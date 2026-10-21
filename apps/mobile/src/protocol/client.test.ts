@@ -139,7 +139,7 @@ describe('握手流程', () => {
     socket.serverOpen()
     expect(socket.sent).toHaveLength(1)
     expect(JSON.parse(socket.sent[0]!)).toEqual({
-      version: 3,
+      version: 4,
       type: 'hello',
       sessionId: 'session-1',
       commandId: '',
@@ -560,5 +560,18 @@ describe('构造与输入校验', () => {
 test('构造后未连接时 isReady 为 false', () => {
   const { client } = makeClient()
   expect(client.isReady()).toBe(false)
+  client.close()
+})
+
+test('v4 客户端遇到旧服务端可协商降级到 v3', () => {
+  FakeWebSocket.instances = []
+  const client = new ProtocolClient(pairing(), (url) => new FakeWebSocket(url))
+  client.connect()
+  const socket = FakeWebSocket.instances[0]!
+  socket.serverOpen()
+  socket.serverMessage({version:3,type:'error',sessionId:'',commandId:'',requestId:'',seq:0,payload:{code:'unsupported_version',message:'version unsupported',expectedVersion:3}})
+  const legacy = FakeWebSocket.instances[1]!
+  legacy.serverOpen()
+  expect(JSON.parse(legacy.sent[0]!).version).toBe(3)
   client.close()
 })

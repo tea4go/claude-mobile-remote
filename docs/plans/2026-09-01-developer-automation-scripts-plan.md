@@ -220,3 +220,11 @@ macOS 运行 `bash -n scripts/macos/*.sh`、所有 `--help`、`2_check.sh`；Win
 - 设计覆盖：脚本目录、跨平台同语义入口、安装/检查、Web/CLI、Android live/dist、macOS iOS、README 新手路径、安全边界和验证记录均有对应任务。
 - 占位符扫描：本计划没有未决标记或“实现后再决定”等模糊步骤；所有脚本入口、选项、关键命令和预期验证均已写明。
 - 接口一致性：macOS 使用长选项，Windows 使用 PowerShell 参数；对应入口的行为在 Task 4/5 对照，Android live/dist 的环境变量清理策略已分别定义。
+
+## 2026-10-21 iOS 模拟器检测修复
+
+兼容 simctl 设备行尾空白，自动选择输出设备 UUID 供 Capacitor target 使用；保留 --simulator 显式参数。验证覆盖 Booted/Shutdown、行尾空白、无设备及实际 simctl 输出。cap open ios 仅打开工程，与运行模拟器入口的前置条件不同。
+
+## 2026-10-21 iOS 真机 Xcode 入口
+
+新增 `3_ios_device.sh`，按 npm ci、npm run build、cap sync ios、cap open ios 顺序准备并打开工程。隔离 CAP_SERVER_URL，使用打包资源；不依赖模拟器运行时。真机目标、开发团队和签名由 Xcode 现有配置及用户选择，点击 Run 编译安装。验证脚本语法与命令顺序；真机运行由用户验收。

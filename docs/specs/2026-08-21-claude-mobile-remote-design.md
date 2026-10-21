@@ -1,5 +1,7 @@
 # Claude Mobile Remote 总体设计
 
+> 2026-10-21 修订：iOS 人工反馈扩展见 `2026-10-21-ios-feedback-design.md`。工具结果使用协议 v4 的有界纯文本，PC 对 v2/v3 剥离扩展，新手机可协商降级。极光系统通知由 PC 独立订阅与出站 REST 请求驱动，不依赖手机 WebSocket 常驻；平台凭证及实际送达仍需真机验收。配对/唯一 Host/FIFO 边界不变。
+
 - 日期：2026-08-21
 - 修订：2026-08-26
 - 状态：总体设计已确认；A1–A5.2 已完成，后续路线见 `2026-08-25-simplified-roadmap-and-session-remote-design.md`
@@ -280,3 +282,7 @@ docs/testing/
 ## 11. 下一步
 
 总体设计和 A5.2 后简化路线已经确认。关联长期文档经用户再次检查后，下一步只编写 A6 局域网跨机器浏览器联调实施计划；不提前展开 B、C、W 或 Relay 实现。
+
+## 附件契约补充（2026-10-21）
+
+新增平台中立 `send_attachments` 命令；限制、三端核对、旧端兼容与 PC 临时文件生命周期见 `2026-10-21-mobile-attachments-design.md`。唯一 Host、SDK Client 与 FIFO 不变；附件不作为完整上下文或手机离线历史。

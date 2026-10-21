@@ -7,7 +7,7 @@ import {
   type SocketFactory,
 } from '../protocol/client'
 import type { PairingPayload } from '../protocol/pairing'
-import type { PermissionMode } from '../protocol/types'
+import type { Attachment, AttachmentSendResult, PermissionMode } from '../protocol/types'
 import {
   actionResolutionSent,
   commandAccepted,
@@ -26,6 +26,8 @@ import {
   type Action,
 } from './reducer'
 import type { AppStore } from './appStore'
+
+import { ReminderPolicy, type ReminderKind } from '../native/experience'
 
 interface RuntimeEntry {
   payloadKey: string
@@ -57,6 +59,17 @@ function payloadKey(payload: PairingPayload): string {
 }
 
 export class SessionRuntimeManager {
+  private readonly attachmentResults = new Map<string, { commandId: string; resolve: (result: AttachmentSendResult) => void; timer: ReturnType<typeof setTimeout> }>()
+  private finishAttachment(sessionId: string, result: AttachmentSendResult, commandId?: string): void {
+    const pending = this.attachmentResults.get(sessionId)
+    if (pending === undefined || (commandId !== undefined && pending.commandId !== commandId)) return
+    clearTimeout(pending.timer)
+    this.attachmentResults.delete(sessionId)
+    pending.resolve(result)
+  }
+  private readonly reminders = new ReminderPolicy()
+  onReminder: ((sessionId: string, seq: number, kind: ReminderKind) => void) | null = null
+  viewedSession: () => string | null = () => null
   private readonly entries = new Map<string, RuntimeEntry>()
   private readonly generations = new Map<string, number>()
   private readonly store: AppStore
@@ -72,6 +85,14 @@ export class SessionRuntimeManager {
   ): void {
     this.onSessionCreated = onSessionCreated
     this.onManagementResult = onManagementResult
+  }
+
+  setReminderCallbacks(
+    onReminder: SessionRuntimeManager['onReminder'],
+    viewedSession: () => string | null = () => null,
+  ): void {
+    this.onReminder = onReminder
+    this.viewedSession = viewedSession
   }
 
   constructor(
@@ -119,6 +140,7 @@ export class SessionRuntimeManager {
   }
 
   closeSession(sessionId: string): void {
+    this.reminders.remove(sessionId)
 	this.pendingManagement.delete(sessionId)
     const entry = this.entries.get(sessionId)
     if (entry === undefined) return
@@ -139,6 +161,22 @@ export class SessionRuntimeManager {
         connectionStateChanged(entry.client.connectionState()),
       )
     }
+  }
+
+  sendAttachments(sessionId: string, text: string, attachments: Attachment[]): Promise<AttachmentSendResult> {
+    if (this.attachmentResults.has(sessionId)) return Promise.resolve('rejected')
+    const entry = this.entries.get(sessionId)
+    if (entry === undefined) return Promise.resolve('rejected')
+    const commandId = generateCommandId()
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => this.finishAttachment(sessionId, 'unknown', commandId), 30000)
+      this.attachmentResults.set(sessionId, { commandId, resolve, timer })
+      try {
+        const result = entry.client.sendAttachments(text, attachments, commandId)
+        if (!result.ok) { this.finishAttachment(sessionId, 'rejected', commandId); return }
+        this.store.getState().dispatchSession(sessionId, commandSent({ commandId, text, attachments }))
+      } catch { this.finishAttachment(sessionId, 'unknown', commandId) }
+    })
   }
 
   sendText(sessionId: string, text: string): boolean {
@@ -214,6 +252,7 @@ export class SessionRuntimeManager {
   private handleEvent(sessionId: string, event: ClientEvent): void {
     switch (event.kind) {
       case 'snapshot':
+        this.reminders.snapshot(sessionId, event.snapshot.seq)
         this.store.getState().dispatchSession(sessionId, snapshotReceived(event.snapshot))
         this.store.getState().markPairingStatus(sessionId, 'connected', this.now())
         {
@@ -235,10 +274,14 @@ export class SessionRuntimeManager {
         this.onManagementResult?.(sessionId, event.operation, event.accepted, event.code)
         return
       }
-      case 'event':
+      case 'event': {
+        const reminder = this.reminders.event(event.event, this.viewedSession())
+        if (reminder !== null) this.onReminder?.(sessionId, event.event.seq, reminder)
         this.store.getState().dispatchSession(sessionId, eventReceived(event.event), true)
         return
+      }
       case 'commandResult':
+        this.finishAttachment(sessionId, event.accepted ? 'accepted' : 'rejected', event.commandId)
         if (event.accepted && event.requestId !== '') {
           this.store.getState().dispatchSession(sessionId, commandAccepted({
             commandId: event.commandId,
@@ -263,6 +306,7 @@ export class SessionRuntimeManager {
   }
 
   private handleClose(sessionId: string, info: CloseInfo): void {
+    this.finishAttachment(sessionId, 'unknown')
     const kind = info.kind === 'protocolError' ? 'protocolError' : 'disconnected'
     this.store.getState().dispatchSession(sessionId, connectionFailed({ kind }))
     if (info.pendingCommandId !== null) {
@@ -278,6 +322,7 @@ export class SessionRuntimeManager {
 
   private closeClient(sessionId: string, entry: RuntimeEntry): void {
     if (this.entries.get(sessionId) !== entry) return
+    this.finishAttachment(sessionId, 'unknown')
     this.entries.delete(sessionId)
     this.generations.set(sessionId, entry.generation + 1)
     entry.client.onEvent = null

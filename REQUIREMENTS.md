@@ -1,5 +1,7 @@
 # Claude Mobile Remote 产品需求文档
 
+> 2026-10-21 iOS 人工反馈补充：图片预览、上传不断线、工具结果正文、抽屉内部滚动、运行中停止/加载状态、PC 分层与机器名纳入本轮修复。极光 JPush 的 APNs 通知替代仅在线本地提醒作为后台/退出通知目标；SDK 与 PC 发送链路可先实现，实际送达待 AppKey/APNs/PC 凭证配置与真机验收。协议 v4 保留 v2/v3 兼容；详见 `docs/specs/2026-10-21-ios-feedback-design.md` 和 `docs/testing/2026-10-21-ios-feedback-result.md`。
+
 ## 一、产品目标
 
 用户在电脑上通过 Standalone CLI 创建或恢复 Claude Session；离开电脑前扫描当前会话二维码，即可在手机上继续查看进度、发送消息和处理任务。新增目标：已配对手机可在该 CLI 的工作目录创建另一独立 Claude Session，旧会话继续运行；同一 CLI 进程管理多个 Session。移动端可保存、同步并切换多个已配对 Session。
@@ -189,6 +191,8 @@ flowchart TD
 
 每次只展开当前子阶段的实施计划；直接依赖的门禁未通过，不进入该子阶段。C1 在 A6 后可与 B 并行，C2 依赖 C1 与 B2，W1 依赖 B3。
 
+2026-10-21 执行顺序：C 阶段优先完成 iOS，由 AI 直接实施并完成本机验证，用户统一进行最后真机验收；Android 与 HarmonyOS NEXT 原生同步在 iOS 验收后进行。C3 iOS 语音识别生成可编辑草稿，经既有文本输入链路手动发送；系统提醒针对已收到的实时事件，默认隐藏会话正文。系统挂起/关闭后的离线推送需要独立服务与平台配置，当前不承诺送达。详细范围见 `docs/specs/2026-10-21-C3-ios-voice-notifications-design.md`，验收见 `docs/testing/2026-10-21-C3-ios-result.md`。
+
 Standalone CLI 单进程多 Session 已按 D68–D71 确认并进入实现与验证；公网中转、系统推送和云端多机器管理继续单独排期。
 
 ### 9.3 新增子阶段：Standalone CLI 多 Session
@@ -229,3 +233,11 @@ Standalone CLI 单进程多 Session 已按 D68–D71 确认并进入实现与验
 | WebView 套壳兼容（C1） | 明文 WebSocket 被 iOS ATS / Android cleartext 策略拦截，壳子只能显示空布局 | C1 只放行局域网明文（D44）：iOS Info.plist 使用 `NSAllowsLocalNetworking` 并提供 `NSLocalNetworkUsageDescription`（iOS 14+ 本地网络权限），Android 使用 cleartext 放行；不使用 `NSAllowsArbitraryLoads`，不放行公网明文；移动 Web 路由自 A5 起约束为 hash / 内存路由，规避自定义 scheme 路径解析问题 |
 | 共用契约被单端污染 | 前两端收尾后 HarmonyOS NEXT 无法实现，被迫换方案 | 协议与状态变更强制核对三端可实现性（硬约束 11 / 设计 §8.1），核对结论记入 DECISIONS |
 | 可信 Relay 可见协议流量 | 公网中转基础设施可接触会话内容 | Relay 不存储内容并与 Pair Token 权限分离；若未来要求不可信中转，再独立设计端到端加密 |
+
+### 移动端附件补全（2026-10-21）
+
+图片、拍照与文件必须真正传到已配对 PC；支持预览、追加/移除、仅附件发送及文字组合。单次最多 4 项，每项 4 MiB，总计 8 MiB。服务端确认受理后清空，拒绝或结果未知时保留当前页面草稿，不自动重发。附件在 PC 私有临时缓存中保存，通过原输入队列交给 Claude 按已有工具权限读取；满 7 天在后续上传时清理，不属于手机离线历史。iOS 优先；真机拍照、授权拒绝与实际模型读取需用户验收。契约见 `docs/specs/2026-10-21-mobile-attachments-design.md`。
+
+### iOS 人工测试反馈（2026-10-21）
+
+C-ios-result.md 指定：消息内图片预览、上传不断线、工具结果正文、限高滚动抽屉、运行中停止替换发送及加载指示、PC/项目/会话分层和系统机器名。新增极光 JPush 的 APNs 系统通知，替代仅在线本地提醒作为后台/退出后的实现目标；保留本地提醒作为未配置时的有限降级。协议 v4 对工具结果下发最多 16 KiB 文本并标明截断；v2/v3 兼容。SDK/发送链路可先实现，AppKey、APNs 签名/极光证书与实际送达需要真机验收；公网会话恢复待 Relay。

@@ -112,8 +112,7 @@ function titleOf(activity: Activity): string {
     : `工具：${tool.toolName}`
 }
 
-// 协议只下发服务端按白名单抽取的 preview，没有原始 input 也没有工具输出，
-// 因此详情里的「输入」只能来自 preview，缺失时如实说明而不是留空。
+// 输入仍仅展示白名单 preview；v4 结果可包含有界纯文本 output。
 function inputOf(activity: Activity): string {
   if (activity.kind === 'thinking') return activity.text
   if (activity.kind === 'result') return ''
@@ -261,11 +260,10 @@ function ActivityRow({ activity, onOpen }: { activity: Activity; onOpen: () => v
   )
 }
 
-// 详情只展示协议已有字段：标题与状态在抽屉标题行，这里只放输入
-// （thinking 正文或工具 preview）。工具输出不在协议内，不设输出区，
-// 也不用 pre/code 承载正文（B2 §6）。
+// 工具详情显示输入预览和 v4 文本结果；旧宿主没有结果时明确提示。
 function ActivityDetail({ activity }: { activity: Activity }) {
   const input = inputOf(activity)
+  const result = activity.kind === 'thinking' ? undefined : activity.result
   const emptyMessage =
     activity.kind === 'result'
       ? '工具结果正文未下发，请在电脑端查看'
@@ -289,16 +287,18 @@ function ActivityDetail({ activity }: { activity: Activity }) {
         </Section>
       ) : activity.kind === 'result' ? (
         <Section label="结果">
-          <div style={{ ...BODY_TEXT_STYLE, color: '#8c8c8c' }}>{emptyMessage}</div>
+          <div style={BODY_TEXT_STYLE}>{result?.output || emptyMessage}</div>
+          {result?.truncated && <div style={SECTION_LABEL_STYLE}>结果过长，已截断，请在电脑端查看完整内容</div>}
         </Section>
       ) : (
-        <Section label="输入">
+        <><Section label="输入">
           {input === '' ? (
             <div style={{ ...BODY_TEXT_STYLE, color: '#8c8c8c' }}>本工具未提供输入预览</div>
           ) : (
             <div style={{ ...BODY_TEXT_STYLE, fontFamily: MONO_FONT }}>{input}</div>
           )}
         </Section>
+        {result && <Section label="结果"><div style={{ ...BODY_TEXT_STYLE, fontFamily: MONO_FONT }}>{result.output || '此工具未返回文本内容'}</div>{result.truncated && <div style={SECTION_LABEL_STYLE}>结果过长，已截断，请在电脑端查看完整内容</div>}</Section>}</>
       )}
     </div>
   )

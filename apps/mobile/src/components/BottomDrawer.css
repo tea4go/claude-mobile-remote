@@ -33,3 +33,6 @@
   .mobile-drawer-mask,
   .mobile-drawer-sheet { transition-duration: 0ms; }
 }
+
+.mobile-drawer-sheet > :first-child { flex-shrink: 0; }
+.mobile-drawer-sheet > :last-child { min-height: 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }

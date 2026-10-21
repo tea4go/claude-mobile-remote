@@ -4,6 +4,10 @@ import Capacitor
 // Capacitor 使用 WebView 自身作为根视图。用全屏容器承载它，才能让
 // 系统键盘布局指南驱动 WebView 底边，而不缩小控制器或暴露窗口底板。
 class KeyboardAwareBridgeViewController: CAPBridgeViewController {
+    override func capacitorDidLoad() {
+        bridge?.registerPluginInstance(SessionExperiencePlugin())
+    }
+
     private var legacyBottomConstraint: NSLayoutConstraint?
     private var legacyKeyboardObservers: [NSObjectProtocol] = []
 

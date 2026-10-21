@@ -63,6 +63,15 @@ func (c *Channel) SubmitText(ctx context.Context, sessionID, text string) (strin
 	})
 }
 
+// SubmitInput preserves trusted transport upload metadata through the same queue.
+func (c *Channel) SubmitInput(ctx context.Context, input protocol.Input) (string, error) {
+	if err := c.guard(input.SessionID); err != nil {
+		return "", err
+	}
+	input.Source = protocol.InputMobile
+	return c.controller.Submit(ctx, input)
+}
+
 // Snapshot exposes the current state so a caller can validate a resolution
 // against the pending action before asking the Controller to apply it.
 func (c *Channel) Snapshot(ctx context.Context, sessionID string) (protocol.Snapshot, error) {

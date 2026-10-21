@@ -1062,3 +1062,27 @@ describe('B2 unsupported 通知', () => {
     expect(state.lastNotice).toBeNull()
   })
 })
+
+test('附件受理后执行路径回显不导致协议错误，保留预览并持续接收回复', () => {
+  const attachments = [{ name: 'photo.png', mediaType: 'image/png', data: 'aGVsbG8=' }]
+  let state = stateWithSnapshot({ seq: 7 })
+  state = reducer(state, commandSent({ commandId: 'upload', text: '识别图片', attachments }))
+  state = reducer(state, commandAccepted({ commandId: 'upload', requestId: 'uploaded-r' }))
+  state = reducer(state, eventReceived(event('turn_started', 8, { source: 'mobile', requestId: 'uploaded-r', text: '识别图片\n\nUser-provided attachments uploaded to this PC:\nprivate generated execution path' })))
+  state = reducer(state, eventReceived(event('text_delta', 9, { requestId: 'uploaded-r', text: '识别成功' })))
+  expect(state.phase).toBe('connected')
+  expect(state.messages.find((message) => message.kind === 'input')).toMatchObject({ text: '识别图片', attachments })
+  expect(state.messages.find((message) => message.kind === 'claude')).toMatchObject({ text: '识别成功' })
+})
+
+test('重连快照合并当前轮次文本，不重复保留工具前后的正文分片', () => {
+  let state = stateWithSnapshot({ seq: 7 })
+  state = reducer(state, eventReceived(event('turn_started', 8, { requestId: 'r', text: 'question' })))
+  state = reducer(state, eventReceived(event('text_delta', 9, { requestId: 'r', text: 'before' })))
+  state = reducer(state, eventReceived(event('content_block', 10, { requestId: 'r', block: { id: 't', kind: 'thinking', thinking: 'analysis' } })))
+  state = reducer(state, eventReceived(event('text_delta', 11, { requestId: 'r', text: 'after' })))
+  state = reducer(state, snapshotReceived(snapshot({ seq: 12, turn: { requestId: 'r', source: 'terminal', status: 'completed', message: 'beforeaftermissed', error: null, pendingAction: null } })))
+  expect(state.messages.filter((message) => message.kind === 'claude')).toHaveLength(1)
+  expect(state.messages.find((message) => message.kind === 'claude')).toMatchObject({ text: 'beforeaftermissed' })
+  expect(state.messages.filter((message) => message.kind === 'block')).toHaveLength(1)
+})

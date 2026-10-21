@@ -1,5 +1,6 @@
 # DECISIONS.md — Claude Mobile Remote 决策日志
 
+
 > 只追加或替代正式决策，不记录普通开发进度。每条包含日期、决策、理由、影响和状态。
 
 ## D1 · 建立独立项目
@@ -643,3 +644,22 @@
 - **决策**：用户当前没有 Android 设备，C2-D 先以 iOS 真机验证 WhaleTerm 已植入的 Remote Control 完整功能；Android 与 HarmonyOS NEXT 后续对照 iOS 验收结果补齐。测试使用 `/Users/zhangym/code/work/whale-term` 仓库实现，不以已安装桌面 App 的存在替代源码版本核对。
 - **影响**：优先验证 WhaleTerm 已持有 Session 的配对、消息与状态同步、审批与问答、取消、关闭远程管理、恢复和多 Session 隔离。协议及状态模型不变；Android/Harmony 的设备门禁保持未通过，不以 iOS 结果代替。
 - **状态**：已定；iOS 真机联调进行中。
+
+
+## D80 · C 阶段 iOS 优先与最终集中验收
+
+- **日期**：2026-10-21
+- **决策**：用户要求 AI 直接实施 C 阶段，无需中间设计确认；iOS 优先，用户负责最后验证，验收后同步 Android 与 HarmonyOS NEXT。
+- **影响**：替代 D78 的后续平台同步顺序；C2-D 真机门禁仍依赖实际设备结果，C3 可先实现并进行本机检查，不因此标记 C2-D 已通过。用户本次未授权 Git 写操作。
+- **状态**：iOS 语音/在线系统提醒及本机检查已完成，C2-D/C3 人工验收待进行。
+
+## D81 · 补全移动端附件链路（2026-10-21）
+
+用户要求补全图片、拍照等入口，沿用自主实施授权。新增平台中立 send_attachments 命令，通过已配对 Session 传受限 base64，PC 私有缓存后从既有 FIFO 提交可读取路径，沿用工具权限，无第二 SDK Client。三端核对见 docs/specs/2026-10-21-mobile-attachments-design.md。iOS 优先，不新增离线发送或完整历史。
+
+## D82 · iOS 人工反馈修复与极光推送
+
+- 用户要求修复 C-ios-result.md，并明确使用 https://docs.jiguang.cn/jpush 极光推送；后台/退出后的系统通知不能由在线本地提醒替代，允许先开发后随 Relay 联调。
+- 工具结果正文使用 v4 可选有界纯文本 output/truncated，v2/v3 发送时剥离，新移动端可降级 v3/v2；三端只需 JSON 字符串与布尔值，无 DOM 或平台依赖。依据本轮用户要求扩展 B2 原仅状态展示的范围。实现边界见 ios-feedback-design；不扩大到全量历史或第二 SDK Client。
+
+- D82 实施范围补充：极光按配对派生的 128-bit 不透明通知 tag 路由，不上传原始 PairToken；Master Secret 仅 PC。SDK noidfa 依赖由用户提供，本机导入脚本管理；出站极光通知可先实现，公网会话连接仍随 Relay 验收。此方案不改变三端配对负载和会话状态机。

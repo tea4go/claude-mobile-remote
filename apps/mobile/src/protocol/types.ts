@@ -1,8 +1,8 @@
-// v2/v3 协议类型，字段与 internal/transport/protocol.go 对应。
+// v2/v3/v4 协议类型，字段与 internal/transport/protocol.go 对应。
 // 组件不得复制消息定义，一律从本文件导入。
 
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 3
+export const PREFERRED_PROTOCOL_VERSION = 4
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
@@ -60,7 +60,7 @@ export type ContentBlock =
       // builtin 工具必须为空串，mcp 工具必须非空。
       mcpServer: string
     }
-  | { id: string; kind: 'tool_result'; toolUseId: string; isError: boolean }
+  | { id: string; kind: 'tool_result'; toolUseId: string; isError: boolean; output?: string; truncated?: boolean }
 
 // ---- 待处理事项（B2 §4.2）----
 
@@ -279,6 +279,7 @@ export interface ErrorPayload {
 
 export type CommandKind =
   | 'send_text'
+  | 'send_attachments'
   | 'resolve_action'
   | 'cancel_turn'
   | 'cancel_queued'
@@ -294,6 +295,7 @@ export interface QuestionAnswer {
 // 每个 kind 的字段子集互不相交，与 Go validateCommand 一致。
 export type CommandPayload =
   | { kind: 'send_text'; text: string }
+  | { kind: 'send_attachments'; text: string; attachments: Attachment[] }
   | { kind: 'resolve_action'; actionId: string; decision: ActionDecision }
   | { kind: 'resolve_action'; actionId: string; answers: QuestionAnswer[] }
   | { kind: 'cancel_turn'; requestId: string }
@@ -316,3 +318,6 @@ export type ServerMessage = {
   | { type: 'create_session_result' | 'stop_session_result'; payload: ManagementResultPayload }
   | { type: 'error'; payload: ErrorPayload }
 )
+
+export interface Attachment { name: string; mediaType: string; data: string }
+export type AttachmentSendResult = 'accepted' | 'rejected' | 'unknown'

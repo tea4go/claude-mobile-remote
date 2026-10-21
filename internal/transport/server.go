@@ -51,7 +51,7 @@ func DefaultConfig() Config {
 		AllowedOrigins: []string{"http://127.0.0.1:5173", "http://localhost:5173"},
 		AuthTimeout:    5 * time.Second,
 		CloseTimeout:   time.Second,
-		ReadLimit:      int64(protocol.MaxPromptBytes + 64*1024),
+		ReadLimit:      int64(protocol.MaxAttachmentWireBytes),
 		ServiceConfig:  protocol.DefaultServiceConfig(),
 	}
 }

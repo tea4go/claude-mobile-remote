@@ -17,6 +17,7 @@ import (
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 	"github.com/tea4go/claude-mobile-remote/internal/transport"
 	"github.com/tea4go/claude-mobile-remote/protocol"
+	"github.com/tea4go/claude-mobile-remote/push"
 )
 
 const maxRetainedSessions = 128
@@ -57,6 +58,7 @@ type managedCLI struct {
 	pairings    chan protocol.Pairing
 	closeOnce   sync.Once
 	closeErr    error
+	pushSender  push.Sender
 }
 
 func newManagedCLI(config cliConfig) (*managedCLI, error) {
@@ -87,10 +89,20 @@ func newManagedCLI(config cliConfig) (*managedCLI, error) {
 	if err != nil || !info.IsDir() {
 		return nil, errors.New("CLI working directory is unavailable")
 	}
+	var sender push.Sender
+	if config.fakeHostScenario == "" {
+		configured, e := push.LoadDefault()
+		if e != nil {
+			return nil, e
+		}
+		if configured != nil {
+			sender = configured
+		}
+	}
 	config.cwd = absolute
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &managedCLI{
-		config: config, cwd: absolute, ctx: ctx, cancel: cancel,
+		config: config, cwd: absolute, pushSender: sender, ctx: ctx, cancel: cancel,
 		registry: channel.NewRegistry(), sessions: make(map[string]*managedSession),
 		creates: make(map[string]*creationResult), lastCreate: make(map[string]time.Time),
 		pairings: make(chan protocol.Pairing, 32),
@@ -360,6 +372,13 @@ func (m *managedCLI) markTerminal(sessionID string) {
 }
 
 func (m *managedCLI) monitor(session *managedSession) {
+	if m.pushSender != nil {
+		go push.Watch(m.ctx, session.controller, m.pushSender, func() (protocol.Pairing, bool) {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			return session.payload, !m.closing
+		})
+	}
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()

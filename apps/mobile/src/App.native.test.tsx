@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
+import type { ExperiencePort } from './native/experience'
 import App from './App'
 import { NativePairingLogic, type NativePairingMetadata } from './native/pairingLogic'
 import type { NativePairingBindings } from './native/capacitorPorts'
@@ -119,4 +120,29 @@ test('原生扫码安全保存后建立连接，URL 不留配对凭证；前台�
   fireEvent.click(screen.getByLabelText('返回'))
   expect(screen.getByText('需要重新配对')).toBeInTheDocument()
   expect(FakeSocket.instances[0]?.closed).toBe(true)
+})
+
+
+test('通知点击在原生恢复完成后打开对应 Session，卸载移除监听', async () => {
+  const native = bindings([
+    { metadata: { sessionId: 'ready', name: '通知目标', customName: true, lastConnectedAt: null }, payload: pairing('ready') },
+  ])
+  let opened: ((value: { sessionId: string }) => void) | undefined
+  const remove = vi.fn(async () => undefined)
+  const clearNotifications = vi.fn(async () => undefined)
+  const experience = {
+    addListener: vi.fn(async (_event: 'notificationOpened', callback: (value: { sessionId: string }) => void) => { opened = callback; return { remove } }),
+    clearNotifications,
+    notify: vi.fn(async () => undefined),
+  } as unknown as ExperiencePort
+  const { unmount } = render(<App native={native.native} experience={experience} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(opened).toBeDefined())
+  act(() => opened?.({ sessionId: 'missing' }))
+  expect(FakeSocket.instances).toHaveLength(1)
+  act(() => opened?.({ sessionId: 'ready' }))
+  expect(screen.getByTestId('detail-scroll')).toBeInTheDocument()
+  expect(clearNotifications).toHaveBeenCalledWith({ sessionId: 'ready' })
+  expect(FakeSocket.instances).toHaveLength(1)
+  unmount()
+  await waitFor(() => expect(remove).toHaveBeenCalledOnce())
 })

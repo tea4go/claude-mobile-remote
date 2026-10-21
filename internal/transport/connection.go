@@ -3,6 +3,8 @@ package transport
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -289,6 +291,16 @@ func (c *connection) handleCommand(envelope Envelope) bool {
 // pending permission callback itself.
 func (c *connection) dispatchCommand(payload CommandPayload) (string, error) {
 	switch payload.Kind {
+	case CommandSendAttachments:
+		prompt, cleanup, err := stageAttachments(filepath.Join(os.TempDir(), "cmr-attachments"), payload.Text, payload.Attachments)
+		if err != nil {
+			return "", err
+		}
+		requestID, err := c.subscriptionChannel.SubmitInput(c.context, protocol.Input{SessionID: c.sessionID, Source: protocol.InputMobile, Text: prompt, Display: &protocol.InputDisplay{Text: payload.Text, Attachments: payload.Attachments}})
+		if err != nil {
+			cleanup()
+		}
+		return requestID, err
 	case CommandSendText:
 		return c.subscriptionChannel.SubmitText(c.context, c.sessionID, payload.Text)
 	case CommandResolveAction:
@@ -511,6 +523,14 @@ func (c *connection) outboundEvent(event protocol.Event) (Envelope, error) {
 	}
 	if err := validateEvent(event); err != nil {
 		return Envelope{}, err
+	}
+	if c.version < 4 {
+		if event.Block != nil {
+			copy := *event.Block
+			copy.Output = ""
+			copy.Truncated = false
+			event.Block = &copy
+		}
 	}
 	if c.version == Version {
 		event.SessionTitle = ""

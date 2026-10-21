@@ -166,7 +166,7 @@ func TestBlockMapperMapsToolBlocks(t *testing.T) {
 		},
 		{
 			// 工具结果只下发关联 ID 与成败状态，正文不进协议（§4.2）。
-			name: "tool result keeps only id and status",
+			name: "tool result exposes bounded text",
 			msg: &claudecode.UserMessage{Content: []claudecode.ContentBlock{
 				&claudecode.ToolResultBlock{
 					ToolUseID: "toolu_1",
@@ -178,6 +178,7 @@ func TestBlockMapperMapsToolBlocks(t *testing.T) {
 				Kind:      BlockToolResult,
 				ToolUseID: "toolu_1",
 				IsError:   boolPointer(true),
+				Output:    "file contents that must not be forwarded",
 			}}},
 		},
 		{
@@ -190,6 +191,7 @@ func TestBlockMapperMapsToolBlocks(t *testing.T) {
 				Kind:      BlockToolResult,
 				ToolUseID: "toolu_1",
 				IsError:   boolPointer(false),
+				Output:    "ok",
 			}}},
 		},
 		{

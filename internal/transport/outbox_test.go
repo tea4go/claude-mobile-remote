@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -132,5 +133,22 @@ func TestOutboxCopiesEnqueuedBytes(t *testing.T) {
 	got, ok := outbox.Next()
 	if !ok || string(got) != "one" {
 		t.Fatalf("Next() = %q, %v", got, ok)
+	}
+}
+
+func TestToolOutputIsStrippedForOlderClients(t *testing.T) {
+	for _, version := range []int{2, 3, 4} {
+		c := &connection{version: version, sessionID: "s"}
+		envelope, err := c.outboundEvent(projectsession.Event{Kind: projectsession.EventContentBlock, SessionID: "s", RequestID: "r", Seq: 1, Block: &projectsession.ContentBlock{ID: "b", Kind: projectsession.BlockToolResult, ToolUseID: "tool", IsError: projectsession.BoolPointer(false), Output: "result text", Truncated: true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload EventPayload
+		if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if (payload.Event.Block.Output != "") != (version == 4) {
+			t.Fatalf("wrong v%d output compatibility", version)
+		}
 	}
 }

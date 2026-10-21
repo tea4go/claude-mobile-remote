@@ -102,8 +102,8 @@ const (
 	ToolMCP     ToolClass = "mcp"
 )
 
-// ContentBlock is the title-only view of Claude's structured output. It never
-// carries tool input, tool result bodies or server-side summaries.
+// ContentBlock is a bounded display view. v4 optionally carries text-only tool
+// output; raw tool inputs, images and arbitrary resource objects stay on the PC.
 type ContentBlock struct {
 	ID        string    `json:"id"`
 	Kind      BlockKind `json:"kind"`
@@ -115,7 +115,9 @@ type ContentBlock struct {
 	Preview   string    `json:"preview,omitempty"`
 	// IsError is a pointer so tool_result can report an explicit false while the
 	// other kinds must leave it absent.
-	IsError *bool `json:"isError,omitempty"`
+	IsError   *bool  `json:"isError,omitempty"`
+	Output    string `json:"output,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 type ActionKind string

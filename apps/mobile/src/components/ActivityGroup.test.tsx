@@ -222,3 +222,12 @@ describe('ActivityGroup：详情抽屉（B2 §6）', () => {
     expect(drawerLevel()).toBe('closed')
   })
 })
+
+test('工具详情展示结果正文、截断提示并将 HTML 当作文本', () => {
+  render(<ActivityGroup activities={[tool(builtinTool('Bash', 'pwd'), { id: 'result', kind: 'tool_result', toolUseId: 'tu-1', isError: false, output: '<script>hello</script>\n/work', truncated: true })]} />)
+  fireEvent.click(screen.getByTestId('activity-group-summary'))
+  fireEvent.click(screen.getByTestId('activity-row'))
+  expect(screen.getByText('<script>hello</script> /work')).toBeInTheDocument()
+  expect(screen.getByText(/结果过长/)).toBeInTheDocument()
+  expect(document.querySelector('script')).toBeNull()
+})

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/tea4go/claude-mobile-remote/protocol"
 )
@@ -91,6 +92,15 @@ func (s *EventStream) UpdateSnapshot(snapshot protocol.Snapshot) error {
 		return protocol.ErrSessionMismatch
 	}
 	snapshot.Seq = s.snapshot.Seq
+	// Hosts supply lifecycle/queue state; this stream owns the observed text.
+	// An idle host refresh after completion must not erase the last Turn.
+	if snapshot.Turn.RequestID == "" || snapshot.Turn.RequestID == s.snapshot.Turn.RequestID {
+		if snapshot.Turn.RequestID == "" {
+			snapshot.Turn = s.snapshot.Turn
+		} else {
+			snapshot.Turn.Message = s.snapshot.Turn.Message
+		}
+	}
 	if snapshot.ProjectCwd == "" {
 		snapshot.ProjectCwd = s.snapshot.ProjectCwd
 	}
@@ -194,8 +204,20 @@ func applyEvent(snapshot protocol.Snapshot, event protocol.Event) protocol.Snaps
 	if event.Source != "" {
 		snapshot.Turn.Source = event.Source
 	}
-	if event.Text != "" {
-		snapshot.Turn.Message = event.Text
+	if event.Kind == protocol.EventTurnStarted {
+		snapshot.Turn.Message = ""
+		snapshot.Turn.Error = nil
+	}
+	if event.Kind == protocol.EventTextDelta {
+		snapshot.Turn.Message += event.Text
+		if len(snapshot.Turn.Message) > protocol.MaxPromptBytes {
+			const suffix = "\n[正文过长，后续内容请在电脑端查看]"
+			clipped := snapshot.Turn.Message[:protocol.MaxPromptBytes-len(suffix)]
+			for !utf8.ValidString(clipped) {
+				clipped = clipped[:len(clipped)-1]
+			}
+			snapshot.Turn.Message = clipped + suffix
+		}
 	}
 	if event.Error != nil {
 		snapshot.Turn.Error = cloneError(event.Error)
@@ -203,7 +225,11 @@ func applyEvent(snapshot protocol.Snapshot, event protocol.Event) protocol.Snaps
 	if event.PermissionMode.IsKnown() {
 		snapshot.PermissionMode = event.PermissionMode
 	}
-	snapshot.Turn.PendingAction = clonePendingAction(event.PendingAction)
+	if event.Kind == protocol.EventActionRequired {
+		snapshot.Turn.PendingAction = clonePendingAction(event.PendingAction)
+	} else if event.Kind == protocol.EventActionResolved || event.Kind == protocol.EventTurnStarted || event.Kind == protocol.EventTurnCompleted || event.Kind == protocol.EventTurnFailed {
+		snapshot.Turn.PendingAction = nil
+	}
 	return snapshot
 }
 

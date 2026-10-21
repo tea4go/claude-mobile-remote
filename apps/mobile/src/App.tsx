@@ -1,3 +1,5 @@
+import { iosExperience, type ExperiencePort } from './native/experience'
+import NotificationSettings from './components/NotificationSettings'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { List, NavBar } from 'antd-mobile'
 import { LeftOutline } from 'antd-mobile-icons'
@@ -24,6 +26,7 @@ import { observeNativeForeground } from './native/pairingLogic'
 import type { NativePairingBindings } from './native/capacitorPorts'
 
 interface AppProps {
+  experience?: ExperiencePort | null
   now?: () => number
   socketFactory?: SocketFactory
   native?: NativePairingBindings | null
@@ -49,7 +52,7 @@ function cancelTargetOf(state: MobileState): string | null {
   return streaming?.kind === 'claude' ? streaming.requestId : null
 }
 
-function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = null }: AppProps = {}) {
+function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = null, experience = iosExperience }: AppProps = {}) {
   const [appStore] = useState(createAppStore)
   const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now))
   const [managementBusy, setManagementBusy] = useState<Record<string, boolean>>({})
@@ -250,9 +253,37 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
       }
     }
     runtime.closeSession(sessionId)
+    void experience?.clearNotifications({ sessionId }).catch(() => undefined)
     appStore.getState().removePairing(sessionId)
     return true
-  }, [appStore, runtime, native])
+  }, [appStore, runtime, native, experience])
+
+  useEffect(() => {
+    if (experience?.syncPushSessions === undefined || restoring) return
+    const sessions = pairings.records.filter((record) => !pairingInvalidBySession[record.sessionId] && Date.parse(record.expiresAt) > now())
+      .map(({ sessionId, pairToken, expiresAt }) => ({ sessionId, pairToken, expiresAt }))
+    void experience.syncPushSessions({ sessions, viewedSession: view === 'detail' ? currentSessionId ?? '' : '' }).catch(() => undefined)
+  }, [experience, restoring, pairings, pairingInvalidBySession, view, currentSessionId, now])
+
+  useEffect(() => {
+    if (experience === null || restoring) return
+    runtime.setReminderCallbacks(
+      (sessionId, seq, kind) => { void experience.notify({ sessionId, seq, kind }).catch(() => undefined) },
+      () => document.visibilityState === 'visible' && appStore.getState().view === 'detail' ? appStore.getState().currentSessionId : null,
+    )
+    let disposed = false
+    const listener = experience.addListener('notificationOpened', ({ sessionId }) => {
+      if (!disposed) {
+        openSession(sessionId)
+        void experience.clearNotifications({ sessionId }).catch(() => undefined)
+      }
+    }).catch(() => null)
+    return () => {
+      disposed = true
+      runtime.setReminderCallbacks(null)
+      void listener.then((handle) => handle?.remove()).catch(() => undefined)
+    }
+  }, [experience, runtime, appStore, openSession, restoring])
 
   const pageKey = view === 'detail' && currentRecord !== undefined && currentSessionId !== null
     ? `detail:${currentSessionId}`
@@ -270,6 +301,8 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
       <>
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <SessionDetail
+        key={currentSessionId}
+        experience={experience}
         record={currentRecord}
         state={currentState}
         turnStatus={turnStatus}
@@ -277,6 +310,7 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
         cancelTarget={cancelTarget}
         onBack={backToList}
         onReconnect={() => runtime.reconnect(currentSessionId)}
+        onSendAttachments={(text, attachments) => runtime.sendAttachments(currentSessionId, text, attachments)}
         onSend={(text) => { runtime.sendText(currentSessionId, text) }}
         onPermissionModeChange={(permissionMode: PermissionMode) => {
           runtime.setPermissionMode(currentSessionId, permissionMode)
@@ -327,6 +361,11 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
       <List className="mobile-settings-list">
         <List.Item arrow onClick={() => { setSettingsDirection('forward'); setSettingsPage('pcs') }}>PC 管理</List.Item>
       </List>
+      <List header="本地保存说明">
+        <List.Item description="原生 App 重启后恢复已配对会话、设备信息和自定义名称。未过期凭证保存在系统安全存储；移除 PC 或会话会删除对应本机配对。浏览器仅保存在内存。">配对与设备</List.Item>
+        <List.Item description="消息与运行状态仅在本次 App 运行期间保留。重启后连接 PC 获取当前状态，不恢复此前消息，也不支持离线发送。">消息与状态</List.Item>
+      </List>
+      {experience !== null && <NotificationSettings port={experience} />}
     </div>
   } else if (settingsPage === 'pcs') {
     pageContent = <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>

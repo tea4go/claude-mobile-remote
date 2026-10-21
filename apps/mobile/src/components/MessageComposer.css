@@ -96,3 +96,6 @@
   box-shadow: 0 2px 8px rgba(15, 23, 42, .12);
   pointer-events: none;
 }
+
+.composer-running { display: flex; align-items: center; gap: 6px; color: #6e6e73; font-size: 13px; padding: 2px 8px; }
+.composer-stop { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: white; background: #252525; font-size: 14px; }
