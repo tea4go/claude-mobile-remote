@@ -268,6 +268,8 @@ function cloneContentBlock(block: ContentBlock): ContentBlock {
     kind: 'tool_result',
     toolUseId: block.toolUseId,
     isError: block.isError,
+    output: block.output,
+    truncated: block.truncated,
   }
 }
 
@@ -279,6 +281,7 @@ function cloneFeedMessage(message: FeedMessage): FeedMessage {
       requestId: message.requestId,
       text: message.text,
       status: message.status,
+      attachments: message.attachments,
     }
     return next
   }
@@ -353,6 +356,7 @@ function cloneNoticeInfo(notice: NoticeInfo | null): NoticeInfo | null {
 
 function cloneState(state: HarmonySessionState): HarmonySessionState {
   return {
+    permissionMode: state.permissionMode,
     pairing: clonePairingPayload(state.pairing),
     connection: state.connection,
     sessionId: state.sessionId,
@@ -398,6 +402,7 @@ function applyCapabilityFlags(state: HarmonySessionState): HarmonySessionState {
 
 function createResetState(pairing: PairingPayload): HarmonySessionState {
   const next: HarmonySessionState = {
+    permissionMode: 'default',
     pairing: clonePairingPayload(pairing),
     connection: ConnectionStage.CONNECTING,
     sessionId: '',
@@ -436,7 +441,7 @@ function markPendingUnknown(state: HarmonySessionState): HarmonySessionState {
     return cloneState(state)
   }
   const next = cloneState(state)
-  if (pending.kind === 'send_text') {
+  if ((pending.kind === 'send_text' || pending.kind === 'send_attachments')) {
     const message: InputFeedMessage = {
       kind: 'input',
       source: 'mobile',
@@ -578,7 +583,7 @@ function mergeTurnStarted(state: HarmonySessionState, event: DomainEvent): Harmo
     if (existing.kind !== 'input') {
       return null
     }
-    if (existing.source !== event.source || existing.text !== event.text) {
+    if (existing.source !== event.source || (existing.text !== event.text && existing.attachments === undefined)) {
       return null
     }
   } else {
@@ -598,6 +603,7 @@ function mergeTurnStarted(state: HarmonySessionState, event: DomainEvent): Harmo
 
 function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): HarmonySessionState {
   const next = cloneState(state)
+  next.permissionMode = snapshot.permissionMode ?? 'default'
   next.connection = ConnectionStage.READY
   next.sessionId = snapshot.sessionId
   next.projectCwd = snapshot.projectCwd
@@ -611,7 +617,10 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   next.queuedRequests = cloneQueuedRequests(snapshot.queuedRequests)
   next.pendingAction = clonePendingAction(snapshot.turn.pendingAction)
   next.pendingCommand = null
-  next.messages = []
+  next.messages = next.messages.map((message: FeedMessage): FeedMessage => {
+    if (message.kind === 'claude' && message.status === 'streaming') message.status = 'done'
+    return message
+  })
   next.lastError = null
   next.lastNotice = null
 
@@ -619,9 +628,12 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   if (snapshot.turn.source !== '' && (snapshot.turn.message.length > 0 || turnActive)) {
     const status = snapshot.turn.status === 'failed'
       ? 'failed'
+      : snapshot.turn.status === 'cancelled'
+        ? 'cancelled'
       : turnActive
         ? 'streaming'
         : 'done'
+    next.messages = next.messages.filter((message: FeedMessage) => !(message.kind === 'claude' && message.requestId === snapshot.turn.requestId))
     next.messages.push(
       createClaudeMessage(
         snapshot.turn.requestId,
@@ -650,12 +662,16 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
   if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
 
   switch (event.kind) {
+    case 'permission_mode_changed':
+      if (event.permissionMode !== undefined) next.permissionMode = event.permissionMode
+      break
     case 'session_started':
       next.sessionId = event.sessionId
       next.sessionStatus = event.sessionStatus
       next.sessionError = null
       break
     case 'session_failed':
+      next.messages.forEach((message: FeedMessage) => { if (message.kind === 'claude' && message.status === 'streaming') { message.status = 'failed'; message.error = cloneErrorInfo(event.error) } })
       next.sessionStatus = event.sessionStatus
       next.sessionError = cloneErrorInfo(event.error)
       next.pendingAction = null
@@ -663,6 +679,7 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       next.queueDepthHint = 0
       break
     case 'session_stopped':
+      next.messages.forEach((message: FeedMessage) => { if (message.kind === 'claude' && message.status === 'streaming') message.status = 'cancelled' })
       next.sessionStatus = event.sessionStatus
       next.pendingAction = null
       next.queuedRequests = []
@@ -803,8 +820,18 @@ export function reduceHarmonySessionState(
   action: SessionAction,
 ): HarmonySessionState {
   switch (action.type) {
-    case 'startConnect':
-      return createResetState(action.pairing)
+    case 'startConnect': {
+      const next = createResetState(action.pairing)
+      if (state.sessionId === action.pairing.sessionId || state.pairing?.sessionId === action.pairing.sessionId) {
+        next.sessionId = action.pairing.sessionId
+        next.messages = cloneMessages(state.messages)
+        next.projectCwd = state.projectCwd
+        next.sessionTitle = state.sessionTitle
+        next.createdAt = state.createdAt
+        next.lastActivityAt = state.lastActivityAt
+      }
+      return next
+    }
     case 'socketOpened': {
       const next = cloneState(state)
       next.connection = ConnectionStage.AUTHENTICATING
@@ -845,8 +872,12 @@ export function reduceHarmonySessionState(
       }
       let next = cloneState(state)
       next.pendingCommand = null
-      if (pending.kind === 'send_text') {
-        next.messages.push(createAcceptedInputMessage(action.requestId, pending.text))
+      if ((pending.kind === 'send_text' || pending.kind === 'send_attachments')) {
+        const existing = next.messages.find((message: FeedMessage) => message.kind === 'input' && message.requestId === action.requestId)
+        if (existing !== undefined && existing.kind === 'input') {
+          existing.status = 'accepted'
+          if (pending.kind === 'send_attachments') existing.text = pending.text
+        } else next.messages.push(createAcceptedInputMessage(action.requestId, pending.text))
       } else if (pending.kind === 'resolve_action') {
         next.pendingAction = null
       } else if (pending.kind === 'cancel_queued') {

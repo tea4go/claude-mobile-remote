@@ -1,13 +1,10 @@
+import { MarkdownText } from './MarkdownText'
 import type {
+  Attachment,
   ContentBlock,
   ResolvedAnswer,
 } from '../protocol/types'
 import type { FeedMessage } from '../session/model'
-
-interface MessageSegment {
-  kind: 'text' | 'code'
-  text: string
-}
 
 function summarizeToolResult(messages: Array<FeedMessage>, index: number, toolUseId: string): string {
   for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
@@ -47,37 +44,7 @@ function blockBody(block: ContentBlock): string {
     }
     return block.toolName
   }
-  return block.isError ? '工具执行返回错误' : '工具执行已完成'
-}
-
-function splitClaudeText(text: string): Array<MessageSegment> {
-  const segments: Array<MessageSegment> = []
-  const fence = '```'
-  let cursor = 0
-  let inCode = false
-
-  while (cursor < text.length) {
-    const fenceIndex = text.indexOf(fence, cursor)
-    if (fenceIndex < 0) {
-      const tail = text.slice(cursor)
-      if (tail.length > 0) {
-        segments.push({ kind: inCode ? 'code' : 'text', text: tail })
-      }
-      break
-    }
-
-    const part = text.slice(cursor, fenceIndex)
-    if (part.length > 0) {
-      segments.push({ kind: inCode ? 'code' : 'text', text: part })
-    }
-    cursor = fenceIndex + fence.length
-    inCode = !inCode
-  }
-
-  if (segments.length === 0 && text.length > 0) {
-    segments.push({ kind: 'text', text })
-  }
-  return segments
+  return (block.output ?? (block.isError ? '工具执行返回错误' : '工具执行已完成')) + (block.truncated ? '\n[结果已截断]' : '')
 }
 
 function inputStatusLabel(status: 'accepted' | 'unknown' | ''): string {
@@ -97,12 +64,25 @@ function answerTitle(answer: ResolvedAnswer): string {
   return `${answer.header} · ${answer.question}`
 }
 
+// Feed entries are immutable plain objects. Include displayed changes in ForEach keys;
+// a requestId-only key would keep the first streamed text/status forever.
+function feedKey(message: FeedMessage, index: number): string {
+  if (message.kind === 'input') return JSON.stringify([index, message.kind, message.requestId, message.text,
+    message.status, message.attachments?.map((item: Attachment) => item.name + ':' + item.mediaType)])
+  return `${index}-${JSON.stringify(message)}`
+}
+
 @Component
 export struct MessageList {
   @Prop messages: Array<FeedMessage> = []
+  @State private preview: string = ''
 
   build() {
     Column({ space: 10 }) {
+      if (this.preview.length > 0) {
+        Image(this.preview).height(320).width('100%').objectFit(ImageFit.Contain).onClick(() => { this.preview = '' })
+        Text('点按图片收起预览').fontSize(12)
+      }
       Text('消息流')
         .fontSize(18)
         .fontWeight(FontWeight.Medium)
@@ -115,6 +95,15 @@ export struct MessageList {
         ForEach(this.messages, (message: FeedMessage, index: number) => {
           if (message.kind === 'input') {
             Column({ space: 6 }) {
+              if (message.attachments !== undefined) {
+                ForEach(message.attachments, (attachment: Attachment) => {
+                  if (attachment.mediaType.startsWith('image/')) {
+                    Image(`data:${attachment.mediaType};base64,${attachment.data}`).height(140).width(180).objectFit(ImageFit.Contain)
+                      .onClick(() => { this.preview = `data:${attachment.mediaType};base64,${attachment.data}` })
+                  }
+                  Text(attachment.name).fontSize(12)
+                }, (attachment: Attachment, itemIndex: number) => `${itemIndex}-${attachment.name}`)
+              }
               Text(message.text)
                 .fontSize(14)
                 .width('100%')
@@ -169,10 +158,9 @@ export struct MessageList {
                 .opacity(0.7)
                 .width('100%')
 
-              Text(blockBody(message.block))
-                .fontSize(14)
-                .width('100%')
-                .textAlign(TextAlign.Start)
+              Scroll() {
+                Text(blockBody(message.block)).fontSize(14).width('100%').textAlign(TextAlign.Start).copyOption(CopyOptions.LocalDevice)
+              }.constraintSize({ maxHeight: 280 }).width('100%')
             }
             .padding(12)
             .width('100%')
@@ -186,23 +174,10 @@ export struct MessageList {
                 .opacity(0.7)
                 .width('100%')
 
-              ForEach(splitClaudeText(message.text), (segment: MessageSegment) => {
-                if (segment.kind === 'code') {
-                  Text(segment.text)
-                    .fontSize(13)
-                    .fontFamily('monospace')
-                    .width('100%')
-                    .padding(10)
-                    .backgroundColor('#f4f6f8')
-                    .borderRadius(8)
-                } else {
-                  Text(segment.text)
-                    .fontSize(14)
-                    .width('100%')
-                    .textAlign(TextAlign.Start)
-                }
-              }, (segment: MessageSegment, segmentIndex: number) => `${message.requestId}-${index}-${segmentIndex}`)
+              MarkdownText({ text: message.text })
 
+              if (message.status === 'streaming') { LoadingProgress().width(20).height(20) }
+              if (message.status === 'done') { Text('已完成').fontSize(12).opacity(0.6) }
               if (message.status === 'cancelled') {
                 Text('已取消')
                   .fontSize(12)
@@ -224,7 +199,7 @@ export struct MessageList {
             .backgroundColor('#ffffff')
             .borderRadius(12)
           }
-        }, (message: FeedMessage, index: number) => `${message.kind}-${message.requestId}-${index}`)
+        }, (message: FeedMessage, index: number) => feedKey(message, index))
       }
     }
     .id('message-list')

@@ -20,6 +20,8 @@ function buildPairingHint(connection: ConnectionStage, error: ErrorInfo | null):
 
 @Component
 export struct PairingPage {
+  @Prop nativeReady: boolean = false
+  onScan: () => void = () => {}
   @Prop pairingInput: string = ''
   @Prop connection: ConnectionStage = ConnectionStage.DISCONNECTED
   @Prop lastError: ErrorInfo | null = null
@@ -33,6 +35,7 @@ export struct PairingPage {
   build() {
     Scroll() {
       Column({ space: 16 }) {
+        Button('扫描二维码').height(48).enabled(this.nativeReady).onClick(() => this.onScan())
         if (this.canBack) {
           Button('返回列表')
             .id('pairing-back-button')
@@ -46,11 +49,6 @@ export struct PairingPage {
           .fontWeight(FontWeight.Bold)
           .width('100%')
           .textAlign(TextAlign.Start)
-
-        SelfCheckPanel({
-          results: this.selfChecks,
-          error: this.selfCheckError,
-        })
 
         Column({ space: 12 }) {
           Text('新增配对')
@@ -68,7 +66,7 @@ export struct PairingPage {
             .width('100%')
 
           Button('连接当前 Session')
-            .id('connect-button')
+            .id('connect-button').enabled(this.nativeReady)
             .onClick(() => {
               this.onConnect()
             })

@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "Claude Mobile Remote"
+    },
+    {
+      "name": "microphone_reason",
+      "value": "用于将语音转换为可编辑的消息草稿"
     }
   ]
 }

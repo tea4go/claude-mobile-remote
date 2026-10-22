@@ -83,7 +83,7 @@ function asPairingCandidate(value: Object | null): PairingPayloadCandidate | nul
 }
 
 function readNonEmptyField(field: string | undefined): string | null {
-  if (field === undefined || field.length === 0) {
+  if (typeof field !== 'string' || field.length === 0) {
     return null
   }
   return field
@@ -113,11 +113,15 @@ function decodeBase64UrlText(value: string): string | null {
   if (bits > 0 && (buffer & ((1 << bits) - 1)) !== 0) {
     return null
   }
-  return output
+  try {
+    return decodeURIComponent(Array.from(output).map((ch: string) => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0')).join(''))
+  } catch (_) { return null }
 }
 
 function decodeRawPairingText(raw: string): string | null {
-  const trimmed = raw.trim()
+  let trimmed = raw.trim()
+  const fragment = trimmed.indexOf('#pair=')
+  if (fragment > 0 && /^https?:\/\//.test(trimmed)) trimmed = trimmed.slice(fragment)
   if (trimmed.length === 0) {
     return null
   }
@@ -189,7 +193,10 @@ function validatePairingPayload(value: Object | null, nowMs: number): PairingDec
 
   const capabilities = candidate.capabilities
   const pcId = candidate.pcId
-  const pcName = candidate.pcName
+  let pcName = candidate.pcName
+  if (typeof pcName === 'string' && Array.from(pcName).every((ch: string) => ch.charCodeAt(0) <= 255)) {
+    try { pcName = decodeURIComponent(Array.from(pcName).map((ch: string) => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0')).join('')) } catch (_) {}
+  }
   if (pcId !== undefined && (typeof pcId !== 'string' || !/^[0-9a-f]{32}$/.test(pcId))) {
     return invalidResult()
   }

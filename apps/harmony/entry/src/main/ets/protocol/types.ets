@@ -1,5 +1,5 @@
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 3
+export const PREFERRED_PROTOCOL_VERSION = 4
 export const PAIRING_PAYLOAD_VERSION = 1
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
 export const MAX_TEXT_BYTES = 1024 * 1024
@@ -14,6 +14,8 @@ export const TURN_STATUS_VALUES: string[] = [
   'failed',
 ]
 export const INPUT_SOURCE_VALUES: string[] = ['terminal', 'mobile']
+export const PERMISSION_MODE_VALUES: string[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 export const EVENT_KIND_VALUES: string[] = [
   'session_started',
   'turn_started',
@@ -25,6 +27,7 @@ export const EVENT_KIND_VALUES: string[] = [
   'content_block',
   'action_required',
   'action_resolved',
+  'permission_mode_changed',
 ]
 export const BLOCK_KIND_VALUES: string[] = ['thinking', 'tool_use', 'tool_result']
 export const TOOL_CLASS_VALUES: string[] = ['builtin', 'mcp']
@@ -81,6 +84,7 @@ export type EventKind =
   | 'content_block'
   | 'action_required'
   | 'action_resolved'
+  | 'permission_mode_changed'
 export type BlockKind = 'thinking' | 'tool_use' | 'tool_result'
 export type ToolClass = 'builtin' | 'mcp'
 export type PendingActionKind = 'tool_approval' | 'ask_user_question'
@@ -119,7 +123,7 @@ export type UnsupportedCode =
   | 'concurrent_action'
   | 'text_input_disabled'
 export type ActionDecision = 'allow_once' | 'allow_session' | 'deny'
-export type CommandKind = 'send_text' | 'resolve_action' | 'cancel_turn' | 'cancel_queued'
+export type CommandKind = 'send_attachments' | 'send_text' | 'resolve_action' | 'cancel_turn' | 'cancel_queued' | 'set_permission_mode'
 
 export interface PairingPayload {
   version: number
@@ -212,6 +216,8 @@ export interface ToolUseContentBlock {
 export interface ToolResultContentBlock {
   id: string
   kind: 'tool_result'
+  output?: string
+  truncated?: boolean
   toolUseId: string
   isError: boolean
 }
@@ -228,6 +234,7 @@ export interface TurnSnapshot {
 }
 
 export interface SessionSnapshot {
+  permissionMode?: PermissionMode
   sessionId: string
   sessionStatus: SessionStatus
   sessionError: ErrorInfo | null
@@ -242,6 +249,7 @@ export interface SessionSnapshot {
 }
 
 export interface DomainEvent {
+  permissionMode?: PermissionMode
   seq: number
   kind: EventKind
   sessionId: string
@@ -362,3 +370,9 @@ export type ServerMessage =
   | CreateSessionResultServerMessage
   | StopSessionResultServerMessage
   | ErrorServerMessage
+
+export interface Attachment {
+  name: string
+  mediaType: string
+  data: string
+}

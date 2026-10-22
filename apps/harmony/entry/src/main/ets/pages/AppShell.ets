@@ -1,3 +1,12 @@
+import { KeyboardAvoidMode } from '@kit.ArkUI'
+import { nativeLifecycle } from '../native/lifecycle'
+import { NativeStorage } from '../native/storage'
+import { SpeechDraft } from '../native/speech'
+import { LocalNotifications } from '../native/notifications'
+import { scanPairing, selectAttachments } from '../native/selection'
+import { encodeCache, CacheWriteGate } from '../session/cache'
+import { emptyDraft, validateAttachments, utf8Bytes, type ComposerDraft } from '../session/attachments'
+import type { Attachment, PermissionMode } from '../protocol/types'
 import { runSelfChecks } from '../debug/selfCheck'
 import {
   createAnswersResolution,
@@ -102,11 +111,31 @@ export struct AppShell {
   private readonly managementPendingSessions: Set<string> = new Set()
   private unsubscribe: (() => void) | null = null
 
+  private storage: NativeStorage | null = null
+  private notifications: LocalNotifications | null = null
+  private readonly speech: SpeechDraft = new SpeechDraft()
+  private readonly drafts: Map<string, ComposerDraft> = new Map()
+  private readonly dirty: Set<string> = new Set()
+  private readonly cacheGate: CacheWriteGate = new CacheWriteGate()
+  private cacheTimer: number = -1
+  private lifecycleUnsubscribe: (() => void) | null = null
+  private initialized: boolean = false
+  private nativeGeneration: number = 0
+  private alive: boolean = false
+  private foreground: boolean = true
+  @State private nativeReady: boolean = false
+  @State private nativeError: string = ''
+  @State private notificationsEnabled: boolean = false
+  @State private draft: ComposerDraft = emptyDraft()
+  @State private speechActive: boolean = false
+  @State private selecting: boolean = false
+
   @State private sessionState: HarmonySessionState = createInitialHarmonySessionState()
   @State private sessions: Array<SessionRecord> = []
   @State private view: AppView = 'pairing'
   @State private currentSessionId: string = ''
   @State private recentlyViewedId: string = ''
+  private listOffset: number = 0
   private listOrder: Array<string> = []
   @State private pairingInput: string = ''
   @State private questionAnswers: Array<QuestionAnswer> = []
@@ -117,8 +146,17 @@ export struct AppShell {
   @State private managementFeedback: string = ''
 
   aboutToAppear(): void {
+    this.alive = true
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
+    nativeLifecycle.onBack = () => {
+      if (nativeLifecycle.detailBack?.()) return true
+      if (this.view === 'detail') { this.handleBackFromDetail(); return true }
+      if (this.view === 'pairing' && this.sessions.length > 0) { this.openListPage(); return true }
+      return false
+    }
     this.sessionState = this.store.getState()
     this.view = defaultView(this.sessions)
+    if (!this.initialized) { this.initialized = true; void this.initializeNative() }
     if (this.unsubscribe === null) {
       this.unsubscribe = this.entryStore.subscribe((nextState: HarmonySessionState) => {
         if (this.view === 'pairing') {
@@ -139,6 +177,15 @@ export struct AppShell {
   }
 
   aboutToDisappear(): void {
+    this.alive = false
+    this.nativeGeneration += 1
+    this.initialized = false
+    this.nativeReady = false
+    nativeLifecycle.onBack = null
+    this.flushCache()
+    this.lifecycleUnsubscribe?.(); this.lifecycleUnsubscribe = null
+    void this.speech.cancel()
+
     if (this.unsubscribe !== null) {
       this.unsubscribe()
       this.unsubscribe = null
@@ -147,6 +194,8 @@ export struct AppShell {
     this.storeSubscriptions.clear()
     this.stores.forEach((store: HarmonySessionStore) => {
       store.setManagementListener(null)
+      store.setEventListener(null)
+      store.setSendListener(null)
       store.disconnect()
     })
     this.stores.clear()
@@ -157,15 +206,179 @@ export struct AppShell {
     this.managementBusy = false
   }
 
+  private async initializeNative(): Promise<void> {
+    const generation = ++this.nativeGeneration
+    const context = nativeLifecycle.context
+    if (context === null) { this.nativeError = '原生环境尚未就绪'; return }
+    try {
+      this.storage = new NativeStorage(context)
+      this.notifications = new LocalNotifications(context)
+      this.notificationsEnabled = this.storage.readNotificationsEnabled()
+      this.notifications.enabled = this.notificationsEnabled
+      await this.notifications.clear().catch(() => {})
+      const records = await this.storage.loadRecords()
+      if (!this.alive || generation !== this.nativeGeneration) return
+      this.sessions = records
+      for (const record of this.sessions) {
+        const cached = await this.storage.readCache(record.sessionId)
+        if (!this.alive || generation !== this.nativeGeneration) return
+        const store = this.prepareStore(record.sessionId)
+        if (cached !== null) store.restoreDisplay(cached)
+      }
+      this.view = defaultView(this.sessions)
+      this.nativeReady = true
+      this.lifecycleUnsubscribe = nativeLifecycle.subscribe(() => this.handleLifecycle())
+      this.foreground = false
+      this.handleLifecycle()
+    } catch (_) {
+      if (!this.alive || generation !== this.nativeGeneration) return
+      this.nativeError = '读取本机数据失败，可重新扫码；原有记录未被覆盖'
+      // Keep persisted records intact until the user explicitly chooses a new pairing.
+      this.nativeReady = true
+      if (this.lifecycleUnsubscribe === null) this.lifecycleUnsubscribe = nativeLifecycle.subscribe(() => this.handleLifecycle())
+    }
+  }
+
+  private prepareStore(id: string): HarmonySessionStore {
+    const existing = this.stores.get(id)
+    if (existing !== undefined) return existing
+    const store = createSessionStore()
+    this.stores.set(id, store)
+    this.storeSubscriptions.set(id, store.subscribe((state: HarmonySessionState) => this.handleStoreState(id, state)))
+    store.setManagementListener((result: ManagementResultInfo) => this.handleManagementResult(id, result))
+    store.setEventListener((event) => { void this.notifications?.event(event).catch(() => { this.nativeError = '系统提醒发送失败，请检查通知权限' }) })
+    store.setSendListener((accepted: boolean) => {
+      const draft = this.drafts.get(id) ?? emptyDraft()
+      const next: ComposerDraft = accepted ? emptyDraft() : { text: draft.text, attachments: draft.attachments, sending: false, error: '发送未确认，草稿已保留；请核对电脑端后再发送' }
+      this.drafts.set(id, next)
+      if (id === this.currentSessionId) this.draft = next
+    })
+    return store
+  }
+
+  private handleLifecycle(): void {
+    const foreground = nativeLifecycle.foreground
+    if (this.foreground !== foreground) {
+      this.foreground = foreground
+      if (this.notifications !== null) this.notifications.foreground = foreground
+      if (!foreground) {
+        void this.speech.cancel(); this.speechActive = false
+        this.flushCache()
+        this.stores.forEach((store: HarmonySessionStore) => store.disconnect())
+        this.drafts.forEach((draft: ComposerDraft) => { draft.sending = false })
+      } else {
+        for (const record of this.sessions) {
+          if (record.pairToken.length > 0 && Date.parse(record.expiresAt) > Date.now()) this.connectSession(pairingPayloadFromRecord(record), true)
+          else this.sessions = markSessionRecordStatus(this.sessions, record.sessionId, 'needsPairing')
+        }
+      }
+    }
+    const id = nativeLifecycle.pendingSessionId
+    if (foreground && id.length > 0) {
+      nativeLifecycle.pendingSessionId = ''
+      if (this.sessions.some((record: SessionRecord) => record.sessionId === id)) this.handleOpenSession(id)
+      else this.nativeError = '通知对应的会话已移除，请重新扫码'
+    }
+  }
+
+  private async persistRecords(): Promise<void> {
+    if (this.storage === null) throw new Error('secure storage unavailable')
+    await this.storage.saveRecords(this.sessions)
+  }
+  private saveRecords(): void { void this.persistRecords().catch(() => { this.nativeError = '保存配对失败，请重试；当前连接仍可使用' }) }
+  private scheduleCache(id: string): void {
+    if (!this.nativeReady || this.storage === null) return
+    this.dirty.add(id)
+    if (this.cacheTimer < 0) this.cacheTimer = setTimeout(() => this.flushCache(), 1000)
+  }
+  private flushCache(): void {
+    if (this.cacheTimer >= 0) clearTimeout(this.cacheTimer)
+    this.cacheTimer = -1
+    for (const id of this.dirty) {
+      const state = this.states.get(id)
+      if (state !== undefined && this.sessions.some((item: SessionRecord) => item.sessionId === id)) {
+        const data = encodeCache(id, state, Date.now())
+        if (this.cacheGate.changed(id, data)) void this.storage?.writeCache(id, data).catch(() => {
+          this.cacheGate.forget(id); this.nativeError = '消息缓存写入失败'
+        })
+      }
+    }
+    this.dirty.clear()
+  }
+  private async clearCache(): Promise<void> {
+    if (this.cacheTimer >= 0) clearTimeout(this.cacheTimer)
+    this.cacheTimer = -1; this.dirty.clear()
+    this.states.forEach((state: HarmonySessionState, id: string) => { this.cacheGate.changed(id, encodeCache(id, state, Date.now())) })
+    try { await this.storage?.clearCache(); this.nativeError = '本地消息缓存已清除' }
+    catch (_) { this.nativeError = '清除缓存失败，请重试' }
+  }
+  private async toggleNotifications(): Promise<void> {
+    if (this.notifications === null || this.storage === null) return
+    try {
+      if (this.notificationsEnabled) { this.notifications.enabled = false; await this.notifications.clear() }
+      else await this.notifications.enable()
+      this.notificationsEnabled = this.notifications.enabled
+      this.storage.setNotificationsEnabled(this.notificationsEnabled)
+    } catch (_) { this.nativeError = '通知未开启，请在系统设置中允许通知' }
+  }
+  private activateDraft(): void {
+    void this.speech.cancel(); this.speechActive = false
+    this.draft = this.drafts.get(this.currentSessionId) ?? emptyDraft()
+    this.drafts.set(this.currentSessionId, this.draft)
+    if (this.notifications !== null) this.notifications.currentId = this.view === 'detail' ? this.currentSessionId : ''
+    if (this.view === 'detail') void this.notifications?.dismiss(this.currentSessionId).catch(() => {})
+  }
+  private updateDraft(text: string, attachments: Array<Attachment>, error: string = ''): void {
+    const next: ComposerDraft = { text, attachments, sending: this.draft.sending, error }
+    this.drafts.set(this.currentSessionId, next); this.draft = next
+  }
+  private async selectAttachment(kind: string): Promise<void> {
+    const context = nativeLifecycle.context
+    if (context === null || this.selecting || this.draft.sending) return
+    const id = this.currentSessionId
+    this.selecting = true
+    try {
+      const items = await selectAttachments(context, kind, 4 - this.draft.attachments.length)
+      if (!this.alive || !this.sessions.some((item: SessionRecord) => item.sessionId === id)) return
+      const draft = this.drafts.get(id) ?? emptyDraft()
+      const attachments = draft.attachments.concat(items)
+      const error = attachments.length > 0 ? validateAttachments(attachments) : ''
+      const next: ComposerDraft = { text: draft.text, attachments: error.length === 0 ? attachments : draft.attachments, sending: false, error }
+      this.drafts.set(id, next)
+      if (id === this.currentSessionId) this.draft = next
+    } catch (_) { if (id === this.currentSessionId) this.updateDraft(this.draft.text, this.draft.attachments, '未添加附件：选择已取消、文件超限或格式不可读取') }
+    finally { this.selecting = false }
+  }
+  private startSpeech(): void {
+    const context = nativeLifecycle.context
+    if (context === null || this.draft.sending) return
+    const id = this.currentSessionId
+    const base = this.draft.text
+    void this.speech.start(context, (text: string, active: boolean, error: string) => {
+      if (!this.alive || id !== this.currentSessionId || this.view !== 'detail') return
+      this.speechActive = active
+      this.updateDraft(base + (text.length > 0 ? (base.length > 0 ? ' ' : '') + text : ''), this.draft.attachments, error)
+    })
+  }
+  private async scan(): Promise<void> {
+    const context = nativeLifecycle.context
+    if (context === null || !this.nativeReady) return
+    try { const raw = await scanPairing(context); if (this.alive) { this.pairingInput = raw; this.handleConnect() } }
+    catch (_) { this.nativeError = '扫码已取消或不可用，可粘贴配对信息' }
+  }
+
   private handleStoreState(sessionId: string, nextState: HarmonySessionState): void {
     const previousState = this.states.get(sessionId) ?? createInitialHarmonySessionState()
     this.states.set(sessionId, nextState)
+    if (nextState.messages !== previousState.messages || nextState.projectCwd !== previousState.projectCwd || nextState.sessionTitle !== previousState.sessionTitle) this.scheduleCache(sessionId)
+    if (nextState.connection === ConnectionStage.READY && previousState.connection !== ConnectionStage.READY) this.notifications?.seed(sessionId, nextState.seqBase)
     const previousRecord = this.sessions.find((record: SessionRecord) => record.sessionId === sessionId)
     let runtimeStatus = '空闲'
     if (nextState.sessionStatus === 'failed') runtimeStatus = '会话失败'
     else if (nextState.sessionStatus === 'stopped') runtimeStatus = '已结束'
     else if (nextState.pendingAction !== null) runtimeStatus = '等待处理'
     else if (nextState.messages.some((message) => message.kind === 'claude' && message.status === 'streaming')) runtimeStatus = '进行中'
+    else if (nextState.messages.some((message) => message.kind === 'claude' && message.status === 'done')) runtimeStatus = '已完成'
     const currentLast = nextState.messages[nextState.messages.length - 1]
     const previousLast = previousState.messages[previousState.messages.length - 1]
     let changedText = false
@@ -220,17 +433,10 @@ export struct AppShell {
     }
   }
 
-  private connectSession(pairing: PairingPayload): HarmonySessionStore {
-    let store = this.stores.get(pairing.sessionId)
-    if (store === undefined) {
-      store = createSessionStore()
-      const sessionId = pairing.sessionId
-      this.stores.set(sessionId, store)
-      const unsubscribe = store.subscribe((state: HarmonySessionState) => this.handleStoreState(sessionId, state))
-      this.storeSubscriptions.set(sessionId, unsubscribe)
-      store.setManagementListener((result: ManagementResultInfo) => this.handleManagementResult(sessionId, result))
-      store.connectWithPairing(pairing)
-    }
+  private connectSession(pairing: PairingPayload, force: boolean = false): HarmonySessionStore {
+    const existing = this.stores.has(pairing.sessionId)
+    const store = this.prepareStore(pairing.sessionId)
+    if ((!existing || force || store.getState().pairing === null) && this.foreground && pairing.pairToken.length > 0 && Date.parse(pairing.expiresAt) > Date.now()) store.connectWithPairing(pairing)
     return store
   }
 
@@ -240,7 +446,7 @@ export struct AppShell {
       this.managementBusy = false
       this.managementFeedback = result.accepted
         ? (result.operation === 'stop_session' ? 'Claude 会话已终止；配对入口仍保留' : '')
-        : (result.code === 'session_capacity' ? '活跃会话已达上限' : '操作失败，请重试')
+        : (result.code === 'session_capacity' ? '活跃会话已达上限' : result.code === 'result_unknown' ? '操作结果未知，请核对电脑端状态' : '操作失败，请重试')
     }
     if (result.accepted && result.operation === 'create_session' && result.pairing !== undefined) {
       this.sessions = upsertSessionRecord(this.sessions, result.pairing)
@@ -250,6 +456,8 @@ export struct AppShell {
       this.managementBusy = this.managementPendingSessions.has(this.currentSessionId)
       this.managementFeedback = ''
       this.view = 'detail'
+      this.activateDraft()
+      this.saveRecords()
     }
   }
 
@@ -271,6 +479,7 @@ export struct AppShell {
     sorted.sort((left, right) => {
       const leftIndex = this.listOrder.indexOf(left.sessionId)
       const rightIndex = this.listOrder.indexOf(right.sessionId)
+      if (leftIndex < 0 && rightIndex < 0) return 0
       if (leftIndex < 0) return 1
       if (rightIndex < 0) return -1
       return leftIndex - rightIndex
@@ -293,6 +502,7 @@ export struct AppShell {
   private openPairingPage(): void {
     this.pairingInput = ''
     this.view = 'pairing'
+    this.activateDraft()
   }
 
   private openListPage(): void {
@@ -300,9 +510,11 @@ export struct AppShell {
     this.listOrder = listSessionRecords(this.sessions).map((record: SessionRecord) => record.sessionId)
     this.pairingInput = ''
     this.view = 'list'
+    this.activateDraft()
   }
 
   private handleConnect(): void {
+    if (!this.nativeReady) return
     const result = decodePairingPayload(this.pairingInput)
     if (!result.ok || result.payload === null) {
       this.entryStore.connectFromRawPairing(this.pairingInput)
@@ -320,6 +532,9 @@ export struct AppShell {
     this.managementBusy = this.managementPendingSessions.has(this.currentSessionId)
     this.managementFeedback = ''
     this.view = 'detail'
+    this.pairingInput = ''
+    this.activateDraft()
+    this.saveRecords()
   }
 
   private handleOpenSession(sessionId: string): void {
@@ -329,11 +544,13 @@ export struct AppShell {
         this.sessions = markSessionRecordRead(this.sessions, sessionId)
         this.currentSessionId = sessionId
         this.view = 'detail'
+        this.activateDraft()
         this.store = this.connectSession(pairingPayloadFromRecord(record))
         this.sessionState = this.store.getState()
+        this.syncPendingAnswers(this.sessionState)
         this.managementBusy = this.managementPendingSessions.has(sessionId)
         this.managementFeedback = ''
-        if (this.sessionState.connection === ConnectionStage.DISCONNECTED) {
+        if (this.sessionState.connection === ConnectionStage.DISCONNECTED && record.status !== 'needsPairing') {
           this.store.reconnect()
         }
         return
@@ -342,6 +559,11 @@ export struct AppShell {
   }
 
   private handleRemoveSession(sessionId: string): void {
+    this.cacheGate.forget(sessionId)
+    this.dirty.delete(sessionId); this.drafts.delete(sessionId)
+    void this.notifications?.remove(sessionId).catch(() => {})
+    void this.storage?.removeCache(sessionId).catch(() => { this.nativeError = '删除缓存失败，请清除全部缓存' })
+
     if (sessionId === this.currentSessionId) {
       this.currentSessionId = ''
       this.store = this.entryStore
@@ -350,6 +572,8 @@ export struct AppShell {
     const removed = this.stores.get(sessionId)
     if (removed !== undefined) {
       removed.setManagementListener(null)
+      removed.setEventListener(null)
+      removed.setSendListener(null)
       this.storeSubscriptions.get(sessionId)?.()
       removed.disconnect()
       this.stores.delete(sessionId)
@@ -358,6 +582,7 @@ export struct AppShell {
       this.managementPendingSessions.delete(sessionId)
     }
     this.sessions = removeSessionRecord(this.sessions, sessionId)
+    this.saveRecords()
     if (this.sessions.length === 0) {
       this.view = 'pairing'
     }
@@ -365,15 +590,19 @@ export struct AppShell {
 
   private handleRenameSession(sessionId: string, name: string): void {
     this.sessions = renameSessionRecord(this.sessions, sessionId, name)
+    this.saveRecords()
   }
 
   private handleBackFromDetail(): void {
+    this.recentlyViewedId = this.currentSessionId
+    this.listOrder = listSessionRecords(this.sessions).map((record: SessionRecord) => record.sessionId)
     this.currentSessionId = ''
     this.questionAnswers = []
     this.trackedPendingActionId = ''
     this.managementBusy = false
     this.managementFeedback = ''
     this.view = defaultView(this.sessions)
+    this.activateDraft()
   }
 
   private handleCreateSession(): void {
@@ -385,16 +614,21 @@ export struct AppShell {
   }
 
   private handleStopSession(): void {
+    const id = this.currentSessionId
+    const store = this.store
     AlertDialog.show({
       title: '终止此 Claude 会话？',
       message: '将关闭对应的 Claude Client，之后无法在原会话继续输入。配对入口和终态会保留，其他会话不受影响。',
       primaryButton: {
         value: '终止会话',
         action: () => {
-          if (this.store.stopSession()) {
-            this.managementPendingSessions.add(this.currentSessionId)
-            this.managementBusy = true
-            this.managementFeedback = ''
+          if (this.stores.get(id) !== store) return
+          if (store.stopSession()) {
+            this.managementPendingSessions.add(id)
+            if (this.currentSessionId === id) {
+              this.managementBusy = true
+              this.managementFeedback = ''
+            }
           }
         },
       },
@@ -402,10 +636,14 @@ export struct AppShell {
     })
   }
 
-  private handleSend(text: string): void {
-    if (!this.store.sendText(text)) {
-      this.sessionState = this.store.getState()
-    }
+  private handleSend(): void {
+    if (!this.sessionState.canSend || this.draft.sending || this.speechActive || this.selecting) return
+    const text = this.draft.text.trim()
+    if (utf8Bytes(text) > 1024 * 1024 || (text.length === 0 && this.draft.attachments.length === 0)) return
+    const next: ComposerDraft = { text: this.draft.text, attachments: this.draft.attachments, sending: true, error: '' }
+    this.drafts.set(this.currentSessionId, next); this.draft = next
+    const sent = this.draft.attachments.length > 0 ? this.store.sendAttachments(text, this.draft.attachments) : this.store.sendText(text)
+    if (!sent) { this.draft.sending = false; this.updateDraft(this.draft.text, this.draft.attachments, '发送失败，草稿已保留') }
   }
 
   private handleReconnect(): void {
@@ -478,6 +716,15 @@ export struct AppShell {
     SessionPage({
       title: this.activeRecordTitle(),
       state: this.sessionState,
+      draft: this.draft,
+      speechActive: this.speechActive,
+      selecting: this.selecting,
+      onDraft: (text: string) => this.updateDraft(text, this.draft.attachments),
+      onSelect: (kind: string) => { void this.selectAttachment(kind) },
+      onRemoveAttachment: (index: number) => this.updateDraft(this.draft.text, this.draft.attachments.filter((_item: Attachment, itemIndex: number) => itemIndex !== index)),
+      onSpeech: () => this.startSpeech(),
+      onStopSpeech: () => { void this.speech.stop() },
+      onCancelSpeech: () => { void this.speech.cancel(); this.speechActive = false },
       questionAnswers: this.questionAnswers,
       capabilities: this.activeRecord()?.capabilities ?? [],
       managementBusy: this.managementBusy,
@@ -493,9 +740,8 @@ export struct AppShell {
       onDisconnect: () => {
         this.handleDisconnect()
       },
-      onSend: (text: string) => {
-        this.handleSend(text)
-      },
+      onSend: () => this.handleSend(),
+      onPermissionMode: (mode: PermissionMode) => { this.store.setPermissionMode(mode) },
       onAllowOnce: () => {
         this.handleResolveToolApproval('allow_once')
       },
@@ -524,6 +770,8 @@ export struct AppShell {
   private buildPairingView(): void {
     PairingPage({
       pairingInput: this.pairingInput,
+      nativeReady: this.nativeReady,
+      onScan: () => { void this.scan() },
       connection: this.sessionState.connection,
       lastError: this.sessionState.lastError,
       selfChecks: this.selfChecks,
@@ -545,6 +793,15 @@ export struct AppShell {
   private buildListView(): void {
     SessionListPage({
       sessions: this.sortedSessions(),
+      scrollOffset: this.listOffset,
+      onScrollOffset: (value: number) => { this.listOffset = value },
+      notificationsEnabled: this.notificationsEnabled,
+      onNotifications: () => { void this.toggleNotifications() },
+      onClearCache: () => { void this.clearCache() },
+      onRemovePC: (pcKey: string) => {
+        const ids = this.sessions.filter((record: SessionRecord) => (record.pcId ?? record.wsUrl) === pcKey).map((record: SessionRecord) => record.sessionId)
+        ids.forEach((id: string) => this.handleRemoveSession(id))
+      },
       recentlyViewedId: this.recentlyViewedId,
       selfChecks: this.selfChecks,
       selfCheckError: this.selfCheckError,
@@ -576,7 +833,11 @@ export struct AppShell {
 
   build() {
     Column() {
-      this.buildCurrentView()
+      if (this.nativeError.length > 0) {
+        Text(this.nativeError).fontSize(13).fontColor('#a54b00').padding(8).onClick(() => { this.nativeError = '' })
+      }
+      if (!this.nativeReady) { LoadingProgress().width(32).height(32) }
+      Column() { this.buildCurrentView() }.layoutWeight(1).width('100%')
     }
     .width('100%')
     .height('100%')

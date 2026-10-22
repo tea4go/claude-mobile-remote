@@ -1,10 +1,12 @@
 import type {
+  Attachment,
   CommandKind,
   ContentBlock,
   ErrorInfo,
   InputSource,
   PairingPayload,
   PendingAction,
+  PermissionMode,
   QueuedRequest,
   ResolvedAnswer,
   SessionStatus,
@@ -36,6 +38,7 @@ export interface ClaudeFeedMessage {
 
 export interface InputFeedMessage {
   kind: 'input'
+  attachments?: Array<Attachment>
   source: InputSource
   requestId: string
   text: string
@@ -73,6 +76,7 @@ export interface NoticeInfo {
 }
 
 export interface HarmonySessionState {
+  permissionMode: PermissionMode
   pairing: PairingPayload | null
   connection: ConnectionStage
   sessionId: string
@@ -96,6 +100,7 @@ export interface HarmonySessionState {
 
 export function createInitialHarmonySessionState(): HarmonySessionState {
   return {
+    permissionMode: 'default',
     pairing: null,
     connection: ConnectionStage.DISCONNECTED,
     sessionId: '',

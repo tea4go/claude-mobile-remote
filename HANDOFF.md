@@ -4,6 +4,10 @@
 
 ## 当前状态
 
+- 当前执行（2026-10-22，HarmonyOS 审查修复完成，按授权提交）：用户要求仔细审查后提交，仅授权本轮 HarmonyOS 及配套文档，不推送。审查发现并补齐遗漏的 D61 permissionMode 快照/事件/命令及界面，修复待确认命令覆盖、协议错误草稿锁定、主动断开管理忙态、通知异步排序/删除、ArkUI 固定键不刷新、清缓存后连接变化写回、cancelled 快照、单条损坏记录影响恢复、并发语音启动和页面初始化代次；终止确认绑定原 Session。新增 11 项回归后 `npm --prefix apps/harmony test` 42/42、14 个逻辑文件严格检查通过；5 个原生文件仅语法转译。原同步“完成”结论由本条审查结果补正。DevEco 工具链仍不可用，工程编译/HAP/真机仍未通过，无法保证平台无编译或运行问题。详见 `docs/testing/2026-10-22-harmony-parity-result.md`；提交号以本轮最终回复为准，排除无关 iOS 截图、凭证和构建产物。下一步在现有 SDK 的 DevEco 环境构建并按清单复验权限模式、流式刷新、多 Session/附件/扫码/语音/通知/缓存。
+
+- 当前执行（2026-10-22，HarmonyOS 同步代码已接线，待 DevEco 构建/真机验收）：按用户确认完成 v4/v3/v2、工具结果、附件选择/上传/预览、受理后清草稿、平铺列表/PC 管理、状态/审批抽屉/返回/滚动恢复、受限 Markdown、ScanKit 扫码、HUKS 凭证加密、前后台多 Session 同步、语音草稿、本地通知点击和受限私有 JSON 缓存。沿用 200项/2 MiB 每 Session、20 MiB 总量、30天，排除凭证/附件字节/执行态；无数据库或新增依赖，极光暂停。`npm --prefix apps/harmony test` 31/31、14 个逻辑文件 TypeScript 严格检查、5 个原生文件语法转译、JSON 配置和 diff 检查通过；原生测试使用 Node 适配器，不是平台验证。实际 `devecocli build --modules entry@default` 退出127（command not found）；当前 Mac 未找到 DevEco/hvigorw/ohpm，未生成HAP，ArkTS/ArkUI/原生API工程编译及设备验证仍未完成，平台编译问题可能存在。设计/计划、README 和旧 D2 范围说明已更新；详见 `docs/testing/2026-10-22-harmony-parity-result.md`。下一步在可用 DevEco 环境构建并修复真实编译错误，再按清单真机验收。未修改 iOS/Android/WhaleTerm/服务端，未执行 Git 写操作。
+
 - 当前执行（2026-10-22，iOS 开发签名 IPA 已导出）：用户明确仅本人已授权手机使用，当前只需 IPA 上传蒲公英生成二维码。同步内置 Web 后，iPhone Release archive成功；首次手动签名导出因Xcode托管profile不匹配失败，改用与工程一致的automatic + debugging导出成功，未更新账号/设备/证书。产物 apps/mobile/ios/DerivedData/pgyer/ClaudeMobileRemote.ipa（1,148,426字节，SHA256=df4f205fd31f843c65fa687d69dc142a592bb8bca36fe60a193c0c6a25765128）；bundle com.lingsizhang.claudemobileremote，1.0(1)，最低iOS15，arm64。codesign --verify --deep --strict通过；内置页面存在且无server.url；嵌入开发profile授权1台设备，2026-10-23 06:56:48 UTC到期。未操作手机/验证实际安装。Android APK亦已准备好；两包尚未上传，等待蒲公英上传通道或用户上传后提供下载链接，再生成两个二维码并接入WhaleTerm。产物存忽略目录，未执行Git写操作。
 
 - 当前执行（2026-10-22，蒲公英 Android 包准备完成）：按用户要求运行 scripts/macos/4_android_build.sh，Web 29文件504测试、lint（既有warning）、build、Capacitor Android sync、assembleDebug成功。APK：apps/mobile/android/app/build/outputs/apk/debug/ClaudeMobileRemote.apk，36,559,195字节，versionName=1.0/versionCode=1，minSdk26/targetSdk36；apksigner校验v2签名通过，内置index存在、无server.url，SHA256=3a4308bb9ed997c073155f399365b68be62e15ee1c47c267e16ddc656f5ee603。当前为Debug签名内测包，非正式Release。只读检查iOS：钥匙串有Apple Development、无Apple Distribution；现有个人Team开发描述文件仅1台设备，2026-10-23 06:56:48 UTC到期。未执行iOS archive/export；蒲公英Ad Hoc可用个人付费Developer账号，但需分发证书及包含目标UDID的描述文件。工具无法连接Chrome（Browser is not available），已询问用户自行上传后提供链接或采用API；APK尚未上传、下载二维码尚未生成、WhaleTerm未修改。下一步取得蒲公英上传通道/Android下载链接，完成Android二维码，再处理iOS可分发IPA与独立下载二维码。不执行Git写操作。
@@ -132,7 +136,7 @@
 
 ## 下一步
 
-0. 当前优先：用户在 Xcode 打开 `apps/mobile/ios/App/App.xcodeproj`，选择 iPhone 和现有签名运行，按 `docs/testing/2026-10-21-C3-ios-result.md` 清单反馈。AI 据实际结果修复并记录 C2-D/C3 门禁；通过后同步 Android 与 HarmonyOS NEXT。模拟器中文字体环境仍有缺字，不视为视觉通过；离线 APNs 推送未实施。以下为先前遗留事项。
+0. 当前优先：在装有 Harmony SDK `6.1.1(24)` 的 DevEco 环境构建本轮 Harmony 同步代码，补齐 ArkTS/ArkUI/原生 API 编译结果及 HAP，再执行 `docs/testing/2026-10-22-harmony-parity-result.md` 真机清单。当前 Mac 缺工具链，本轮逻辑与测试适配器通过不能替代工程/设备门禁。Android 物理真机未验收项与蒲公英上传任务继续保留；iOS 已有用户验收记录，极光仍暂停。以下为先前遗留事项。
 
 1. 本地 CLI 修正已提交为 `9c4d98c`；用户推送或同步该提交后，让报错机器更新并在 Intel Mac 执行 `bash scripts/macos/3_cli_run.sh --profile local` 复核，本轮未获推送授权。将本轮 debug APK 安装到 Android 设备后，人工验收列表/设置/PC 管理、扫码、重启恢复、消息和权限、键盘/抽屉/返回手势；无 Android 设备时这些结果保持未验证。此前 WhaleTerm P4/Remote 兼容修正仍待审阅，随后继续 C2-D iOS 真机联调；iOS 工程编译、安全存储/VPN 门禁与 Harmony DevEco 构建仍待补。
    WhaleTerm 的 P4 合并冲突工作树已解决；须在获得该次 Git 写操作的明确授权后，才可暂存 4 个冲突文件并完成合并提交。随后复核实际合并结果及 Remote Control 真机路径。

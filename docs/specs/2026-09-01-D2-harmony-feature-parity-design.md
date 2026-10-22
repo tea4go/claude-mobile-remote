@@ -1,7 +1,7 @@
 # D2 HarmonyOS NEXT 与 Android 功能拉齐设计
 
 - 日期：2026-09-01
-- 状态：执行中
+- 状态：历史阶段设计；本轮范围以 `2026-10-22-harmony-parity-design.md` 与 D86 为准。下文“单连接/不含原生能力/工具结果不展示”为当时范围，已被后续多 Session、D82/D84/D86 替代。
 - 前置阶段：D1 已在主工作区通过 `devecocli build --modules entry@default`
 - 关联决策：D7、D19、D46、D47、D48、D52、D53、D54
 

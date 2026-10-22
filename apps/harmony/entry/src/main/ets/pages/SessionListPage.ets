@@ -1,197 +1,118 @@
-import { defaultSessionName, type SessionRecord, type SessionLocalStatus } from '../session/records'
-import { SelfCheckPanel } from '../components/SelfCheckPanel'
-
-function statusLabel(status: SessionLocalStatus): string {
-  if (status === 'connected') {
-    return '已连接'
-  }
-  if (status === 'disconnected') {
-    return '已断开'
-  }
-  if (status === 'needsPairing') {
-    return '需要重新配对'
-  }
-  return '未连接'
-}
-
-function lastConnectedLabel(record: SessionRecord): string {
-  const value = record.lastActivityAt ?? record.createdAt
-  return value === undefined ? '活动时间未知' : new Date(value).toLocaleString()
-}
-
-function cwdOf(record: SessionRecord): string { return record.projectCwd ?? '' }
-
-function groupRecords(records: Array<SessionRecord>): Array<SessionRecord> {
-  const ordered: Array<SessionRecord> = []
-  const seen: Array<string> = []
-  for (let index = 0; index < records.length; index += 1) {
-    const key = cwdOf(records[index])
-    if (seen.indexOf(key) < 0) seen.push(key)
-  }
-  for (let group = 0; group < seen.length; group += 1) {
-    for (let index = 0; index < records.length; index += 1) {
-      if (cwdOf(records[index]) === seen[group]) ordered.push(records[index])
-    }
-  }
-  return ordered
-}
-
-function directoryTitle(cwd: string): string {
-  if (cwd.length === 0) return '工作目录未知'
-  const parts = cwd.replace(/[\\/]+$/, '').split(/[\\/]/)
-  return parts[parts.length - 1] || cwd
-}
+import { defaultSessionName, type SessionRecord } from '../session/records'
 
 function titleOf(record: SessionRecord): string {
   if (record.customName === true || (record.customName === undefined && record.name !== defaultSessionName(record.sessionId))) return record.name
-  if (record.sessionTitle !== undefined) return record.sessionTitle
-  if (record.createdAt !== undefined) return `新会话 · ${new Date(record.createdAt).toLocaleString()}`
-  return record.name
+  return record.sessionTitle ?? record.name
 }
-
-function sourceOf(record: SessionRecord): string {
-  if (record.capabilities !== undefined && record.capabilities.indexOf('create_session') >= 0) return 'CLI'
-  return 'Remote'
+function pcKey(record: SessionRecord): string { return record.pcId ?? record.wsUrl }
+function pcName(record: SessionRecord): string {
+  return record.pcName ?? record.wsUrl.replace(/^wss?:\/\//, '').split('/')[0]
 }
-
-function addressDigest(wsUrl: string): string {
-  const marker = '://'
-  const markerIndex = wsUrl.indexOf(marker)
-  if (markerIndex < 0) {
-    return '地址无效'
-  }
-  const hostStart = markerIndex + marker.length
-  let slashIndex = wsUrl.indexOf('/', hostStart)
-  if (slashIndex < 0) {
-    slashIndex = wsUrl.length
-  }
-  return wsUrl.slice(hostStart, slashIndex)
+function devices(records: Array<SessionRecord>): Array<SessionRecord> {
+  const result: Array<SessionRecord> = []
+  records.forEach((record: SessionRecord) => { if (!result.some((item: SessionRecord) => pcKey(item) === pcKey(record))) result.push(record) })
+  return result
 }
-
+function statusLabel(record: SessionRecord): string {
+  if (record.status === 'needsPairing') return '需要重新扫码'
+  if (record.status !== 'connected') return '未连接 · 待同步'
+  return record.runtimeStatus ?? '空闲'
+}
+function rowKey(record: SessionRecord): string {
+  // Never put credentials into render keys; only include the displayed fields.
+  return JSON.stringify([record.sessionId, titleOf(record), record.preview, pcName(record), record.projectCwd,
+    statusLabel(record), record.unread, record.lastActivityAt])
+}
 @Component
 export struct SessionListPage {
+  @Prop scrollOffset: number = 0
+  onScrollOffset: (value: number) => void = () => {}
   @Prop sessions: Array<SessionRecord> = []
   @Prop recentlyViewedId: string = ''
   @Prop selfChecks: Array<string> = []
   @Prop selfCheckError: string = ''
+  @Prop notificationsEnabled: boolean = false
   onAdd: () => void = () => {}
   onOpen: (sessionId: string) => void = () => {}
   onRemove: (sessionId: string) => void = () => {}
   onRename: (sessionId: string, name: string) => void = () => {}
-
+  onRemovePC: (key: string) => void = () => {}
+  onNotifications: () => void = () => {}
+  onClearCache: () => void = () => {}
+  @State private settings: boolean = false
   @State private renamingId: string = ''
   @State private draftName: string = ''
+  private readonly scroller: Scroller = new Scroller()
 
+  private remove(record: SessionRecord): void {
+    AlertDialog.show({ title: '移除此配对？', message: '同时清除本机凭证、缓存与提醒，电脑端会话继续运行。',
+      primaryButton: { value: '移除', action: () => this.onRemove(record.sessionId) },
+      secondaryButton: { value: '取消', action: () => {} } })
+  }
   build() {
-    Scroll() {
-      Column({ space: 16 }) {
-        Text('Claude Mobile Remote')
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
-          .width('100%')
-          .textAlign(TextAlign.Start)
-
-        SelfCheckPanel({
-          results: this.selfChecks,
-          error: this.selfCheckError,
-        })
-
-        Text('会话列表')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .width('100%')
-
-        if (this.sessions.length === 0) {
-          Text('还没有已配对的会话，请先新增一个配对。')
-            .fontSize(14)
-            .opacity(0.7)
-            .width('100%')
-        } else {
-          ForEach(groupRecords(this.sessions), (session: SessionRecord, index: number) => {
-            Column({ space: 8 }) {
-              if (index === 0 || cwdOf(groupRecords(this.sessions)[index - 1]) !== cwdOf(session)) {
-                Text(directoryTitle(cwdOf(session))).fontSize(18).fontWeight(FontWeight.Bold)
-                Text(session.projectCwd ?? '旧版服务未提供工作目录').fontSize(12).opacity(0.7)
-              }
-              if (this.renamingId === session.sessionId) {
+    Column() {
+      Row({ space: 8 }) {
+        Text(this.settings ? '设置' : '会话').fontSize(24).fontWeight(FontWeight.Bold).layoutWeight(1)
+        Button(this.settings ? '返回' : '设置').height(44).onClick(() => { this.settings = !this.settings })
+        if (!this.settings) { Button('扫码配对').height(44).onClick(() => this.onAdd()) }
+      }.padding(16).width('100%')
+      Scroll(this.scroller) {
+        Column({ space: 8 }) {
+          if (this.settings) {
+            Button(this.notificationsEnabled ? '关闭系统提醒' : '开启系统提醒').height(48).onClick(() => this.onNotifications())
+            Text('仅提醒已收到的在线事件；默认隐藏正文。系统挂起或退出后不保证送达。').fontSize(13)
+            Button('清除消息缓存').height(48).onClick(() => {
+              AlertDialog.show({ title: '清除本机消息缓存？', message: '配对仍保留；未缓存的历史无法从电脑补回。',
+                primaryButton: { value: '清除', action: () => this.onClearCache() }, secondaryButton: { value: '取消', action: () => {} } })
+            })
+            Text('已配对电脑').fontSize(18).fontWeight(FontWeight.Bold)
+            ForEach(devices(this.sessions), (record: SessionRecord) => {
+              Column({ space: 8 }) {
+                Text(pcName(record)).fontSize(16)
+                Text(record.wsUrl).fontSize(12)
+                Text(`${this.sessions.filter((item: SessionRecord) => pcKey(item) === pcKey(record)).length} 个会话`).fontSize(12)
+                Button('移除此电脑').height(44).onClick(() => {
+                  AlertDialog.show({ title: '移除此电脑的全部配对？', message: '本机配对与缓存会清除，电脑上的 Claude 会话继续运行。',
+                    primaryButton: { value: '移除', action: () => this.onRemovePC(pcKey(record)) }, secondaryButton: { value: '取消', action: () => {} } })
+                })
+              }.padding(12).width('100%').backgroundColor('#ffffff').borderRadius(12)
+            }, (record: SessionRecord) => JSON.stringify([pcKey(record), pcName(record), record.wsUrl,
+              this.sessions.filter((item: SessionRecord) => pcKey(item) === pcKey(record)).length]))
+          } else if (this.sessions.length === 0) {
+            Text('扫码连接电脑上的 Claude 会话').padding(24)
+          } else {
+            ForEach(this.sessions, (session: SessionRecord) => {
+              Column({ space: 6 }) {
                 Row({ space: 8 }) {
-                  TextInput({
-                    text: this.draftName,
-                    placeholder: '输入本地名称',
+                  Column({ space: 6 }) {
+                    Text(titleOf(session)).fontSize(17).fontWeight(FontWeight.Medium).maxLines(1).width('100%')
+                    Text(session.preview ?? '暂无会话内容').fontSize(13).maxLines(2).opacity(0.8).width('100%')
+                    Text(`${pcName(session)} · ${session.projectCwd ?? '工作目录未知'}`).fontSize(12).maxLines(1).width('100%')
+                    Text(`${statusLabel(session)}${session.unread ? ' · 未读' : ''}${this.recentlyViewedId === session.sessionId ? ' · 刚刚查看' : ''}`).fontSize(12).width('100%')
+                    if (session.lastActivityAt !== undefined) { Text(new Date(session.lastActivityAt).toLocaleString()).fontSize(11).opacity(0.6) }
+                  }.layoutWeight(1).alignItems(HorizontalAlign.Start).onClick(() => this.onOpen(session.sessionId))
+                  Button('⋯').width(44).height(44).accessibilityText('会话操作').onClick(() => {
+                    ActionSheet.show({ title: titleOf(session), sheets: [
+                      { title: '进入', action: () => this.onOpen(session.sessionId) },
+                      { title: '重命名', action: () => { this.renamingId = session.sessionId; this.draftName = titleOf(session) } },
+                      { title: '移除配对', action: () => this.remove(session) },
+                    ] })
                   })
-                    .id(`rename-input-${session.sessionId}`)
-                    .layoutWeight(1)
-                    .onChange((value: string) => {
-                      this.draftName = value
-                    })
-
-                  Button('保存')
-                    .onClick(() => {
-                      this.onRename(session.sessionId, this.draftName)
-                      this.renamingId = ''
-                      this.draftName = ''
-                    })
-
-                  Button('取消')
-                    .onClick(() => {
-                      this.renamingId = ''
-                      this.draftName = ''
-                    })
+                }.width('100%').constraintSize({ minHeight: 100 })
+                if (this.renamingId === session.sessionId) {
+                  Row({ space: 8 }) {
+                    TextInput({ text: this.draftName, placeholder: '本地名称' }).maxLength(255).layoutWeight(1).onChange((text: string) => { this.draftName = text })
+                    Button('保存').height(44).onClick(() => { this.onRename(session.sessionId, this.draftName); this.renamingId = '' })
+                    Button('取消').height(44).onClick(() => { this.renamingId = '' })
+                  }
                 }
-              } else {
-                Text(titleOf(session))
-                  .fontSize(16)
-                  .fontWeight(FontWeight.Medium)
-              }
-
-              Text(session.preview ?? '暂无会话内容').fontSize(13).opacity(0.8)
-
-              Text(`${sourceOf(session)} · ID ${session.sessionId.slice(0, 8)} · ${addressDigest(session.wsUrl)}`)
-                .fontSize(12)
-                .opacity(0.7)
-
-              Text(`${statusLabel(session.status)} · ${session.runtimeStatus ?? '空闲'} · ${lastConnectedLabel(session)}${session.unread ? ' · 未读' : ''}${this.recentlyViewedId === session.sessionId ? ' · 刚刚查看' : ''}`)
-                .fontSize(12)
-                .opacity(0.7)
-
-              Row({ space: 8 }) {
-                Button('进入')
-                  .onClick(() => {
-                    this.onOpen(session.sessionId)
-                  })
-
-                Button('重命名')
-                  .onClick(() => {
-                    this.renamingId = session.sessionId
-                    this.draftName = titleOf(session)
-                  })
-
-                Button('删除')
-                  .onClick(() => {
-                    this.onRemove(session.sessionId)
-                  })
-              }
-            }
-            .id(`session-item-${session.sessionId}`)
-            .padding(16)
-            .width('100%')
-            .alignItems(HorizontalAlign.Start)
-            .backgroundColor('#ffffff')
-            .borderRadius(12)
-          }, (session: SessionRecord) => session.sessionId)
-        }
-
-        Button('新增配对')
-          .id('add-session-button')
-          .onClick(() => {
-            this.onAdd()
-          })
-      }
-      .padding(16)
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
-    }
-    .width('100%')
-    .height('100%')
+              }.id(`session-item-${session.sessionId}`).padding(12).width('100%').backgroundColor('#ffffff').borderRadius(12)
+            }, (session: SessionRecord) => rowKey(session))
+          }
+        }.padding(16).width('100%').alignItems(HorizontalAlign.Start)
+      }.layoutWeight(1).width('100%')
+        .onAppear(() => this.scroller.scrollTo({ xOffset: 0, yOffset: this.scrollOffset }))
+        .onScroll(() => { if (!this.settings) this.onScrollOffset(this.scroller.currentOffset().yOffset) })
+    }.width('100%').height('100%').backgroundColor('#f5f7fa')
   }
 }
