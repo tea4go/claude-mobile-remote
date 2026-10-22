@@ -31,6 +31,7 @@ export interface AppStoreState {
   pairingError: string | null
   upsertPairing(payload: PairingPayload): void
   restorePairing(record: Pick<SessionRecord, 'sessionId' | 'name' | 'customName' | 'lastConnectedAt' | 'pcId' | 'pcName'>, payload?: PairingPayload): void
+  restoreCachedSession(sessionId: string, cached: MobileState): void
   renamePairing(sessionId: string, name: string): void
   markPairingStatus(sessionId: string, status: SessionLocalStatus, lastConnectedAt?: number): void
   removePairing(sessionId: string): void
@@ -62,6 +63,7 @@ export function createAppStore(): AppStore {
       pairings: restoreSession(state.pairings, record, payload),
       pairingInvalid: { ...state.pairingInvalid, [record.sessionId]: payload === undefined },
     })),
+    restoreCachedSession: (sessionId, cached) => set((state) => state.sessions[sessionId] ? {} : ({ sessions: { ...state.sessions, [sessionId]: cached } })),
     renamePairing: (sessionId, name) => set((state) => ({
       pairings: renameSession(state.pairings, sessionId, name),
     })),

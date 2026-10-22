@@ -20,3 +20,20 @@
 4. 移动端"设置"内的"PC管理"也是同样的问题，机器编码没有获取到，只展示了ip：docs/testing/images/iosMobile/pc_manage.png
 
 5. "消息通知"功能验证不通过，我需要的是 系统级别的消息通知：应用在后台运行/退出应用，都能在手机的系统消息通知里推送消息。此功能应该依赖于公网Relay，并且请使用我文档里标注的第三方的服务商。可以先做功能，等待公网Relay建设完毕后，再回头进行此功能测试。docs/testing/images/iosMobile/setting_config.png
+
+#### 问题列表10-22
+
+> 处理记录：按用户指定 1→2→3→5→4 实施；第 5 项补充放大会话行和操作触点。代码修复、开源缓存预研及本机验证见 [10-22 修复记录](2026-10-22-ios-feedback-result.md)，真机复验待用户反馈。
+
+1. whale-term内启动远程管理后，运行了一段时间，此时点击关闭，第一次点击无响应,第二次点击才生效
+2. 在whale-term——claude会话列表内，新增一个claude会话，在会话开始之前 启动远程管理，可以正常在手机上连接交互，但是手机右上角的状态标志不对，
+   详见：`docs/testing/images/10-22/claude-detail.png`
+
+3. 当两个session对话交叉使用，PC上会出现 已结束的会话仍然在loading的现象。(会话都是手机端发起的)
+4. 在手机上进行了若干次会话后，形成了一些历史详情记录，当应用杀死重新进入应用，这些记录全没了，会话列表的工作目录，状态等等也没了。这些可以换存下来吗？
+   `docs/testing/images/10-22/claude-storage.png`
+   `docs/testing/images/10-22/claude_detail_storage.png`
+
+5. 手机端的 会话列表样式需要优化，现在太拥挤了，分层过于明显，还是平铺展示吧；PC的机器编码展示有问题，空格渲染成了特殊字符；PC详情item内的 "机器编码"不用展示，属于无用信息；
+   `docs/testing/images/10-22/claude-session-list.png`
+   `docs/testing/images/10-22/pc-detail.png`

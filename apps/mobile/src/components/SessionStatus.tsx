@@ -28,6 +28,7 @@ const SESSION_LABELS: Record<string, string> = {
 }
 
 const TURN_LABELS: Record<string, string> = {
+  unknown: '待同步',
   idle: '空闲',
   running: '运行中',
   waiting: '等待中',

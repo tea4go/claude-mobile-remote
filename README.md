@@ -1,6 +1,6 @@
 # claude-mobile-remote
 
-> iOS 极光系统推送：下载官方 JPush 6.2.2 完整包后执行 `bash scripts/macos/ios_import_jpush.sh <解压目录>`，导入 JPush / JCore noidfa。SDK 二进制不入库。AppKey、APNs 与 PC 端配置见 [iOS 反馈修复与推送验收](docs/testing/2026-10-21-ios-feedback-result.md)。未配置时仍只有在线本地提醒。
+> iOS 极光推送暂时停用，真机签名不再要求 Push Notifications 能力。App 在线收到事件时仍可显示本地提醒；退出 App 后无法收到新事件通知。后续恢复极光需重新接入 SDK、Push capability 和 APNs 配置，详见 [iOS 反馈修复与推送验收](docs/testing/2026-10-21-ios-feedback-result.md)。
 
 通过独立 Standalone CLI 托管本地 Claude Session，让用户离开电脑后可在手机上继续查看和控制，并在同一工作目录新建独立会话。
 
@@ -202,3 +202,8 @@ Windows 无 Xcode/iOS Simulator 环境，改用 Android 或 Web 入口。
 ## 仓库
 
 https://github.com/tea4go/claude-mobile-remote
+
+
+### iOS 本地消息缓存
+
+iOS 使用 App 私有 JSON 文件保存手机已收到的消息与列表标题、工作目录和时间，无额外数据库。每会话最多 200 项/2 MiB，总计 20 MiB，保留 30 天。重启先显示缓存（运行状态待同步），连接 PC 后校正当前 Turn；不补回离线期间未收到的历史。图片原件和配对凭证不进入文件缓存，凭证仍使用系统安全存储。设置可清除离线缓存，删除配对同时清理对应文件。浏览器仍仅保存内存；Android/Harmony 原生缓存待 iOS 验收后同步。研究与边界见 [缓存设计](docs/specs/2026-10-22-ios-cache-design.md)。

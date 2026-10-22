@@ -36,7 +36,7 @@ describe('项目分组', () => {
     const props = { onAdd: noop, onOpen: noop, onRemove: noop, onRename: noop }
     const view = render(<ProjectSessionList sessions={[a]} {...props} />)
     view.rerender(<ProjectSessionList sessions={[{ ...a, runtimeState: { ...a.runtimeState!, lastActivityAt: '2026-09-23T03:00:00Z' } }, b]} {...props} />)
-    expect(screen.getAllByText('/work/alpha')).toHaveLength(1)
+    expect(screen.getAllByText('/work/alpha')).toHaveLength(2)
     expect(screen.getAllByTestId('session-list-item').map((element) => element.getAttribute('data-session-id'))).toEqual(['a', 'b'])
   })
 

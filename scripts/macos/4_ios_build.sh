@@ -9,7 +9,6 @@ EOF
 if [[ $# -gt 0 && "$1" == "--help" ]]; then usage; exit 0; fi
 [[ $# -eq 0 ]] || { usage >&2; die "未知选项：$1"; }
 require_ios_tools
-ensure_jpush_sdk
 "$SCRIPT_DIR/4_web_build.sh"
 mobile_command npm exec -- cap sync ios
 workspace="$MOBILE_DIR/ios/App/App.xcworkspace"

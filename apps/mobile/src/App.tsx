@@ -1,3 +1,4 @@
+import { iosSessionCache, decodeSessionCache, SessionCacheWriter, type SessionCachePort } from './native/sessionCache'
 import { iosExperience, type ExperiencePort } from './native/experience'
 import NotificationSettings from './components/NotificationSettings'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -26,6 +27,7 @@ import { observeNativeForeground } from './native/pairingLogic'
 import type { NativePairingBindings } from './native/capacitorPorts'
 
 interface AppProps {
+  cache?: SessionCachePort | null
   experience?: ExperiencePort | null
   now?: () => number
   socketFactory?: SocketFactory
@@ -38,10 +40,11 @@ const defaultNow = () => Date.now()
 const EMPTY_STATE = createInitialState()
 
 function turnStatusOf(state: MobileState) {
+  if (state.cachedAt != null) return 'unknown' as const
   if (state.pendingAction !== null) return 'waiting' as const
   const claude = [...state.messages].reverse().find((message) => message.kind === 'claude')
   if (claude === undefined || claude.kind !== 'claude') return 'idle' as const
-  return claude.status === 'streaming' ? 'running' as const : claude.status
+  return claude.status === 'streaming' ? 'running' as const : claude.status === 'done' ? 'completed' as const : claude.status
 }
 
 function cancelTargetOf(state: MobileState): string | null {
@@ -52,7 +55,7 @@ function cancelTargetOf(state: MobileState): string | null {
   return streaming?.kind === 'claude' ? streaming.requestId : null
 }
 
-function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = null, experience = iosExperience }: AppProps = {}) {
+function App({ cache = iosSessionCache, now = defaultNow, socketFactory = defaultSocketFactory, native = null, experience = iosExperience }: AppProps = {}) {
   const [appStore] = useState(createAppStore)
   const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now))
   const [managementBusy, setManagementBusy] = useState<Record<string, boolean>>({})
@@ -61,6 +64,8 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
   const [settingsPage, setSettingsPage] = useState<'settings' | 'pcs' | null>(null)
   const [settingsDirection, setSettingsDirection] = useState<'forward' | 'back'>('forward')
   const [restoring, setRestoring] = useState(native !== null)
+  const cacheWriter = useRef<SessionCacheWriter | null>(null)
+  const [cacheMessage, setCacheMessage] = useState<string | null>(null)
   const listScrollY = useRef(0)
 
   const pairings = useStore(appStore, (state) => state.pairings)
@@ -137,7 +142,15 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
   useEffect(() => {
     if (native === null) return
     let active = true
-    void native.logic.restore(now()).then((restored) => {
+    void native.logic.restore(now()).then(async (restored) => {
+      // Restore display files before opening any sockets; live snapshots always win.
+      if (cache !== null) await Promise.all([...restored.available.map((item) => item.metadata), ...restored.needsPairing].map(async (record) => {
+        try {
+          const { data } = await cache.readSessionCache({ sessionId: record.sessionId })
+          const cached = decodeSessionCache(data, record.sessionId, now())
+          if (active && cached) appStore.getState().restoreCachedSession(record.sessionId, cached)
+        } catch { if (active) setCacheMessage('本地消息缓存暂不可用，仍可连接 PC') }
+      }))
       if (!active) return
       for (const { payload, metadata } of restored.available) {
         if (appStore.getState().pairings.records.some((item) => item.sessionId === metadata.sessionId)) continue
@@ -154,7 +167,22 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
       if (active) setRestoring(false)
     })
     return () => { active = false }
-  }, [appStore, runtime, native, now])
+  }, [appStore, runtime, native, cache, now])
+
+  useEffect(() => {
+    if (cache === null || native === null || restoring) return
+    const writer = new SessionCacheWriter(appStore, cache, now, () => setCacheMessage('本地消息缓存暂不可用，仍可连接 PC'))
+    cacheWriter.current = writer
+    const flush = () => { if (document.visibilityState !== 'visible') void writer.flush() }
+    document.addEventListener('visibilitychange', flush)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', flush)
+      window.removeEventListener('pagehide', flush)
+      writer.dispose()
+      if (cacheWriter.current === writer) cacheWriter.current = null
+    }
+  }, [appStore, cache, native, now, restoring])
 
   useEffect(() => {
     if (native === null) return
@@ -225,7 +253,7 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
     if (listPage !== null) listScrollY.current = listPage.scrollTop
     const record = appStore.getState().pairings.records.find((item) => item.sessionId === sessionId)
     if (record === undefined) return
-    if (record.status === 'needsPairing' || record.pairToken === '') {
+    if ((record.status === 'needsPairing' || record.pairToken === '') && !appStore.getState().sessions[sessionId]?.cachedAt) {
       appStore.getState().setAdding(true)
       appStore.getState().setPairingError('请重新扫码或输入此会话的配对信息')
       return
@@ -241,7 +269,7 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
       ...(record.pcName === undefined ? {} : { pcName: record.pcName }),
     }
     appStore.getState().openDetail(sessionId)
-    runtime.ensureConnected(payload)
+    if (record.status !== 'needsPairing' && record.pairToken !== '') runtime.ensureConnected(payload)
     if (native === null) window.location.hash = `#pair=${encodePairingFragment(payload)}`
   }, [appStore, runtime, native])
 
@@ -363,8 +391,12 @@ function App({ now = defaultNow, socketFactory = defaultSocketFactory, native = 
       </List>
       <List header="本地保存说明">
         <List.Item description="原生 App 重启后恢复已配对会话、设备信息和自定义名称。未过期凭证保存在系统安全存储；移除 PC 或会话会删除对应本机配对。浏览器仅保存在内存。">配对与设备</List.Item>
-        <List.Item description="消息与运行状态仅在本次 App 运行期间保留。重启后连接 PC 获取当前状态，不恢复此前消息，也不支持离线发送。">消息与状态</List.Item>
+        <List.Item description="iOS 保存最近已收到的消息、标题与工作目录，重启先展示缓存，再连接 PC 更新状态。每会话最多 200 项/2 MiB，总计 20 MiB，保留 30 天；不缓存图片原件，不支持离线发送。浏览器仅保存在内存。">消息与状态</List.Item>
       </List>
+      {cache !== null && <List><List.Item arrow onClick={() => {
+        void cacheWriter.current?.clear().then(() => setCacheMessage('离线缓存已清除；当前页面内容仍可继续使用')).catch(() => setCacheMessage('清除缓存失败，请重试'))
+      }}>清除离线缓存</List.Item></List>}
+      {cacheMessage !== null && <p role="status" style={{ padding: 16 }}>{cacheMessage}</p>}
       {experience !== null && <NotificationSettings port={experience} />}
     </div>
   } else if (settingsPage === 'pcs') {

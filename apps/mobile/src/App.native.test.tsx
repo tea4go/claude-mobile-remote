@@ -146,3 +146,29 @@ test('通知点击在原生恢复完成后打开对应 Session，卸载移除监
   unmount()
   await waitFor(() => expect(remove).toHaveBeenCalledOnce())
 })
+
+test('原生文件缓存启动后恢复目录和消息，过期配对仍可只读查看，删除配对清理文件', async () => {
+  const { encodeSessionCache } = await import('./native/sessionCache')
+  const { createInitialState } = await import('./session/reducer')
+  const initial = bindings([{ metadata: { sessionId: 'cached', name: '保留的会话', customName: true, lastConnectedAt: 123 } }])
+  const data = encodeSessionCache('cached', { ...createInitialState(), sessionId: 'cached', projectCwd: '/work/cached', sessionTitle: '标题', messages: [{ kind: 'claude', requestId: 'old-turn', source: 'mobile', text: '重启后仍可看到的回复', status: 'done', error: null }] }, Date.now())
+  const cache = {
+    readSessionCache: vi.fn(async () => ({ data })),
+    writeSessionCache: vi.fn(async () => {}),
+    removeSessionCache: vi.fn(async () => {}),
+    clearSessionCache: vi.fn(async () => {}),
+  }
+  render(<App native={initial.native} cache={cache} experience={null} socketFactory={(url) => new FakeSocket(url)} />)
+  await screen.findByText('/work/cached')
+  expect(FakeSocket.instances).toHaveLength(0)
+  fireEvent.click(screen.getByLabelText('进入 保留的会话'))
+  await screen.findByText('重启后仍可看到的回复')
+  expect(screen.getByText(/本地缓存/)).toBeInTheDocument()
+  expect(screen.getByText(/Turn：待同步/)).toBeInTheDocument()
+  expect(FakeSocket.instances).toHaveLength(0)
+  fireEvent.click(screen.getByLabelText('返回'))
+  await screen.findByText('/work/cached')
+  fireEvent.click(screen.getByLabelText('更多操作 保留的会话'))
+  fireEvent.click(await screen.findByText('删除'))
+  await waitFor(() => expect(cache.removeSessionCache).toHaveBeenCalledWith({ sessionId: 'cached' }))
+})

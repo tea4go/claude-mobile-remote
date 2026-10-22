@@ -139,7 +139,7 @@ PC 始终持有完整 Claude 上下文。手机首次连接、刷新或短暂断
 
 snapshot 只用于保持手机界面与 PC 当前状态一致，不用于重建 Claude 上下文，也不读取或下发扫码前的完整 JSONL/transcript。
 
-B1 后移动端可以保存多个已扫描 Session，并在列表和会话详情间切换。列表以 `sessionId` 为逻辑身份，重复扫码更新地址、Token 和有效期；App 前台且 JavaScript 运行期间，每个有效配对 Session 分别持有独立连接和内存状态，返回列表或切换详情不关闭连接。所有 Snapshot、事件和命令结果只归入其 `sessionId` 对应状态，列表从这些状态派生运行、等待决策、完成、错误和未读提示。原生 App 使用系统安全存储保存未过期 Pair Token，浏览器继续只使用 Fragment/内存。断线重连不触发事件 replay，只能用最新 snapshot 校正其可表达的状态；刷新或 App 销毁后不恢复消息正文。
+B1 后移动端可以保存多个已扫描 Session，并在列表和会话详情间切换。列表以 `sessionId` 为逻辑身份，重复扫码更新地址、Token 和有效期；App 前台且 JavaScript 运行期间，每个有效配对 Session 分别持有独立连接和内存状态，返回列表或切换详情不关闭连接。所有 Snapshot、事件和命令结果只归入其 `sessionId` 对应状态，列表从这些状态派生运行、等待决策、完成、错误和未读提示。原生 App 使用系统安全存储保存未过期 Pair Token，浏览器继续只使用 Fragment/内存。断线重连不触发事件 replay，只能用最新 snapshot 校正其可表达的状态；浏览器刷新后不恢复消息正文；D84 后 iOS 原生端通过受限私有 JSON 文件恢复本机已收到的展示消息和列表元数据，不恢复执行状态，不新增服务器历史 replay。设计见 `2026-10-22-ios-cache-design.md`。
 
 ## 5. 通信协议原则
 

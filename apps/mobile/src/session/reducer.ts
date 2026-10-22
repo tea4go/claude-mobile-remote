@@ -86,6 +86,7 @@ export interface Notice {
 }
 
 export interface MobileState {
+  cachedAt: number | null
   phase: Phase
   connection: ConnectionState
   sessionId: string
@@ -110,6 +111,7 @@ export interface MobileState {
 
 export function createInitialState(): MobileState {
   return {
+    cachedAt: null,
     phase: 'unpaired',
     connection: 'connecting',
     sessionId: '',
@@ -355,6 +357,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
   }
   const next: MobileState = {
     ...state,
+    cachedAt: null,
     phase: 'connected',
     connection: 'connected',
     sessionId: snapshot.sessionId,

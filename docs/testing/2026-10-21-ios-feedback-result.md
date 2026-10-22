@@ -2,6 +2,8 @@
 
 来源：C-ios-result.md。真机项不以编译通过替代。
 
+2026-10-22 更新：按用户要求，iOS 极光推送暂时停用以解除 Apple 签名阻塞。下文极光配置与离线推送用例保留为恢复接入时的历史参考，当前不得据此认为极光仍在 App 中运行。在线事件本地通知继续可用；退出 App 后不接收新事件通知。
+
 2026-10-21 用户安排：本轮先提交保存，真机/系统通知验收延至 2026-10-22，今天不继续验证；未将人工门禁标记为通过。截图保留本地，不纳入本次代码提交。
 
 ## 对应修复
@@ -12,9 +14,9 @@
 | 1.2 上传后断开、重连无正文 | 修复附件显示文字与执行提示不同导致的协议误判；WhaleTerm 回复块从 32 扩大到 4096 rune，减少突发溢出；快照累积最新一轮正文并避免刷新清空 | 发图后继续多轮、长回复、中断网络后重连最新一轮 |
 | 2 工具与详情 UI | v4 下发最多 16 KiB 纯文本工具结果并提示截断；v3/v2 兼容；抽屉限高内部滚动；运行中停止替换发送、加载状态、删除常驻技术提示 | Bash/Read/问答/MCP 结果与长审批抽屉 |
 | 3/4 机器与首页 | 配对携带稳定 pcId 和 macOS ComputerName；首页机器/项目背景/会话白卡分层 | 重启新版 WhaleTerm、重新打开 Remote，并重扫原 Session 更新旧配对元数据；核对首页与 PC 管理 |
-| 5 系统通知 | JPush 6.2.2/JCore noidfa 5.5.1 原生注册、APNs token、通知点击；按配对派生 tag，PC 独立订阅经极光发送，后台/退出不依赖手机 WS | 未配置 AppKey/APNs/PC 密钥，真实发送未执行；按下列配置后验收 |
+| 5 系统通知 | 原极光实现已暂时从 iOS App 取消链接和注册；保留在线本地提醒与通知点击定位，PC 发送实现保留 | 极光离线推送验收暂停；真机本地提醒仍待复验 |
 
-## 极光配置
+## 极光配置（暂停接入，恢复时参考）
 
 ### iOS
 
@@ -26,6 +28,12 @@ cp apps/mobile/ios/App/Push.local.xcconfig.example apps/mobile/ios/App/Push.loca
 ```
 
 在 `Push.local.xcconfig` 填入极光控制台该 iOS 应用的 AppKey。文件已忽略，不包含 Master Secret。Bundle ID 必须与极光应用、Apple App ID、APNs 凭证匹配。在极光控制台配置该应用的 APNs 凭证，使用具有 Push Notifications 能力的签名。Debug 使用开发环境，Release 使用生产环境；工程已添加相应 entitlement。
+
+2026-10-22 真机 Build 排查：Xcode 26.2 对当前 `App` 工程执行 Debug `generic/platform=iOS` 有签名构建，签名阶段报自动签名的开发 Provisioning Profile 缺少 Push Notifications capability 和 `aps-environment` entitlement。临时清空 `CODE_SIGN_ENTITLEMENTS` 仍报缺 Push Notifications，因为项目同时声明了该 capability。此前无签名 arm64 编译通过不能代表真机签名通过。需要在 Apple Developer 中为 `com.lingsizhang.claudemobileremote` 对应的 App ID 启用 Push Notifications，重新生成或刷新开发 Provisioning Profile，并在 Xcode 的 Signing & Capabilities 确认 Team、Bundle ID 与自动签名，重新 Build/Run。当前仓库不能代替 Apple 账号更新签名资料；此次没有物理 iPhone 安装或推送送达结论。
+
+2026-10-22 暂停处理：移除 iOS 工程 Push capability、entitlement 构建设置、JPush/JCore 链接与原生注册；脚本不再要求下载 SDK。Web 构建及 `cap sync ios` 后，以 Xcode 26.2 执行 Debug `generic/platform=iOS` 有签名构建 **BUILD SUCCEEDED**，签名使用原 `iOS Team Provisioning Profile: com.lingsizhang.claudemobileremote`，签名 entitlements 无 `aps-environment`。未安装/操作物理 iPhone；极光和 APNs 送达未验证。恢复极光时需重新接入 SDK 和 Push capability，并准备含该能力的签名资料。
+
+2026-10-22 Xcode 真机复核：在用户已打开的 Xcode 中，选中其 iPhone 时出现 5 个 `Missing package product` 错误（AparajitaCapacitorSecureStorage、CapacitorApp、CapacitorBarcodeScanner、CapacitorKeyboard、CapacitorPreferences）。各本地 Package.swift 均存在；通过 File > Packages > Resolve Package Versions 重建依赖图后，Xcode 对该设备显示 `Build Succeeded`，随后 Run 显示 `Running App on 我从来都不是你的热点`，控制台出现 App 运行日志。`scripts/macos/3_ios_device.sh` 已在 `cap sync ios` 后增加依赖解析；命令成功列出 9 个 Swift Package，脚本语法/help 与 diff 检查通过。当前仅证实构建、安装和启动，功能体验及本地通知仍待用户真机验收；极光推送保持暂停。
 
 ### PC（WhaleTerm / Standalone CLI）
 

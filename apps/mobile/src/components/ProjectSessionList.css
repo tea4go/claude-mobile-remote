@@ -21,11 +21,11 @@
 }
 
 .project-session-list__pc-title {
-  margin: 0 4px -7px;
+  margin: 0 4px;
   color: #6e6e73;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
-  line-height: 18px;
+  line-height: 22px;
 }
 
 .project-session-list__group {
@@ -42,34 +42,11 @@
   background: #fff;
 }
 
-.project-session-list__group .adm-list-header {
-  padding: 0 4px 6px;
-  color: #6e6e73;
-}
-
-.project-session-list__group-heading {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.project-session-list__group-heading span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-}
-
-.project-session-list__group-heading strong {
-  color: #3a3a3c;
-  font-size: 13px;
-  font-weight: 500;
-}
-
 .project-session-list__item .adm-list-item-content-main {
   min-width: 0;
-  padding: 8px 0;
+  padding: 16px 0;
+  min-height: 72px;
+  box-sizing: border-box;
 }
 
 .project-session-list__item .adm-list-item-content-extra {
@@ -86,6 +63,9 @@
 }
 
 .project-session-list__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -106,13 +86,13 @@
 
 .project-session-list__session-title {
   min-width: 0;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .project-session-list__preview {
   color: var(--adm-color-weak);
-  font-size: 12px;
-  line-height: 17px;
+  font-size: 13px;
+  line-height: 20px;
 }
 
 .project-session-list__unread {
@@ -158,8 +138,8 @@
 }
 
 .project-session-list__more {
-  min-width: 30px;
-  min-height: 30px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
   color: var(--adm-color-weak);
 }
@@ -187,9 +167,6 @@
   font-size: 16px;
 }
 
-.project-session-list__pc { gap: 12px; }
-.project-session-list__pc-title { color: #333; font-size: 16px; line-height: 24px; margin: 0 4px; }
-.project-session-list__group { padding: 12px 10px 10px; border-radius: 18px; background: #e6e8ef; }
-.project-session-list__group .adm-list-header { padding: 0 3px 9px; }
-.project-session-list__group-heading strong { font-weight: 600; }
-.project-session-list__group .adm-list-item { background: #fff; }
+.project-session-list__directory { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8e8e93; font-size: 12px; line-height: 20px; }
+.project-session-list__group .adm-list-item { min-height: 100px; }
+.project-session-list__group .adm-list-item-content-extra { max-width: 34%; }

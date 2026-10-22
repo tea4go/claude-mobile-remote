@@ -15,7 +15,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 require_ios_tools
-ensure_jpush_sdk
 if [[ -z "$simulator" ]]; then
   devices="$(xcrun simctl list devices available)"
   simulator="$(printf '%s\n' "$devices" | sed -nE 's/^[[:space:]]+(iPhone[^()]*) \(([0-9A-Fa-f-]+)\) \((Booted|Shutdown)\)[[:space:]]*$/\2/p' | awk 'NR == 1 { print }')"
