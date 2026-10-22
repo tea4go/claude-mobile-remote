@@ -2,11 +2,13 @@ import { BusinessError } from '@kit.BasicServicesKit'
 import { webSocket } from '@kit.NetworkKit'
 import { decodeServerMessage } from './decode'
 import type {
+  Attachment,
   DomainEvent,
   EmptyPayload,
   ErrorInfo,
   HelloPayload,
   PairingPayload,
+  PermissionMode,
   QuestionAnswer,
   ServerMessage,
   SessionSnapshot,
@@ -43,7 +45,20 @@ export interface CancelQueuedCommandPayload {
   requestId: string
 }
 
+export interface SendAttachmentsPayload {
+  kind: 'send_attachments'
+  text: string
+  attachments: Array<Attachment>
+}
+
+export interface SetPermissionModePayload {
+  kind: 'set_permission_mode'
+  permissionMode: PermissionMode
+}
+
 export type CommandPayload =
+  | SetPermissionModePayload
+  | SendAttachmentsPayload
   | SendTextCommandPayload
   | ResolveActionDecisionPayload
   | ResolveActionAnswersPayload
@@ -345,6 +360,16 @@ export class ProtocolClient {
     socket.close().catch((_err: BusinessError) => {})
   }
 
+  sendAttachments(text: string, attachments: Array<Attachment>, commandId: string): SendResult {
+    const payload: SendAttachmentsPayload = { kind: 'send_attachments', text, attachments }
+    return this.sendCommand(commandId, payload)
+  }
+
+  setPermissionMode(permissionMode: PermissionMode, commandId: string): SendResult {
+    const payload: SetPermissionModePayload = { kind: 'set_permission_mode', permissionMode }
+    return this.sendCommand(commandId, payload)
+  }
+
   sendText(text: string, commandId: string): SendResult {
     const payload: SendTextCommandPayload = { kind: 'send_text', text }
     return this.sendCommand(commandId, payload)
@@ -413,11 +438,15 @@ export class ProtocolClient {
       this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'send called before socket open'))
       return
     }
-    this.socket.send(frame).then((value: boolean) => {
+    const generation = this.generation
+    const socket = this.socket
+    socket.send(frame).then((value: boolean) => {
+      if (generation !== this.generation || this.socket !== socket) return
       if (!value) {
         this.terminate('DISCONNECTED', makeError('socket_error', 'socket send request failed'))
       }
     }).catch((err: BusinessError) => {
+      if (generation !== this.generation || this.socket !== socket) return
       this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket send failed'))
     })
   }
@@ -463,15 +492,15 @@ export class ProtocolClient {
       return
     }
 
-    if (message.version === PROTOCOL_VERSION && this.wireVersion === PREFERRED_PROTOCOL_VERSION &&
-      this.stage === 'AUTHENTICATING' && message.type === 'hello_ack') {
-      this.wireVersion = PROTOCOL_VERSION
+    const legacy = message.version === 2 || message.version === 3
+    if (legacy && message.version < this.wireVersion && this.stage === 'AUTHENTICATING' && message.type === 'hello_ack') {
+      this.wireVersion = message.version
     }
-    const fallbackError = message.type === 'error' && this.stage === 'AUTHENTICATING' &&
-      this.wireVersion === PREFERRED_PROTOCOL_VERSION && message.version === PROTOCOL_VERSION &&
-      message.payload.code === 'unsupported_version' && message.payload.expectedVersion === PROTOCOL_VERSION
-    const legacyUnauthorized = message.type === 'error' && this.stage === 'AUTHENTICATING' &&
-      this.wireVersion === PREFERRED_PROTOCOL_VERSION && message.version === PROTOCOL_VERSION &&
+    const fallbackError = message.type === 'error' && this.stage === 'AUTHENTICATING' && legacy &&
+      message.payload.code === 'unsupported_version' &&
+      (message.payload.expectedVersion === 2 || message.payload.expectedVersion === 3) &&
+      message.payload.expectedVersion < this.wireVersion
+    const legacyUnauthorized = message.type === 'error' && this.stage === 'AUTHENTICATING' && legacy &&
       message.payload.code === 'unauthorized'
     if (message.version !== this.wireVersion && !fallbackError && !legacyUnauthorized) {
       this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'message version changed'))
@@ -599,7 +628,7 @@ export class ProtocolClient {
       case 'error':
         if (fallbackError) {
           this.close()
-          this.wireVersion = PROTOCOL_VERSION
+          this.wireVersion = message.payload.expectedVersion ?? PROTOCOL_VERSION
           this.connect()
           return
         }

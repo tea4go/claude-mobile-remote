@@ -1,5 +1,7 @@
 # D2 HarmonyOS NEXT 与 Android 功能拉齐实施计划
 
+> 历史 D2 计划。2026-10-22 同步工作见 `2026-10-22-harmony-parity-plan.md`，原生能力与 v4 范围按 D86 执行。
+
 > 执行方式：先补齐列表与导航，再补齐详情交互和消息流，最后用主工作区 `devecocli build --modules entry@default` 复验。Git 写操作仍需用户单独授权。
 
 **Goal:** 让 `apps/harmony` 具备当前 Android 壳所承载的 `apps/mobile` 业务能力，包括会话列表、完整待处理事项交互、取消能力、答案回显和更完整的消息展示。

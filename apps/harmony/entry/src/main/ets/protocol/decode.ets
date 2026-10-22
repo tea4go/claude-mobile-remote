@@ -4,6 +4,8 @@ import {
   BLOCK_KIND_VALUES,
   EVENT_KIND_VALUES,
   INPUT_SOURCE_VALUES,
+  PERMISSION_MODE_VALUES,
+  type PermissionMode,
   MAX_TEXT_BYTES,
   PROTOCOL_VERSION,
   PREFERRED_PROTOCOL_VERSION,
@@ -65,6 +67,7 @@ interface SnapshotPayloadCandidate {
 }
 
 interface SessionSnapshotCandidate {
+  permissionMode?: string
   sessionId?: string
   sessionStatus?: string
   sessionError?: Object | null
@@ -97,6 +100,7 @@ interface EventPayloadCandidate {
 }
 
 interface EventCandidate {
+  permissionMode?: string
   seq?: number
   kind?: string
   sessionId?: string
@@ -134,6 +138,8 @@ interface ToolResultBlockCandidate {
   kind?: string
   toolUseId?: string
   isError?: boolean
+  output?: string
+  truncated?: boolean
 }
 
 interface ToolApprovalCandidate {
@@ -207,6 +213,7 @@ interface UnsupportedPayloadCandidate {
 const ENVELOPE_KEYS: Array<string> = ['version', 'type', 'sessionId', 'commandId', 'requestId', 'seq', 'payload']
 const SNAPSHOT_PAYLOAD_KEYS: Array<string> = ['connectionStatus', 'snapshot']
 const SESSION_SNAPSHOT_KEYS: Array<string> = [
+  'permissionMode',
   'sessionId',
   'sessionStatus',
   'sessionError',
@@ -220,6 +227,7 @@ const TURN_SNAPSHOT_KEYS: Array<string> = ['status', 'requestId', 'source', 'mes
 const ERROR_INFO_KEYS: Array<string> = ['code', 'message']
 const EVENT_PAYLOAD_KEYS: Array<string> = ['event']
 const EVENT_KEYS: Array<string> = [
+  'permissionMode',
   'seq',
   'kind',
   'sessionId',
@@ -244,7 +252,7 @@ const TOOL_USE_BLOCK_KEYS: Array<string> = [
   'preview',
   'mcpServer',
 ]
-const TOOL_RESULT_BLOCK_KEYS: Array<string> = ['id', 'kind', 'toolUseId', 'isError']
+const TOOL_RESULT_BLOCK_KEYS: Array<string> = ['id', 'kind', 'toolUseId', 'isError', 'output', 'truncated']
 const TOOL_APPROVAL_KEYS: Array<string> = [
   'actionId',
   'requestId',
@@ -558,6 +566,10 @@ function decodeContentBlock(value: Object | null): ContentBlock {
     toolUseId: readNonEmptyString(resultCandidate.toolUseId, 'toolUseId'),
     isError: readBoolean(resultCandidate.isError, 'isError'),
   }
+  const output = readOptionalString(resultCandidate.output, 'output')
+  if (utf8ByteLength(output) > 16384) fail('tool output exceeds limit')
+  if (output.length > 0) result.output = output
+  if (resultCandidate.truncated !== undefined) result.truncated = readBoolean(resultCandidate.truncated, 'truncated')
   return result
 }
 
@@ -741,11 +753,16 @@ function decodeTurnSnapshot(value: Object | null): TurnSnapshot {
 
 function displayField(value: string | undefined, field: string, version: number): string | undefined {
   if (value === undefined) return undefined
-  if (version !== PREFERRED_PROTOCOL_VERSION || value.length === 0) fail(`invalid ${field} display field`)
+  if (typeof value !== 'string' || version < 3 || value.length === 0) fail(`invalid ${field} display field`)
   if (field === 'projectCwd' && value.length > 4096) fail('project cwd is too long')
   if (field === 'sessionTitle' && Array.from(value).length > 80) fail('session title is too long')
   if (field.endsWith('At') && (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value) || Number.isNaN(Date.parse(value)))) fail(`invalid ${field} timestamp`)
   return value
+}
+
+function permissionMode(value: string | undefined): PermissionMode {
+  if (value === undefined || PERMISSION_MODE_VALUES.indexOf(value) < 0) fail('invalid permission mode')
+  return value as PermissionMode
 }
 
 function decodeSessionSnapshot(value: Object | null, version: number): SessionSnapshot {
@@ -769,6 +786,7 @@ function decodeSessionSnapshot(value: Object | null, version: number): SessionSn
   snapshot.sessionTitle = displayField(candidate.sessionTitle, 'sessionTitle', version)
   snapshot.createdAt = displayField(candidate.createdAt, 'createdAt', version)
   snapshot.lastActivityAt = displayField(candidate.lastActivityAt, 'lastActivityAt', version)
+  if (candidate.permissionMode !== undefined) snapshot.permissionMode = permissionMode(candidate.permissionMode)
   return snapshot
 }
 
@@ -841,9 +859,12 @@ function decodeEventPayload(value: Object | null, version: number): EventPayload
   event.sessionTitle = displayField(eventCandidate.sessionTitle, 'sessionTitle', version)
   event.lastActivityAt = displayField(eventCandidate.lastActivityAt, 'lastActivityAt', version)
   if (event.sessionTitle !== undefined && event.kind !== 'turn_started') fail('title requires turn_started')
+  if (event.kind === 'permission_mode_changed') event.permissionMode = permissionMode(eventCandidate.permissionMode)
+  else if (eventCandidate.permissionMode !== undefined) fail('unexpected permission mode')
 
   if (event.kind === 'content_block') {
     event.block = decodeContentBlock(eventCandidate.block !== undefined ? eventCandidate.block : null)
+    if (version < 4 && event.block.kind === 'tool_result' && (event.block.output !== undefined || event.block.truncated === true)) fail('tool output requires v4')
   }
   if (event.kind === 'action_required') {
     event.pendingAction = decodePendingAction(
@@ -940,7 +961,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
 
   const envelope = requireAllowedObject(parsedValue, 'message', ENVELOPE_KEYS) as EnvelopeCandidate
   const version = readInteger(envelope.version, 'version')
-  if (version !== PROTOCOL_VERSION && version !== PREFERRED_PROTOCOL_VERSION) {
+  if (version !== PROTOCOL_VERSION && version !== 3 && version !== PREFERRED_PROTOCOL_VERSION) {
     fail('unsupported protocol version')
   }
 

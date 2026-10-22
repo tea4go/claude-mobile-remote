@@ -83,34 +83,24 @@ export struct StatusBar {
     return this.state.sessionError
   }
 
+  private statusText(): string {
+    if (this.state.connection !== ConnectionStage.READY) return '待同步'
+    if (this.state.sessionStatus === 'failed') return '会话失败'
+    if (this.state.sessionStatus === 'stopped') return '会话已停止'
+    const status = this.turnStatusText()
+    if (status === 'waiting') return '等待处理'
+    if (status === 'running') return '进行中'
+    if (status === 'done') return '已完成'
+    if (status === 'failed') return '本轮失败'
+    if (status === 'cancelled') return '已取消'
+    return '空闲'
+  }
   build() {
-    Column({ space: 8 }) {
-      Text(`连接：${connectionLabel(this.state.connection)}`)
-        .id('connection-state')
-        .fontWeight(FontWeight.Medium)
-      Text(`Session：${this.sessionStatusText()}`)
-        .id('session-state')
-      Text(`Turn：${this.turnStatusText()}`)
-        .id('turn-state')
-      Text(`排队：${this.state.queueDepthHint}`)
-      Text(`Session ID：${summarizeSessionId(this.state.sessionId.length > 0 ? this.state.sessionId : 'no-session')}`)
-        .fontSize(13)
-        .opacity(0.7)
-      if (this.errorInfo() !== null) {
-        Text(`错误：${this.errorInfo()!.message}`)
-          .fontSize(13)
-          .fontColor('#c0392b')
-      }
-      if (this.state.lastNotice !== null) {
-        Text(`提示：${this.state.lastNotice.message}`)
-          .fontSize(13)
-          .fontColor('#8a5a00')
-      }
-    }
-    .padding(16)
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .backgroundColor('#ffffff')
-    .borderRadius(12)
+    Row({ space: 8 }) {
+      Text(connectionLabel(this.state.connection)).id('connection-state').fontSize(13)
+      Text(this.statusText()).id('turn-state').fontSize(13).fontWeight(FontWeight.Medium)
+      Blank()
+      if (this.state.queueDepthHint > 0) { Text(`排队 ${this.state.queueDepthHint}`).fontSize(12) }
+    }.padding({ left: 16, right: 16, top: 8, bottom: 8 }).width('100%').backgroundColor('#ffffff')
   }
 }

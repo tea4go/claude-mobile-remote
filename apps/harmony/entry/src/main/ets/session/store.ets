@@ -6,12 +6,15 @@ import {
   type ManagementResultInfo,
   type ProtocolClientObserver,
 } from '../protocol/client'
+import { validateAttachments } from './attachments'
 import { decodePairingPayload } from '../protocol/pairing'
 import type {
+  Attachment,
   CommandKind,
   DomainEvent,
   ErrorInfo,
   PairingPayload,
+  PermissionMode,
   SessionSnapshot,
   UnsupportedCode,
 } from '../protocol/types'
@@ -47,6 +50,11 @@ export interface HarmonySessionStore {
   reset(): void
   reconnect(): boolean
   sendText(text: string): boolean
+  setPermissionMode(mode: PermissionMode): boolean
+  sendAttachments(text: string, attachments: Array<Attachment>): boolean
+  restoreDisplay(state: HarmonySessionState): void
+  setEventListener(listener: ((event: DomainEvent) => void) | null): void
+  setSendListener(listener: ((accepted: boolean) => void) | null): void
   resolveAction(resolution: ActionResolution): boolean
   cancelTurn(requestId: string): boolean
   cancelQueued(requestId: string): boolean
@@ -119,6 +127,26 @@ class SessionStoreObserver implements ProtocolClientObserver {
 class SessionStore implements HarmonySessionStore {
   private state: HarmonySessionState = createInitialHarmonySessionState()
   private client: ProtocolClient | null = null
+  private pendingAttachments: Array<Attachment> = []
+  private eventListener: ((event: DomainEvent) => void) | null = null
+  private sendListener: ((accepted: boolean) => void) | null = null
+  private commandTimer: number = -1
+
+  setEventListener(listener: ((event: DomainEvent) => void) | null): void { this.eventListener = listener }
+  setSendListener(listener: ((accepted: boolean) => void) | null): void { this.sendListener = listener }
+  restoreDisplay(state: HarmonySessionState): void {
+    if (this.client !== null) return
+    this.state = state
+    this.emit()
+  }
+
+  sendAttachments(text: string, attachments: Array<Attachment>): boolean {
+    if (!this.state.canSend || validateAttachments(attachments).length > 0) return false
+    this.pendingAttachments = attachments.slice()
+    return this.sendCommand('send_attachments', text, '', (commandId: string) =>
+      this.client !== null && this.client.sendAttachments(text, attachments, commandId).ok)
+  }
+
   private readonly observer: SessionStoreObserver
   private listeners: Array<StateListener> = []
   private pendingManagement: { operation: 'create_session' | 'stop_session'; commandId: string } | null = null
@@ -148,19 +176,22 @@ class SessionStore implements HarmonySessionStore {
 
   connectWithPairing(pairing: PairingPayload): void {
     if (this.state.pairing !== null && this.state.pairing.sessionId !== pairing.sessionId) {
-      this.pendingManagement = null
+      this.abandonManagement()
     }
     this.start(pairing)
   }
 
   disconnect(): void {
-    this.pendingManagement = null
+    if (this.state.pendingCommand?.kind === 'send_text' || this.state.pendingCommand?.kind === 'send_attachments') this.sendListener?.(false)
+    this.pendingAttachments = []
+    this.abandonManagement()
+    if (this.state.pendingCommand !== null) this.dispatch(commandUnknown(this.state.pendingCommand.commandId))
     this.detachClient()
     this.dispatch(socketClosed(makeError('closed', 'connection closed by user')))
   }
 
   reset(): void {
-    this.pendingManagement = null
+    this.abandonManagement()
     this.detachClient()
     this.state = createInitialHarmonySessionState()
     this.emit()
@@ -176,12 +207,20 @@ class SessionStore implements HarmonySessionStore {
   }
 
   sendText(text: string): boolean {
+    if (!this.state.canSend || text.trim().length === 0) return false
+    this.pendingAttachments = []
     return this.sendCommand('send_text', text, '', (commandId: string) => {
       if (this.client === null) {
         return false
       }
       return this.client.sendText(text, commandId).ok
     })
+  }
+
+  setPermissionMode(mode: PermissionMode): boolean {
+    if (this.state.connection !== ConnectionStage.READY || (this.state.sessionStatus !== 'ready' && this.state.sessionStatus !== 'starting')) return false
+    return this.sendCommand('set_permission_mode', mode, '', (commandId: string) =>
+      this.client !== null && this.client.setPermissionMode(mode, commandId).ok)
   }
 
   resolveAction(resolution: ActionResolution): boolean {
@@ -221,6 +260,13 @@ class SessionStore implements HarmonySessionStore {
 
   setManagementListener(listener: ((result: ManagementResultInfo) => void) | null): void {
     this.managementListener = listener
+  }
+
+  private abandonManagement(): void {
+    const pending = this.pendingManagement
+    this.pendingManagement = null
+    if (pending !== null) this.managementListener?.({ operation: pending.operation, commandId: pending.commandId,
+      accepted: false, code: 'result_unknown', message: '操作结果未知，请核对电脑端状态' })
   }
 
   private sendManagement(operation: 'create_session' | 'stop_session'): boolean {
@@ -277,6 +323,7 @@ class SessionStore implements HarmonySessionStore {
 
   handleEvent(event: DomainEvent): void {
     this.dispatch(eventReceived(event))
+    if (this.state.connection === ConnectionStage.READY) this.eventListener?.(event)
   }
 
   handleUnsupported(code: UnsupportedCode, seq: number): void {
@@ -284,11 +331,20 @@ class SessionStore implements HarmonySessionStore {
   }
 
   handleCommandResult(result: CommandResultInfo): void {
+    if (this.commandTimer >= 0) clearTimeout(this.commandTimer)
+    this.commandTimer = -1
+    const isSend = this.state.pendingCommand?.kind === 'send_text' || this.state.pendingCommand?.kind === 'send_attachments'
     if (result.accepted) {
       this.dispatch(commandAccepted(result.commandId, result.requestId))
-      return
-    }
-    this.dispatch(commandRejected(result.commandId, result.code, result.message))
+      if (isSend && this.pendingAttachments.length > 0) {
+        this.state.messages.forEach((message) => {
+          if (message.kind === 'input' && message.requestId === result.requestId) message.attachments = this.pendingAttachments.slice()
+        })
+        this.emit()
+      }
+    } else this.dispatch(commandRejected(result.commandId, result.code, result.message))
+    this.pendingAttachments = []
+    if (isSend) this.sendListener?.(result.accepted)
   }
 
   handleManagementResult(result: ManagementResultInfo): void {
@@ -303,6 +359,10 @@ class SessionStore implements HarmonySessionStore {
   }
 
   handleClosed(info: CloseInfo): void {
+    if (this.commandTimer >= 0) clearTimeout(this.commandTimer)
+    this.commandTimer = -1
+    if (this.state.pendingCommand?.kind === 'send_text' || this.state.pendingCommand?.kind === 'send_attachments') this.sendListener?.(false)
+    this.pendingAttachments = []
     this.client = null
     if (info.pendingCommandId !== null && (this.pendingManagement === null || info.pendingCommandId !== this.pendingManagement.commandId)) {
       this.dispatch(commandUnknown(info.pendingCommandId))
@@ -324,6 +384,8 @@ class SessionStore implements HarmonySessionStore {
     targetId: string,
     sender: (commandId: string) => boolean,
   ): boolean {
+    // Do not replace the in-flight command before the protocol client rejects a second request.
+    if (this.state.pendingCommand !== null || this.pendingManagement !== null) return false
     if (this.client === null) {
       this.dispatch(localError(makeError('not_ready', 'connection is not ready')))
       return false
@@ -335,6 +397,15 @@ class SessionStore implements HarmonySessionStore {
       this.dispatch(commandRejected(commandId, 'send_failed', `${kind} rejected locally`))
       return false
     }
+    this.commandTimer = setTimeout(() => {
+      this.commandTimer = -1
+      if (this.state.pendingCommand?.commandId !== commandId) return
+      this.dispatch(commandUnknown(commandId))
+      this.detachClient()
+      this.dispatch(socketClosed(makeError('timeout', '结果未知，请核对电脑端后再发送；草稿已保留')))
+      this.pendingAttachments = []
+      this.sendListener?.(false)
+    }, 30000)
     return true
   }
 
@@ -355,14 +426,20 @@ class SessionStore implements HarmonySessionStore {
   }
 
   private dispatch(action: SessionAction): void {
+    const pending = this.state.pendingCommand
     this.state = reduceHarmonySessionState(this.state, action)
     if (this.state.connection === ConnectionStage.PROTOCOL_ERROR && this.client !== null) {
       this.detachClient()
+      this.pendingAttachments = []
+      if (pending?.kind === 'send_text' || pending?.kind === 'send_attachments') this.sendListener?.(false)
+      this.abandonManagement()
     }
     this.emit()
   }
 
   private detachClient(): void {
+    if (this.commandTimer >= 0) clearTimeout(this.commandTimer)
+    this.commandTimer = -1
     if (this.client === null) {
       return
     }
@@ -379,6 +456,12 @@ class SessionStore implements HarmonySessionStore {
   }
 
   private start(pairing: PairingPayload): void {
+    if (this.state.pendingCommand !== null) {
+      const id = this.state.pendingCommand.commandId
+      this.sendListener?.(false)
+      this.dispatch(commandUnknown(id))
+      this.pendingAttachments = []
+    }
     this.detachClient()
     this.dispatch(startConnect(pairing))
     this.attachClient(pairing)

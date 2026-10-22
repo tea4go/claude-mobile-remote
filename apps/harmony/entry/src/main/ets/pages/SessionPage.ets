@@ -1,5 +1,8 @@
+import { nativeLifecycle } from '../native/lifecycle'
+import { type ComposerDraft, emptyDraft } from '../session/attachments'
 import type {
   Question,
+  PermissionMode,
   QuestionAnswer,
 } from '../protocol/types'
 import type { HarmonySessionState } from '../session/model'
@@ -44,7 +47,19 @@ function hasAnswer(questionAnswers: Array<QuestionAnswer>, question: Question): 
 @Component
 export struct SessionPage {
   @Prop title: string = 'Claude Mobile Remote'
-  @Prop state: HarmonySessionState
+  @Prop @Watch('stateChanged') state: HarmonySessionState
+  @Prop draft: ComposerDraft = emptyDraft()
+  @Prop speechActive: boolean = false
+  @Prop selecting: boolean = false
+  onDraft: (text: string) => void = () => {}
+  onSelect: (kind: string) => void = () => {}
+  onRemoveAttachment: (index: number) => void = () => {}
+  onSpeech: () => void = () => {}
+  onStopSpeech: () => void = () => {}
+  onCancelSpeech: () => void = () => {}
+  @State private sheet: string = ''
+  private trackedAction: string = ''
+  private readonly scroller: Scroller = new Scroller()
   @Prop questionAnswers: Array<QuestionAnswer> = []
   @Prop capabilities: Array<string> = []
   @Prop managementBusy: boolean = false
@@ -52,7 +67,8 @@ export struct SessionPage {
   onBack: () => void = () => {}
   onReconnect: () => void = () => {}
   onDisconnect: () => void = () => {}
-  onSend: (text: string) => void = () => {}
+  onSend: () => void = () => {}
+  onPermissionMode: (mode: PermissionMode) => void = () => {}
   onAllowOnce: () => void = () => {}
   onAllowSession: () => void = () => {}
   onDeny: () => void = () => {}
@@ -98,161 +114,103 @@ export struct SessionPage {
     return this.cancelTarget().length > 0
   }
 
-  build() {
-    Column() {
-      Row({ space: 12 }) {
-        Button('返回')
-          .id('session-back-button')
-          .onClick(() => {
-            this.onBack()
-          })
-
-        Text(this.title)
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .layoutWeight(1)
-          .textAlign(TextAlign.Start)
-      }
-      .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-
-      Scroll() {
-        Column({ space: 16 }) {
-          StatusBar({
-            state: this.state,
-          })
-
-          if (this.managementFeedback.length > 0) {
-            Text(this.managementFeedback)
-              .fontSize(12)
-              .width('100%')
-          }
-
-          if (this.state.lastNotice !== null) {
-            Text(`提示：${this.state.lastNotice.message}`)
-              .id('session-notice')
-              .fontSize(12)
-              .fontColor('#8a5a00')
-              .width('100%')
-          }
-
-          QueuedSummary({
-            queuedRequests: this.state.queuedRequests,
-            cancelAllowed: this.commandReady(),
-            onCancelQueued: (requestId: string) => {
-              this.onCancelQueued(requestId)
-            },
-          })
-
-          if (this.hasCancelTarget()) {
-            Row({ space: 8 }) {
-              Button('取消当前 Turn')
-                .id('cancel-turn-button')
-                .enabled(this.commandReady())
-                .onClick(() => {
-                  this.onCancelTurn(this.cancelTarget())
-                })
-
-              if (this.cancelRequested()) {
-                Text('已请求取消')
-                  .fontSize(12)
-                  .opacity(0.7)
-              }
-            }
-          }
-
-          if (this.state.connection === ConnectionStage.PAIRING_INVALID) {
-            Text('配对已失效，请返回列表后重新配对。')
-              .fontColor('#c0392b')
-              .width('100%')
-          }
-
-          if (this.state.connection === ConnectionStage.PROTOCOL_ERROR) {
-            Text('当前状态已不可信，请重新连接获取最新状态。')
-              .fontColor('#c0392b')
-              .width('100%')
-          }
-
-          if (this.state.lastError !== null) {
-            Text(`错误：${this.state.lastError.message}`)
-              .fontColor('#c0392b')
-              .width('100%')
-          }
-
-          if (this.showReconnect()) {
-            Button('重新连接')
-              .id('reconnect-button')
-              .onClick(() => {
-                this.onReconnect()
-              })
-          }
-
-          Button('断开连接')
-            .id('disconnect-button')
-            .onClick(() => {
-              this.onDisconnect()
-            })
-
-          MessageList({
-            messages: this.state.messages,
-          })
-
-          if (this.state.pendingAction !== null) {
-            PendingSummary({
-              pendingAction: this.state.pendingAction,
-              questionAnswers: this.questionAnswers,
-              actionEnabled: this.state.canResolveAction,
-              cancelAllowed: this.commandReady(),
-              answersReady: this.answersReady(),
-              onAllowOnce: () => {
-                this.onAllowOnce()
-              },
-              onAllowSession: () => {
-                this.onAllowSession()
-              },
-              onDeny: () => {
-                this.onDeny()
-              },
-              onQuestionAnswerChange: (questionId: string, values: Array<string>) => {
-                this.onQuestionAnswerChange(questionId, values)
-              },
-              onSubmitAnswers: () => {
-                this.onSubmitAnswers()
-              },
-              onCancelTurn: (requestId: string) => {
-                this.onCancelTurn(requestId)
-              },
-            })
-          }
-        }
-        .padding(16)
-        .width('100%')
-        .alignItems(HorizontalAlign.Start)
-      }
-      .width('100%')
-      .layoutWeight(1)
-
-      Column() {
-        MessageComposer({
-          composerEnabled: this.state.canSend,
-          createSessionAvailable: this.capabilities.indexOf('create_session') >= 0,
-          createSessionEnabled: this.commandReady(),
-          onSend: (text: string) => {
-            this.onSend(text)
-          },
-          onCreateSession: () => {
-            this.onCreateSession()
-          },
-        })
-      }
-      .padding(16)
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
-      .backgroundColor('#ffffff')
+  aboutToAppear(): void {
+    this.stateChanged()
+    nativeLifecycle.detailBack = () => {
+      if (this.sheet.length === 0) return false
+      this.closeSheet(); return true
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#f5f7fa')
+  }
+  aboutToDisappear(): void { nativeLifecycle.detailBack = null }
+  private stateChanged(): void {
+    const id = this.state.pendingAction?.actionId ?? ''
+    if (id.length > 0 && id !== this.trackedAction) this.sheet = 'action'
+    if (id.length === 0 && this.sheet === 'action') this.sheet = ''
+    this.trackedAction = id
+  }
+  private closeSheet(): void {
+    if (this.sheet === 'action' && this.state.pendingAction !== null) {
+      if (this.commandReady()) this.onCancelTurn(this.state.pendingAction.requestId)
+      return
+    }
+    this.sheet = ''
+  }
+  @Builder
+  private drawer() {
+    Column({ space: 8 }) {
+      Row() {
+        Text(this.sheet === 'action' ? '待处理事项' : '排队消息').fontSize(18).layoutWeight(1)
+        Button(this.sheet === 'action' ? '取消本轮' : '关闭').height(44)
+          .enabled(this.sheet !== 'action' || this.commandReady()).onClick(() => this.closeSheet())
+      }.padding(12)
+      Scroll() {
+        Column() {
+          if (this.sheet === 'action' && this.state.pendingAction !== null) {
+            PendingSummary({ pendingAction: this.state.pendingAction, questionAnswers: this.questionAnswers,
+              actionEnabled: this.state.canResolveAction, cancelAllowed: this.commandReady(), answersReady: this.answersReady(),
+              onAllowOnce: this.onAllowOnce, onAllowSession: this.onAllowSession, onDeny: this.onDeny,
+              onQuestionAnswerChange: this.onQuestionAnswerChange, onSubmitAnswers: this.onSubmitAnswers,
+              onCancelTurn: this.onCancelTurn })
+          } else {
+            QueuedSummary({ queuedRequests: this.state.queuedRequests, cancelAllowed: this.commandReady(), onCancelQueued: this.onCancelQueued })
+          }
+        }.padding(16).width('100%')
+      }.layoutWeight(1).width('100%')
+    }.height('70%').width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 20, topRight: 20 })
+  }
+  build() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column() {
+        Row({ space: 8 }) {
+          Button('‹').width(44).height(44).accessibilityText('返回会话列表').onClick(() => this.onBack())
+          Text(this.title).fontSize(18).fontWeight(FontWeight.Bold).maxLines(1).layoutWeight(1)
+          Button('更多').height(44).onClick(() => {
+            ActionSheet.show({ title: '会话操作', sheets: [
+              { title: '重新连接', action: () => this.onReconnect() },
+              { title: '断开连接', action: () => this.onDisconnect() },
+              { title: this.capabilities.indexOf('stop_session') >= 0 ? '终止 Claude 会话' : '关闭', action: () => {
+                if (this.capabilities.indexOf('stop_session') >= 0 && this.commandReady()) this.onStopSession()
+              } },
+            ] })
+          })
+        }.padding(12).width('100%')
+        StatusBar({ state: this.state })
+        if (this.state.connection !== ConnectionStage.READY && this.state.messages.length > 0) {
+          Text('本机已收到的消息 · 当前状态待同步').fontSize(12).padding(6)
+        }
+        if (this.managementFeedback.length > 0) { Text(this.managementFeedback).fontSize(12).padding(6) }
+        if (this.state.lastError !== null) { Text(this.state.lastError.message).fontSize(12).fontColor('#b3261e').padding(6) }
+        if (this.state.lastNotice !== null) { Text(this.state.lastNotice.message).fontSize(12).padding(6) }
+        if (this.state.connection === ConnectionStage.PAIRING_INVALID) { Text('配对已失效，请重新扫码').fontColor('#b3261e') }
+        Row({ space: 8 }) {
+          if (this.state.pendingAction !== null) { Button('待处理事项').height(44).onClick(() => { this.sheet = 'action' }) }
+          if (this.state.queuedRequests.length > 0) { Button(`排队 ${this.state.queuedRequests.length}`).height(44).onClick(() => { this.sheet = 'queue' }) }
+          if (this.showReconnect()) { Button('重新连接').height(44).onClick(() => this.onReconnect()) }
+        }
+        Scroll(this.scroller) {
+          MessageList({ messages: this.state.messages })
+        }.layoutWeight(1).width('100%').padding(12)
+        Row() {
+          Blank()
+          Button('最新消息 ↓').height(32).fontSize(12).onClick(() => this.scroller.scrollEdge(Edge.Bottom))
+        }.padding({ right: 12 })
+        Column() {
+          MessageComposer({ draft: this.draft, composerEnabled: this.state.canSend,
+            permissionMode: this.state.permissionMode,
+            permissionEnabled: this.commandReady() && (this.state.sessionStatus === 'ready' || this.state.sessionStatus === 'starting'),
+            onPermissionMode: this.onPermissionMode,
+            createSessionAvailable: this.capabilities.indexOf('create_session') >= 0,
+            createSessionEnabled: this.commandReady(), running: this.hasCancelTarget(), cancelEnabled: this.commandReady(),
+            speechActive: this.speechActive, selecting: this.selecting,
+            onDraft: this.onDraft, onSelect: this.onSelect, onRemoveAttachment: this.onRemoveAttachment,
+            onSpeech: this.onSpeech, onStopSpeech: this.onStopSpeech, onCancelSpeech: this.onCancelSpeech,
+            onSend: this.onSend, onCreateSession: this.onCreateSession, onCancel: () => this.onCancelTurn(this.cancelTarget()) })
+        }.padding(12).width('100%').backgroundColor('#ffffff')
+      }.width('100%').height('100%').backgroundColor('#f5f7fa')
+      if (this.sheet.length > 0) {
+        Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => this.closeSheet())
+        this.drawer()
+      }
+    }.width('100%').height('100%')
   }
 }
