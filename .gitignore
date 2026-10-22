@@ -26,7 +26,7 @@ go.work
 go.work.sum
 
 # go.mod/go.sum 为本地状态（含本地 replace），基准见 go.mod.base
-go.mod
+# go.mod
 go.sum
 
 # env file
