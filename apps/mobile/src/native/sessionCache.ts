@@ -13,7 +13,7 @@ export interface SessionCachePort {
   clearSessionCache(): Promise<void>
 }
 const plugin = registerPlugin<SessionCachePort>('SessionExperience')
-export const iosSessionCache = Capacitor.getPlatform() === 'ios' ? plugin : null
+export const nativeSessionCache = ['ios', 'android'].includes(Capacitor.getPlatform()) ? plugin : null
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

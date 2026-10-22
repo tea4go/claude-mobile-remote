@@ -14,7 +14,7 @@ export interface ExperiencePort {
 }
 export type ReminderKind = 'approval' | 'question' | 'completed' | 'failed' | 'stopped'
 const plugin = registerPlugin<ExperiencePort>('SessionExperience')
-export const iosExperience = Capacitor.getPlatform() === 'ios' ? plugin : null
+export const nativeExperience = ['ios', 'android'].includes(Capacitor.getPlatform()) ? plugin : null
 
 export function reminderKind(event: DomainEvent): ReminderKind | null {
   if (event.kind === 'action_required') return event.pendingAction?.kind === 'tool_approval' ? 'approval' : 'question'
