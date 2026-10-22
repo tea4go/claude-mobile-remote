@@ -21,7 +21,7 @@ export default function PCSettings({ sessions, onRemovePC }: PCSettingsProps) {
   return <div className="pc-settings">
     <p>连接状态来自本机已配对会话。移除设备只清理本机配对，不结束 PC 上的 Claude 会话。</p>
     <List>
-      {groups.map((group) => <List.Item key={group.key} description={group.legacy ? '旧版地址分组' : `机器编码 ${group.sessions[0]!.pcId}`}
+      {groups.map((group) => <List.Item key={group.key}
         extra={<div className="pc-settings-heading-actions">
           {confirmKey === group.key && <Button size="mini" fill="none" onClick={() => setConfirmKey(null)}>取消</Button>}
           <Button size="mini" color="danger" fill="none" onClick={() => {

@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { upsertSession, createInitialSessionStore } from '../session/store'
 import PCSettings from './PCSettings'
-import { groupPCs } from './pcGroups'
+import { displayPCName, groupPCs } from './pcGroups'
 import { createInitialState } from '../session/reducer'
 
 const pcId = '0123456789abcdef0123456789abcdef'
@@ -46,4 +46,16 @@ test('机器名优先展示，连接状态由活跃会话归并', () => {
   render(<PCSettings sessions={[{ ...connected, runtimeState: { ...createInitialState(), connection: 'connected' } }]} onRemovePC={vi.fn()} />)
   expect(screen.getByText('zhanglingsiMac-mini.local')).toBeInTheDocument()
   expect(screen.getByText(/已连接/)).toBeInTheDocument()
+})
+
+
+test('repairs previously persisted Latin-1 names and hides machine code', () => {
+  const name = 'zhanglingsi的Mac mini'
+  const oldName = Array.from(new TextEncoder().encode(name), (byte) => String.fromCharCode(byte)).join('')
+  expect(displayPCName(oldName)).toBe(name)
+  expect(displayPCName('André')).toBe('André')
+  const record = { ...session('a', 'ws://pc/ws', pcId), pcName: oldName }
+  render(<PCSettings sessions={[record]} onRemovePC={vi.fn()} />)
+  expect(screen.getByText(name)).toBeInTheDocument()
+  expect(screen.queryByText(/机器编码/)).not.toBeInTheDocument()
 })

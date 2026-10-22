@@ -1,6 +1,5 @@
-import Capacitor
-import JPushBridge
 import CryptoKit
+import Capacitor
 import Speech
 import AVFoundation
 import UserNotifications
@@ -10,6 +9,10 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "SessionExperiencePlugin"
     public let jsName = "SessionExperience"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "readSessionCache", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "writeSessionCache", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "removeSessionCache", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clearSessionCache", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "recognize", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopSpeech", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelSpeech", returnType: CAPPluginReturnPromise),
@@ -19,6 +22,100 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "notify", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearNotifications", returnType: CAPPluginReturnPromise)
     ]
+    private let cacheQueue = DispatchQueue(label: "cmr.session-cache", qos: .utility)
+    private let cacheLimit = 2 * 1024 * 1024
+
+    private func cacheDirectory() throws -> URL {
+        let manager = FileManager.default
+        var directory = try manager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("SessionDisplayCache", isDirectory: true)
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try directory.setResourceValues(values)
+        return directory
+    }
+
+    private func cacheURL(_ call: CAPPluginCall) throws -> URL {
+        guard let id = call.getString("sessionId"), !id.isEmpty, id.utf8.count <= 1024 else { throw NSError(domain: "cache", code: 1) }
+        let name = SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
+        return try cacheDirectory().appendingPathComponent(name + ".json")
+    }
+
+    private func pruneCache(_ directory: URL) throws {
+        let manager = FileManager.default
+        let urls = try manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey], options: .skipsHiddenFiles)
+        var retained: [(URL, Date, Int)] = []
+        let oldest = Date().addingTimeInterval(-30 * 24 * 60 * 60)
+        for url in urls where url.pathExtension == "json" {
+            let values = try url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            let date = values.contentModificationDate ?? .distantPast
+            let size = values.fileSize ?? 0
+            if date < oldest || size > cacheLimit { try manager.removeItem(at: url) }
+            else { retained.append((url, date, size)) }
+        }
+        var total = retained.reduce(0) { $0 + $1.2 }
+        for entry in retained.sorted(by: { $0.1 < $1.1 }) where total > 20 * 1024 * 1024 {
+            try manager.removeItem(at: entry.0)
+            total -= entry.2
+        }
+    }
+
+    private func cacheTask(_ call: CAPPluginCall, _ operation: @escaping () throws -> JSObject) {
+        cacheQueue.async {
+            do {
+                let result = try operation()
+                DispatchQueue.main.async { call.resolve(result) }
+            } catch {
+                DispatchQueue.main.async { call.reject("本地消息缓存暂不可用") }
+            }
+        }
+    }
+
+    @objc func readSessionCache(_ call: CAPPluginCall) {
+        cacheTask(call) {
+            let url = try self.cacheURL(call)
+            try self.pruneCache(url.deletingLastPathComponent())
+            guard FileManager.default.fileExists(atPath: url.path) else { return ["data": NSNull()] }
+            let data = try Data(contentsOf: url)
+            guard data.count <= self.cacheLimit, let text = String(data: data, encoding: .utf8) else {
+                try FileManager.default.removeItem(at: url)
+                return ["data": NSNull()]
+            }
+            return ["data": text]
+        }
+    }
+
+    @objc func writeSessionCache(_ call: CAPPluginCall) {
+        cacheTask(call) {
+            let url = try self.cacheURL(call)
+            guard let text = call.getString("data"), let data = text.data(using: .utf8), data.count <= self.cacheLimit,
+                  let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  envelope["sessionId"] as? String == call.getString("sessionId"), envelope["version"] as? Int == 1 else {
+                throw NSError(domain: "cache", code: 2)
+            }
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            try self.pruneCache(url.deletingLastPathComponent())
+            return [:]
+        }
+    }
+
+    @objc func removeSessionCache(_ call: CAPPluginCall) {
+        cacheTask(call) {
+            let url = try self.cacheURL(call)
+            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+            return [:]
+        }
+    }
+
+    @objc func clearSessionCache(_ call: CAPPluginCall) {
+        cacheTask(call) {
+            let directory = try self.cacheDirectory()
+            try FileManager.default.removeItem(at: directory)
+            return [:]
+        }
+    }
+
     private let engine = AVAudioEngine()
     private var speechCall: CAPPluginCall?
     private var recognizer: SFSpeechRecognizer?
@@ -140,52 +237,27 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func notificationStatus(_ call: CAPPluginCall) {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             let allowed = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
-            call.resolve(["enabled": allowed && UserDefaults.standard.bool(forKey: self.preferenceKey), "remoteConfigured": SessionPush.shared.configured, "remoteReady": SessionPush.shared.ready, "pushError": SessionPush.shared.lastError])
+            call.resolve(["enabled": allowed && UserDefaults.standard.bool(forKey: self.preferenceKey), "remoteConfigured": false, "remoteReady": false])
         }
     }
     @objc func setNotifications(_ call: CAPPluginCall) {
         guard call.getBool("enabled") == true else {
             UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
             UNUserNotificationCenter.current().removeAllDeliveredNotifications()
-            DispatchQueue.main.async { SessionPush.shared.disable { code in
-                if code == 0 {
-                    UserDefaults.standard.set(false, forKey: self.preferenceKey)
-                    call.resolve(["enabled": false])
-                } else { call.reject("push_disable_failed") }
-            } }; return
+            UserDefaults.standard.set(false, forKey: preferenceKey)
+            call.resolve(["enabled": false]); return
         }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { allowed, _ in
             UserDefaults.standard.set(allowed, forKey: self.preferenceKey)
-            DispatchQueue.main.async {
-                if allowed { SessionPush.shared.enable() }
-                call.resolve(["enabled": allowed, "remoteConfigured": SessionPush.shared.configured, "remoteReady": SessionPush.shared.ready])
-            }
+            call.resolve(["enabled": allowed, "remoteConfigured": false, "remoteReady": false])
         }
     }
     @objc func syncPushSessions(_ call: CAPPluginCall) {
-        let sessions = call.getArray("sessions", JSObject.self) ?? []
-        guard sessions.count <= 100 else { call.reject("push_session_limit"); return }
-        var topics: [String] = []
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
-        for session in sessions {
-            guard let id = session["sessionId"] as? String, !id.isEmpty,
-                  let token = session["pairToken"] as? String, !token.isEmpty,
-                  let expires = session["expiresAt"] as? String,
-                  let date = formatter.date(from: expires) ?? plain.date(from: expires), date > Date() else { continue }
-            let digest = SHA256.hash(data: Data(("cmr-push-v1\0" + id + "\0" + token).utf8))
-            topics.append("cmr_" + digest.prefix(16).map { String(format: "%02x", $0) }.joined())
-        }
-        let viewed = call.getString("viewedSession") ?? ""
-        DispatchQueue.main.async {
-            SessionPush.shared.setTopics(topics, viewed: viewed)
-            call.resolve()
-        }
+        // Keep the bridge method for the shared Web app while APNs/JPush is paused.
+        SessionNotificationRouter.shared.viewedSession = call.getString("viewedSession") ?? ""
+        call.resolve()
     }
     @objc func notify(_ call: CAPPluginCall) {
-        // APNs is the notification source when configured; no duplicate local alert.
-        if SessionPush.shared.configured { call.resolve(); return }
         let messages = ["approval": "有工具操作等待审批", "question": "有问题等待回答", "completed": "Claude 已完成本轮任务", "failed": "Claude 执行失败，请打开会话查看", "stopped": "Claude 会话已结束"]
         guard UserDefaults.standard.bool(forKey: preferenceKey),
               let sessionId = call.getString("sessionId"), !sessionId.isEmpty, sessionId.count <= 256,
@@ -216,6 +288,7 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
 // AppDelegate 在启动完成前注册，保留原生冷启动早于 WebView/Keychain 恢复的点击。
 final class SessionNotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     static let shared = SessionNotificationRouter()
+    var viewedSession = ""
     private var pendingSession: String?
     var opened: ((String) -> Void)? {
         didSet {
@@ -227,12 +300,10 @@ final class SessionNotificationRouter: NSObject, UNUserNotificationCenterDelegat
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let info = notification.request.content.userInfo
-        if notification.request.trigger is UNPushNotificationTrigger { JPUSHService.handleRemoteNotification(info) }
-        let viewed = info["sessionId"] as? String == SessionPush.shared.viewedSession
+        let viewed = info["sessionId"] as? String == viewedSession
         completionHandler(UserDefaults.standard.bool(forKey: "cmr.notifications.enabled") && !viewed ? [.banner, .sound] : [])
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-        if response.notification.request.trigger is UNPushNotificationTrigger { JPUSHService.handleRemoteNotification(response.notification.request.content.userInfo) }
         if let sessionId = response.notification.request.content.userInfo["sessionId"] as? String {
             DispatchQueue.main.async {
                 if let opened = self.opened { opened(sessionId) }
@@ -240,88 +311,5 @@ final class SessionNotificationRouter: NSObject, UNUserNotificationCenterDelegat
             }
         }
         completionHandler()
-    }
-}
-
-// Tags are notification-only SHA-256 capabilities. Raw Pair Tokens never leave
-// this call or enter UserDefaults, logs or JPush. No advertising SDK is linked.
-final class SessionPush {
-    static let shared = SessionPush()
-    private var started = false
-    private var launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-    private var topics: [String] = []
-    private var generation = 0
-    private(set) var ready = false
-    private var tagsReady = false
-    private var apnsReady = false
-    private(set) var lastError = ""
-    var viewedSession = ""
-    var configured: Bool {
-        let key = Bundle.main.object(forInfoDictionaryKey: "CMRJPushAppKey") as? String ?? ""
-        return key.count == 24 && key.allSatisfy { $0.isHexDigit }
-    }
-    func launch(_ options: [UIApplication.LaunchOptionsKey: Any]?) {
-        launchOptions = options
-        if UserDefaults.standard.bool(forKey: "cmr.notifications.enabled") { enable() }
-    }
-    func enable() {
-        guard configured else { lastError = "missing_app_key"; return }
-        if !started {
-            JPUSHService.setLogOFF()
-            #if DEBUG
-            let production = false
-            #else
-            let production = true
-            #endif
-            let key = Bundle.main.object(forInfoDictionaryKey: "CMRJPushAppKey") as! String
-            JPUSHService.setup(withOption: launchOptions, appKey: key, channel: "AppStore", apsForProduction: production, advertisingIdentifier: nil)
-            started = true
-        }
-        JPUSHService.turnOnPush()
-        UIApplication.shared.registerForRemoteNotifications()
-        updateTags()
-    }
-    func registeredAPNs() {
-        apnsReady = true
-        ready = tagsReady
-        if lastError == "apns_registration_failed" { lastError = "" }
-    }
-    func failedAPNs() {
-        apnsReady = false
-        ready = false
-        lastError = "apns_registration_failed"
-    }
-    func disable(_ completion: @escaping (Int) -> Void) {
-        ready = false
-        generation += 1
-        guard started else { completion(0); return }
-        JPUSHService.turnOffPush { code in completion(Int(code)) }
-    }
-    func setTopics(_ topics: [String], viewed: String) {
-        viewedSession = viewed
-        guard self.topics != topics else { return }
-        self.topics = topics
-        if started && UserDefaults.standard.bool(forKey: "cmr.notifications.enabled") { updateTags() }
-    }
-    private func updateTags() {
-        generation += 1
-        let current = generation
-        ready = false
-        JPUSHService.registrationIDCompletionHandler { [weak self] code, _ in
-            DispatchQueue.main.async {
-                guard let self, current == self.generation else { return }
-                guard code == 0 else { self.lastError = "registration_\(code)"; return }
-                let completion: (Int, Set<AnyHashable>?, Int) -> Void = { code, _, _ in
-                    DispatchQueue.main.async {
-                        guard current == self.generation else { return }
-                        self.tagsReady = code == 0
-                        self.ready = self.tagsReady && self.apnsReady
-                        self.lastError = code == 0 ? "" : "tags_\(code)"
-                    }
-                }
-                if self.topics.isEmpty { JPUSHService.cleanTags(completion, seq: current) }
-                else { JPUSHService.setTags(Set(self.topics), completion: completion, seq: current) }
-            }
-        }
     }
 }

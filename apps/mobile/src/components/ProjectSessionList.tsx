@@ -97,12 +97,8 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, onAdd, 
     {sessions.length === 0 && <p>还没有已配对的会话，粘贴配对 JSON 新增一个。刷新页面后列表会清空。</p>}
     {groups.filter((pc) => pc.projects.some((group) => group.ids.length > 0)).map((pc) => <section key={pc.key} className="project-session-list__pc">
       <h3 className="project-session-list__pc-title">{pc.label}</h3>
-      {pc.projects.filter((group) => group.ids.length > 0).map((group) => <List
-      key={`${pc.key}:${group.cwd ?? '_unknown'}`}
-      className="project-session-list__group"
-      header={<div className="project-session-list__group-heading"><strong>{group.title}</strong><span title={group.cwd ?? undefined}>{group.cwd ?? '旧版服务未提供工作目录'}</span></div>}
-    >
-      {group.ids.map((id) => {
+      <List className="project-session-list__group">
+      {pc.projects.flatMap((group) => group.ids).map((id) => {
         const session = byId.get(id)!
         const status = statusLabel(session)
         const time = activityTime(session)
@@ -139,11 +135,12 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, onAdd, 
             </div> : <>
               <div className="project-session-list__heading"><strong className="project-session-list__session-title">{displayTitle(session)}</strong>{session.unread && <span className="project-session-list__unread" aria-label="未读" title="未读" />}{isRecent && <span className="project-session-list__recent">刚刚查看</span>}</div>
               <span className="project-session-list__preview">{preview(session)}</span>
+              <span className="project-session-list__directory" title={session.runtimeState?.projectCwd ?? undefined}>{session.runtimeState?.projectCwd ?? '工作目录未知'}</span>
             </>}
           </div>
         </List.Item>
       })}
-    </List>)}
+    </List>
     </section>)}
     <div className="project-session-list__add">
       <Button color="primary" fill="none" block onClick={onAdd}>新增配对</Button>

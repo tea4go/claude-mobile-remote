@@ -242,3 +242,11 @@ describe('Fragment 编解码', () => {
     expect(result).toEqual({ ok: false, error: EXPIRED })
   })
 })
+
+
+test('UTF-8 pairing roundtrip preserves Chinese PC name and rejects invalid bytes', () => {
+  const payload = { version: 1, wsUrl: 'ws://pc/ws', sessionId: 'utf8', pairToken: 'fixture-only', expiresAt: '2099-01-01T00:00:00Z', pcName: 'zhanglingsi的Mac mini 🖥️' }
+  const result = parsePairingFragment(`#pair=${encodePairingFragment(payload)}`, Date.now())
+  expect(result.ok && result.value.pcName).toBe(payload.pcName)
+  expect(parsePairingFragment('#pair=_w', Date.now()).ok).toBe(false)
+})

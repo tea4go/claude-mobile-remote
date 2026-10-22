@@ -112,6 +112,7 @@ export default function SessionDetail({
           <span className="session-detail-title">{record.name}</span>
         </NavBar>
       </div>
+      {state.cachedAt != null && <div role="status" style={{ padding: '8px 16px', fontSize: 12, color: '#666' }}>本地缓存 · {new Date(state.cachedAt).toLocaleString()} · 运行状态待连接 PC 确认</div>}
       <div
         ref={contentScrollRef}
         data-testid="detail-scroll"

@@ -106,7 +106,7 @@ function base64UrlEncode(bytes: Uint8Array): string {
 function base64UrlDecode(text: string): string {
   const normalized = text.replaceAll('-', '+').replaceAll('_', '/')
   const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
-  return atob(padded)
+  return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(atob(padded), (character) => character.charCodeAt(0)))
 }
 
 // 把已校验 payload 规范化为无填充 Base64URL Fragment 内容（不含 `#pair=` 前缀）。

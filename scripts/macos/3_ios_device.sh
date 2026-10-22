@@ -12,7 +12,6 @@ if [[ $# -gt 0 && "$1" == "--help" ]]; then usage; exit 0; fi
 need_cmd npm
 need_cmd xcodebuild
 ensure_mobile_dir
-ensure_jpush_sdk
 [[ -d "$MOBILE_DIR/ios" ]] || die "缺少 apps/mobile/ios iOS 工程。"
 if [[ -f "$MOBILE_DIR/ios/App/Podfile" || -f "$MOBILE_DIR/ios/Podfile" ]]; then
   need_cmd pod
@@ -22,5 +21,7 @@ unset CAP_SERVER_URL
 run_mobile_npm ci
 run_mobile_npm run build
 mobile_command npm exec -- cap sync ios
+log_info "正在解析 iOS Swift Package 依赖。"
+xcodebuild -resolvePackageDependencies -project "$MOBILE_DIR/ios/App/App.xcodeproj" -scheme App
 log_info "即将打开 Xcode：选择你的 iPhone，确认签名后点击 Run（▶）编译安装。"
 mobile_command npm exec -- cap open ios

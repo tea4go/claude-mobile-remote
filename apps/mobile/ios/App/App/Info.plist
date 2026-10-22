@@ -79,7 +79,5 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-	<key>CMRJPushAppKey</key>
-	<string>$(CMR_JPUSH_APP_KEY)</string>
 </dict>
 </plist>
