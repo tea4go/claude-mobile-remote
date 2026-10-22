@@ -677,3 +677,8 @@
 - 用户要求缓存方案不额外使用数据库，并要求先预研开源项目。本轮原生端用受限私有 JSON 文件保存已收到的消息与列表展示元数据，替代 D64/D67 对原生端消息只在内存的局部限制；浏览器不持久化消息或凭证。凭证仍在系统安全存储。
 - 缓存不保存可执行审批、连接或运行态；重连以 PC snapshot 为准。不增加扫码前全量历史接口，不解析私有 JSONL 替代 SDK，不创建第二个 Client。研究依据与限制见 `docs/specs/2026-10-22-ios-cache-design.md`。
 - 三端核对：本轮不新增 wire/state 枚举/配对字段；首轮 ready 使用既有 session_started，列表/缓存仅端内展示数据。iOS/Android/Harmony 均可用原生文件存储实现相同限额、隔离和清理规则；iOS 先行，其他原生平台待验收后同步。
+
+## D85 · iOS 验证完成后同步 Android 并分开提交
+
+- 用户反馈 iOS 移动端验证完毕；明确授权先提交 claude-mobile-remote 当前代码，再将全部已有 iOS 功能同步 Android 并另行提交；不提交 WhaleTerm，留待用户调试样式。本次不推送。
+- Android 复用共用 UI/协议/附件，新增等价语音草稿、本地通知/点击、受限私有文件缓存；极光按当前 iOS 暂停状态保持暂停。Harmony 后续单独同步。wire/配对/状态枚举不变，三端共用契约可实现性不变；设计见 docs/specs/2026-10-22-android-parity-design.md。

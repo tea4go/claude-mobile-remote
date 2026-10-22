@@ -11,7 +11,7 @@ import documentIcon from '../assets/icons/svgs/document.svg'
 import permissionIcon from '../assets/icons/svgs/permission.svg'
 import uploadImageIcon from '../assets/icons/svgs/uploadImage.svg'
 import voiceIcon from '../assets/icons/svgs/voice.svg'
-import { iosExperience, type ExperiencePort } from '../native/experience'
+import { nativeExperience, type ExperiencePort } from '../native/experience'
 import { useSpeechDraft } from '../native/useSpeechDraft'
 import sendIcon from '../assets/icons/svgs/send.svg'
 
@@ -84,7 +84,7 @@ function AttachmentPreview({ file }: { file: File }) {
 
 export default function MessageComposer({
   enabled,
-  experience = iosExperience,
+  experience = nativeExperience,
   onSend,
   onSendAttachments,
   turnRunning = false,

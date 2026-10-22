@@ -204,6 +204,13 @@ Windows 无 Xcode/iOS Simulator 环境，改用 Android 或 Web 入口。
 https://github.com/tea4go/claude-mobile-remote
 
 
-### iOS 本地消息缓存
+### iOS / Android 本地消息缓存
 
-iOS 使用 App 私有 JSON 文件保存手机已收到的消息与列表标题、工作目录和时间，无额外数据库。每会话最多 200 项/2 MiB，总计 20 MiB，保留 30 天。重启先显示缓存（运行状态待同步），连接 PC 后校正当前 Turn；不补回离线期间未收到的历史。图片原件和配对凭证不进入文件缓存，凭证仍使用系统安全存储。设置可清除离线缓存，删除配对同时清理对应文件。浏览器仍仅保存内存；Android/Harmony 原生缓存待 iOS 验收后同步。研究与边界见 [缓存设计](docs/specs/2026-10-22-ios-cache-design.md)。
+iOS / Android 使用 App 私有 JSON 文件保存手机已收到的消息与列表标题、工作目录和时间，无额外数据库。每会话最多 200 项/2 MiB，总计 20 MiB，保留 30 天。重启先显示缓存（运行状态待同步），连接 PC 后校正当前 Turn；不补回离线期间未收到的历史。图片原件和配对凭证不进入文件缓存，凭证仍使用系统安全存储。设置可清除离线缓存，删除配对同时清理对应文件。浏览器仍仅保存内存；Android 已同步原生缓存，Harmony 原生缓存后续同步。研究与边界见 [缓存设计](docs/specs/2026-10-22-ios-cache-design.md)。
+
+
+### Android 原生体验
+
+Android 已同步当前 iOS 的语音草稿、在线本地通知/点击定位和无数据库文件缓存，以及共用 UI、附件、审批、问答、停止与多会话能力。首次使用语音请求麦克风权限；Android 13+ 开启会话通知请求系统通知权限。语音依赖设备提供识别服务，服务不可用时保留文字输入；极光离线推送继续暂停。
+
+构建：`bash scripts/macos/4_android_build.sh`（需 JDK 21–24）；本机 jvms 安装可先设置 `JAVA_HOME="$HOME/.jvms/bin/store/openjdk-21"`。安装包为 `apps/mobile/android/app/build/outputs/apk/debug/ClaudeMobileRemote.apk`。功能映射及验收见 [Android 同步记录](docs/testing/2026-10-22-android-parity-result.md)。
