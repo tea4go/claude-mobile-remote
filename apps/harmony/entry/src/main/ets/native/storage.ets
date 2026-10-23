@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit'
+import legacyFileIo from '@ohos.fileio'
 import { fileIo as fs } from '@kit.CoreFileKit'
 import { util } from '@kit.ArkTS'
 import { cryptoFramework } from '@kit.CryptoArchitectureKit'
@@ -26,7 +27,7 @@ export class NativeStorage {
     this.cache = this.root + '/display'
     for (const path of [this.root, this.vault, this.cache]) {
       if (!fs.accessSync(path)) fs.mkdirSync(path)
-      fs.chmodSync(path, 0o700)
+      legacyFileIo.chmodSync(path, 0o700)
     }
   }
   private serial<T>(operation: () => Promise<T>): Promise<T> {
@@ -49,7 +50,7 @@ export class NativeStorage {
     const temporary = path + '.tmp'
     const file = fs.openSync(temporary, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC)
     try {
-      fs.chmodSync(temporary, 0o600)
+      legacyFileIo.chmodSync(temporary, 0o600)
       const bytes = encoder.encodeInto(data)
       let offset = 0
       while (offset < bytes.length) {

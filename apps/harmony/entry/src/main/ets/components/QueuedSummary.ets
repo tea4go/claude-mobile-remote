@@ -26,7 +26,7 @@ export struct QueuedSummary {
               .layoutWeight(1)
               .textAlign(TextAlign.Start)
 
-            Button('取消')
+            Button('取消', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor('#1677ff').backgroundColor('#eef5ff').borderRadius(8)
               .enabled(this.cancelAllowed)
               .onClick(() => {
                 this.onCancelQueued(item.requestId)

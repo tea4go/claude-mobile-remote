@@ -1,3 +1,4 @@
+import { PRIMARY, SECONDARY } from '../ui/styles'
 import type { Attachment, PermissionMode } from '../protocol/types'
 import { utf8Bytes, type ComposerDraft, emptyDraft } from '../session/attachments'
 
@@ -49,51 +50,56 @@ export struct MessageComposer {
                     .onClick(() => { this.preview = `data:${item.mediaType};base64,${item.data}` })
                 }
                 Text(item.name).fontSize(12).maxLines(1).width(100)
-                Button('移除').height(44).enabled(this.editable()).onClick(() => this.onRemoveAttachment(index))
+                Button('移除', { type: ButtonType.Normal }).height(44).fontSize(12).fontColor('#d4380d').backgroundColor(Color.Transparent).enabled(this.editable()).onClick(() => this.onRemoveAttachment(index))
               }
             }, (item: Attachment, index: number) => `${index}-${JSON.stringify(item)}`)
           }
         }.scrollable(ScrollDirection.Horizontal).width('100%')
       }
       TextArea({ text: this.draft.text, placeholder: '输入消息，或添加附件' })
-        .id('send-input').height(76).enabled(this.editable()).onChange((text: string) => this.onDraft(text))
+        .id('send-input').height(64).fontSize(15).backgroundColor(Color.Transparent).padding({ left: 4, right: 4, top: 6, bottom: 4 }).enabled(this.editable()).onChange((text: string) => this.onDraft(text))
       if (utf8Bytes(this.draft.text) > 1024 * 1024) { Text('文本超出 1 MiB 上限').fontColor('#b3261e').fontSize(12) }
-      Row({ space: 6 }) {
-        if (!this.speechActive) {
-          Button('图片').height(44).enabled(this.editable()).onClick(() => this.onSelect('photo'))
-          Button('拍照').height(44).enabled(this.editable()).onClick(() => this.onSelect('camera'))
-          Button('文件').height(44).enabled(this.editable()).onClick(() => this.onSelect('file'))
-        }
+      Row({ space: 0 }) {
         if (this.speechActive) {
-          Button('完成录音').height(44).onClick(() => this.onStopSpeech())
-          Button('取消').height(44).onClick(() => this.onCancelSpeech())
+          Button('完成录音', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onStopSpeech())
+          Button('取消', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(SECONDARY).backgroundColor(Color.Transparent).onClick(() => this.onCancelSpeech())
         } else {
-          Button('语音').height(44).enabled(this.editable()).onClick(() => this.onSpeech())
+          Button('+', { type: ButtonType.Normal }).width(44).height(44).fontSize(26).fontColor(SECONDARY).backgroundColor(Color.Transparent)
+            .accessibilityText('添加附件或新建会话').enabled(this.editable() || (this.createSessionAvailable && this.createSessionEnabled)).onClick(() => {
+              const sheets: Array<SheetInfo> = []
+              if (this.editable()) {
+                sheets.push({ title: '图片', action: () => { if (this.editable()) this.onSelect('photo') } })
+                sheets.push({ title: '拍照', action: () => { if (this.editable()) this.onSelect('camera') } })
+                sheets.push({ title: '文件', action: () => { if (this.editable()) this.onSelect('file') } })
+              }
+              if (this.createSessionAvailable && this.createSessionEnabled) {
+                sheets.push({ title: '新建会话', action: () => { if (this.createSessionAvailable && this.createSessionEnabled) this.onCreateSession() } })
+              }
+              ActionSheet.show({ message: '', title: '添加', sheets: sheets })
+            })
+          Button('语音', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(13).fontColor(SECONDARY).backgroundColor(Color.Transparent)
+            .enabled(this.editable()).onClick(() => this.onSpeech())
         }
-      }.width('100%')
-      Row({ space: 8 }) {
-        Button(this.permissionLabel()).height(44).enabled(this.permissionEnabled).onClick(() => {
-          ActionSheet.show({ title: '权限模式', sheets: [
-            { title: '默认', action: () => this.onPermissionMode('default') },
-            { title: '自动接受编辑', action: () => this.onPermissionMode('acceptEdits') },
-            { title: '计划', action: () => this.onPermissionMode('plan') },
-            { title: '绕过权限', action: () => this.onPermissionMode('bypassPermissions') },
-          ] })
-        })
-        if (this.createSessionAvailable) {
-          Button('+').width(44).height(44).accessibilityText('新建会话')
-            .enabled(this.createSessionEnabled).onClick(() => this.onCreateSession())
+        if (!this.speechActive) {
+          Button(this.permissionLabel(), { type: ButtonType.Normal }).height(44).constraintSize({ maxWidth: 110 }).padding({ left: 6, right: 6 }).fontSize(12).fontColor(SECONDARY).backgroundColor(Color.Transparent).enabled(this.permissionEnabled).onClick(() => {
+            ActionSheet.show({ message: '', title: '权限模式', sheets: [
+              { title: '默认', action: () => this.onPermissionMode('default') },
+              { title: '自动接受编辑', action: () => this.onPermissionMode('acceptEdits') },
+              { title: '计划', action: () => this.onPermissionMode('plan') },
+              { title: '绕过权限', action: () => this.onPermissionMode('bypassPermissions') },
+            ] })
+          })
         }
         Blank()
         if (this.running) {
-          LoadingProgress().width(24).height(24)
-          Button('停止').height(44).enabled(this.cancelEnabled).onClick(() => this.onCancel())
+          LoadingProgress().width(16).height(16)
+          Button('■', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(18).fontColor('#252525').backgroundColor(Color.Transparent).accessibilityText('停止当前任务').enabled(this.cancelEnabled).onClick(() => this.onCancel())
         } else {
-          Button(this.draft.sending ? '等待受理…' : '发送').height(44)
+          Button(this.draft.sending ? '…' : '↑', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(27).fontColor(PRIMARY).backgroundColor(Color.Transparent).accessibilityText(this.draft.sending ? '等待受理' : '发送消息')
             .enabled(this.composerEnabled && this.editable() && utf8Bytes(this.draft.text) <= 1024 * 1024 && (this.draft.text.trim().length > 0 || this.draft.attachments.length > 0))
             .onClick(() => this.onSend())
         }
       }.width('100%')
-    }.width('100%').alignItems(HorizontalAlign.Start)
+    }.width('100%').padding({ left: 8, right: 8, top: 6, bottom: 2 }).alignItems(HorizontalAlign.Start).backgroundColor('#ffffff').borderRadius(26).border({ width: 1, color: '#e1e3e7' })
   }
 }

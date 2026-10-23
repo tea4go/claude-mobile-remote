@@ -2,9 +2,15 @@
 
 ## 结论
 
-按用户确认范围完成 Harmony 同步代码与接线；本机自动化通过，**工程编译与真机门禁尚未通过**。本轮未生成 HAP，不将模拟平台适配器结果视为 HUKS、语音、通知或 ArkUI 的实际设备验证。
+按用户确认范围完成 Harmony 同步代码与接线。2026-10-23 真实 SDK 终端工程编译通过并生成未签名 HAP；**真机门禁尚未通过**，平台 API 编译通过不代表设备运行验证。
 
 ## 已执行
+
+2026-10-23 外接盘迁移复验：本地工具链链接改指向 `/Volumes/T7/code/tools/harmony/command-line-tools`，环境检查成功。迁移附带的 AppleDouble 文件触发 hvigor 内部 material 数量校验错误；确认文件头后清理该目录13个 `._*` 元数据文件，复跑构建退出0（增量构建），HAP ZIP、最低API与原SHA256均通过。
+
+2026-10-23 实际终端构建：用户提供已解压官方 ARM64 Command Line Tools 6.1.1.418（Node18.20.1、ohpm6.1.2.285、hvigor6.24.5、SDK6.1.1.125/API24），约6.1GiB；以忽略目录 `.local-tools/harmony/6.1.1` 符号链接接入 Downloads 原目录，无复制、无模拟器、无 shell 配置变更。适配 tool/node 与 SDK 嵌套元数据，确认当前 ArkTS HAP 构建不需额外 JDK。修复 ArkTS 内联类型、缺省 permissionMode、ActionSheet message、通知 notificationSlotType/无效字段；文件权限改用 SDK 实际提供的 @ohos.fileio chmodSync，保留目录0700/文件0600，并更新 Node 适配器。最终构建入口退出0、assembleHap成功；未签名HAP 973747字节，最低API60101024、ZIP校验通过，SHA256=c338261660bf882bbfb308a420604221a73295cf0916d1a4343d084587855e3a。42/42测试、14逻辑文件严格检查、Shell语法及diff检查通过。初次依赖安装需允许写入用户级ohpm/hvigor缓存。仍有异常处理提示/弃用API告警；未验证签名、设备安装及原生运行。用户提供的是解压目录，未执行原始ZIP官方SHA复核。无Git写操作。下一步配置签名并真机验收扫码/权限/语音/通知/缓存/多Session。
+
+2026-10-22 Mac 命令行方案补充：已提供本地 ZIP 安装、环境检查和 HAP 构建入口；4 个 Shell 语法/帮助、缺参及缺工具失败路径检查通过，9 项 ZIP/SHA-256/符号链接/SDK 元数据/HAP 最低 API 样例检查通过。这些是脚本验证，未验证官方真实包结构。官方下载接口返回登录 CSRF 要求，Chrome 连接不可用；等待用户下载官方 ARM64 6.1.1 包并提供路径与官方 SHA-256。本机尚未安装该工具链，实际执行构建入口在环境检测阶段退出1（未安装工具链）。无新 HAP/ArkTS 编译结果，工程与真机门禁仍未通过。
 
 | 项目 | 实际结果 |
 | --- | --- |

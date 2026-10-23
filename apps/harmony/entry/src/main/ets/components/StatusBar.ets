@@ -43,6 +43,7 @@ export struct StatusBar {
     connection: ConnectionStage.DISCONNECTED,
     sessionId: '',
     sessionStatus: '',
+    permissionMode: 'default',
     sessionError: null,
     seqBase: 0,
     queueDepthHint: 0,
@@ -96,11 +97,10 @@ export struct StatusBar {
     return '空闲'
   }
   build() {
-    Row({ space: 8 }) {
-      Text(connectionLabel(this.state.connection)).id('connection-state').fontSize(13)
-      Text(this.statusText()).id('turn-state').fontSize(13).fontWeight(FontWeight.Medium)
-      Blank()
+    Column({ space: 1 }) {
+      Text(connectionLabel(this.state.connection)).id('connection-state').fontSize(11).fontColor('#6e6e73').maxLines(1)
+      Text(this.statusText()).id('turn-state').fontSize(11).fontColor('#6e6e73').maxLines(1).fontWeight(FontWeight.Medium)
       if (this.state.queueDepthHint > 0) { Text(`排队 ${this.state.queueDepthHint}`).fontSize(12) }
-    }.padding({ left: 16, right: 16, top: 8, bottom: 8 }).width('100%').backgroundColor('#ffffff')
+    }.width(78).alignItems(HorizontalAlign.End)
   }
 }

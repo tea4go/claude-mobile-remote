@@ -25,6 +25,23 @@ npm --prefix apps/harmony test
 
 ## 工程构建与真机
 
+### Mac ARM64 终端构建
+
+用户已确认优先使用命令行工具链，不安装模拟器镜像。先在[华为官方下载页](https://developer.huawei.com/consumer/cn/download/command-line-tools-for-hmos)登录，选择 **macOS ARM64 / Command Line Tools 6.1.1**，保存 ZIP 与页面 SHA-256。暂未取得包时，脚本完成不代表环境安装或工程编译完成。
+
+```bash
+# 在仓库根目录执行；HASH 替换为官方下载页完整 SHA-256。
+bash scripts/macos/1_install_harmony_tools.sh --archive /path/to/commandline-tools-mac-arm64-6.1.1.zip --sha256 HASH
+bash scripts/macos/2_harmony_check.sh
+bash scripts/macos/4_harmony_build.sh
+```
+
+默认安装到 `.local-tools/harmony/6.1.1`（Git 忽略），不会修改 shell 配置。已有独立工具链可用 `HARMONY_TOOLS_HOME` 指定解压后的 `command-line-tools` 目录。已实测 6.1.1.418 的 ArkTS HAP 构建不需要额外安装 JDK。环境检查使用配套 Node 和 SDK 元数据核对 API 24，缺失时直接报错，不自动升级 SDK。
+
+构建会运行 `ohpm install --all` 与 `hvigorw assembleHap --no-daemon`，首次需要网络。目标产物为 `entry/build/default/outputs/default/entry-default-unsigned.hap`，检查 ZIP 完整性、最低 API `60101024` 并打印 SHA-256。未签名 HAP 用于工程编译验证，安装到手机需另行配置签名。2026-10-23 已用 ARM64 6.1.1.418 实际编译成功。当前机器以忽略目录中的符号链接接入用户已解压的工具链，当前指向 `/Volumes/T7/code/tools/harmony/command-line-tools`，连接 T7 外接硬盘后即可直接运行上述检查和构建命令；工具链约 6.1 GiB。迁移到外接盘若出现工具内部 `material/fd is illegal` 错误，应检查 macOS 生成的 `._*` AppleDouble 附属文件；本机已清理该资源目录的附属文件并复验构建通过。工具的用户级依赖缓存位于 `~/.ohpm` / `~/.hvigor`。
+
+### DevEco / 设备验证
+
 工程保持已有 `6.1.1(24)` SDK 基准，使用安装了对应 SDK 的 DevEco Studio 打开此目录，配置本机签名后构建。已有 Windows `build-unsigned.ps1`、`build-signed.ps1`、`deploy.ps1` 可继续使用。若已配置 devecocli：
 
 ```bash
