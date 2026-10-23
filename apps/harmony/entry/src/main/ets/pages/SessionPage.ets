@@ -1,3 +1,4 @@
+import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
 import { nativeLifecycle } from '../native/lifecycle'
 import { type ComposerDraft, emptyDraft } from '../session/attachments'
 import type {
@@ -140,7 +141,7 @@ export struct SessionPage {
     Column({ space: 8 }) {
       Row() {
         Text(this.sheet === 'action' ? '待处理事项' : '排队消息').fontSize(18).layoutWeight(1)
-        Button(this.sheet === 'action' ? '取消本轮' : '关闭').height(44)
+        Button(this.sheet === 'action' ? '取消本轮' : '关闭', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent)
           .enabled(this.sheet !== 'action' || this.commandReady()).onClick(() => this.closeSheet())
       }.padding(12)
       Scroll() {
@@ -155,17 +156,19 @@ export struct SessionPage {
             QueuedSummary({ queuedRequests: this.state.queuedRequests, cancelAllowed: this.commandReady(), onCancelQueued: this.onCancelQueued })
           }
         }.padding(16).width('100%')
-      }.layoutWeight(1).width('100%')
+      }.layoutWeight(1).width('100%').align(Alignment.TopStart)
     }.height('70%').width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 20, topRight: 20 })
   }
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       Column() {
         Row({ space: 8 }) {
-          Button('‹').width(44).height(44).accessibilityText('返回会话列表').onClick(() => this.onBack())
-          Text(this.title).fontSize(18).fontWeight(FontWeight.Bold).maxLines(1).layoutWeight(1)
-          Button('更多').height(44).onClick(() => {
-            ActionSheet.show({ title: '会话操作', sheets: [
+          Button('‹', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(32).fontColor(PRIMARY).backgroundColor(Color.Transparent).accessibilityText('返回会话列表').onClick(() => this.onBack())
+          Text(this.title).fontSize(17).fontWeight(FontWeight.Medium).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+          StatusBar({ state: this.state })
+          if (this.showReconnect()) { Button('重连', { type: ButtonType.Normal }).height(44).padding(4).fontSize(12).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onReconnect()) }
+          Button('⋯', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(24).fontColor(SECONDARY).backgroundColor(Color.Transparent).accessibilityText('更多会话操作').onClick(() => {
+            ActionSheet.show({ message: '', title: '会话操作', sheets: [
               { title: '重新连接', action: () => this.onReconnect() },
               { title: '断开连接', action: () => this.onDisconnect() },
               { title: this.capabilities.indexOf('stop_session') >= 0 ? '终止 Claude 会话' : '关闭', action: () => {
@@ -173,8 +176,7 @@ export struct SessionPage {
               } },
             ] })
           })
-        }.padding(12).width('100%')
-        StatusBar({ state: this.state })
+        }.padding({ left: 4, right: 4, top: 4, bottom: 4 }).width('100%').backgroundColor('#ffffff')
         if (this.state.connection !== ConnectionStage.READY && this.state.messages.length > 0) {
           Text('本机已收到的消息 · 当前状态待同步').fontSize(12).padding(6)
         }
@@ -183,16 +185,15 @@ export struct SessionPage {
         if (this.state.lastNotice !== null) { Text(this.state.lastNotice.message).fontSize(12).padding(6) }
         if (this.state.connection === ConnectionStage.PAIRING_INVALID) { Text('配对已失效，请重新扫码').fontColor('#b3261e') }
         Row({ space: 8 }) {
-          if (this.state.pendingAction !== null) { Button('待处理事项').height(44).onClick(() => { this.sheet = 'action' }) }
-          if (this.state.queuedRequests.length > 0) { Button(`排队 ${this.state.queuedRequests.length}`).height(44).onClick(() => { this.sheet = 'queue' }) }
-          if (this.showReconnect()) { Button('重新连接').height(44).onClick(() => this.onReconnect()) }
+          if (this.state.pendingAction !== null) { Button('待处理事项', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.sheet = 'action' }) }
+          if (this.state.queuedRequests.length > 0) { Button(`排队 ${this.state.queuedRequests.length}`, { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.sheet = 'queue' }) }
         }
         Scroll(this.scroller) {
           MessageList({ messages: this.state.messages })
-        }.layoutWeight(1).width('100%').padding(12)
+        }.layoutWeight(1).width('100%').align(Alignment.TopStart).padding(12)
         Row() {
           Blank()
-          Button('最新消息 ↓').height(32).fontSize(12).onClick(() => this.scroller.scrollEdge(Edge.Bottom))
+          Button('最新消息 ↓', { type: ButtonType.Normal }).height(32).fontSize(12).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.scroller.scrollEdge(Edge.Bottom))
         }.padding({ right: 12 })
         Column() {
           MessageComposer({ draft: this.draft, composerEnabled: this.state.canSend,
@@ -205,10 +206,10 @@ export struct SessionPage {
             onDraft: this.onDraft, onSelect: this.onSelect, onRemoveAttachment: this.onRemoveAttachment,
             onSpeech: this.onSpeech, onStopSpeech: this.onStopSpeech, onCancelSpeech: this.onCancelSpeech,
             onSend: this.onSend, onCreateSession: this.onCreateSession, onCancel: () => this.onCancelTurn(this.cancelTarget()) })
-        }.padding(12).width('100%').backgroundColor('#ffffff')
-      }.width('100%').height('100%').backgroundColor('#f5f7fa')
+        }.padding({ left: 12, right: 12, top: 6, bottom: 12 }).width('100%')
+      }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
       if (this.sheet.length > 0) {
-        Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => this.closeSheet())
+        Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { if (this.sheet !== 'action') this.closeSheet() })
         this.drawer()
       }
     }.width('100%').height('100%')

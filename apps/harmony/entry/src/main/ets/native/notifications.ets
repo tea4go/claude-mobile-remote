@@ -42,10 +42,10 @@ export class LocalNotifications {
       })
       if (!this.enabled || this.ids.get(event.sessionId) !== id || (this.foreground && this.currentId === event.sessionId)) return
       await notificationManager.publish({ id, label: event.sessionId,
-        slotType: notificationManager.SlotType.SOCIAL_COMMUNICATION,
+        notificationSlotType: notificationManager.SlotType.SOCIAL_COMMUNICATION,
         content: { notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
           normal: { title: 'Claude Mobile Remote', text, additionalText: '打开应用查看当前状态' } },
-        wantAgent: agent, isRemoveAllowed: true, tapDismissed: true,
+        wantAgent: agent, tapDismissed: true,
       })
       if (!this.enabled || this.ids.get(event.sessionId) !== id || (this.foreground && this.currentId === event.sessionId)) await notificationManager.cancel(id, event.sessionId)
     })

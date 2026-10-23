@@ -10,3 +10,5 @@
 /.clang-tidy
 **/.test
 /.appanalyzer
+# Command line ArkUI preview artifacts
+**/.preview

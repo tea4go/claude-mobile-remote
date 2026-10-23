@@ -214,3 +214,7 @@ iOS / Android 使用 App 私有 JSON 文件保存手机已收到的消息与列�
 Android 已同步当前 iOS 的语音草稿、在线本地通知/点击定位和无数据库文件缓存，以及共用 UI、附件、审批、问答、停止与多会话能力。首次使用语音请求麦克风权限；Android 13+ 开启会话通知请求系统通知权限。语音依赖设备提供识别服务，服务不可用时保留文字输入；极光离线推送继续暂停。
 
 构建：`bash scripts/macos/4_android_build.sh`（需 JDK 21–24）；本机 jvms 安装可先设置 `JAVA_HOME="$HOME/.jvms/bin/store/openjdk-21"`。安装包为 `apps/mobile/android/app/build/outputs/apk/debug/ClaudeMobileRemote.apk`。功能映射及验收见 [Android 同步记录](docs/testing/2026-10-22-android-parity-result.md)。
+
+### Harmony Mac 界面预览与 AppTest
+
+终端预览：`bash scripts/macos/3_harmony_preview.sh`；Release APP 编译：`bash scripts/macos/5_harmony_apptest.sh --unsigned`（未签名，不可分发）。发布证书/Profile配置、签名构建和当前限制见 [操作说明](docs/harmony-preview-apptest.md)。

@@ -83,10 +83,6 @@ export struct MessageList {
         Image(this.preview).height(320).width('100%').objectFit(ImageFit.Contain).onClick(() => { this.preview = '' })
         Text('点按图片收起预览').fontSize(12)
       }
-      Text('消息流')
-        .fontSize(18)
-        .fontWeight(FontWeight.Medium)
-
       if (this.messages.length === 0) {
         Text('还没有消息。')
           .fontSize(14)
@@ -94,32 +90,25 @@ export struct MessageList {
       } else {
         ForEach(this.messages, (message: FeedMessage, index: number) => {
           if (message.kind === 'input') {
-            Column({ space: 6 }) {
-              if (message.attachments !== undefined) {
-                ForEach(message.attachments, (attachment: Attachment) => {
-                  if (attachment.mediaType.startsWith('image/')) {
-                    Image(`data:${attachment.mediaType};base64,${attachment.data}`).height(140).width(180).objectFit(ImageFit.Contain)
-                      .onClick(() => { this.preview = `data:${attachment.mediaType};base64,${attachment.data}` })
+            Row() {
+              Blank()
+              Column({ space: 6 }) {
+                Column({ space: 6 }) {
+                  if (message.attachments !== undefined) {
+                    ForEach(message.attachments, (attachment: Attachment) => {
+                      if (attachment.mediaType.startsWith('image/')) {
+                        Image(`data:${attachment.mediaType};base64,${attachment.data}`).height(140).width('100%').objectFit(ImageFit.Contain)
+                          .onClick(() => { this.preview = `data:${attachment.mediaType};base64,${attachment.data}` })
+                      }
+                      Text(attachment.name).fontSize(12)
+                    }, (attachment: Attachment, itemIndex: number) => `${itemIndex}-${attachment.name}`)
                   }
-                  Text(attachment.name).fontSize(12)
-                }, (attachment: Attachment, itemIndex: number) => `${itemIndex}-${attachment.name}`)
-              }
-              Text(message.text)
-                .fontSize(14)
-                .width('100%')
-                .textAlign(TextAlign.Start)
-
-              Text(`${message.source === 'terminal' ? '电脑端' : '手机端'}${inputStatusLabel(message.status)}`)
-                .fontSize(12)
-                .opacity(0.7)
-                .width('100%')
-                .textAlign(TextAlign.End)
-            }
-            .padding(12)
-            .width('100%')
-            .alignItems(HorizontalAlign.End)
-            .backgroundColor('#e6f4ff')
-            .borderRadius(12)
+                  Text(message.text).fontSize(14).width('100%').textAlign(TextAlign.Start)
+                }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor('#e6f4ff').borderRadius(8)
+                Text(`${message.source === 'terminal' ? '电脑端' : '手机端'}${inputStatusLabel(message.status)}`)
+                  .fontSize(12).fontColor('#8e8e93').width('100%').textAlign(TextAlign.End)
+              }.width('80%').alignItems(HorizontalAlign.End)
+            }.width('100%')
           } else if (message.kind === 'answer') {
             Column({ space: 8 }) {
               Text('你的回答')
@@ -193,10 +182,10 @@ export struct MessageList {
                   .width('100%')
               }
             }
-            .padding(12)
+            .padding({ top: 2, bottom: 2 })
             .width('100%')
             .alignItems(HorizontalAlign.Start)
-            .backgroundColor('#ffffff')
+            .backgroundColor(Color.Transparent)
             .borderRadius(12)
           }
         }, (message: FeedMessage, index: number) => feedKey(message, index))

@@ -16,6 +16,8 @@
 
 ## 平台接口依据
 
+用户确认采用 Mac ARM64 官方 Command Line Tools 与匹配的 6.1.1(24) SDK 完成终端构建，暂不安装模拟器。工具链在项目忽略目录隔离安装，或以该目录内的本地符号链接接入用户已解压的官方目录，不修改 shell 配置；脚本设置进程级环境并生成未签名 HAP，设备签名和原生体验单独验收。下载需从华为官方源取得并核对官方校验值，不替换项目 SDK 基准。
+
 - [华为 ScanKit 默认扫码](https://developer.huawei.com/consumer/en/doc/harmonyos-guides-V14/scan-scanbarcode-V14)。
 - [华为官方 CoreSpeechKit 示例](https://gitee.com/harmonyos_codelabs/core-speech-kit-codelab-ark-ts-kit-asrdemo/blob/master/entry/src/main/ets/pages/Index.ets)：AudioCapturer 音频送入识别引擎，取消/完成后清理。
 - [OpenHarmony HUKS 加解密官方示例](https://github.com/openharmony/docs/blob/master/en/application-dev/security/UniversalKeystoreKit/huks-encryption-decryption-arkts.md)：AES-GCM 使用随机 nonce、关联数据及认证标签。

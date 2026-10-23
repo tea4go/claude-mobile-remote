@@ -27,7 +27,7 @@ const huks = {
   }, abortSession: async id => { handles.delete(id) },
 }
 const fileIo = {
-  accessSync: fs.existsSync, mkdirSync: fs.mkdirSync, chmodSync: fs.chmodSync, listFileSync: fs.readdirSync,
+  accessSync: fs.existsSync, mkdirSync: fs.mkdirSync, listFileSync: fs.readdirSync,
   statSync(value) { const stat = typeof value === 'number' ? fs.fstatSync(value) : fs.statSync(value); return { size: stat.size, mtime: stat.mtimeMs / 1000 } },
   readTextSync: file => fs.readFileSync(file, 'utf8'),
   OpenMode: { CREATE: fs.constants.O_CREAT, WRITE_ONLY: fs.constants.O_WRONLY, TRUNC: fs.constants.O_TRUNC },
@@ -53,6 +53,7 @@ function loader(overrides = {}) {
     const module = { exports: {} }; modules.set(file, module)
     const kits = { '@kit.CoreFileKit': { fileIo }, '@kit.ArkTS': { util }, '@kit.CryptoArchitectureKit': { cryptoFramework }, '@kit.UniversalKeystoreKit': { huks }, ...overrides }
     vm.runInThisContext(`(function(require,module,exports){${output.outputText}\n})`, { filename: file })(id => {
+      if (id === '@ohos.fileio') return { chmodSync: fs.chmodSync }
       if (id.startsWith('@kit.')) return kits[id] ?? {}
       return load(path.relative(root, path.resolve(path.dirname(file), id)))
     }, module, module.exports)

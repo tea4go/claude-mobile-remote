@@ -116,26 +116,26 @@ export struct PendingSummary {
           .fontSize(13)
           .width('100%')
           .padding(10)
-          .backgroundColor('#ffffff')
+          .backgroundColor('#f2f2f7')
           .borderRadius(8)
       }
 
-      Row({ space: 8 }) {
-        Button('本次允许')
+      Column({ space: 8 }) {
+        Button('本次允许', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor('#1677ff').backgroundColor('#eef5ff').borderRadius(8)
           .enabled(this.actionEnabled)
           .onClick(() => {
             this.onAllowOnce()
           })
 
         if (action.allowSessionAvailable) {
-          Button('本会话允许')
+          Button('本会话允许', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor('#1677ff').backgroundColor('#eef5ff').borderRadius(8)
             .enabled(this.actionEnabled)
             .onClick(() => {
               this.onAllowSession()
             })
         }
 
-        Button('拒绝')
+        Button('拒绝', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor('#d4380d').backgroundColor('#fff1f0').borderRadius(8)
           .enabled(this.actionEnabled)
           .onClick(() => {
             this.onDeny()
@@ -210,21 +210,7 @@ export struct PendingSummary {
   build() {
     Column({ space: 12 }) {
       if (this.pendingAction !== null) {
-        Row({ space: 8 }) {
-          Text(this.actionTitle())
-            .fontSize(18)
-            .fontWeight(FontWeight.Medium)
-            .layoutWeight(1)
-            .textAlign(TextAlign.Start)
-
-          Button('关闭并取消')
-            .enabled(this.cancelAllowed)
-            .onClick(() => {
-              this.onCancelTurn(this.cancelRequestId())
-            })
-        }
-
-        Text('关闭此面板等价于取消当前 Turn。')
+        Text('关闭此面板将取消当前任务。')
           .fontSize(12)
           .opacity(0.7)
           .width('100%')
@@ -236,7 +222,7 @@ export struct PendingSummary {
             this.buildQuestion(question)
           }, (question: Question) => question.questionId)
 
-          Button('提交回答')
+          Button('提交回答', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor('#1677ff').backgroundColor('#eef5ff').borderRadius(8)
             .enabled(this.actionEnabled && this.answersReady)
             .onClick(() => {
               this.onSubmitAnswers()
@@ -245,10 +231,10 @@ export struct PendingSummary {
       }
     }
     .id('pending-summary')
-    .padding(16)
+    .padding(0)
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .backgroundColor('#fdf7f0')
+    .backgroundColor('#ffffff')
     .borderRadius(12)
   }
 }

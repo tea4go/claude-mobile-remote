@@ -43,6 +43,8 @@ import {
   unsupportedReceived,
 } from './reducer'
 
+interface PendingManagement { operation: 'create_session' | 'stop_session'; commandId: string }
+
 export interface HarmonySessionStore {
   connectFromRawPairing(raw: string): boolean
   connectWithPairing(pairing: PairingPayload): void
@@ -149,7 +151,7 @@ class SessionStore implements HarmonySessionStore {
 
   private readonly observer: SessionStoreObserver
   private listeners: Array<StateListener> = []
-  private pendingManagement: { operation: 'create_session' | 'stop_session'; commandId: string } | null = null
+  private pendingManagement: PendingManagement | null = null
   private managementListener: ((result: ManagementResultInfo) => void) | null = null
 
   constructor() {
