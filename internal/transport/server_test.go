@@ -1529,3 +1529,110 @@ func TestWebSocketRejectsMalformedControlCommands(t *testing.T) {
 		})
 	}
 }
+
+func TestConnectionStatusLifecycle(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	waitCount := func(want int) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if fixture.server.ConnectionStatus("session-1").OnlineConnections == want {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatalf("online count = %d, want %d", fixture.server.ConnectionStatus("session-1").OnlineConnections, want)
+	}
+	bad := fixture.dial(t)
+	writeTestEnvelope(t, bad, TypeHello, "session-1", "", "", 0, HelloPayload{PairToken: "invalid-fixture-credential"})
+	_ = readTestEnvelope(t, bad)
+	waitCount(0)
+	first := fixture.dial(t)
+	authenticateAndSubscribe(t, fixture, first)
+	waitCount(1)
+	second := fixture.dial(t)
+	authenticateAndSubscribe(t, fixture, second)
+	waitCount(2)
+	if got := fixture.server.ConnectionStatus("other").OnlineConnections; got != 0 {
+		t.Fatalf("session isolation: %d", got)
+	}
+	writeTestEnvelope(t, second, TypeUnsubscribe, "session-1", "", "", 0, struct{}{})
+	_ = readTestEnvelope(t, second)
+	waitCount(1)
+	writeTestEnvelope(t, second, TypeSubscribe, "session-1", "", "", 0, struct{}{})
+	_ = readTestEnvelope(t, second)
+	_ = readTestEnvelope(t, second)
+	waitCount(2)
+	_ = first.Close()
+	waitCount(1)
+	_ = second.Close()
+	waitCount(0)
+	status := fixture.server.ConnectionStatus("session-1")
+	serialized, _ := json.Marshal(status)
+	if bytes.Contains(serialized, []byte(fixture.token)) || bytes.Contains(serialized, []byte("invalid-fixture-credential")) {
+		t.Fatal("credential leaked")
+	}
+	seen := map[string]bool{}
+	for _, event := range status.Recent {
+		seen[event.Code] = true
+	}
+	for _, code := range []string{"authentication_rejected", "authenticated", "subscribed", "unsubscribed", "disconnected"} {
+		if !seen[code] {
+			t.Errorf("missing event %s", code)
+		}
+	}
+	// Returned slices are snapshots, not aliases of mutable server storage.
+	status.Recent[0].Code = "changed"
+	if fixture.server.ConnectionStatus("session-1").Recent[0].Code == "changed" {
+		t.Fatal("status aliases internal slice")
+	}
+}
+
+func TestConnectionDiagnosticsBounded(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	for i := 0; i < 150; i++ {
+		fixture.server.recordConnectionEvent("unknown-untrusted-session", "handshake_rejected")
+	}
+	status := fixture.server.ConnectionStatus("session-1")
+	if len(status.Recent) != 100 {
+		t.Fatalf("records=%d", len(status.Recent))
+	}
+	for _, event := range status.Recent {
+		if event.SessionID != "" {
+			t.Fatal("untrusted session retained")
+		}
+	}
+}
+
+func TestConnectionHeartbeatRemovesSilentPeerButKeepsResponsivePeer(t *testing.T) {
+	fixture := newServerFixture(t, func(config *Config) {
+		config.HeartbeatInterval = 10 * time.Millisecond
+		config.IdleTimeout = 100 * time.Millisecond
+	})
+	silent := fixture.dial(t)
+	authenticateAndSubscribe(t, fixture, silent)
+	healthy := fixture.dial(t)
+	authenticateAndSubscribe(t, fixture, healthy)
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		for {
+			if _, _, err := healthy.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+	defer func() { _ = healthy.Close(); <-readerDone }()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if fixture.server.ConnectionStatus("session-1").OnlineConnections == 1 {
+			time.Sleep(150 * time.Millisecond)
+			if got := fixture.server.ConnectionStatus("session-1").OnlineConnections; got != 1 {
+				t.Fatalf("live peer lost: %d", got)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("silent peer was not removed")
+}

@@ -12,7 +12,12 @@ const config: CapacitorConfig = {
   backgroundColor: '#f2f2f7',
   // Capacitor 的 Debug 桥接日志会打印插件请求/结果，包含安全存储中的 Pair Token。
   loggingBehavior: 'none',
+  android: {
+    webContentsDebuggingEnabled: true,
+  },
   ios: {
+    // 用户要求 Debug 与 Release 都可通过 Safari 检查 WebView。
+    webContentsDebuggingEnabled: true,
     // 页面内部滚动，避免 iOS 将整个 WebView 卷到状态栏下。
     scrollEnabled: false,
   },

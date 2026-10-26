@@ -7,6 +7,8 @@
 - 状态：总体设计已确认；A1–A5.2 已完成，后续路线见 `2026-08-25-simplified-roadmap-and-session-remote-design.md`
 - 对应需求：`REQUIREMENTS.md`
 
+> 2026-10-26 修订：D93增加协议v5当前轮次进度与安全宿主诊断，兼容v2–v4，三端纯JSON契约及旧端同seq降级见 `2026-10-26-session-progress-design.md`。
+
 ## 1. 设计目标
 
 里程碑 A 建立独立 Standalone CLI，通过 `claude-agent-sdk-go` 托管一个 Claude Session，并用单 Session Remote Server 暴露当前 `sessionId`。后续按 D68 增加 CLI 进程内多 Session 管理；新增设计见 `2026-09-23-standalone-cli-multi-session-design.md`。里程碑 A 的浏览器双向文本闭环和跨机器 LAN 门禁保持历史验收边界。
@@ -286,3 +288,6 @@ docs/testing/
 ## 附件契约补充（2026-10-21）
 
 新增平台中立 `send_attachments` 命令；限制、三端核对、旧端兼容与 PC 临时文件生命周期见 `2026-10-21-mobile-attachments-design.md`。唯一 Host、SDK Client 与 FIFO 不变；附件不作为完整上下文或手机离线历史。
+
+
+2026-10-26 D95补充：v6应用层ping/pong只用于连接存活检测，不占会话seq/命令队列，兼容v2–v5。见`2026-10-26-connection-liveness-design.md`。

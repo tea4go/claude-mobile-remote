@@ -1,4 +1,5 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
+import { networkDiagnostics, safeNetworkTarget } from './diagnostics'
 import { ProtocolClient } from './client'
 import type { PairingPayload } from './pairing'
 
@@ -139,7 +140,7 @@ describe('握手流程', () => {
     socket.serverOpen()
     expect(socket.sent).toHaveLength(1)
     expect(JSON.parse(socket.sent[0]!)).toEqual({
-      version: 4,
+      version: 6,
       type: 'hello',
       sessionId: 'session-1',
       commandId: '',
@@ -574,4 +575,191 @@ test('v4 客户端遇到旧服务端可协商降级到 v3', () => {
   legacy.serverOpen()
   expect(JSON.parse(legacy.sent[0]!).version).toBe(3)
   client.close()
+})
+
+describe('连接期限与诊断', () => {
+  test.each([
+    ['connecting', 8000, 'connect_timeout'],
+    ['authenticating', 4000, 'auth_timeout'],
+    ['subscribing', 4000, 'snapshot_timeout'],
+  ] as const)('%s 超时关闭且迟到回调无效', (stage, ms, code) => {
+    vi.useFakeTimers()
+    try {
+      networkDiagnostics.clear()
+      const { client } = makeClient()
+      const closes = vi.fn()
+      client.onClose = closes
+      client.connect()
+      const socket = FakeWebSocket.instances[0]!
+      if (stage !== 'connecting') socket.serverOpen()
+      if (stage === 'subscribing') socket.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+      const lateOpen = socket.onopen
+      vi.advanceTimersByTime(ms)
+      expect(socket.closed).toBe(true)
+      expect(closes).toHaveBeenCalledTimes(1)
+      expect(networkDiagnostics.getSnapshot().at(-1)?.code).toBe(code)
+      lateOpen?.()
+      vi.advanceTimersByTime(30000)
+      expect(closes).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
+  test('降级重连共用 15 秒总期限', () => {
+    vi.useFakeTimers()
+    try {
+      const { client } = makeClient()
+      client.connect()
+      const first = FakeWebSocket.instances[0]!
+      vi.advanceTimersByTime(7000)
+      first.serverOpen()
+      vi.advanceTimersByTime(3000)
+      first.serverMessage({ version: 3, type: 'error', sessionId: '', commandId: '', requestId: '', seq: 0, payload: { code: 'unsupported_version', message: '', expectedVersion: 3 } })
+      const second = FakeWebSocket.instances[1]!
+      vi.advanceTimersByTime(4999)
+      expect(second.closed).toBe(false)
+      vi.advanceTimersByTime(1)
+      expect(second.closed).toBe(true)
+      expect(networkDiagnostics.getSnapshot().at(-1)?.code).toBe('attempt_timeout')
+    } finally { vi.useRealTimers() }
+  })
+
+  test('命令超时报告结果未知并释放连接；认证成功清除握手期限', () => {
+    vi.useFakeTimers()
+    try {
+      const { client } = makeClient()
+      client.connect()
+      const socket = FakeWebSocket.instances[0]!
+      socket.serverOpen()
+      socket.serverMessage({ version: 2, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} })
+      socket.serverMessage(snapshotMessage())
+      expect(vi.getTimerCount()).toBe(0)
+      const closes = vi.fn()
+      client.onClose = closes
+      client.sendText('fixture body', 'pending-fixture')
+      vi.advanceTimersByTime(15000)
+      expect(closes).toHaveBeenCalledWith({ kind: 'disconnected', pendingCommandId: 'pending-fixture' })
+      expect(client.isReady()).toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
+  test('构造失败和 onerror 无需等待系统 close', () => {
+    const throwing = new ProtocolClient(pairing(), () => { throw new Error('private detail') })
+    const closed = vi.fn()
+    throwing.onClose = closed
+    expect(() => throwing.connect()).not.toThrow()
+    expect(closed).toHaveBeenCalledTimes(1)
+    const { client } = makeClient()
+    client.onClose = closed
+    client.connect()
+    FakeWebSocket.instances[0]!.onerror?.()
+    expect(closed).toHaveBeenCalledTimes(2)
+  })
+
+  test('诊断剥离 URL 凭证、路径、查询和 fragment，数量有界', () => {
+    expect(safeNetworkTarget('ws://fixture-user:fixture-secret@192.168.1.2:8765/private?token=fixture#private')).toBe('ws://192.168.1.2:8765')
+    networkDiagnostics.clear()
+    for (let i = 0; i < 40; i++) {
+      const client = new ProtocolClient(pairing(), () => { throw new Error('private detail') })
+      client.connect()
+    }
+    expect(networkDiagnostics.getSnapshot().length).toBeLessThanOrEqual(100)
+    expect(JSON.stringify(networkDiagnostics.getSnapshot())).not.toContain('test-token-placeholder')
+    expect(JSON.stringify(networkDiagnostics.getSnapshot())).not.toContain('private detail')
+  })
+})
+
+
+describe('应用层心跳存活检测', () => {
+  function ready(version = 6) {
+    const { client } = makeClient()
+    client.connect()
+    const socket = FakeWebSocket.instances.at(-1)!
+    socket.serverOpen()
+    socket.serverMessage({ version, type: 'hello_ack', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
+    socket.serverMessage({ ...snapshotMessage(), version })
+    const closed = vi.fn()
+    client.onClose = closed
+    return { client, socket, closed }
+  }
+  afterEach(() => vi.useRealTimers())
+  test('静默断网无需发送消息，15秒内断开并保留待受理命令的未知结果', () => {
+    vi.useFakeTimers()
+    const { client, socket, closed } = ready()
+    vi.advanceTimersByTime(10000)
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ type: 'ping', seq: 0, commandId: '', payload: {} })
+    client.sendText('hello', 'pending')
+    vi.advanceTimersByTime(5000)
+    expect(closed).toHaveBeenCalledExactlyOnceWith({ kind: 'disconnected', pendingCommandId: 'pending' })
+    expect(client.isReady()).toBe(false)
+    expect(socket.closed).toBe(true)
+    vi.advanceTimersByTime(30000)
+    expect(closed).toHaveBeenCalledTimes(1)
+  })
+  test('空闲连接持续收到pong不会误断，心跳不占用操作门控', () => {
+    vi.useFakeTimers()
+    const { client, socket, closed } = ready()
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(10000)
+      socket.serverMessage({ version: 6, type: 'pong', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} })
+      expect(client.isReady()).toBe(true)
+    }
+    expect(closed).not.toHaveBeenCalled()
+    expect(client.sendText('hello', 'cmd').ok).toBe(true)
+    client.close()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  test('恢复前台检查已过期的探测；系统离线无需等待心跳', () => {
+    vi.useFakeTimers()
+    const { client, closed } = ready()
+    client.checkConnection(true)
+    vi.setSystemTime(Date.now() + 6000)
+    client.checkConnection(true)
+    expect(closed).toHaveBeenCalledTimes(1)
+    const next = ready()
+    next.client.networkOffline()
+    expect(next.closed).toHaveBeenCalledTimes(1)
+    expect(next.client.isReady()).toBe(false)
+  })
+  test('错误Session的pong不得维持连接', () => {
+    vi.useFakeTimers()
+    const { client, socket, closed } = ready()
+    client.checkConnection(true)
+    socket.serverMessage({ version: 6, type: 'pong', sessionId: 'other', commandId: '', requestId: '', seq: 0, payload: {} })
+    expect(closed).toHaveBeenCalledWith({ kind: 'protocolError', pendingCommandId: null })
+  })
+  test('v6被旧宿主拒绝后明确降级v5', () => {
+    const { client } = makeClient()
+    client.connect()
+    const socket = FakeWebSocket.instances.at(-1)!
+    socket.serverOpen()
+    socket.serverMessage({version: 5, type:'error', sessionId:'session-1', commandId:'', requestId:'', seq:0, payload:{code:'unsupported_version',message:'unsupported',expectedVersion:5}})
+    const retry = FakeWebSocket.instances.at(-1)!
+    expect(retry).not.toBe(socket)
+    retry.serverOpen()
+    expect(JSON.parse(retry.sent[0]!).version).toBe(5)
+    client.close()
+  })
+  test('旧v5宿主不发送不兼容心跳，仍接受网络离线信号', () => {
+    vi.useFakeTimers()
+    const { client, socket } = ready(5)
+    vi.advanceTimersByTime(60000)
+    expect(client.isReady()).toBe(true)
+    expect(socket.sent.map(s => JSON.parse(s).type)).not.toContain('ping')
+    client.networkOffline()
+    expect(client.isReady()).toBe(false)
+  })
+  test('手动重连清理旧心跳和迟到事件', () => {
+    vi.useFakeTimers()
+    const { client, socket, closed } = ready()
+    client.checkConnection(true)
+    const late = socket.onmessage!
+    client.reconnect()
+    late({ data: JSON.stringify({ version: 6, type: 'pong', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {} }) })
+    vi.advanceTimersByTime(5000)
+    expect(closed).not.toHaveBeenCalled()
+    expect(client.connectionState()).toBe('connecting')
+    client.close()
+  })
 })

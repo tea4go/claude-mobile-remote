@@ -15,7 +15,7 @@ import (
 
 // Version remains the v2 default for callers constructing legacy envelopes.
 const Version = 2
-const LatestVersion = 4
+const LatestVersion = 6
 
 var ErrInvalidMessage = errors.New("invalid protocol message")
 
@@ -62,6 +62,8 @@ func (e *ProtocolError) Unwrap() error {
 type MessageType string
 
 const (
+	TypePing                MessageType = "ping"
+	TypePong                MessageType = "pong"
 	TypeHello               MessageType = "hello"
 	TypeHelloAck            MessageType = "hello_ack"
 	TypeSubscribe           MessageType = "subscribe"
@@ -214,7 +216,7 @@ func DecodeEnvelope(data []byte) (Envelope, error) {
 
 // ValidateEnvelope enforces the shared v2/v3 field and payload invariants.
 func ValidateEnvelope(envelope Envelope) error {
-	if envelope.Version != Version && envelope.Version != 3 && envelope.Version != LatestVersion {
+	if envelope.Version != Version && envelope.Version != 3 && envelope.Version != 4 && envelope.Version != 5 && envelope.Version != LatestVersion {
 		return protocolError(CodeUnsupportedVersion, "unsupported protocol version")
 	}
 	if envelope.Type == "" || envelope.SessionID == "" || len(envelope.Payload) == 0 {
@@ -258,6 +260,10 @@ func ValidateEnvelope(envelope Envelope) error {
 		var payload HelloPayload
 		if err := DecodePayload(envelope, &payload); err != nil || payload.PairToken == "" {
 			return protocolError(CodeInvalidMessage, "invalid hello payload")
+		}
+	case TypePing, TypePong:
+		if envelope.Version < 6 || envelope.CommandID != "" || envelope.RequestID != "" || envelope.Seq != 0 || !isEmptyPayload(envelope) {
+			return protocolError(CodeInvalidMessage, "invalid heartbeat fields")
 		}
 	case TypeHelloAck, TypeSubscribe, TypeSubscribed, TypeUnsubscribe, TypeUnsubscribed:
 		if envelope.CommandID != "" || envelope.RequestID != "" || envelope.Seq != 0 || !isEmptyPayload(envelope) {
@@ -333,6 +339,9 @@ func validateDisplayTitle(value string) bool {
 }
 
 func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
+	if snapshot.Turn.Progress != nil && (version < 5 || !snapshot.Turn.Progress.Valid() || snapshot.Turn.RequestID == "" || (snapshot.Turn.Status != protocol.TurnRunning && snapshot.Turn.Status != protocol.TurnWaiting)) {
+		return protocolError(CodeInvalidMessage, "invalid turn progress")
+	}
 	if version == Version {
 		if snapshot.ProjectCwd != "" || snapshot.SessionTitle != "" || snapshot.CreatedAt != "" || snapshot.LastActivityAt != "" {
 			return protocolError(CodeInvalidMessage, "v2 snapshot cannot carry display metadata")
@@ -347,6 +356,9 @@ func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
 }
 
 func validateEventDisplay(version int, event protocol.Event) error {
+	if version < 5 && (event.Progress != nil || event.Diagnostic != nil || event.Kind == protocol.EventTurnProgress || event.Kind == protocol.EventSessionDiagnostic) {
+		return protocolError(CodeInvalidMessage, "progress requires v5")
+	}
 	if version < 4 && event.Block != nil && (event.Block.Output != "" || event.Block.Truncated) {
 		return protocolError(CodeInvalidMessage, "tool output requires v4")
 	}
@@ -571,6 +583,18 @@ func validateEvent(event protocol.Event) error {
 // that own them. Every other kind must leave them absent, so a client never has
 // to guess whether a block or an action belongs to the event it is reading.
 func validateEventPayloadFields(event protocol.Event) error {
+	if (event.Progress != nil) != (event.Kind == protocol.EventTurnProgress) || (event.Diagnostic != nil) != (event.Kind == protocol.EventSessionDiagnostic) {
+		return protocolError(CodeInvalidMessage, "unexpected progress fields")
+	}
+	if event.Kind == protocol.EventTurnProgress || event.Kind == protocol.EventSessionDiagnostic {
+		if event.RequestID == "" || event.Text != "" || event.Error != nil || event.Block != nil || event.PendingAction != nil || event.Code != "" || len(event.Answers) > 0 || event.TurnStatus != "" || event.SessionStatus != "" || event.PermissionMode != "" {
+			return protocolError(CodeInvalidMessage, "invalid observation event")
+		}
+		if event.Progress != nil && !event.Progress.Valid() || event.Diagnostic != nil && !event.Diagnostic.Valid() {
+			return protocolError(CodeInvalidMessage, "invalid observation metadata")
+		}
+		return nil
+	}
 	switch event.Kind {
 	case protocol.EventContentBlock:
 		if event.PendingAction != nil || event.Code != "" || len(event.Answers) > 0 {

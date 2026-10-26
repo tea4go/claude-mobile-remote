@@ -218,3 +218,26 @@ Android 已同步当前 iOS 的语音草稿、在线本地通知/点击定位和
 ### Harmony Mac 界面预览与 AppTest
 
 终端预览：`bash scripts/macos/3_harmony_preview.sh`；Release APP 编译：`bash scripts/macos/5_harmony_apptest.sh --unsigned`（未签名，不可分发）。发布证书/Profile配置、签名构建和当前限制见 [操作说明](docs/harmony-preview-apptest.md)。
+
+### 移动端平台调试（Debug / Release）
+
+Capacitor 的 iOS/Android 配置均开启 `webContentsDebuggingEnabled`，供电脑端检查器使用。Android 原生同步仍待 iOS 验收。
+
+- iOS：iPhone 设置中找到 Safari → 高级 → Web 检查器并开启；连接并信任 Mac，打开 App。Mac Safari 启用开发者功能后，在「开发 → iPhone」中选择 App 页面，查看 Network、Console、Sources。Release WebView 检查需要 iOS 16.4+；原生问题使用 Xcode。
+- Android：开启 USB 调试并授权电脑，在 Chrome 的 `chrome://inspect/#devices` 选择 App WebView 的 Inspect；原生问题使用 Android Studio。
+
+`loggingBehavior` 保持 `none`，避免完整桥接日志打印凭证。检查器中的 WebSocket 帧可能包含配对凭证，分享截图或记录前请隐藏凭证。
+
+### 手机内调试日志
+
+开发/Release默认开启悬浮“调试”按钮，首次配对前也能进入设置。复现扫码、连接或发送操作后，点悬浮按钮查看最近200条动作、连接阶段、耗时、目标地址和异常类别。支持清空、复制和导出；iOS导出使用系统分享，可选择“存储到文件”。日志默认开启，不持久保存，可在“设置 → 调试日志”关闭本次运行的记录，重启后恢复默认开启。显式导出的文件由用户管理，iOS分享临时文件在分享结束后删除。
+
+不采集凭证、聊天正文、完整协议帧及原始错误堆栈，不完整映射Safari控制台/Network；更底层问题仍可用Safari检查。Android/Harmony原生对齐待iOS验收。
+
+调试日志最新在上，右侧中下方入口会避让输入区域和键盘。`C编号 / #次数`关联同一客户端的连接尝试；WS条目显示事件码、阶段、耗时和可取得的关闭码/wasClean。`1006`只表示异常中断，不能单独确定路由、防火墙或权限原因；`online`不代表目标PC可达。当前断开后需手动重连，系统暂停App时事件可能延迟。
+
+
+移动端会话进度（协议v5）：更新手机与WhaleTerm后，输入区显示实时阶段、耗时及输出token；“约”表示SDK估算。开启调试记录后，PC类别记录API重试、发送/接收失败、异常结束、assistant/result错误及任务/工具失败，含可用的HTTP码、重试次数和等待时长。C编号可与WS连接日志对应。记录不包含后台原始错误和正文。手机兼容旧PC，但旧PC不能提供新增数据；旧手机连接新PC保留原协议。WhaleTerm本机测试构建使用临时modfile引用当前Remote代码，正式依赖版本发布尚未执行。
+
+
+连接存活检测（协议v6）：手机和PC均更新后，前台每10秒发送应用层ping，等待pong最多5秒，超时主动显示断开；无需发送聊天消息。网络offline立即断开，online/恢复前台复查，不自动重发消息。配对记录保留，需手动重连。后台被系统暂停期间不保证实时检测；旧PC降级v2–v5，调试日志提示不具备应用层心跳能力。

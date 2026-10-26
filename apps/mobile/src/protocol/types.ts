@@ -1,8 +1,8 @@
-// v2/v3/v4 协议类型，字段与 internal/transport/protocol.go 对应。
+// v2–v6 协议类型，字段与 internal/transport/protocol.go 对应。
 // 组件不得复制消息定义，一律从本文件导入。
 
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 4
+export const PREFERRED_PROTOCOL_VERSION = 6
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
@@ -28,6 +28,8 @@ export type InputSource = 'terminal' | 'mobile'
 
 // unsupported 不是事件 kind：它走独立的 type=unsupported envelope。
 export type EventKind =
+  | 'turn_progress'
+  | 'session_diagnostic'
   | 'session_started'
   | 'turn_started'
   | 'text_delta'
@@ -135,6 +137,8 @@ export interface UnsupportedPayload {
 // ---- envelope（B2 internal/transport/protocol.go）----
 
 export type MessageType =
+  | 'ping'
+  | 'pong'
   | 'hello'
   | 'hello_ack'
   | 'subscribe'
@@ -154,6 +158,7 @@ export type MessageType =
 
 // 消息方向表（A4 设计 §5、B2 §4.4）：客户端→服务端、服务端→客户端。
 export const CLIENT_TO_SERVER_TYPES: ReadonlySet<string> = new Set([
+  'ping',
   'hello',
   'subscribe',
   'unsubscribe',
@@ -163,6 +168,7 @@ export const CLIENT_TO_SERVER_TYPES: ReadonlySet<string> = new Set([
 ])
 
 export const SERVER_TO_CLIENT_TYPES: ReadonlySet<string> = new Set([
+  'pong',
   'hello_ack',
   'subscribed',
   'unsubscribed',
@@ -180,7 +186,17 @@ export interface ErrorInfo {
   message: string
 }
 
+export interface TurnProgress {
+ phase: 'waiting' | 'working' | 'thinking' | 'writing' | 'tool' | 'subtask' | 'compacting' | 'requesting' | 'retrying' | 'waiting_followup' | 'tool_result' | 'subtask_result'
+ toolName?: string
+ startedAt: number; updatedAt: number; outputTokens: number; tokensKnown: boolean; tokensEstimated: boolean
+}
+export interface SessionDiagnostic {
+ code: 'api_retry' | 'query_failed' | 'receive_failed' | 'response_incomplete' | 'assistant_error' | 'result_error' | 'turn_failed' | 'tool_failed'
+ httpStatus?: number; attempt?: number; maxAttempts?: number; retryDelayMs?: number
+}
 export interface TurnSnapshot {
+ progress?: TurnProgress
   status: TurnStatus
   requestId: string
   // 首轮前（A5.2）尚无 Turn，source 为空串；一旦 requestId 非空则必非空。
@@ -210,6 +226,8 @@ export interface SessionSnapshot {
 // 领域事件：按 kind 部分携带字段，其余枚举在线上为空字符串（Go 零值
 // 序列化）。kind 语义校验由 decoder 的 validateEventSemantics 负责。
 export interface DomainEvent {
+ progress?: TurnProgress
+ diagnostic?: SessionDiagnostic
   seq: number
   kind: EventKind
   sessionId: string
@@ -310,7 +328,7 @@ export type ServerMessage = {
   requestId: string
   seq: number
 } & (
-  | { type: 'hello_ack' | 'subscribed' | 'unsubscribed'; payload: Record<string, never> }
+  | { type: 'pong' | 'hello_ack' | 'subscribed' | 'unsubscribed'; payload: Record<string, never> }
   | { type: 'snapshot'; payload: SnapshotPayload }
   | { type: 'event'; payload: EventPayload }
   | { type: 'unsupported'; payload: UnsupportedPayload }

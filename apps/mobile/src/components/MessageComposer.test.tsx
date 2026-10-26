@@ -125,7 +125,7 @@ describe('MessageComposer', () => {
     )
     expect(screen.getByRole('button', { name: '权限请求待确认' })).toBeDisabled()
     expect(screen.queryByRole('button', { name: '发送' })).not.toBeInTheDocument()
-    expect(screen.getByText('Claude 正在处理')).toBeInTheDocument()
+    expect(screen.getByText(/正在等待 Claude 响应/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '取消当前 Turn' }))
     expect(onCancelTurn).toHaveBeenCalledWith('turn-1')
   })

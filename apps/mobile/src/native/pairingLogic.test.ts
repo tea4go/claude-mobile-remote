@@ -108,14 +108,14 @@ describe('原生配对纯逻辑', () => {
     expect(state.records.has('expired')).toBe(true)
   })
 
-  test('安全写入失败时只留下无凭证元数据；删除先清安全记录', async () => {
+  test('安全写入失败时回滚候选元数据；删除先清安全记录', async () => {
     const state = ports()
     vi.mocked(state.secure.write).mockRejectedValueOnce(new Error('fixture secret detail'))
     await expect(state.logic.saveScanned(JSON.stringify(pairing('a')), now))
       .rejects.toBeInstanceOf(NativePairingStorageError)
-    expect(state.records.has('a')).toBe(true)
+    expect(state.records.has('a')).toBe(false)
     expect(state.secrets.has('a')).toBe(false)
-    expect((await state.logic.restore(now)).needsPairing.map((item) => item.sessionId)).toEqual(['a'])
+    expect((await state.logic.restore(now)).needsPairing).toEqual([])
 
     await state.logic.saveScanned(JSON.stringify(pairing('a')), now)
     state.events.length = 0
@@ -161,4 +161,21 @@ describe('原生配对纯逻辑', () => {
     unsubscribe()
     expect(hooks.foreground).toBeUndefined()
   })
+})
+
+test('重配保存期间候选失效会恢复旧凭证与元数据', async () => {
+  const state = ports()
+  await state.logic.saveScanned(JSON.stringify(pairing('a')), now)
+  const old = state.secrets.get('a')
+  const oldMetadata = state.records.get('a')
+  let valid = true
+  const originalWrite = state.secure.write
+  vi.mocked(state.secure.write).mockImplementationOnce(async (payload) => {
+    state.secrets.set(payload.sessionId, payload)
+    valid = false
+  })
+  await expect(state.logic.saveScanned(JSON.stringify({ ...pairing('a'), pairToken: 'replacement-fixture' }), now, () => valid)).rejects.toBeInstanceOf(NativePairingStorageError)
+  expect(state.secrets.get('a')).toEqual(old)
+  expect(state.records.get('a')).toEqual(oldMetadata)
+  expect(originalWrite).toHaveBeenCalled()
 })

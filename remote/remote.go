@@ -314,3 +314,15 @@ func (s *Server) publishLatest(payload protocol.Pairing) {
 	case <-s.stop:
 	}
 }
+
+// ConnectionStatus is safe metadata for the local PC host UI.
+type ConnectionStatus = transport.ConnectionStatus
+
+func (s *Server) ConnectionStatus() ConnectionStatus {
+	if provider, ok := s.server.(interface {
+		ConnectionStatus(string) transport.ConnectionStatus
+	}); ok {
+		return provider.ConnectionStatus(s.sessionID)
+	}
+	return ConnectionStatus{}
+}

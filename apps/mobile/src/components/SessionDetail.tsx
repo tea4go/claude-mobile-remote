@@ -183,7 +183,9 @@ export default function SessionDetail({
           onSendAttachments={onSendAttachments}
           permissionMode={state.permissionMode}
           onPermissionModeChange={onPermissionModeChange}
-          turnRunning={sessionUsable && cancelTarget !== null}
+          progress={state.progress}
+          turnWaiting={state.pendingAction !== null}
+          turnRunning={sessionUsable && state.connection === 'connected' && cancelTarget !== null}
           cancelTarget={cancelTarget}
           cancelEnabled={sessionUsable && commandReady && !cancelRequested}
           onCancelTurn={onCancelTurn}

@@ -1,3 +1,4 @@
+import UIKit
 import CryptoKit
 import Capacitor
 import Speech
@@ -9,6 +10,8 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "SessionExperiencePlugin"
     public let jsName = "SessionExperience"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "copyDebugLog", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "exportDebugLog", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "readSessionCache", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "writeSessionCache", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "removeSessionCache", returnType: CAPPluginReturnPromise),
@@ -22,6 +25,38 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "notify", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearNotifications", returnType: CAPPluginReturnPromise)
     ]
+    @objc func copyDebugLog(_ call: CAPPluginCall) {
+        guard let text = call.getString("text"), text.utf8.count <= 256 * 1024 else { call.reject("Invalid debug log"); return }
+        DispatchQueue.main.async {
+            UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: text]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(300)])
+            call.resolve()
+        }
+    }
+
+    @objc func exportDebugLog(_ call: CAPPluginCall) {
+        guard let text = call.getString("text"), text.utf8.count <= 256 * 1024 else { call.reject("Invalid debug log"); return }
+        DispatchQueue.main.async { [weak self] in
+            guard let controller = self?.bridge?.viewController, controller.presentedViewController == nil else { call.reject("Share unavailable"); return }
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmr-debug-" + UUID().uuidString, isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let file = directory.appendingPathComponent("mobile-debug.txt")
+                try Data(text.utf8).write(to: file, options: [.atomic, .completeFileProtection])
+                let share = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+                share.popoverPresentationController?.sourceView = controller.view
+                share.popoverPresentationController?.sourceRect = CGRect(x: controller.view.bounds.midX, y: controller.view.bounds.midY, width: 1, height: 1)
+                share.completionWithItemsHandler = { _, completed, _, error in
+                    try? FileManager.default.removeItem(at: directory)
+                    if error != nil { call.reject("Share failed") } else { call.resolve(["completed": completed]) }
+                }
+                controller.present(share, animated: true)
+            } catch {
+                try? FileManager.default.removeItem(at: directory)
+                call.reject("Export failed")
+            }
+        }
+    }
+
     private let cacheQueue = DispatchQueue(label: "cmr.session-cache", qos: .utility)
     private let cacheLimit = 2 * 1024 * 1024
 

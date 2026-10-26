@@ -137,14 +137,14 @@ describe('App：自动连接与发送', () => {
 
     socket.serverOpen()
     await waitFor(() => {
-      expect(screen.getByText('认证中')).toBeInTheDocument()
+      expect(screen.getByText('正在验证配对…')).toBeInTheDocument()
     })
 
     socket.serverMessage({
       version: PROTOCOL_VERSION, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
     })
     await waitFor(() => {
-      expect(screen.getByText('订阅中')).toBeInTheDocument()
+      expect(screen.getByText('正在同步会话…')).toBeInTheDocument()
     })
   })
 
@@ -317,6 +317,7 @@ describe('App：返回列表', () => {
   test('从详情返回列表恢复列表滚动位置', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    act(() => completeHandshake(FakeWebSocket.instances[0]!))
     await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
 
     fireEvent.click(screen.getByLabelText('返回'))
@@ -384,6 +385,8 @@ describe('App：多 Session 生命周期', () => {
     }))
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(3))
     expect(retrySocket.closed).toBe(false)
+    act(() => completeHandshake(FakeWebSocket.instances[2]!, { ...SNAPSHOT, sessionId: 'session-2', payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, sessionId: 'session-2' } } }))
+    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
     expect(window.location.hash).toContain('#pair=')
     const paired = parsePairingFragment(window.location.hash, Date.now())
     expect(paired.ok && paired.value.sessionId).toBe('session-2')
@@ -411,6 +414,8 @@ describe('App：多 Session 生命周期', () => {
       expect(FakeWebSocket.instances).toHaveLength(2)
     })
     expect(FakeWebSocket.instances.filter((s) => !s.closed)).toHaveLength(2)
+    act(() => completeHandshake(FakeWebSocket.instances[1]!, { ...SNAPSHOT, sessionId: 'session-2', payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, sessionId: 'session-2' } } }))
+    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
 
     fireEvent.click(screen.getByLabelText('返回'))
 
@@ -435,7 +440,9 @@ describe('App：多 Session 生命周期', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
-    expect(first.closed).toBe(true)
+    expect(first.closed).toBe(false)
+    act(() => completeHandshake(FakeWebSocket.instances[1]!))
+    await waitFor(() => expect(first.closed).toBe(true))
     fireEvent.click(screen.getByLabelText('返回'))
 
     expect(screen.getAllByTestId('session-list-item')).toHaveLength(1)
@@ -491,6 +498,8 @@ describe('App：多 Session 生命周期', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     const second = FakeWebSocket.instances[1]!
+    act(() => completeHandshake(second, { ...SNAPSHOT, sessionId: 'session-2', payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, sessionId: 'session-2' } } }))
+    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getAllByRole('button', { name: /更多操作/ })[0]!)
     fireEvent.click(screen.getByText('删除'))
@@ -558,11 +567,12 @@ describe('App：unauthorized 配对失效', () => {
       payload: { code: 'unauthorized', message: 'invalid pair token' },
     })
     await waitFor(() => {
-      expect(screen.getByText(/配对已失效/)).toBeInTheDocument()
+      expect(screen.getByTestId('pairing-error')).toBeInTheDocument()
     })
     expect(screen.queryByRole('button', { name: '重新连接' })).not.toBeInTheDocument()
     // 配对失效后通过返回列表重新配对。
-    expect(screen.getByLabelText('返回')).toBeInTheDocument()
+    expect(screen.queryByTestId('session-list-item')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '连接' })).toBeEnabled()
   })
 
   test('已连接后配对失效会禁用发送并标记 pending 结果未知', async () => {

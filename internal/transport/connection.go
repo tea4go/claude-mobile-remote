@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -77,9 +78,14 @@ func newConnection(server *Server, socket *websocket.Conn) *connection {
 
 func (c *connection) run() {
 	defer close(c.done)
+	defer func() {
+		c.server.setSubscribed(c, "")
+		c.server.recordConnectionEvent(c.sessionID, "disconnected")
+	}()
 	c.socket.SetReadLimit(c.server.config.ReadLimit + readLimitSlack)
 	_ = c.socket.SetReadDeadline(time.Now().Add(c.server.config.AuthTimeout))
 	go c.writeLoop()
+	go c.keepAlive()
 	c.readLoop()
 	if c.subscription != nil {
 		c.subscription.Cancel()
@@ -100,6 +106,17 @@ func (c *connection) readLoop() {
 	for {
 		messageType, data, err := c.socket.ReadMessage()
 		if err != nil {
+			var networkError net.Error
+			if errors.As(err, &networkError) && networkError.Timeout() {
+				code := "idle_timeout"
+				if c.state == stateConnected {
+					code = "auth_timeout"
+				}
+				if c.state == stateAuthenticated {
+					code = "subscribe_timeout"
+				}
+				c.server.recordConnectionEvent(c.sessionID, code)
+			}
 			return
 		}
 		if int64(len(data)) > c.server.config.ReadLimit {
@@ -145,6 +162,12 @@ func (c *connection) readLoop() {
 				return
 			}
 		case stateSubscribed:
+			if envelope.Type == TypePing && envelope.SessionID == c.sessionID {
+				if c.enqueue(TypePong, "", "", 0, struct{}{}) != nil {
+					return
+				}
+				continue
+			}
 			if envelope.Type == TypeUnsubscribe {
 				if !c.handleUnsubscribe(envelope) {
 					return
@@ -230,6 +253,10 @@ func (c *connection) handleUnsubscribe(envelope Envelope) bool {
 	c.subMu.Unlock()
 	c.subscription = nil
 	c.subscriptionChannel = nil
+	c.server.setSubscribed(c, "")
+	c.server.recordConnectionEvent(c.sessionID, "unsubscribed")
+	c.socket.SetPongHandler(func(string) error { return nil })
+	_ = c.socket.SetReadDeadline(time.Now().Add(4 * time.Second))
 	c.state = stateAuthenticated
 	return c.enqueue(TypeUnsubscribed, "", "", 0, struct{}{}) == nil
 }
@@ -393,18 +420,21 @@ func commandError(err error) (string, string) {
 func (c *connection) handleHello(envelope Envelope) bool {
 	var payload HelloPayload
 	if DecodePayload(envelope, &payload) != nil {
+		c.server.recordConnectionEvent(envelope.SessionID, "authentication_rejected")
 		c.fail(CodeUnauthorized, "unauthorized")
 		return false
 	}
 	lease, err := c.server.authenticator.Authenticate(envelope.SessionID, payload.PairToken)
 	if err != nil {
+		c.server.recordConnectionEvent(envelope.SessionID, "authentication_rejected")
 		c.fail(CodeUnauthorized, "unauthorized")
 		return false
 	}
 	c.lease = lease
 	c.sessionID = envelope.SessionID
 	c.state = stateAuthenticated
-	_ = c.socket.SetReadDeadline(time.Time{})
+	c.server.recordConnectionEvent(c.sessionID, "authenticated")
+	_ = c.socket.SetReadDeadline(time.Now().Add(4 * time.Second))
 	go func() {
 		select {
 		case <-lease.Done():
@@ -434,6 +464,9 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 		return false
 	}
 	snapshot := subscription.Snapshot
+	if c.version < 5 {
+		snapshot.Turn.Progress = nil
+	}
 	if c.version == Version {
 		snapshot.ProjectCwd = ""
 		snapshot.SessionTitle = ""
@@ -446,6 +479,12 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 	}); err != nil {
 		return false
 	}
+	c.server.setSubscribed(c, c.sessionID)
+	c.server.recordConnectionEvent(c.sessionID, "subscribed")
+	_ = c.socket.SetReadDeadline(time.Now().Add(c.server.config.IdleTimeout))
+	c.socket.SetPongHandler(func(string) error {
+		return c.socket.SetReadDeadline(time.Now().Add(c.server.config.IdleTimeout))
+	})
 	pumpDone := make(chan struct{})
 	c.subMu.Lock()
 	c.subscriptionDone = pumpDone
@@ -513,6 +552,12 @@ func (c *connection) forwardSubscription(subscription *channel.Subscription) {
 // session fields. Every other kind keeps the outbound semantics check: an
 // illegal event is an internal error and only closes this connection.
 func (c *connection) outboundEvent(event protocol.Event) (Envelope, error) {
+	if c.version < 5 && (event.Kind == protocol.EventTurnProgress || event.Kind == protocol.EventSessionDiagnostic) {
+		if err := validateEvent(event); err != nil {
+			return Envelope{}, err
+		}
+		event = protocol.Event{Kind: protocol.EventUnsupported, Seq: event.Seq, RequestID: event.RequestID, Code: protocol.UnsupportedUnknownSubtype}
+	}
 	if event.Kind == protocol.EventUnsupported {
 		if !event.Code.IsKnown() {
 			return Envelope{}, ErrInvalidMessage
@@ -567,6 +612,22 @@ func (c *connection) writeLoop() {
 		}
 		if err := c.socket.WriteMessage(websocket.TextMessage, data); err != nil {
 			return
+		}
+	}
+}
+
+func (c *connection) keepAlive() {
+	ticker := time.NewTicker(c.server.config.HeartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.context.Done():
+			return
+		case <-ticker.C:
+			if err := c.socket.WriteControl(websocket.PingMessage, nil, time.Now().Add(time.Second)); err != nil {
+				c.shutdown()
+				return
+			}
 		}
 	}
 }

@@ -33,10 +33,12 @@ type Config struct {
 	// as an Origin host: the user has already declared that clients reach this
 	// server through it, and a real-device live reload shell is served from that
 	// same host. Empty contributes no host.
-	AdvertiseURL string
-	AuthTimeout  time.Duration
-	CloseTimeout time.Duration
-	ReadLimit    int64
+	AdvertiseURL      string
+	AuthTimeout       time.Duration
+	HeartbeatInterval time.Duration
+	IdleTimeout       time.Duration
+	CloseTimeout      time.Duration
+	ReadLimit         int64
 	// ServiceConfig gates which resolutions a remote client may even express.
 	// It must stay identical to the value handed to session.WithServiceConfig:
 	// the transport only pre-validates, the Controller still owns the verdict,
@@ -66,6 +68,8 @@ type Server struct {
 	httpServer    *http.Server
 	listener      net.Listener
 	connections   map[*connection]struct{}
+	subscribed    map[*connection]string
+	recent        []ConnectionDiagnostic
 	shuttingDown  bool
 }
 
@@ -75,6 +79,12 @@ func NewServer(config Config, authenticator Authenticator, registry *channel.Reg
 	}
 	if config.ListenAddress == "" || config.AuthTimeout <= 0 || config.CloseTimeout <= 0 || config.ReadLimit <= 0 {
 		return nil, errors.New("invalid transport configuration")
+	}
+	if config.HeartbeatInterval <= 0 {
+		config.HeartbeatInterval = 10 * time.Second
+	}
+	if config.IdleTimeout <= 0 {
+		config.IdleTimeout = 30 * time.Second
 	}
 	allowedOrigins := make(map[string]struct{}, len(config.AllowedOrigins))
 	for _, origin := range config.AllowedOrigins {
@@ -86,6 +96,7 @@ func NewServer(config Config, authenticator Authenticator, registry *channel.Reg
 		authenticator: authenticator,
 		registry:      registry,
 		connections:   make(map[*connection]struct{}),
+		subscribed:    make(map[*connection]string),
 	}
 	server.upgrader = websocket.Upgrader{CheckOrigin: func(request *http.Request) bool {
 		origin := request.Header.Get("Origin")
@@ -232,8 +243,10 @@ func (s *Server) handleWebSocket(response http.ResponseWriter, request *http.Req
 	}
 	socket, err := s.upgrader.Upgrade(response, request, nil)
 	if err != nil {
+		s.recordConnectionEvent("", "handshake_rejected")
 		return
 	}
+	s.recordConnectionEvent("", "socket_open")
 	connection := newConnection(s, socket)
 	s.mu.Lock()
 	if s.shuttingDown {

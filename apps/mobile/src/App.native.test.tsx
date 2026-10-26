@@ -22,6 +22,14 @@ class FakeSocket {
   close() { this.closed = true }
 }
 
+function completeNativeHandshake(socket: FakeSocket, sessionId: string) {
+  act(() => {
+    socket.onopen?.()
+    socket.onmessage?.({ data: JSON.stringify({ version: 4, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {} }) })
+    socket.onmessage?.({ data: JSON.stringify({ version: 4, type: 'snapshot', sessionId: sessionId, commandId: '', requestId: '', seq: 0, payload: { connectionStatus: 'subscribed', snapshot: { sessionId: sessionId, sessionStatus: 'ready', sessionError: null, seq: 0, turn: { status: 'idle', requestId: '', source: '', message: '', error: null, pendingAction: null }, queueDepth: 0, queuedRequests: [] } } }) })
+  })
+}
+
 function pairing(sessionId: string): PairingPayload {
   return {
     version: 1, wsUrl: `ws://127.0.0.1:8765/${sessionId}`, sessionId,
@@ -104,14 +112,19 @@ test('设置页按 PC 编码移除本地配对，其他 PC 保留且安全记录
   expect(screen.getAllByRole('button', { name: '移除此 PC' })).toHaveLength(1)
 })
 
-test('原生扫码安全保存后建立连接，URL 不留配对凭证；前台过期后不重连', async () => {
+test('原生扫码验证成功后安全保存，URL 不留配对凭证；前台过期后不重连', async () => {
   let currentTime = Date.parse('2026-09-24T00:00:00Z')
   const native = bindings()
   render(<App native={native.native} now={() => currentTime} socketFactory={(url) => new FakeSocket(url)} />)
   await waitFor(() => expect(screen.getByText('扫描二维码')).toBeInTheDocument())
   fireEvent.click(screen.getByText('扫描二维码'))
   await waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
-  expect(native.secure.has('scanned')).toBe(true)
+  expect(native.secure.has('scanned')).toBe(false)
+  expect(screen.getByText('正在连接 PC…')).toBeInTheDocument()
+  const socket = FakeSocket.instances[0]!
+  completeNativeHandshake(socket, 'scanned')
+  await waitFor(() => expect(native.secure.has('scanned')).toBe(true))
+  await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
   expect(native.metadata.get('scanned')).toMatchObject({ sessionId: 'scanned', name: '会话 scanned' })
   expect(window.location.hash).toBe('')
 
@@ -171,4 +184,55 @@ test('原生文件缓存启动后恢复目录和消息，过期配对仍可只�
   fireEvent.click(screen.getByLabelText('更多操作 保留的会话'))
   fireEvent.click(await screen.findByText('删除'))
   await waitFor(() => expect(cache.removeSessionCache).toHaveBeenCalledWith({ sessionId: 'cached' }))
+})
+
+test('候选连接失败与取消不会保存配对，取消后的迟到连接不能打开详情', async () => {
+  const state = bindings()
+  render(<App native={state.native} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(screen.getByText('扫描二维码')).toBeInTheDocument())
+  fireEvent.click(screen.getByText('扫描二维码'))
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
+  const first = FakeSocket.instances[0]!
+  expect(screen.getByTestId('pairing-target')).toHaveTextContent(new URL(first.url).host)
+  const shownTarget = screen.getByTestId('pairing-target').textContent
+  act(() => first.onerror?.())
+  expect(screen.getByTestId('pairing-target').textContent).toBe(shownTarget)
+  expect(state.secure.size).toBe(0)
+  expect(state.metadata.size).toBe(0)
+  expect(screen.getByTestId('pairing-error')).toHaveTextContent('连接失败')
+  fireEvent.click(screen.getByText('扫描二维码'))
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(2))
+  const second = FakeSocket.instances[1]!
+  const lateOpen = second.onopen
+  fireEvent.click(screen.getByRole('button', { name: '取消连接' }))
+  act(() => lateOpen?.())
+  expect(second.closed).toBe(true)
+  expect(state.secure.size).toBe(0)
+  expect(state.metadata.size).toBe(0)
+  expect(screen.queryByText('已连接')).not.toBeInTheDocument()
+})
+
+
+test('验证后安全保存期间的新增事件会交给正式 Runtime，不另建连接', async () => {
+  const state = bindings()
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  const save = state.native.logic.saveScanned.bind(state.native.logic)
+  const spy = vi.spyOn(state.native.logic, 'saveScanned').mockImplementation(async (...args) => {
+    await barrier
+    return save(...args)
+  })
+  render(<App native={state.native} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(screen.getByText('扫描二维码')).toBeInTheDocument())
+  fireEvent.click(screen.getByText('扫描二维码'))
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
+  const socket = FakeSocket.instances[0]!
+  completeNativeHandshake(socket, 'scanned')
+  expect(screen.getByRole('button', { name: '取消连接' })).toBeDisabled()
+  act(() => socket.onmessage?.({ data: JSON.stringify({ version: 4, type: 'event', sessionId: 'scanned', commandId: '', requestId: 'req-buffered', seq: 1, payload: { event: { seq: 1, kind: 'turn_started', sessionId: 'scanned', requestId: 'req-buffered', source: 'terminal', text: '保存期间来自电脑的输入', sessionStatus: '', turnStatus: 'running', error: null } } }) }))
+  await act(async () => { release(); await barrier })
+  await waitFor(() => expect(screen.getByText('保存期间来自电脑的输入')).toBeInTheDocument())
+  expect(FakeSocket.instances).toHaveLength(1)
+  expect(state.secure.has('scanned')).toBe(true)
+  spy.mockRestore()
 })

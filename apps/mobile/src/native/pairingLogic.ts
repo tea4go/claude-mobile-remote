@@ -131,13 +131,19 @@ export class NativePairingLogic {
     return result
   }
 
-  async saveScanned(input: string, now: number): Promise<PairingResult> {
+  async saveScanned(input: string, now: number, isCurrent: () => boolean = () => true): Promise<PairingResult> {
     const parsed = parseScannedPairing(input, now)
     if (!parsed.ok) return parsed
 
+    const sessionId = parsed.value.sessionId
+    let previous: NativePairingMetadata | undefined
+    let previousSecure: unknown | null = null
+    let writing = false
     try {
-      const previous = (await this.metadata.list())
-        .find((record) => record.sessionId === parsed.value.sessionId)
+      previous = (await this.metadata.list()).find((record) => record.sessionId === sessionId)
+      previousSecure = await this.secure.read(sessionId)
+      if (!isCurrent()) throw storageError()
+      writing = true
       await this.metadata.upsert(previous === undefined ? {
         sessionId: parsed.value.sessionId,
         name: defaultSessionName(parsed.value.sessionId),
@@ -150,8 +156,22 @@ export class NativePairingLogic {
         pcId: parsed.value.pcId,
         pcName: parsed.value.pcName,
       })
+      if (!isCurrent()) throw storageError()
       await this.secure.write(parsed.value)
+      if (!isCurrent()) throw storageError()
     } catch {
+      if (writing) {
+        try {
+          if (previousSecure === null) await this.secure.remove(sessionId)
+          else {
+            const old = parsePairingJson(JSON.stringify(previousSecure), now)
+            if (old.ok) await this.secure.write(old.value)
+            else await this.secure.remove(sessionId)
+          }
+          if (previous === undefined) await this.metadata.remove(sessionId)
+          else await this.metadata.upsert(previous)
+        } catch { /* Fail closed; no candidate is adopted if storage is unavailable. */ }
+      }
       throw storageError()
     }
     return parsed

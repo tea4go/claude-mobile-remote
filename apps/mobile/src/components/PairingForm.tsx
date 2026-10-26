@@ -3,13 +3,17 @@ import { Button, TextArea } from 'antd-mobile'
 import { BLOCK_BUTTON_STYLE } from './ui'
 
 interface PairingFormProps {
+  target?: string | null
   initialError: string | null
   onSubmit: (json: string) => void
   onScan?: () => void
+  progress?: string | null
+  saving?: boolean
+  onCancel?: () => void
 }
 
 // 配对页：标题、说明、原始 JSON 多行输入、连接按钮与就地错误（设计 §8）。
-export default function PairingForm({ initialError, onSubmit, onScan }: PairingFormProps) {
+export default function PairingForm({ target = null, initialError, onSubmit, onScan, progress = null, saving = false, onCancel }: PairingFormProps) {
   const [json, setJson] = useState('')
   const [emptyError, setEmptyError] = useState(false)
 
@@ -29,12 +33,20 @@ export default function PairingForm({ initialError, onSubmit, onScan }: PairingF
         placeholder='{"version":1,...}'
         rows={6}
       />
+      {target !== null && <div data-testid="pairing-target" style={{ overflowWrap: 'anywhere' }}>
+        <strong>目标 PC 地址（IP / 主机名及端口）</strong>
+        <div>{target}</div>
+        <small>请与 PC 配对窗口核对；手机所在网络需要能访问此地址。不同路由器共用宽带不代表设备能够互通。</small>
+      </div>}
       {error !== null && (
         <div data-testid="pairing-error" style={{ color: '#e00' }}>
           {error}
         </div>
       )}
+      {progress !== null && <div role="status">{progress}</div>}
+      {progress !== null && <Button disabled={saving} onClick={onCancel}>取消连接</Button>}
       <Button
+        disabled={progress !== null || saving}
         color="primary"
         style={BLOCK_BUTTON_STYLE}
         onClick={() => {
@@ -47,7 +59,7 @@ export default function PairingForm({ initialError, onSubmit, onScan }: PairingF
       >
         连接
       </Button>
-      {onScan && <Button color="primary" fill="outline" style={BLOCK_BUTTON_STYLE} onClick={onScan}>扫描二维码</Button>}
+      {onScan && <Button disabled={progress !== null || saving} color="primary" fill="outline" style={BLOCK_BUTTON_STYLE} onClick={onScan}>扫描二维码</Button>}
     </div>
   )
 }
