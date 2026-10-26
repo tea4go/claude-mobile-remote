@@ -3,13 +3,15 @@ package protocol
 type EventKind string
 
 const (
-	EventSessionStarted EventKind = "session_started"
-	EventTurnStarted    EventKind = "turn_started"
-	EventTextDelta      EventKind = "text_delta"
-	EventTurnCompleted  EventKind = "turn_completed"
-	EventTurnFailed     EventKind = "turn_failed"
-	EventSessionFailed  EventKind = "session_failed"
-	EventSessionStopped EventKind = "session_stopped"
+	EventTurnProgress      EventKind = "turn_progress"
+	EventSessionDiagnostic EventKind = "session_diagnostic"
+	EventSessionStarted    EventKind = "session_started"
+	EventTurnStarted       EventKind = "turn_started"
+	EventTextDelta         EventKind = "text_delta"
+	EventTurnCompleted     EventKind = "turn_completed"
+	EventTurnFailed        EventKind = "turn_failed"
+	EventSessionFailed     EventKind = "session_failed"
+	EventSessionStopped    EventKind = "session_stopped"
 	// EventContentBlock carries one structured Thinking / tool / tool result
 	// title (B2 §4.2).
 	EventContentBlock EventKind = "content_block"
@@ -52,18 +54,20 @@ func (code UnsupportedCode) IsKnown() bool {
 }
 
 type Event struct {
-	Seq           uint64          `json:"seq"`
-	Kind          EventKind       `json:"kind"`
-	SessionID     string          `json:"sessionId"`
-	RequestID     string          `json:"requestId"`
-	Source        InputSource     `json:"source"`
-	Text          string          `json:"text"`
-	SessionStatus SessionStatus   `json:"sessionStatus"`
-	TurnStatus    TurnStatus      `json:"turnStatus"`
-	Error         *ErrorInfo      `json:"error"`
-	Block         *ContentBlock   `json:"block,omitempty"`
-	PendingAction *PendingAction  `json:"pendingAction,omitempty"`
-	Code          UnsupportedCode `json:"code,omitempty"`
+	Progress      *TurnProgress      `json:"progress,omitempty"`
+	Diagnostic    *SessionDiagnostic `json:"diagnostic,omitempty"`
+	Seq           uint64             `json:"seq"`
+	Kind          EventKind          `json:"kind"`
+	SessionID     string             `json:"sessionId"`
+	RequestID     string             `json:"requestId"`
+	Source        InputSource        `json:"source"`
+	Text          string             `json:"text"`
+	SessionStatus SessionStatus      `json:"sessionStatus"`
+	TurnStatus    TurnStatus         `json:"turnStatus"`
+	Error         *ErrorInfo         `json:"error"`
+	Block         *ContentBlock      `json:"block,omitempty"`
+	PendingAction *PendingAction     `json:"pendingAction,omitempty"`
+	Code          UnsupportedCode    `json:"code,omitempty"`
 	// Answers only ever accompanies EventActionResolved for an answered
 	// AskUserQuestion (D52); permission decisions leave it empty.
 	Answers        []ResolvedAnswer `json:"answers,omitempty"`

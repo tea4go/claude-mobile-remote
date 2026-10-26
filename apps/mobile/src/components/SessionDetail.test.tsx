@@ -236,7 +236,7 @@ describe('SessionDetail：交互', () => {
 
     const button = screen.getByRole('button', { name: '取消当前 Turn' })
     expect(screen.queryByRole('button', { name: '发送' })).not.toBeInTheDocument()
-    expect(screen.getByText('Claude 正在处理')).toBeInTheDocument()
+    expect(screen.getByText(/正在等待 Claude 响应/)).toBeInTheDocument()
     fireEvent.click(button)
     expect(onCancelTurn).toHaveBeenCalledExactlyOnceWith('req-running')
   })

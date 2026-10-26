@@ -99,6 +99,9 @@ func (s *EventStream) UpdateSnapshot(snapshot protocol.Snapshot) error {
 			snapshot.Turn = s.snapshot.Turn
 		} else {
 			snapshot.Turn.Message = s.snapshot.Turn.Message
+			if snapshot.Turn.Status == protocol.TurnRunning || snapshot.Turn.Status == protocol.TurnWaiting {
+				snapshot.Turn.Progress = cloneProgress(s.snapshot.Turn.Progress)
+			}
 		}
 	}
 	if snapshot.ProjectCwd == "" {
@@ -130,6 +133,9 @@ func (s *EventStream) Publish(event protocol.Event) error {
 	}
 	if event.SessionID != s.snapshot.SessionID {
 		return protocol.ErrSessionMismatch
+	}
+	if event.Kind == protocol.EventTurnProgress && (event.RequestID != s.snapshot.Turn.RequestID || (s.snapshot.Turn.Status != protocol.TurnRunning && s.snapshot.Turn.Status != protocol.TurnWaiting)) {
+		return nil
 	}
 	switch event.Kind {
 	case protocol.EventTurnStarted:
@@ -192,6 +198,16 @@ func contextError(ctx context.Context) error {
 }
 
 func applyEvent(snapshot protocol.Snapshot, event protocol.Event) protocol.Snapshot {
+	if event.Kind == protocol.EventSessionDiagnostic {
+		return snapshot
+	}
+	if event.Kind == protocol.EventTurnProgress {
+		snapshot.Turn.Progress = cloneProgress(event.Progress)
+		return snapshot
+	}
+	if event.Kind == protocol.EventTurnStarted || event.Kind == protocol.EventTurnCompleted || event.Kind == protocol.EventTurnFailed || event.Kind == protocol.EventSessionStopped || event.Kind == protocol.EventSessionFailed {
+		snapshot.Turn.Progress = nil
+	}
 	if event.SessionStatus != "" {
 		snapshot.SessionStatus = event.SessionStatus
 	}
@@ -234,6 +250,7 @@ func applyEvent(snapshot protocol.Snapshot, event protocol.Event) protocol.Snaps
 }
 
 func cloneSnapshot(snapshot protocol.Snapshot) protocol.Snapshot {
+	snapshot.Turn.Progress = cloneProgress(snapshot.Turn.Progress)
 	snapshot.SessionError = cloneError(snapshot.SessionError)
 	snapshot.Turn.Error = cloneError(snapshot.Turn.Error)
 	snapshot.Turn.PendingAction = clonePendingAction(snapshot.Turn.PendingAction)
@@ -255,5 +272,13 @@ func clonePendingAction(value *protocol.PendingAction) *protocol.PendingAction {
 	}
 	copy := *value
 	copy.Questions = append([]protocol.Question(nil), value.Questions...)
+	return &copy
+}
+
+func cloneProgress(p *protocol.TurnProgress) *protocol.TurnProgress {
+	if p == nil {
+		return nil
+	}
+	copy := *p
 	return &copy
 }

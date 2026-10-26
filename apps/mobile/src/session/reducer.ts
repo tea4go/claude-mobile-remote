@@ -2,6 +2,7 @@
 
 import type {
   Attachment,
+  TurnProgress,
   CommandKind,
   ContentBlock,
   DomainEvent,
@@ -86,6 +87,8 @@ export interface Notice {
 }
 
 export interface MobileState {
+ progress: TurnProgress | null
+ progressRequestId: string
   cachedAt: number | null
   phase: Phase
   connection: ConnectionState
@@ -111,6 +114,8 @@ export interface MobileState {
 
 export function createInitialState(): MobileState {
   return {
+    progress: null,
+    progressRequestId: '',
     cachedAt: null,
     phase: 'unpaired',
     connection: 'connecting',
@@ -369,6 +374,8 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     sessionError: snapshot.sessionError,
     permissionMode: snapshot.permissionMode ?? 'default',
     seqBase: snapshot.seq,
+    progress: snapshot.turn.progress ?? null,
+    progressRequestId: turnActive ? snapshot.turn.requestId : '',
     queueDepthHint: snapshot.queueDepth,
     queuedRequests: snapshot.queuedRequests,
     // 同一 App 生命周期内重新进入 Session 时保留已经看到的消息；Snapshot
@@ -474,12 +481,19 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
   if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
 
   switch (event.kind) {
+    case 'turn_progress':
+      if (next.progressRequestId === event.requestId && next.messages.some(m => m.kind === 'claude' && m.requestId === event.requestId && m.status === 'streaming')) next.progress = event.progress ?? null
+      break
+    case 'session_diagnostic':
+      break
     // session_* 事件按协议携带非空 sessionStatus（decoder 语义校验入口）。
     case 'session_started':
       next.sessionStatus = event.sessionStatus as MobileState['sessionStatus']
       next.sessionId = event.sessionId
       break
     case 'session_failed':
+      next.progress = null
+      next.progressRequestId = ''
       next.sessionStatus = event.sessionStatus as MobileState['sessionStatus']
       next.sessionError = event.error
       // Session 终止后待处理事项与队列都不再可操作。
@@ -488,12 +502,16 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       next.queueDepthHint = 0
       break
     case 'session_stopped':
+      next.progress = null
+      next.progressRequestId = ''
       next.sessionStatus = event.sessionStatus as MobileState['sessionStatus']
       next.pendingAction = null
       next.queuedRequests = []
       next.queueDepthHint = 0
       break
     case 'turn_started': {
+      next.progress = null
+      next.progressRequestId = event.requestId
       const merged = mergeTurnStarted(next, event)
       if (merged === null) {
         return { ...markPendingUnknown(next), phase: 'protocolError', canSend: false }
@@ -543,6 +561,8 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
     }
     case 'turn_completed':
     case 'turn_failed': {
+      next.progress = null
+      next.progressRequestId = ''
       const status: ClaudeMessage['status'] =
         event.kind === 'turn_failed'
           ? 'failed'

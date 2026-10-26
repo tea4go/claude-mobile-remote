@@ -2,6 +2,8 @@ import type {
   CommandResultPayload,
   ContentBlock,
   DomainEvent,
+  TurnProgress,
+  SessionDiagnostic,
   ErrorInfo,
   ErrorPayload,
   EventKind,
@@ -58,6 +60,7 @@ const PERMISSION_MODES: ReadonlySet<string> = new Set(['default', 'acceptEdits',
 const INPUT_SOURCES: ReadonlySet<string> = new Set(['terminal', 'mobile'])
 
 const EVENT_KINDS: ReadonlySet<string> = new Set([
+ 'turn_progress', 'session_diagnostic',
   'session_started',
   'turn_started',
   'text_delta',
@@ -462,6 +465,27 @@ function displayField(value: Record<string, unknown>, key: string, version: numb
   return raw
 }
 
+function decodeProgress(value: unknown): TurnProgress {
+ if (!isObject(value)) fail('invalid progress')
+ const phase = requireNonEmptyEnum<TurnProgress['phase']>(value, 'phase', new Set(['waiting','working','thinking','writing','tool','subtask','compacting','requesting','retrying','waiting_followup','tool_result','subtask_result']))
+ const startedAt = requireNonNegativeInteger(value, 'startedAt'), updatedAt = requireNonNegativeInteger(value, 'updatedAt'), outputTokens = requireNonNegativeInteger(value, 'outputTokens')
+ if (startedAt === 0 || updatedAt < startedAt || outputTokens > 1000000000 || typeof value.tokensKnown !== 'boolean' || typeof value.tokensEstimated !== 'boolean') fail('invalid progress metadata')
+ const toolName = value.toolName
+ if (toolName !== undefined && (phase !== 'tool' || typeof toolName !== 'string' || !/^[a-zA-Z0-9_:.@/-]{1,128}$/.test(toolName))) fail('invalid tool name')
+ return { phase, startedAt, updatedAt, outputTokens, tokensKnown: value.tokensKnown, tokensEstimated: value.tokensEstimated, ...(toolName !== undefined ? { toolName: toolName as string } : {}) }
+}
+function decodeDiagnostic(value: unknown): SessionDiagnostic {
+ if (!isObject(value)) fail('invalid diagnostic')
+ const code = requireNonEmptyEnum<SessionDiagnostic['code']>(value, 'code', new Set(['api_retry','query_failed','receive_failed','response_incomplete','assistant_error','result_error','turn_failed','tool_failed']))
+ const result: SessionDiagnostic = { code }
+ for (const key of ['httpStatus','attempt','maxAttempts','retryDelayMs'] as const) {
+  if (value[key] === undefined) continue
+  const n = requireNonNegativeInteger(value, key)
+  if ((key === 'httpStatus' && n !== 0 && (n < 100 || n > 599)) || n > (key === 'retryDelayMs' ? 86400000 : key === 'httpStatus' ? 599 : 1000000)) fail('invalid diagnostic number')
+  result[key] = n
+ }
+ return result
+}
 function decodeSessionSnapshot(value: unknown, version: number): SessionSnapshot {
   if (!isObject(value)) fail('snapshot must be an object')
   const snapshot: SessionSnapshot = {
@@ -484,6 +508,11 @@ function decodeSessionSnapshot(value: unknown, version: number): SessionSnapshot
     if (field !== undefined) snapshot[key] = field
   }
   // queueDepth 与列表长度恒等（B2 §4.3）：不一致说明快照自相矛盾。
+  const rawTurn = requireObject(value, 'turn')
+  if (rawTurn.progress !== undefined) {
+   if (version < 5 || snapshot.turn.requestId === '' || !['running','waiting'].includes(snapshot.turn.status)) fail('unexpected snapshot progress')
+   snapshot.turn.progress = decodeProgress(rawTurn.progress)
+  }
   if (snapshot.queueDepth !== snapshot.queuedRequests.length) {
     fail('queueDepth does not match queuedRequests')
   }
@@ -561,6 +590,15 @@ function decodeEventPayload(value: unknown, version: number): EventPayload {
     if (!PERMISSION_MODES.has(rawMode)) fail('invalid permission mode event')
     domainEvent.permissionMode = rawMode as PermissionMode
   }
+  if (event.progress !== undefined || kind === 'turn_progress') {
+   if (version < 5 || kind !== 'turn_progress') fail('unexpected progress')
+   domainEvent.progress = decodeProgress(event.progress)
+  }
+  if (event.diagnostic !== undefined || kind === 'session_diagnostic') {
+   if (version < 5 || kind !== 'session_diagnostic') fail('unexpected diagnostic')
+   domainEvent.diagnostic = decodeDiagnostic(event.diagnostic)
+  }
+  if ((kind === 'turn_progress' || kind === 'session_diagnostic') && (requestId === '' || domainEvent.turnStatus !== '' || domainEvent.sessionStatus !== '' || domainEvent.error !== null)) fail('invalid observation event')
   validateEventSemantics(domainEvent)
   return { event: domainEvent }
 }
@@ -672,7 +710,7 @@ export function decodeServerMessage(text: string): ServerMessage {
   if (typeof version !== 'number' || !Number.isSafeInteger(version)) {
     fail('field version must be an integer')
   }
-  if (version !== PROTOCOL_VERSION && version !== 3 && version !== PREFERRED_PROTOCOL_VERSION) fail('unsupported protocol version')
+  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== PREFERRED_PROTOCOL_VERSION) fail('unsupported protocol version')
 
   const type = requireString(parsed, 'type') as MessageType
   if (!SERVER_TO_CLIENT_TYPES.has(type)) {
@@ -691,6 +729,10 @@ export function decodeServerMessage(text: string): ServerMessage {
   }
 
   switch (type) {
+    case 'pong':
+      if (version < 6 || envelope.commandId !== '' || envelope.requestId !== '' || envelope.seq !== 0) fail('invalid heartbeat fields')
+      if (Object.keys(payload).length > 0) fail('payload must be empty')
+      return { ...envelope, type, payload: {} }
     case 'hello_ack':
     case 'subscribed':
     case 'unsubscribed':

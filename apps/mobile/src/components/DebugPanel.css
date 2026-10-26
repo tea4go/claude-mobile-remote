@@ -1,0 +1,16 @@
+.debug-float { position: fixed; right: max(8px, env(safe-area-inset-right, 0px)); bottom: max(32dvh, env(safe-area-inset-bottom, 0px)); z-index: 1900; min-width: 44px; height: 36px; padding: 0 9px; border: 1px solid #476482; border-radius: 18px; background: #173b60ed; color: white; font-size: 12px; box-shadow: 0 2px 8px #0002; }
+.debug-overlay { position: fixed; inset: 0; z-index: 2000; background: #0006; padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom)); box-sizing: border-box; display: flex; align-items: center; justify-content: center; }
+.debug-dialog { display: flex; flex-direction: column; width: 100%; max-width: 680px; max-height: 88dvh; overflow: hidden; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; background: #fff; color: #172b40; font-size: 12px; }
+.debug-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
+.debug-dialog button { min-height: 30px; padding: 3px 9px; border: 1px solid #cbd5df; border-radius: 6px; background: #f5f8fb; color: #173b60; font-size: 12px; }
+.debug-toolbar { display: flex; gap: 6px; padding: 3px 0 7px; border-bottom: 1px solid #dce3eb; }
+.debug-dialog .debug-hint { margin: 5px 0; color: #607286; font-size: 11px; }
+.debug-dialog [role="status"]:not(:empty) { padding: 4px 0; }
+.debug-entries { min-height: 0; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; user-select: text; overflow-wrap: anywhere; }
+.debug-entries article { border-bottom: 1px solid #e4e9ef; padding: 7px 6px; line-height: 1.4; border-left: 2px solid #b9c9d9; }
+.debug-entries article[data-level="error"] { border-left-color: #cb3946; background: #fff5f5; }
+.debug-entries article[data-level="warn"] { border-left-color: #b88020; background: #fffbf3; }
+.debug-row-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; font-size: 10px; color: #52687e; font-variant-numeric: tabular-nums; }
+.debug-code { font-size: 10px; color: #52687e; }
+.debug-message { margin: 2px 0; }
+.debug-target, .debug-facts { color: #52687e; font-size: 10px; font-family: ui-monospace, SFMono-Regular, monospace; }

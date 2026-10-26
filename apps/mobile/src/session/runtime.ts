@@ -1,3 +1,4 @@
+import { recordHostDiagnostic } from '../debug/log'
 import {
   ProtocolClient,
   type ActionResolution,
@@ -105,15 +106,15 @@ export class SessionRuntimeManager {
     this.now = now
   }
 
-  ensureConnected(payload: PairingPayload): void {
+  ensureConnected(payload: PairingPayload, verified?: ProtocolClient): void {
     const key = payloadKey(payload)
     const existing = this.entries.get(payload.sessionId)
-    if (existing?.payloadKey === key) return
+    if (existing?.payloadKey === key && verified === undefined) return
     if (existing !== undefined) this.closeClient(payload.sessionId, existing)
 
     const generation = (this.generations.get(payload.sessionId) ?? 0) + 1
     this.generations.set(payload.sessionId, generation)
-    const client = new ProtocolClient(payload, this.socketFactory)
+    const client = verified ?? new ProtocolClient(payload, this.socketFactory)
     const entry: RuntimeEntry = { payloadKey: key, generation, client }
     this.entries.set(payload.sessionId, entry)
     const current = this.store.getState().sessions[payload.sessionId] ?? null
@@ -128,7 +129,13 @@ export class SessionRuntimeManager {
       if (!this.isCurrent(payload.sessionId, generation, client)) return
       this.handleClose(payload.sessionId, info)
     }
-    client.connect()
+    if (verified === undefined) client.connect()
+  }
+
+  adoptVerified(payload: PairingPayload, client: ProtocolClient, snapshot: import('../protocol/types').SessionSnapshot, bufferedEvents: ClientEvent[] = []): void {
+    this.ensureConnected(payload, client)
+    this.handleEvent(payload.sessionId, { kind: 'snapshot', snapshot })
+    for (const event of bufferedEvents) this.handleEvent(payload.sessionId, event)
   }
 
   reconnect(sessionId: string): void {
@@ -154,8 +161,13 @@ export class SessionRuntimeManager {
     }
   }
 
+  networkOffline(): void {
+    for (const entry of this.entries.values()) entry.client.networkOffline()
+  }
+
   refreshConnectionStates(): void {
     for (const [sessionId, entry] of this.entries) {
+      entry.client.checkConnection(true)
       this.store.getState().dispatchSession(
         sessionId,
         connectionStateChanged(entry.client.connectionState()),
@@ -275,6 +287,15 @@ export class SessionRuntimeManager {
         return
       }
       case 'event': {
+        const domain = event.event
+        // Log only accepted sequence entries, with no session/request IDs or error text.
+        const state = this.store.getState().sessions[sessionId]
+        const context = this.entries.get(sessionId)?.client.debugContext()
+        if (state && domain.seq === state.seqBase + 1) {
+          if (domain.diagnostic) recordHostDiagnostic(domain.diagnostic, context)
+          else if (domain.kind === 'turn_failed' || domain.kind === 'session_failed') recordHostDiagnostic({ code: 'turn_failed' }, context)
+          else if (domain.kind === 'content_block' && domain.block?.kind === 'tool_result' && domain.block.isError) recordHostDiagnostic({ code: 'tool_failed' }, context)
+        }
         const reminder = this.reminders.event(event.event, this.viewedSession())
         if (reminder !== null) this.onReminder?.(sessionId, event.event.seq, reminder)
         this.store.getState().dispatchSession(sessionId, eventReceived(event.event), true)
@@ -306,6 +327,8 @@ export class SessionRuntimeManager {
   }
 
   private handleClose(sessionId: string, info: CloseInfo): void {
+    const management = this.pendingManagement.get(sessionId)
+    if (management !== undefined) this.onManagementResult?.(sessionId, management.operation, false, 'result_unknown')
     this.finishAttachment(sessionId, 'unknown')
     const kind = info.kind === 'protocolError' ? 'protocolError' : 'disconnected'
     this.store.getState().dispatchSession(sessionId, connectionFailed({ kind }))

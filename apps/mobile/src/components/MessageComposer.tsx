@@ -1,7 +1,9 @@
+import TurnLoading from './TurnLoading'
+import type { TurnProgress } from '../protocol/types'
 import { encodeFile, needsPhotoPreparation, preparePickedFile, validateFiles } from '../native/attachments'
 import type { Attachment, AttachmentSendResult } from '../protocol/types'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Button, DotLoading, Popover, Space, TextArea, type TextAreaRef } from 'antd-mobile'
+import { Button, Popover, Space, TextArea, type TextAreaRef } from 'antd-mobile'
 import { AddOutline, CheckOutline } from 'antd-mobile-icons'
 import { MAX_TEXT_BYTES, type PermissionMode } from '../protocol/types'
 import { FONT_SIZE_COMPACT, FONT_SIZE_BODY } from './ui'
@@ -20,6 +22,8 @@ interface MessageComposerProps {
   experience?: ExperiencePort | null
   onSendAttachments?: (text: string, attachments: Attachment[]) => Promise<AttachmentSendResult>
   onSend: (text: string) => void
+  progress?: TurnProgress | null
+  turnWaiting?: boolean
   turnRunning?: boolean
   cancelTarget?: string | null
   cancelEnabled?: boolean
@@ -87,6 +91,8 @@ export default function MessageComposer({
   experience = nativeExperience,
   onSend,
   onSendAttachments,
+  progress,
+  turnWaiting = false,
   turnRunning = false,
   cancelTarget = null,
   cancelEnabled = false,
@@ -231,7 +237,7 @@ export default function MessageComposer({
   }))
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div data-debug-input-region style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {selectedFiles.length > 0 && (
         <div data-testid="composer-attachments" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span>已选 {selectedFiles.length} 个附件（每个最多 4 MiB，合计 8 MiB）</span>
@@ -248,7 +254,7 @@ export default function MessageComposer({
       {speech.error !== null && <div role="alert">{speech.error}</div>}
       {nativeNotice !== null && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#64748b' }}>{nativeNotice}</div>}
       {((oversize && oversizeNow) || oversizeNow) && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#dc2626' }}>文本超出长度上限</div>}
-      {turnRunning && <div className="composer-running" role="status">Claude 正在处理<DotLoading color="primary" /></div>}
+      {turnRunning && <TurnLoading progress={progress} waiting={turnWaiting} />}
       <div style={{ position: 'relative' }}>
         {blockedFeedback && !enabled && <div className="composer-disabled-feedback" role="status">{disabledReason}</div>}
         <div style={{ ...SHELL_STYLE, ...(blockedFeedback && !enabled ? { borderColor: '#d97706', boxShadow: '0 0 0 3px rgba(217, 119, 6, 0.18)' } : {}) }}>

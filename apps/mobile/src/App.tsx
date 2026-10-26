@@ -1,8 +1,12 @@
+import DebugPanel from './components/DebugPanel'
+import { debugLog, recordAction } from './debug/log'
 import { nativeSessionCache, decodeSessionCache, SessionCacheWriter, type SessionCachePort } from './native/sessionCache'
 import { nativeExperience, type ExperiencePort } from './native/experience'
 import NotificationSettings from './components/NotificationSettings'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { List, NavBar } from 'antd-mobile'
+import { ProtocolClient } from './protocol/client'
+import { networkDiagnostics, networkCodeText, safeNetworkTarget } from './protocol/diagnostics'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { List, NavBar, Switch } from 'antd-mobile'
 import { LeftOutline } from 'antd-mobile-icons'
 import { useStore } from 'zustand'
 import PairingForm from './components/PairingForm'
@@ -56,6 +60,7 @@ function cancelTargetOf(state: MobileState): string | null {
 }
 
 function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = defaultSocketFactory, native = null, experience = nativeExperience }: AppProps = {}) {
+  const debugState = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
   const [appStore] = useState(createAppStore)
   const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now))
   const [managementBusy, setManagementBusy] = useState<Record<string, boolean>>({})
@@ -67,6 +72,25 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   const cacheWriter = useRef<SessionCacheWriter | null>(null)
   const [cacheMessage, setCacheMessage] = useState<string | null>(null)
   const listScrollY = useRef(0)
+  const candidate = useRef<ProtocolClient | null>(null)
+  const pairingGeneration = useRef(0)
+  const [pairingProgress, setPairingProgress] = useState<string | null>(null)
+  const [pairingTarget, setPairingTarget] = useState<string | null>(null)
+  const [pairingSaving, setPairingSaving] = useState(false)
+  const pairingSavingRef = useRef(false)
+  const cancelPairing = useCallback(() => {
+    if (pairingSavingRef.current) return
+    if (candidate.current) recordAction('cancelled')
+    pairingGeneration.current++
+    candidate.current?.close()
+    candidate.current = null
+    setPairingProgress(null)
+  }, [])
+  useEffect(() => () => {
+    pairingGeneration.current++
+    candidate.current?.close()
+    candidate.current = null
+  }, [])
 
   const pairings = useStore(appStore, (state) => state.pairings)
   const sessionStates = useStore(appStore, (state) => state.sessions)
@@ -83,31 +107,80 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     unread: unread[record.sessionId] ?? false,
   })), [pairings, sessionStates, unread])
 
-  const openPairing = useCallback(async (payload: PairingPayload, alreadySaved = false) => {
-    if (native !== null && !alreadySaved) {
-      try {
-        const saved = await native.logic.saveScanned(JSON.stringify(payload), now())
-        if (!saved.ok) {
-          appStore.getState().setPairingError(saved.error)
-          return
-        }
-      } catch {
-        appStore.getState().setPairingError('原生配对存储暂不可用')
+  const openPairing = useCallback(async (payload: PairingPayload) => {
+    if (pairingSavingRef.current) return
+    cancelPairing()
+    const generation = ++pairingGeneration.current
+    appStore.getState().setPairingError(null)
+    appStore.getState().showList()
+    appStore.getState().setAdding(true)
+    setSettingsPage(null)
+    window.location.hash = ''
+    recordAction('pairing')
+    setPairingTarget(safeNetworkTarget(payload.wsUrl))
+    const client = new ProtocolClient(payload, socketFactory)
+    candidate.current = client
+    const bufferedEvents: import('./protocol/client').ClientEvent[] = []
+    const current = () => generation === pairingGeneration.current && candidate.current === client
+    client.onClose = () => {
+      if (!current()) return
+      const diagnostic = networkDiagnostics.getSnapshot().filter((item) => item.sessionId === payload.sessionId).at(-1)
+      appStore.getState().setPairingError(diagnostic ? networkCodeText[diagnostic.code] : '连接失败，请重试')
+      setPairingProgress(null)
+    }
+    client.onEvent = (event) => {
+      if (!current()) return
+      if (event.kind === 'connectionStateChanged') {
+        setPairingProgress(event.connection === 'connecting' ? '正在连接 PC…' : event.connection === 'authenticating' ? '正在验证配对…' : '正在同步会话…')
+      }
+      if (pairingSavingRef.current) {
+        if (bufferedEvents.length >= 64) {
+          client.close()
+          appStore.getState().setPairingError('保存期间收到过多事件，请重试连接')
+        } else bufferedEvents.push(event)
         return
       }
+      if (event.kind !== 'snapshot') return
+      pairingSavingRef.current = true
+      setPairingSaving(true)
+      setPairingProgress('连接验证成功，正在保存配对…')
+      void (async () => {
+        try {
+          if (native !== null) {
+            const saved = await native.logic.saveScanned(JSON.stringify(payload), now(), () => current() && client.isReady() && client.connectionState() === 'connected')
+            if (!saved.ok) throw new Error('save failed')
+          }
+          if (!current() || client.connectionState() !== 'connected') return
+          recordAction('saved')
+          appStore.getState().upsertPairing(payload)
+          runtime.adoptVerified(payload, client, event.snapshot, bufferedEvents)
+          candidate.current = null
+          appStore.getState().openDetail(payload.sessionId)
+          setPairingProgress(null)
+          window.location.hash = native === null ? `#pair=${encodePairingFragment(payload)}` : ''
+        } catch {
+          recordAction('save_failed')
+          if (current()) {
+            client.close()
+            candidate.current = null
+            setPairingProgress(null)
+            appStore.getState().setPairingError('配对保存失败或连接已断开，请重试')
+          }
+        } finally {
+          pairingSavingRef.current = false
+          setPairingSaving(false)
+        }
+      })()
     }
-    appStore.getState().setPairingError(null)
-    appStore.getState().upsertPairing(payload)
-    appStore.getState().openDetail(payload.sessionId)
-    runtime.ensureConnected(payload)
-    window.location.hash = native === null ? `#pair=${encodePairingFragment(payload)}` : ''
-  }, [appStore, runtime, native, now])
+    client.connect()
+  }, [appStore, runtime, native, now, socketFactory, cancelPairing])
 
   useEffect(() => {
     runtime.setManagementCallbacks((payload) => { void openPairing(payload) }, (sessionId, operation, accepted, code) => {
       setManagementBusy((current) => ({ ...current, [sessionId]: false }))
       const text = accepted
         ? (operation === 'stop_session' ? 'Claude 会话已终止；配对入口仍保留' : null)
+        : code === 'result_unknown' ? '操作结果未知，请重连核对；请勿重复新建会话'
         : code === 'session_capacity' ? '活跃会话已达上限' :
           code === 'create_rate_limited' ? '新建太频繁，请稍后重试' : '操作失败，请重试'
       setManagementFeedback((current) => ({ ...current, [sessionId]: text }))
@@ -225,8 +298,14 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') runtime.refreshConnectionStates()
     }
+    const handleOffline = () => runtime.networkOffline()
+    const handleOnline = () => runtime.refreshConnectionStates()
+    window.addEventListener('offline', handleOffline)
+    window.addEventListener('online', handleOnline)
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
+      window.removeEventListener('offline', handleOffline)
+      window.removeEventListener('online', handleOnline)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       runtime.closeAll()
     }
@@ -359,14 +438,17 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     )
   } else if (restoring) {
     pageContent = <div className="mobile-safe-area-content" style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>正在恢复已配对会话…</div>
-  } else if (adding || (sessions.length === 0 && settingsPage === null)) {
+  } else if ((adding && settingsPage === null) || (sessions.length === 0 && settingsPage === null)) {
     pageContent = (
       <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
         <div className="mobile-safe-area-header">
           <NavBar
             back={sessions.length === 0 ? null : ''}
             backIcon={<LeftOutline aria-label="返回" />}
+            right={<button className="mobile-settings-button" onClick={() => { cancelPairing(); appStore.getState().setAdding(false); setSettingsPage('settings') }}>设置</button>}
             onBack={() => {
+              if (pairingSavingRef.current) return
+              cancelPairing()
               appStore.getState().setAdding(false)
               appStore.getState().setPairingError(null)
             }}
@@ -374,12 +456,20 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
             Claude Mobile Remote
           </NavBar>
         </div>
-        <PairingForm initialError={pairingError} onSubmit={submitJson} onScan={native === null ? undefined : () => {
-          void native.logic.scanAndSave(native.scanner, now()).then((result) => {
-            if (result === null) return
-            if (!result.ok) appStore.getState().setPairingError(result.error)
-            else void openPairing(result.value, true)
-          }).catch(() => appStore.getState().setPairingError('扫码或原生配对存储暂不可用'))
+        <PairingForm target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
+          recordAction('scan')
+          const generation = ++pairingGeneration.current
+          setPairingProgress('正在扫码…')
+          void native.scanner.scan().then((input) => {
+            if (generation !== pairingGeneration.current) return
+            setPairingProgress(null)
+            if (input !== null) submitJson(input.trim())
+          }).catch(() => {
+            if (generation !== pairingGeneration.current) return
+            setPairingProgress(null)
+            recordAction('scan_failed')
+            appStore.getState().setPairingError('扫码暂不可用，请检查相机权限')
+          })
         }} />
       </div>
     )
@@ -388,6 +478,9 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       <div className="mobile-safe-area-header"><NavBar back="" backIcon={<LeftOutline aria-label="返回" />} onBack={() => setSettingsPage(null)}>设置</NavBar></div>
       <List className="mobile-settings-list">
         <List.Item arrow onClick={() => { setSettingsDirection('forward'); setSettingsPage('pcs') }}>PC 管理</List.Item>
+      </List>
+      <List header="调试">
+        <List.Item description="开启后显示悬浮按钮，记录本次运行中的动作和连接过程。关闭后停止新增记录；退出 App 后清除。" extra={<Switch aria-label="调试日志开关" checked={debugState.enabled} onChange={(enabled) => debugLog.setEnabled(enabled)} />}>调试日志</List.Item>
       </List>
       <List header="本地保存说明">
         <List.Item description="原生 App 重启后恢复已配对会话、设备信息和自定义名称。未过期凭证保存在系统安全存储；移除 PC 或会话会删除对应本机配对。浏览器仅保存在内存。">配对与设备</List.Item>
@@ -440,14 +533,14 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     )
   }
 
-  return <PageTransition
+  return <><DebugPanel /><PageTransition
     pageKey={pageKey}
     direction={pageKey === 'list' ? 'back' : pageKey === 'settings' || pageKey === 'pcs' ? settingsDirection : 'forward'}
     onListScroll={(scrollTop) => { listScrollY.current = scrollTop }}
     onEdgeBack={pageKey.startsWith('detail:') ? backToList : pageKey === 'settings' ? () => setSettingsPage(null) : pageKey === 'pcs' ? () => { setSettingsDirection('back'); setSettingsPage('settings') } : undefined}
   >
     {pageContent}
-  </PageTransition>
+  </PageTransition></>
 }
 
 export default App
