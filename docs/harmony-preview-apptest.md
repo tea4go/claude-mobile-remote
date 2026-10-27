@@ -64,6 +64,8 @@ bash scripts/macos/5_harmony_apptest.sh --config "$HOME/.config/claude-mobile-re
 
 脚本在一次性私有工程副本配置签名，不改源码工程。密码只从本机文件读取，不放命令行参数；工具输出进行密码脱敏。临时副本退出清理，最终APP保留在`.local-tools/harmony-apptest/{unsigned,signed}`。不自动递增版本号；再次提交更高版本前，人工确认并更新工程版本。
 
+华为审核反馈旧安装图标像系统图标后，Harmony 已改用现有 iOS/Android 的浅蓝 Capacitor 风格图案。后台上传图标为 `apps/harmony/branding/app-icon-216.png`（216×216）。同目录 `app-icon.svg` 是以原 iOS PNG 嵌入的独立 SVG 容器，保证与已有平台图案一致；原始资产不是矢量文件。应用图标分别来自 AppScope 和 entry 的分层资源，启动图标也已更新。修改图标后须重新生成并上传签名 APP，单独更新后台图片不会改变已安装应用的图标。
+
 本地配置示例（仅路径，不含密码）：
 
 ```json
