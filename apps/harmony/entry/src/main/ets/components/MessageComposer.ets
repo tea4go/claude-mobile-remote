@@ -4,6 +4,7 @@ import { utf8Bytes, type ComposerDraft, emptyDraft } from '../session/attachment
 
 @Component
 export struct MessageComposer {
+  @Prop textOnly: boolean = false
   @Prop draft: ComposerDraft = emptyDraft()
   @Prop composerEnabled: boolean = false
   @Prop createSessionAvailable: boolean = false
@@ -63,7 +64,7 @@ export struct MessageComposer {
         if (this.speechActive) {
           Button('完成录音', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onStopSpeech())
           Button('取消', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(SECONDARY).backgroundColor(Color.Transparent).onClick(() => this.onCancelSpeech())
-        } else {
+        } else if (!this.textOnly) {
           Button('+', { type: ButtonType.Normal }).width(44).height(44).fontSize(26).fontColor(SECONDARY).backgroundColor(Color.Transparent)
             .accessibilityText('添加附件或新建会话').enabled(this.editable() || (this.createSessionAvailable && this.createSessionEnabled)).onClick(() => {
               const sheets: Array<SheetInfo> = []
@@ -80,7 +81,7 @@ export struct MessageComposer {
           Button('语音', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(13).fontColor(SECONDARY).backgroundColor(Color.Transparent)
             .enabled(this.editable()).onClick(() => this.onSpeech())
         }
-        if (!this.speechActive) {
+        if (!this.speechActive && !this.textOnly) {
           Button(this.permissionLabel(), { type: ButtonType.Normal }).height(44).constraintSize({ maxWidth: 110 }).padding({ left: 6, right: 6 }).fontSize(12).fontColor(SECONDARY).backgroundColor(Color.Transparent).enabled(this.permissionEnabled).onClick(() => {
             ActionSheet.show({ message: '', title: '权限模式', sheets: [
               { title: '默认', action: () => this.onPermissionMode('default') },

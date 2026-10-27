@@ -356,6 +356,8 @@ function cloneNoticeInfo(notice: NoticeInfo | null): NoticeInfo | null {
 
 function cloneState(state: HarmonySessionState): HarmonySessionState {
   return {
+    progress: state.progress,
+    progressRequestId: state.progressRequestId,
     permissionMode: state.permissionMode,
     pairing: clonePairingPayload(state.pairing),
     connection: state.connection,
@@ -603,6 +605,8 @@ function mergeTurnStarted(state: HarmonySessionState, event: DomainEvent): Harmo
 
 function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): HarmonySessionState {
   const next = cloneState(state)
+  next.progress = snapshot.turn.progress
+  next.progressRequestId = snapshot.turn.requestId
   next.permissionMode = snapshot.permissionMode ?? 'default'
   next.connection = ConnectionStage.READY
   next.sessionId = snapshot.sessionId
@@ -661,7 +665,13 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
   if (event.sessionTitle !== undefined && next.sessionTitle === undefined) next.sessionTitle = event.sessionTitle
   if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
 
+  if (['turn_completed','turn_failed','session_failed','session_stopped'].indexOf(event.kind) >= 0) next.progress = undefined
   switch (event.kind) {
+    case 'turn_progress':
+      if (next.messages.some((message: FeedMessage) => message.kind === 'claude' && message.requestId === event.requestId && message.status === 'streaming')) { next.progress = event.progress; next.progressRequestId = event.requestId }
+      break
+    case 'session_diagnostic':
+      break
     case 'permission_mode_changed':
       if (event.permissionMode !== undefined) next.permissionMode = event.permissionMode
       break
@@ -686,6 +696,8 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       next.queueDepthHint = 0
       break
     case 'turn_started': {
+      next.progress = undefined
+      next.progressRequestId = event.requestId
       const merged = mergeTurnStarted(next, event)
       if (merged === null) {
         const failed = markPendingUnknown(next)

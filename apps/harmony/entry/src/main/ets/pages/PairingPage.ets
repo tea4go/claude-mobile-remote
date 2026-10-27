@@ -2,6 +2,19 @@ import type { ErrorInfo } from '../protocol/types'
 import { ConnectionStage } from '../session/model'
 import { SelfCheckPanel } from '../components/SelfCheckPanel'
 
+function phaseLabel(connection: ConnectionStage): string {
+  switch (connection) {
+    case ConnectionStage.CONNECTING: return '正在连接（10秒）'
+    case ConnectionStage.AUTHENTICATING: return '正在认证（8秒）'
+    case ConnectionStage.SUBSCRIBING: return '正在订阅（8秒）'
+    case ConnectionStage.SUBSCRIBED: return '正在同步快照（10秒）'
+    case ConnectionStage.READY: return '连接已验证'
+    case ConnectionStage.PAIRING_INVALID: return '配对失效'
+    case ConnectionStage.PROTOCOL_ERROR: return '协议错误'
+    case ConnectionStage.DISCONNECTED: return '未连接'
+  }
+}
+
 function buildPairingHint(connection: ConnectionStage, error: ErrorInfo | null): string {
   if (connection === ConnectionStage.PAIRING_INVALID || error?.code === 'unauthorized') {
     return '当前配对已失效，需要重新配对。'
@@ -20,6 +33,8 @@ function buildPairingHint(connection: ConnectionStage, error: ErrorInfo | null):
 
 @Component
 export struct PairingPage {
+  onDemo: () => void = () => {}
+  @Prop target: string = ''
   @Prop nativeReady: boolean = false
   onScan: () => void = () => {}
   @Prop pairingInput: string = ''
@@ -35,6 +50,8 @@ export struct PairingPage {
   build() {
     Scroll() {
       Column({ space: 16 }) {
+        Button('体验演示（无需连接电脑）').height(44).onClick(() => this.onDemo())
+        if (this.target.length > 0) { Text(`目标：${this.target} · ${phaseLabel(this.connection)}`).fontSize(12).width('100%') }
         Button('扫描二维码').height(48).enabled(this.nativeReady).onClick(() => this.onScan())
         if (this.canBack) {
           Button('返回列表')

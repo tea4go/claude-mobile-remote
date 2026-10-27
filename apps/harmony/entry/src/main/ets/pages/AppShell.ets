@@ -1,3 +1,4 @@
+import { NetworkMonitor } from '../native/network'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { nativeLifecycle } from '../native/lifecycle'
 import { NativeStorage } from '../native/storage'
@@ -38,6 +39,9 @@ import {
 } from '../session/records'
 import { PairingPage } from './PairingPage'
 import { SessionListPage } from './SessionListPage'
+import { DemoPage } from './DemoPage'
+import { DebugPanel } from '../components/DebugPanel'
+import { debugLog } from '../debug/log'
 import { SessionPage } from './SessionPage'
 
 type AppView = 'list' | 'pairing' | 'detail'
@@ -103,7 +107,7 @@ function upsertAnswer(
 
 @Component
 export struct AppShell {
-  private readonly entryStore: HarmonySessionStore = createSessionStore()
+  private entryStore: HarmonySessionStore = createSessionStore()
   private store: HarmonySessionStore = this.entryStore
   private readonly stores: Map<string, HarmonySessionStore> = new Map()
   private readonly storeSubscriptions: Map<string, () => void> = new Map()
@@ -117,12 +121,19 @@ export struct AppShell {
   private readonly drafts: Map<string, ComposerDraft> = new Map()
   private readonly dirty: Set<string> = new Set()
   private readonly cacheGate: CacheWriteGate = new CacheWriteGate()
+  private network: NetworkMonitor = new NetworkMonitor()
   private cacheTimer: number = -1
   private lifecycleUnsubscribe: (() => void) | null = null
   private initialized: boolean = false
   private nativeGeneration: number = 0
   private alive: boolean = false
   private foreground: boolean = true
+  @State private demoOpen: boolean = false
+  @State private debugOpen: boolean = false
+  @State private debugEnabled: boolean = true
+  @State private pairingTarget: string = ''
+  private pendingPairing: PairingPayload | null = null
+  private debugUnsubscribe: (() => void) | null = null
   @State private nativeReady: boolean = false
   @State private nativeError: string = ''
   @State private notificationsEnabled: boolean = false
@@ -147,8 +158,17 @@ export struct AppShell {
 
   aboutToAppear(): void {
     this.alive = true
+    this.network.start((available: boolean) => {
+      if (!this.alive) return
+      if (available) { this.entryStore.checkConnection(); this.stores.forEach((store: HarmonySessionStore) => store.checkConnection()) }
+      else { this.entryStore.networkLost(); this.stores.forEach((store: HarmonySessionStore) => store.networkLost()) }
+    })
+    this.debugEnabled = debugLog.enabled
+    this.debugUnsubscribe = debugLog.subscribe(() => { this.debugEnabled = debugLog.enabled })
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
     nativeLifecycle.onBack = () => {
+      if (this.debugOpen) { this.debugOpen = false; return true }
+      if (this.demoOpen) { if (nativeLifecycle.detailBack?.()) return true; this.demoOpen = false; return true }
       if (nativeLifecycle.detailBack?.()) return true
       if (this.view === 'detail') { this.handleBackFromDetail(); return true }
       if (this.view === 'pairing' && this.sessions.length > 0) { this.openListPage(); return true }
@@ -157,13 +177,7 @@ export struct AppShell {
     this.sessionState = this.store.getState()
     this.view = defaultView(this.sessions)
     if (!this.initialized) { this.initialized = true; void this.initializeNative() }
-    if (this.unsubscribe === null) {
-      this.unsubscribe = this.entryStore.subscribe((nextState: HarmonySessionState) => {
-        if (this.view === 'pairing') {
-          this.sessionState = nextState
-        }
-      })
-    }
+    this.watchEntry()
 
     try {
       const results = runSelfChecks()
@@ -176,8 +190,38 @@ export struct AppShell {
     }
   }
 
+  private watchEntry(): void {
+    if (this.unsubscribe === null) {
+      this.unsubscribe = this.entryStore.subscribe((nextState: HarmonySessionState) => {
+        if (this.view === 'pairing') this.sessionState = nextState
+        const pairing = this.pendingPairing
+        if (pairing !== null && nextState.connection === ConnectionStage.READY && this.foreground) {
+          this.pendingPairing = null
+          this.sessions = upsertSessionRecord(this.sessions, pairing)
+          this.currentSessionId = pairing.sessionId
+          this.managementPendingSessions.delete(pairing.sessionId); this.managementBusy = false; this.managementFeedback = ''
+          const verified = this.entryStore
+          this.unsubscribe?.(); this.unsubscribe = null
+          const previous = this.stores.get(pairing.sessionId)
+          this.storeSubscriptions.get(pairing.sessionId)?.()
+          previous?.setManagementListener(null); previous?.setEventListener(null); previous?.setSendListener(null); previous?.disconnect()
+          this.stores.delete(pairing.sessionId)
+          this.store = this.prepareStore(pairing.sessionId, verified)
+          this.entryStore = createSessionStore(); this.watchEntry()
+          this.handleStoreState(pairing.sessionId, nextState)
+          this.sessionState = this.store.getState()
+          this.view = 'detail'; this.pairingInput = ''; this.pairingTarget = ''; this.activateDraft(); this.saveRecords()
+        }
+      })
+    }
+  }
+
   aboutToDisappear(): void {
     this.alive = false
+    this.network.stop()
+    this.debugUnsubscribe?.(); this.debugUnsubscribe = null
+    this.pendingPairing = null
+    this.entryStore.disconnect()
     this.nativeGeneration += 1
     this.initialized = false
     this.nativeReady = false
@@ -239,10 +283,10 @@ export struct AppShell {
     }
   }
 
-  private prepareStore(id: string): HarmonySessionStore {
+  private prepareStore(id: string, verified: HarmonySessionStore | null = null): HarmonySessionStore {
     const existing = this.stores.get(id)
     if (existing !== undefined) return existing
-    const store = createSessionStore()
+    const store = verified ?? createSessionStore()
     this.stores.set(id, store)
     this.storeSubscriptions.set(id, store.subscribe((state: HarmonySessionState) => this.handleStoreState(id, state)))
     store.setManagementListener((result: ManagementResultInfo) => this.handleManagementResult(id, result))
@@ -264,6 +308,8 @@ export struct AppShell {
       if (!foreground) {
         void this.speech.cancel(); this.speechActive = false
         this.flushCache()
+        debugLog.record('background')
+        this.entryStore.disconnect(); this.pendingPairing = null
         this.stores.forEach((store: HarmonySessionStore) => store.disconnect())
         this.drafts.forEach((draft: ComposerDraft) => { draft.sending = false })
       } else {
@@ -273,6 +319,7 @@ export struct AppShell {
         }
       }
     }
+    if (foreground) this.stores.forEach((store: HarmonySessionStore) => store.checkConnection())
     const id = nativeLifecycle.pendingSessionId
     if (foreground && id.length > 0) {
       nativeLifecycle.pendingSessionId = ''
@@ -500,12 +547,17 @@ export struct AppShell {
   }
 
   private openPairingPage(): void {
+    this.pendingPairing = null
+    this.entryStore.reset()
+    this.pairingTarget = ''
+    this.sessionState = this.entryStore.getState()
     this.pairingInput = ''
     this.view = 'pairing'
     this.activateDraft()
   }
 
   private openListPage(): void {
+    this.pendingPairing = null; this.entryStore.disconnect()
     this.recentlyViewedId = this.currentSessionId
     this.listOrder = listSessionRecords(this.sessions).map((record: SessionRecord) => record.sessionId)
     this.pairingInput = ''
@@ -515,26 +567,20 @@ export struct AppShell {
 
   private handleConnect(): void {
     if (!this.nativeReady) return
+    this.pendingPairing = null
+    this.entryStore.reset()
     const result = decodePairingPayload(this.pairingInput)
     if (!result.ok || result.payload === null) {
       this.entryStore.connectFromRawPairing(this.pairingInput)
       this.sessionState = this.entryStore.getState()
       return
     }
-    this.sessions = upsertSessionRecord(this.sessions, result.payload)
-    this.currentSessionId = result.payload.sessionId
-    const existing = this.stores.has(result.payload.sessionId)
-    this.store = this.connectSession(result.payload)
-    if (existing) {
-      this.store.connectWithPairing(result.payload)
-    }
-    this.sessionState = this.store.getState()
-    this.managementBusy = this.managementPendingSessions.has(this.currentSessionId)
-    this.managementFeedback = ''
-    this.view = 'detail'
-    this.pairingInput = ''
-    this.activateDraft()
-    this.saveRecords()
+    const existing = this.stores.get(result.payload.sessionId)
+    if (existing !== undefined) this.entryStore.restoreDisplay(existing.getState())
+    this.pendingPairing = result.payload
+    this.pairingTarget = debugLog.target(result.payload.wsUrl)
+    this.entryStore.connectWithPairing(result.payload)
+    this.sessionState = this.entryStore.getState()
   }
 
   private handleOpenSession(sessionId: string): void {
@@ -769,6 +815,8 @@ export struct AppShell {
   @Builder
   private buildPairingView(): void {
     PairingPage({
+      onDemo: () => { this.demoOpen = true },
+      target: this.pairingTarget,
       pairingInput: this.pairingInput,
       nativeReady: this.nativeReady,
       onScan: () => { void this.scan() },
@@ -792,6 +840,10 @@ export struct AppShell {
   @Builder
   private buildListView(): void {
     SessionListPage({
+      onDemo: () => { this.demoOpen = true },
+      debugEnabled: this.debugEnabled,
+      onDebug: (value: boolean) => debugLog.setEnabled(value),
+      onDebugOpen: () => { this.debugOpen = true },
       sessions: this.sortedSessions(),
       scrollOffset: this.listOffset,
       onScrollOffset: (value: number) => { this.listOffset = value },
@@ -832,14 +884,24 @@ export struct AppShell {
   }
 
   build() {
+    Stack({ alignContent: Alignment.Bottom }) {
     Column() {
       if (this.nativeError.length > 0) {
         Text(this.nativeError).fontSize(13).fontColor('#a54b00').padding(8).onClick(() => { this.nativeError = '' })
       }
       if (!this.nativeReady) { LoadingProgress().width(32).height(32) }
-      Column() { this.buildCurrentView() }.layoutWeight(1).width('100%')
+      if (this.demoOpen) { DemoPage({ onExit: () => { this.demoOpen = false } }).layoutWeight(1) }
+      else { Column() { this.buildCurrentView() }.layoutWeight(1).width('100%') }
     }
     .width('100%')
     .height('100%')
+    if (this.debugEnabled && !this.debugOpen && !this.demoOpen) {
+      Row() { Blank(); Button('调试').fontSize(12).height(38).onClick(() => { this.debugOpen = true }) }.width('100%').position({ x: 0, y: '60%' })
+    }
+    if (this.debugOpen) {
+      Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.debugOpen = false })
+      DebugPanel({ onClose: () => { this.debugOpen = false } })
+    }
+    }.width('100%').height('100%')
   }
 }

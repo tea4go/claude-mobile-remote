@@ -83,10 +83,10 @@ test('v2/v3/v4 snapshots and v3 display metadata are accepted', () => {
     assert.equal(decodeServerMessage(JSON.stringify(wire)).version, version)
   }
 })
-test('client negotiates v4 to v3 to v2 without command replay', () => {
+test('client negotiates v6 to v3 to v2 without command replay', () => {
   const client = new (load('protocol/client').ProtocolClient)(pairing)
   client.connect(); sockets.at(-1).emit('open', {})
-  assert.equal(sockets.at(-1).frames[0].version, 4)
+  assert.equal(sockets.at(-1).frames[0].version, 6)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 3 }, 3))
   sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 3)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 2 }, 2))
@@ -299,4 +299,145 @@ test('reconnect snapshot preserves cancelled turn status', () => {
   value.turn = { status: 'cancelled', requestId: 'r1', source: 'mobile', message: 'partial', error: null, pendingAction: null }
   const state = reducer.reduceHarmonySessionState(createInitialHarmonySessionState(), reducer.snapshotReceived(value))
   assert.equal(state.messages[0].status, 'cancelled')
+})
+
+const { debugLog } = load('debug/log')
+function decodeObject(value) { return decodeServerMessage(JSON.stringify(value)) }
+test('v5/v6 progress, diagnostic and pong decode with strict metadata', () => {
+  const progress = { phase: 'thinking', startedAt: 1000, updatedAt: 2000, outputTokens: 5, tokensKnown: true, tokensEstimated: false }
+  for (const version of [5, 6]) {
+    assert.deepEqual(decodeObject(eventWire(event('turn_progress', 1, { progress }), version)).payload.event.progress, progress)
+    assert.equal(decodeObject(eventWire(event('session_diagnostic', 2, { diagnostic: { code: 'api_retry', httpStatus: 429 } }), version)).payload.event.diagnostic.code, 'api_retry')
+  }
+  assert.throws(() => decodeObject(eventWire(event('turn_progress', 1, { progress }), 4)))
+  assert.throws(() => decodeObject(eventWire(event('turn_progress', 1, { progress: { ...progress, updatedAt: 0 } }), 6)))
+  assert.throws(() => decodeObject(eventWire(event('session_diagnostic', 1, { diagnostic: { code: 'api_retry', attempt: 1000001 } }), 6)))
+  assert.equal(decodeObject(envelope('pong', {}, 6)).type, 'pong')
+  assert.throws(() => decodeObject(envelope('pong', {}, 5)))
+  assert.throws(() => decodeObject({ toString() { return '' } }))
+})
+function readyV6() {
+  const store = load('session/store').createSessionStore(); stores.push(store)
+  store.connectWithPairing(pairing)
+  const socket = sockets.at(-1); socket.emit('open', {})
+  socket.wire(envelope('hello_ack', {}, 6)); socket.wire(envelope('subscribed', {}, 6))
+  const snap = snapshot(); snap.version = 6; socket.wire(snap)
+  return { store, socket }
+}
+test('heartbeat timeout marks disconnected without sending a user command', t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100000 })
+  const { store, socket } = readyV6()
+  t.mock.timers.tick(10000)
+  assert.equal(socket.frames.at(-1).type, 'ping')
+  t.mock.timers.tick(5000)
+  assert.equal(store.getState().connection, ConnectionStage.DISCONNECTED)
+  assert.equal(store.getState().lastError.code, 'heartbeat_timeout')
+  assert.equal(socket.frames.some(frame => frame.type === 'command'), false)
+  store.disconnect()
+})
+test('pong keeps ready, wrong session pong disconnects and close cancels probes', t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100000 })
+  const { store, socket } = readyV6()
+  t.mock.timers.tick(10000); socket.wire(envelope('pong', {}, 6))
+  assert.equal(store.getState().connection, ConnectionStage.READY)
+  t.mock.timers.tick(10000); socket.wire({ ...envelope('pong', {}, 6), sessionId: 'other' })
+  assert.equal(store.getState().connection, ConnectionStage.PROTOCOL_ERROR)
+  const count = socket.frames.length; t.mock.timers.tick(30000); assert.equal(socket.frames.length, count)
+  store.disconnect()
+})
+test('connection phase deadline fails before pairing is accepted', t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100000 })
+  const store = load('session/store').createSessionStore(); stores.push(store)
+  store.connectWithPairing(pairing); t.mock.timers.tick(10000)
+  assert.equal(store.getState().connection, ConnectionStage.DISCONNECTED)
+  assert.equal(store.getState().lastError.code, 'connect_timeout')
+  store.disconnect()
+})
+test('progress updates and clears with turn lifecycle without extra feed messages', () => {
+  const { store, socket } = readyV6()
+  socket.wire(eventWire(event('turn_started', 1, { text: 'demo', turnStatus: 'running' }), 6))
+  socket.wire(eventWire(event('turn_progress', 2, { progress: { phase: 'working', startedAt: 1000, updatedAt: 1000, outputTokens: 0, tokensKnown: false, tokensEstimated: false } }), 6))
+  assert.equal(store.getState().progress.phase, 'working')
+  const count = store.getState().messages.length
+  socket.wire(eventWire(event('session_diagnostic', 3, { diagnostic: { code: 'receive_failed' } }), 6))
+  assert.equal(store.getState().messages.length, count)
+  assert.ok(debugLog.text().includes('receive_failed'))
+  socket.wire(eventWire(event('turn_completed', 4, { turnStatus: 'completed' }), 6))
+  assert.equal(store.getState().progress, undefined)
+})
+test('logs bounded, disabled clears, and target strips secret paths and userinfo', () => {
+  debugLog.setEnabled(true); debugLog.clear()
+  for (let i = 0; i < 210; i++) debugLog.record('ping', i)
+  assert.equal(debugLog.list().length, 200)
+  assert.equal(debugLog.list()[0].detail, 'value=209')
+  assert.equal(debugLog.target('wss://example.test:443/private?token=secret'), 'wss://example.test:443')
+  assert.equal(debugLog.target('wss://user:secret@example.test/ws'), '目标地址不可显示')
+  debugLog.setEnabled(false); debugLog.record('ready'); assert.equal(debugLog.list().length, 0)
+  debugLog.setEnabled(true)
+})
+test('offline demo streams, cancels and resets without pairing or persistence', t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100000 })
+  const before = sockets.length
+  const demo = new (load('session/demo').DemoController)(() => {})
+  assert.equal(demo.state.pairing, null)
+  demo.send('hello'); const id = demo.state.messages[0].requestId
+  t.mock.timers.tick(500); assert.ok(demo.state.messages[1].text.length > 0)
+  assert.equal(demo.cancel(id), true); t.mock.timers.tick(5000)
+  assert.equal(demo.state.messages[1].status, 'cancelled')
+  demo.send('next'); demo.reset(); t.mock.timers.tick(5000)
+  assert.equal(demo.state.messages.length, 0); assert.equal(sockets.length, before)
+  demo.dispose()
+})
+test('offline approvals allow/deny, question and dispose ignore late callbacks', t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100000 })
+  const demo = new (load('session/demo').DemoController)(() => {})
+  for (const decision of ['allow_once', 'deny']) {
+    demo.reset(); demo.send('演示审批'); t.mock.timers.tick(500)
+    assert.equal(demo.state.pendingAction.kind, 'tool_approval')
+    assert.equal(demo.resolve({ mode: 'decision', actionId: 'wrong', decision }), false)
+    demo.resolve({ mode: 'decision', actionId: demo.state.pendingAction.actionId, decision })
+    for (let i = 0; i < 40; i++) t.mock.timers.tick(80)
+    assert.equal(demo.state.canSend, true)
+    assert.ok(demo.state.messages[1].text.includes(decision === 'deny' ? '拒绝' : '允许'))
+  }
+  demo.reset(); demo.send('演示问答'); t.mock.timers.tick(500)
+  demo.resolve({ mode: 'answers', actionId: demo.state.pendingAction.actionId, answers: [{ questionId: 'demo-question', values: ['中文'] }] })
+  const text = demo.state.messages[1].text; demo.dispose(); t.mock.timers.tick(5000)
+  assert.equal(demo.state.messages[1].text, text)
+})
+test('v6 negotiates v5/v4 and retains progress only on capable versions', () => {
+  for (const version of [5, 4]) {
+    const store = load('session/store').createSessionStore(); stores.push(store)
+    store.connectWithPairing(pairing); sockets.at(-1).emit('open', {})
+    sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: version }, version))
+    const socket = sockets.at(-1); socket.emit('open', {})
+    assert.equal(socket.frames[0].version, version)
+    socket.wire(envelope('hello_ack', {}, version)); socket.wire(envelope('subscribed', {}, version))
+    const snap = snapshot(); snap.version = version; socket.wire(snap)
+    assert.equal(store.getState().connection, ConnectionStage.READY)
+    store.disconnect()
+  }
+})
+test('network loss marks operation unknown, releases management and ignores old events', () => {
+  const { store, socket } = readyV6()
+  let result
+  store.setManagementListener(value => { result = value })
+  assert.equal(store.createSession(), true)
+  store.networkLost()
+  assert.equal(store.getState().connection, ConnectionStage.DISCONNECTED)
+  assert.equal(result.code, 'result_unknown')
+  socket.wire(eventWire(event('turn_started', 1, { text: 'late', turnStatus: 'running' }), 6))
+  assert.equal(store.getState().messages.length, 0)
+})
+test('authentication, subscription and snapshot deadlines are distinct and cleaned on close', t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100000 })
+  for (const phase of ['auth_timeout', 'subscribe_timeout', 'snapshot_timeout']) {
+    const store = load('session/store').createSessionStore(); stores.push(store)
+    store.connectWithPairing(pairing); const socket = sockets.at(-1); socket.emit('open', {})
+    if (phase !== 'auth_timeout') socket.wire(envelope('hello_ack', {}, 6))
+    if (phase === 'snapshot_timeout') socket.wire(envelope('subscribed', {}, 6))
+    t.mock.timers.tick(phase === 'snapshot_timeout' ? 10000 : 8000)
+    assert.equal(store.getState().lastError.code, phase)
+    store.disconnect()
+  }
 })

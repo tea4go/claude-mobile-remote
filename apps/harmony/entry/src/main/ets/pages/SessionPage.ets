@@ -3,6 +3,7 @@ import { nativeLifecycle } from '../native/lifecycle'
 import { type ComposerDraft, emptyDraft } from '../session/attachments'
 import type {
   Question,
+  ProgressPhase,
   PermissionMode,
   QuestionAnswer,
 } from '../protocol/types'
@@ -13,6 +14,23 @@ import { MessageList } from '../components/MessageList'
 import { PendingSummary } from '../components/PendingSummary'
 import { QueuedSummary } from '../components/QueuedSummary'
 import { StatusBar } from '../components/StatusBar'
+
+function progressLabel(phase: ProgressPhase): string {
+  switch (phase) {
+    case 'waiting': return '等待响应'
+    case 'working': return '处理中'
+    case 'thinking': return '思考中'
+    case 'writing': return '生成回复'
+    case 'tool': return '调用工具'
+    case 'subtask': return '执行子任务'
+    case 'compacting': return '压缩上下文'
+    case 'requesting': return '请求模型'
+    case 'retrying': return '重试请求'
+    case 'waiting_followup': return '等待后续响应'
+    case 'tool_result': return '处理工具结果'
+    case 'subtask_result': return '处理子任务结果'
+  }
+}
 
 function findStreamingRequestId(state: HarmonySessionState): string {
   for (let index = state.messages.length - 1; index >= 0; index -= 1) {
@@ -47,6 +65,9 @@ function hasAnswer(questionAnswers: Array<QuestionAnswer>, question: Question): 
 
 @Component
 export struct SessionPage {
+  @Prop textOnly: boolean = false
+  @State private now: number = Date.now()
+  private clock: number = -1
   @Prop title: string = 'Claude Mobile Remote'
   @Prop @Watch('stateChanged') state: HarmonySessionState
   @Prop draft: ComposerDraft = emptyDraft()
@@ -116,13 +137,14 @@ export struct SessionPage {
   }
 
   aboutToAppear(): void {
+    this.clock = setInterval(() => { this.now = Date.now() }, 1000)
     this.stateChanged()
     nativeLifecycle.detailBack = () => {
       if (this.sheet.length === 0) return false
       this.closeSheet(); return true
     }
   }
-  aboutToDisappear(): void { nativeLifecycle.detailBack = null }
+  aboutToDisappear(): void { if (this.clock >= 0) clearInterval(this.clock); nativeLifecycle.detailBack = null }
   private stateChanged(): void {
     const id = this.state.pendingAction?.actionId ?? ''
     if (id.length > 0 && id !== this.trackedAction) this.sheet = 'action'
@@ -167,6 +189,7 @@ export struct SessionPage {
           Text(this.title).fontSize(17).fontWeight(FontWeight.Medium).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           StatusBar({ state: this.state })
           if (this.showReconnect()) { Button('重连', { type: ButtonType.Normal }).height(44).padding(4).fontSize(12).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onReconnect()) }
+          if (!this.textOnly) {
           Button('⋯', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(24).fontColor(SECONDARY).backgroundColor(Color.Transparent).accessibilityText('更多会话操作').onClick(() => {
             ActionSheet.show({ message: '', title: '会话操作', sheets: [
               { title: '重新连接', action: () => this.onReconnect() },
@@ -176,6 +199,7 @@ export struct SessionPage {
               } },
             ] })
           })
+          }
         }.padding({ left: 4, right: 4, top: 4, bottom: 4 }).width('100%').backgroundColor('#ffffff')
         if (this.state.connection !== ConnectionStage.READY && this.state.messages.length > 0) {
           Text('本机已收到的消息 · 当前状态待同步').fontSize(12).padding(6)
@@ -184,6 +208,9 @@ export struct SessionPage {
         if (this.state.lastError !== null) { Text(this.state.lastError.message).fontSize(12).fontColor('#b3261e').padding(6) }
         if (this.state.lastNotice !== null) { Text(this.state.lastNotice.message).fontSize(12).padding(6) }
         if (this.state.connection === ConnectionStage.PAIRING_INVALID) { Text('配对已失效，请重新扫码').fontColor('#b3261e') }
+        if (this.state.progress !== undefined) {
+          Text(`${progressLabel(this.state.progress.phase)}${this.state.progress.toolName ? " · " + this.state.progress.toolName : ""} · ${Math.max(0, Math.floor((this.now - this.state.progress.startedAt) / 1000))}秒${this.state.progress.tokensKnown ? ' · ' + (this.state.progress.tokensEstimated ? '约' : '') + this.state.progress.outputTokens + ' tokens' : ''}`).fontSize(12).fontColor(SECONDARY).padding(6)
+        }
         Row({ space: 8 }) {
           if (this.state.pendingAction !== null) { Button('待处理事项', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.sheet = 'action' }) }
           if (this.state.queuedRequests.length > 0) { Button(`排队 ${this.state.queuedRequests.length}`, { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.sheet = 'queue' }) }
@@ -196,7 +223,7 @@ export struct SessionPage {
           Button('最新消息 ↓', { type: ButtonType.Normal }).height(32).fontSize(12).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.scroller.scrollEdge(Edge.Bottom))
         }.padding({ right: 12 })
         Column() {
-          MessageComposer({ draft: this.draft, composerEnabled: this.state.canSend,
+          MessageComposer({ textOnly: this.textOnly, draft: this.draft, composerEnabled: this.state.canSend,
             permissionMode: this.state.permissionMode,
             permissionEnabled: this.commandReady() && (this.state.sessionStatus === 'ready' || this.state.sessionStatus === 'starting'),
             onPermissionMode: this.onPermissionMode,

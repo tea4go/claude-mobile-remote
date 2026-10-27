@@ -1,3 +1,4 @@
+import DemoPage from './demo/DemoPage'
 import DebugPanel from './components/DebugPanel'
 import { debugLog, recordAction } from './debug/log'
 import { nativeSessionCache, decodeSessionCache, SessionCacheWriter, type SessionCachePort } from './native/sessionCache'
@@ -60,6 +61,7 @@ function cancelTargetOf(state: MobileState): string | null {
 }
 
 function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = defaultSocketFactory, native = null, experience = nativeExperience }: AppProps = {}) {
+  const [demoOpen, setDemoOpen] = useState(false)
   const debugState = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
   const [appStore] = useState(createAppStore)
   const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now))
@@ -456,6 +458,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
             Claude Mobile Remote
           </NavBar>
         </div>
+        <div style={{ padding: 16, textAlign: 'center' }}><button onClick={() => { cancelPairing(); setDemoOpen(true) }}>体验演示（无需连接电脑）</button></div>
         <PairingForm target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
           recordAction('scan')
           const generation = ++pairingGeneration.current
@@ -479,6 +482,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       <List className="mobile-settings-list">
         <List.Item arrow onClick={() => { setSettingsDirection('forward'); setSettingsPage('pcs') }}>PC 管理</List.Item>
       </List>
+      <List><List.Item arrow onClick={() => setDemoOpen(true)}>体验演示（无需连接电脑）</List.Item></List>
       <List header="调试">
         <List.Item description="开启后显示悬浮按钮，记录本次运行中的动作和连接过程。关闭后停止新增记录；退出 App 后清除。" extra={<Switch aria-label="调试日志开关" checked={debugState.enabled} onChange={(enabled) => debugLog.setEnabled(enabled)} />}>调试日志</List.Item>
       </List>
@@ -532,6 +536,8 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     </div>
     )
   }
+
+  if (demoOpen) return <DemoPage onExit={() => setDemoOpen(false)} />
 
   return <><DebugPanel /><PageTransition
     pageKey={pageKey}

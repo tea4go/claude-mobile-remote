@@ -19,6 +19,8 @@ import type { MobileState } from '../session/reducer'
 import type { SessionRecord } from '../session/store'
 
 interface SessionDetailProps {
+  topSafeArea?: boolean
+  textOnly?: boolean
   experience?: ExperiencePort | null
   record: SessionRecord
   state: MobileState
@@ -42,6 +44,8 @@ interface SessionDetailProps {
 // 会话详情页（B1）：单个 Session 的状态栏、消息流与输入区。
 // 连接生命周期由 App 持有，这里只呈现状态并回传操作。
 export default function SessionDetail({
+  topSafeArea = true,
+  textOnly = false,
   experience,
   record,
   state,
@@ -97,7 +101,7 @@ export default function SessionDetail({
       }}
     >
       {/* 导航、状态与输入栏固定，中间的详情和消息共用滚动区。 */}
-      <div className="mobile-safe-area-header session-detail-header" style={GLASS_SURFACE_STYLE}>
+      <div className={`${topSafeArea ? 'mobile-safe-area-header' : ''} session-detail-header`} style={GLASS_SURFACE_STYLE}>
         <NavBar back="" backIcon={<LeftOutline aria-label="返回" />} onBack={onBack} right={<div className="session-detail-header-actions">
           <SessionStatus
             connection={pairingInvalid ? 'disconnected' : state.connection}
@@ -176,6 +180,7 @@ export default function SessionDetail({
           />
         )}
         <MessageComposer
+          textOnly={textOnly}
           experience={experience}
           enabled={state.canSend}
           disabledReason={disabledReason}
