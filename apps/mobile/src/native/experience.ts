@@ -8,7 +8,7 @@ export interface ExperiencePort {
   recognize(): Promise<{ text: string }>
   stopSpeech(): Promise<void>
   cancelSpeech(): Promise<void>
-  notificationStatus(): Promise<{ enabled: boolean; remoteConfigured?: boolean; remoteReady?: boolean; pushError?: string }>
+  notificationStatus(): Promise<{ enabled: boolean; remoteConfigured?: boolean; remoteEnabled?: boolean; remoteReady?: boolean; pushError?: string }>
   setNotifications(options: { enabled: boolean }): Promise<{ enabled: boolean }>
   notify(options: { sessionId: string; seq: number; kind: ReminderKind }): Promise<void>
   clearNotifications(options: { sessionId: string }): Promise<void>

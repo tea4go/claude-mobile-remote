@@ -1,1 +1,2 @@
+// Copy to Push.local.xcconfig (ignored by Git). AppKey only; Master Secret stays on edo.
 CMR_JPUSH_APP_KEY = YOUR_JPUSH_APP_KEY

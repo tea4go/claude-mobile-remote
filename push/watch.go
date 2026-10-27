@@ -29,6 +29,10 @@ func Watch(parent context.Context, source EventSource, sender Sender, currentPai
 				if ctx.Err() != nil {
 					return
 				}
+				pairing, valid := currentPairing()
+				if !valid || !pairing.ExpiresAt.After(time.Now()) || pairing.SessionID != notice.SessionID || Topic(pairing.SessionID, pairing.PairToken) != notice.Topic {
+					continue
+				}
 				if err := sender.Send(ctx, notice); err != nil && ctx.Err() == nil {
 					log.Printf("[remote-push] notification delivery failed: %v", err)
 				}
@@ -71,7 +75,7 @@ func Watch(parent context.Context, source EventSource, sender Sender, currentPai
 				if !valid || event.SessionID != pairing.SessionID || !pairing.ExpiresAt.After(time.Now()) {
 					continue
 				}
-				notice := Notification{Topic: Topic(pairing.SessionID, pairing.PairToken), SessionID: event.SessionID, Seq: event.Seq, Kind: kind}
+				notice := Notification{Topic: Topic(pairing.SessionID, pairing.PairToken), SessionID: event.SessionID, Seq: event.Seq, Kind: kind, ExpiresAt: pairing.ExpiresAt}
 				select {
 				case pending <- notice:
 				default:

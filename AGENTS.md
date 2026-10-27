@@ -20,7 +20,7 @@ Claude Mobile Remote 是独立于 WhaleTerm 的项目。Standalone CLI 通过 `g
 - A6 只做局域网跨机器桌面浏览器联调；手机默认通过 VPN 直连 PC，并在 C2 做真机验证；
 - iOS / Android 后续使用 React + TypeScript + antd-mobile + Vite + Capacitor；
 - HarmonyOS NEXT 使用 ArkTS + ArkUI 独立开发；
-- 后期公网中转的 Relay 隧道映射需随 CLI 多 Session 另行设计；永久 route、云端 Session 中心、语音和推送均为后置能力。
+- 公司内网真实会话不建设公网 Relay 或 WebSocket 出站隧道；实时接力使用手机与 PC 可互通的 LAN/VPN。离线通知单独走 WhaleTerm→edo HTTPS→极光等平台，点击后按手机与 PC 网络互通处理；云端 Session 中心和永久 route 不在范围内。
 
 ## 硬约束
 
@@ -29,7 +29,7 @@ Claude Mobile Remote 是独立于 WhaleTerm 的项目。Standalone CLI 通过 `g
 3. **输入必须串行**：PC 和手机的输入统一经过 Session Controller 或宿主的单一队列，不允许多个入口直接并发写 SDK Client。
 4. **会话严格隔离**：协议消息必须包含 `sessionId`；CLI 多会话不得串线，配对凭证仍按 Session 精确授权。
 5. **手机不重建上下文**：手机配对时只返回界面所需的当前状态与待处理事项，之后推送新增事件；完整 Claude 上下文始终留在 PC。
-6. **VPN 直连优先**：产品首期默认手机连接 VPN 后直连 PC；A6 可用显式 LAN 地址做跨机器浏览器门禁，但不开发局域网发现或 NAT 穿透。后期 Relay 不保存 Claude 状态或历史，CLI 多 Session 的隧道方案另行设计；推送不得阻塞已完成的单会话闭环。
+6. **VPN 直连优先**：产品默认手机连接 VPN 后直连 PC；A6 可用显式 LAN 地址做跨机器浏览器门禁，但不开发局域网发现或 NAT 穿透。公司内网 WebSocket 公网转发无法获批，取消 Relay 路线；edo 的 HTTPS 离线通知接口不得转发 Claude 会话消息或操作，推送不得阻塞已完成的单会话闭环。
 7. **凭证保密**：二维码中的配对凭证短期有效、可撤销，不得写入日志、文档、测试快照或提交到 Git；原生 App 需要跨重启保存时必须使用系统安全存储，浏览器不得写入 `localStorage`。
 8. **阶段兼容**：协议从首期保留版本、`sessionId`、request ID 和 `seq`，但不提前实现后期功能。
 9. **Git 写操作必须由用户明确授权**：Codex、Claude 等 AI 可主动运行只读的 `git diff`（含 `--check`、`--stat` 等 diff 变体）检查改动；不得主动执行暂存、提交、推送、恢复、分支、合并或其他会改变仓库/远端状态的 Git 操作。上述写操作仅在用户明确要求时，才可在该次授权范围内执行；一次授权不得扩展到后续操作。其他未明确允许的 Git 只读命令仍需用户授权。

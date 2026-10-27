@@ -9,7 +9,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         UNUserNotificationCenter.current().delegate = SessionNotificationRouter.shared
+        SessionPushManager.shared.launch(launchOptions)
         return true
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        SessionPushManager.shared.registered(deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        SessionPushManager.shared.registrationFailed()
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

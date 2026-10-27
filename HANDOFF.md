@@ -4,6 +4,48 @@
 
 ## 当前状态
 
+- 当前执行（2026-10-27，E3 验收记录与提交）：用户反馈“大部分功能验证通过”并明确授权 Git 提交。范围为 HTTPS/极光 iOS 通知、点击修复及关联计划和部署记录；不包含独立 Harmony 图标/版本修改、截图和构建缓存，不提交凭据或构建产物。已复核通知相关两文件12项测试通过、diff检查通过；通过条件为提交内容核对、敏感信息检查与 diff 检查。真实通知送达此前已确认；本次未逐项明确后台/冷启动、多设备、禁用撤销的结果，不记为全部门禁通过。用户自行编译，本轮不编译 App，不推送远端。
+
+- Harmony 图标修复包 1.0.2 完成（2026-10-27）：按用户明确要求将 Harmony 版本从 1.0.1(1000001) 升至 1.0.2(1000002)，沿用三端一致的新图标及仓库外发布签名。Release APP 构建、华为 verify-profile/verify-app、APP/HAP ZIP、包内包名/版本/应用和 Ability 图标引用通过；打包背景资源摘要与图标修复包一致，后台 PNG 为 216×216。上传文件 `.local-tools/harmony-apptest/signed/ClaudeMobileRemote-1.0.2-signed.app`，SHA256 `6d205d2ab18ca81bee3eb0c9e58ddeca022da35070777511c563bd5b99435351`；脚本通用文件名包与该文件逐字节一致。未上传华为后台、未做真机安装及复审，未执行 Git 写操作。下一步用户上传 1.0.2 包并同步新 PNG，反馈后台接收和安装图标结果。
+
+- Harmony 图标审核修复完成（2026-10-27）：华为审核指出安装图标疑似系统图标；截图核对为旧蓝底四宫格。已将 AppScope、entry 的分层背景换成与现有 iOS/Android 相同的浅蓝 Capacitor 风格图案，前景改为透明层，启动图标同步。交付 `apps/harmony/branding/app-icon.svg`（原 iOS PNG 嵌入的独立 SVG）及 `app-icon-216.png`（216×216）。新 Release 签名 APP 为 1.0.1(1000001)，位于 `.local-tools/harmony-apptest/signed/ClaudeMobileRemote-signed.app`，SHA256 `1c038cb5028a060bc8cf10ef17ff1c99f717def837550aaf02f02bd75df2ac1b`；本机 verify-profile/verify-app、APP/HAP ZIP、包内应用及 Ability 图标引用、打包后背景图视觉、PNG 尺寸与 `git diff --check` 通过。首次构建因沙箱拒绝写 `~/.hvigor` 失败；将缓存放入仓库忽略目录后构建通过。未上传后台、未在真机检查安装图标、未获复审结果；后台如不接受同版本替换，需确认新版本号再重建。不改三端协议或其他平台图标，未执行 Git 写操作。下一步用户用 216px PNG 更新后台展示图、用新签名 APP 替换送审包并反馈安装和审核结果。
+
+- 当前执行（2026-10-27，E3 通知点击修复完成，待真机验收）：用户确认真实系统推送送达，重新扫码后点击仅到列表。根因代码证据为 CapacitorBridge 初始化默认覆盖 AppDelegate 的通知代理；已在 SessionExperiencePlugin.load（桥接初始化之后）重新安装自定义代理，并将 Scene 冷启动 notificationResponse 交给同一点击入口，保留 topic→有效本地 Session 映射及 retainUntilConsumed。移动 App.native 定向测试8/8通过，新增冷启动监听注册时立即回放仍进入指定详情用例；git diff --check通过。用户自行编译 App，后台/退出后点击跳转尚待真机验收；edo、WhaleTerm未改动，未构建、无Git写操作。下一步用户更新iOS后测试新通知直接进入对应详情。
+
+- 当前执行（2026-10-27，E3 真机推送故障修复）：用户确认 WhaleTerm 已触发权限请求而手机无通知；实测 PC 配对→edo 得 502、edo→极光 tag 得 HTTP 403/2009；极光文档说明 tag 为 VIP 能力。用户明确只要固定文字通知、点击对应 Session，按 D102 改为 RID 定向。用户自行编译 WhaleTerm/iOS App，AI 负责 edo 服务构建部署。已实现 edo 私有 topic→RID 映射、同路径 PUT/DELETE、RID 推送、错误码诊断与 iOS 登记/就绪状态；PC POST 和点击 topic 定位保持。服务已备份并部署到 /opt/cmr-notify，备份 /etc/cmr-notify/backups/20261027T0930Z-rid；同路径 GET405、PUT204、DELETE204、文档中的无效 RID 推送返回极光1011（公网502）、服务 health204，测试映射已清空。Go push race、vet、Remote 定向测试通过；iOS/WhaleTerm 按用户要求未编译、真实 RID/APNs 到达与点击待用户真机复验。下一步用户安装新 App，打开设置等待“本机远程通知已就绪”，后台触发 WhaleTerm 审批，反馈送达与点击结果；无需新公网端口。无 Git 写操作。
+
+- E3 Apple能力续办（2026-10-27）：用户在自动审批拦截后自行保存Apple App ID变更；浏览器重新打开核实本应用Push Notifications=1且Save禁用，说明已保存。其他能力按代码核查无需开启：普通APNs警报不使用Background Modes/remote-notification、Time Sensitive或Communication Notifications。`xcrun devicectl`已识别配对可用的iPhone 17 Pro Max（设备标识仅本机使用）；Xcode 26.2，已开始`-allowProvisioningUpdates`真机Debug构建，签名/安装/送达结果待查。
+
+- E3 Apple能力检查点（2026-10-27）：代码/签名配置核对显示本次普通APNs通知仅需Push Notifications；不使用静默推送，故不需Background Modes/remote-notification，也未见需要另开Time Sensitive、Communication Notifications等能力。Apple App ID已勾选Push，保存时提示现有provisioning profiles失效、需要重新生成；自动审批拒绝点击最终Confirm，要求用户知悉该具体影响后再次确认。目前后台能力尚未保存。Xcode 26.2、开发/Release aps-environment与本地忽略入库AppKey具备；devicectl设备探测待结果。用户确认后再保存并刷新签名、构建和安装。
+
+- 当前执行（2026-10-27，E3 Apple Push签名续办）：用户确认WhaleTerm已启动、Chrome已打开Apple后台，继续既有通知任务。页面已恢复，已核实本App ID com.tea4go.claudemobileremote 的Push Notifications未启用。范围为启用本App推送能力、刷新既有签名并构建验证，不更改其他App能力、不退出WhaleTerm会话、不执行Git写操作。保存权限变更前按浏览器操作确认要求取得本次确认；目前尚未勾选或保存。通过条件为后台能力保存、签名包含aps-environment及新构建成功；真实手机送达另验。
+
+- E3 PC续办结果（2026-10-27）：WhaleTerm实际replace与EnablePush=true核实；当前macOS账号私有notifications.json0600已配置，只有edo URL与独立bearer。公共Go组件加载成功，本机经公网带token空JSON400验证通过（不发送通知）。iOS忽略入库AppKey配置完成。WhaleTerm backend/remote测试通过（放行本机bind后），主程序临时编译/tmp/cmr-whaleterm-notify-check成功，模块元数据核实引用本工作区；只有既有macOS语音弃用警告。未替换或启动运行App、未终止会话，实际应用需重建运行WhaleTerm。现有开发/Store Profile只读核实均缺aps-environment。Apple后台App ID页面空白、重载仍无内容，未改能力/profile；下一步恢复页面，启用本App Push并刷新签名，再构建安装新iOS验后台通知。无Git写操作。
+
+- 当前执行（2026-10-27，E3 PC接线续办）：用户已将WhaleTerm go.mod replace指向本工作区并要求继续；已读文件核实replace与EnablePush=true。范围为当前macOS账号私有notifications.json配置（仅edo URL与专用bearer）、iOS忽略入库AppKey配置、WhaleTerm远程包测试/构建接入核验，以及后续iOS签名条件检查；不更改WhaleTerm业务源码、不自动退出正在运行的会话、不执行Git写操作。通过条件为私有文件权限、真实组件配置加载、HTTPS鉴权与定向测试；新运行二进制和真机送达分别记录。
+
+- E3 edo已启用（2026-10-27 15:44 CST）：用户提供极光凭据并授权继续，已仅写服务器root0600私有env，保留独立bearer及production=true。通知服务/bridge active且开机启用，loopback及bridge healthz204。备份并解除精确路由503，nginx -t/reload通过。公网GET405、无鉴权POST401、持正确私有bearer的空JSON400（不调用极光）；原下载入口200且响应体不变。备份 /etc/cmr-notify/backups/20261027T074353Z-activation/locations.conf，详见edo-notify部署验证记录。本条替代此前停用/维护503状态；极光APNs已配置，但REST真实调用/手机送达尚未验，PC配置与新版本组件、iOS Push profile及新构建仍待完成。未保存凭据至仓库，无Git写操作。
+
+- 当前执行（2026-10-27，E3 启用）：用户授权继续配置并提供极光凭据；将仅写入edo root0600环境文件，保留既有bearer及production=true。范围为启动服务/内部桥接、备份并解除精确路由维护503、nginx检查重载、公网401/405及原下载回归；不输出凭据、不发送真实设备通知、不执行Git写操作。通过条件为进程/healthz、鉴权与下载入口实测，实际APNs送达仍单独验收。
+
+- E3 平台配置检查点（2026-10-27）：用户自行创建并下载Apple APNs密钥，随后明确授权将指定p8上传极光并保存。已通过浏览器完成ClaudeRemoteControl的Token Authentication配置；平台显示已上传、Bundle ID com.tea4go.claudemobileremote、Sandbox & Production，Key ID/Team ID核对一致。未把私钥内容写入文档或仓库，未读取/重置极光Master Secret。edo私有配置仍缺极光凭据，维护503与服务停用状态保持；Apple Push能力/profile、新App构建及真机送达仍待验。仅平台配置成功，不代表端到端送达。
+
+- 当前执行（2026-10-27，E3 edo 部署）：用户明确授权 SSH 登录并确认安装到 /opt/cmr-notify、私有配置 /etc/cmr-notify，复用 Docker Nginx 8118 和 socket-proxyd 内部桥接；增加 /verfiles/notify/v1/events 与去前缀 /notify/v1/events 精确路由，不新增公网转发、不处理旧 WS 配置。已核实 amd64、sudo 免密及容器挂载。用户确认尚无极光凭据，因此安装后服务及桥接保持停用；通过条件为包校验、配置备份、nginx -t/reload、既有下载路径与新路径静态维护响应验证，真实调用待凭据/APNs 配置。无 Git 写操作。
+  - 部署结果：二进制及systemd单元安装完成，服务器生成独立token，notify.env为root0600、父目录0700；极光密钥仍待填写。Nginx仅新增include，两条精确路由暂return503；检查/reload成功。公网GET/POST新接口503，原下载入口200且响应体与部署前完全一致。通知/桥接inactive且disabled，18767/18768未监听。备份 /etc/cmr-notify/backups/20261027T071645Z/fileserver.conf。下一步在服务器sudoedit私有env填极光凭据，补APNs配置后启动服务/桥接、移除维护响应并验证401/405与真实送达；详见docs/testing/2026-10-27-edo-notify-deployment.md。未完成上线、平台调用或真机验收，无Git写操作。
+
+- **E3 iOS 极光通知代码完成，待部署与真机验收（2026-10-27）**：已按用户确认完成 iOS noidfa SDK/APNs、设备/tag 注册、冷启动点击及状态设置；旧版本地提醒用户需显式启用后台通知才初始化极光。新增 edo HTTPS 服务（bearer、最小载荷、短 TTL、幂等/并发/限流）和公共 PC 异步出口，Master Secret 仅 edo。Go race 定向测试、vet、移动37文件545测试、Web构建/cap sync、iOS Release无签名编译通过；资源/隐私bundle及双架构服务包SHA256核验通过。lint仅既有警告。用/tmp临时模块验证WhaleTerm backend/remote测试通过，未改其源码/依赖；实际应用需重建引用本次组件。有签名Debug构建仍失败：当前com.tea4go.claudemobileremote Profile缺Push Notifications/aps-environment，需Apple开启能力并刷新签名；本地AppKey、极光APNs配置和edo私有配置/部署也未完成。未生成可安装的新IPA、未更新TestFlight、未验真实离线送达。交付包在`.local-tools/notify-20261027-final/`，部署说明`deploy/notify/README.md`，设计/计划/验证记录为2026-10-27-https-jpush文档。下一步完成Apple/极光配置、部署精确HTTPS路径、重建iOS/WhaleTerm，再按验证记录4项清单验真机；Android/Harmony远程接收仍待实施。无Git写操作。
+
+- 当前执行（2026-10-27，Harmony公开测试发布）：用户授权将已上传且自检通过的1.0.1(1000001)面向所有人发布手机端公开测试；核对后台仅手机设备、选择软件包、准备公开测试资料并提交。通过条件为后台进入审核/发布状态并核实分享入口；若有缺失资质或需用户确认的法律声明，记录具体阻塞，不声称发布成功。不执行Git写操作。
+  - 最新核查：用户明确未办理APP备案，随后自行完成托管隐私政策并关联，后台已可见政策名称。隐私政策草稿曾保存成功；联系邮箱填入经用户明确授权，生成最终政策由用户完成。备案仍为大陆服务器/个人/主体不一致、主办单位与开发者显示同名；未修改证件、主体或类型，未再次发送证件校验。已在浏览器打开官方50130指引（2026-10-15更新）：监管侧按App名称/包名/主体核验；Harmony备案通过接入商办理并选择鸿蒙平台；单机定义为不通过公共互联网提供互联网信息服务。LAN/VPN工具是否适用单机分类未获平台确认，不能直接认定豁免。仍准备提交，未送审/发布；下一步补真实备案或先取得华为对分类的确认。
+  - 后台复核：用户已选择仅手机及1.0.1，合法性/自检通过。公开测试草稿仍准备提交，发布地区中国大陆，安装人数当前10，测试专区/分享链接已勾选；未提交成功。已将误用iOS构建号且被截断的测试说明改为Harmony中文步骤并确认保存成功。当前唯一表单错误为隐私政策未选择，协议服务暂无政策；已打开新建政策的用户隐私保护说明，等待用户同意法律条款后继续。备案字段显示验证不通过，已询问是否实际办理APP备案；未更改为单机或境外类型规避验证。负责人姓名误为邮箱尚待核实。未将证件号/验证码写入文档；无Git写操作。
+
+- 当前执行（2026-10-27，剩余任务计划调整）：用户确认公司内网无法获批 WebSocket 公网转发，取消真实会话公网 Relay；WhaleTerm 到 edo 的 HTTPS 通路已由线上自动升级功能验证。离线通知目标改为 WhaleTerm 在权限审核等事件发生时向 edo 发送最小通知事件，由 edo 调用极光等平台推送到手机；通知点击后按手机与 PC 网络互通的前提进入会话，不把异常网络恢复纳入本任务。范围仅阶段任务、需求、决策和设计/实施计划文档，不改代码、不执行 Git 写操作；通过条件为各文档一致区分 LAN/VPN 实时会话、独立 HTTPS 离线通知和取消的 Relay，并列出实现顺序与验收门禁。本条为开发前登记，结果在本轮结束前补记。
+
+- 计划调整结果（2026-10-27）：已按用户确认将公网 Relay 取消、WhaleTerm→edo HTTPS→极光等平台的离线通知列为 E3，记录 D100，并更新 AGENTS、需求、总体/历史设计的替代说明及 `docs/plans/2026-10-27-remaining-work-and-offline-notifications-plan.md`。按同期最新记录校正任务状态：D98 App 内离线演示替代公网 WSS 审核服务作为当前 TestFlight 路线，iOS build 3 已提交 Beta 审核；D99 Android/Harmony 代码同步已完成但真机待验，Harmony 1.0.1 签名包已构建但新版本后台上传/审核未完成。下一步 E3 先做独立接口与安全专项设计，再实施 edo、WhaleTerm 和三端接收；E2 等待平台审核并完成邀请/设备验收。本轮仅修改文档，`git diff --check` 通过，新计划另查无行尾空白；未运行代码测试、未执行 Git 写操作。未验证项为 E3 实际 HTTPS 通知接口、第三方平台配置及真实设备离线送达。
+
+- 当前执行（2026-10-27，Harmony 1.0.1 AppTest发布）：用户确认旧版本已达标且可选，授权构建新签名包并上传测试审核，指定版本1.0.1。沿用既有AppTest设计和发布签名，更新versionCode为1000001，构建Release APP并核验版本/签名后操作后台；通过条件为新包上传并提交测试审核，平台审核结果和真机安装单独记录。不执行Git写操作。
+  - 构建完成：Release APP版本1.0.1(1000001)、包名及API24核验通过，华为verify-profile/verify-app通过；产物.local-tools/harmony-apptest/signed/ClaudeMobileRemote-signed.app，SHA256 a3cc98954b91b49cb62571d661c21b9b1a50eeca928fe878a257a15d513c02e5，日志/tmp/cmr-harmony-apptest-101.log。Chrome后台已核实旧版1.0.0合法性已达标、上架自检通过；已打开仅测试上传流程，原生文件选择器无法自动确认，已请求用户手动选取文件。新版本上传及审核尚未完成；等待选取后继续。
+
 - **Android/Harmony同步完成（2026-10-27）**：用户确认专项设计后，Android已同步当前共用React功能（含离线演示、日志、进度与心跳），Debug/Release构建通过，APK内Web文件与dist一致。Harmony补齐v5/v6、阶段超时、快照验证后保存配对并接续原连接、系统断网/心跳、进度展示、安全宿主日志与200条内存调试面板、双入口独立离线演示；53项测试与16文件逻辑类型检查、真实API24 ArkTS/ArkUI编译通过。移动542测试通过，lint仅既有警告；发布准备脚本5测试、既有review-server测试通过。范围及产物见docs/testing/2026-10-27-mobile-parity-result.md。按本次授权提交源码/文档，不推送；安装包/签名/私人截图排除。Android/Harmony真机未验收，Harmony HAP和Android Release未签名，AppTest/新平台审核未提交；下一步用户对照记录中4项清单验收，Harmony正式测试分发另配签名。下方同任务执行项为过程记录，以本条完成结果为准。iOS TestFlight build3仍等待审核。
 
 - 当前执行（2026-10-27，Android/Harmony 同步实施）：用户已检查并确认专项设计，开始补齐 Harmony v5/v6、连接验证/心跳、调试日志和独立离线演示；Android同步共用资源。通过条件为专项测试、两端原生编译和差异检查后提交，不推送；真机未验证项目单列。
@@ -236,11 +278,9 @@
 
 ## 下一步
 
-0. 当前优先：在装有 Harmony SDK `6.1.1(24)` 的 DevEco 环境构建本轮 Harmony 同步代码，补齐 ArkTS/ArkUI/原生 API 编译结果及 HAP，再执行 `docs/testing/2026-10-22-harmony-parity-result.md` 真机清单。当前 Mac 缺工具链，本轮逻辑与测试适配器通过不能替代工程/设备门禁。Android 物理真机未验收项与蒲公英上传任务继续保留；iOS 已有用户验收记录，极光仍暂停。以下为先前遗留事项。
+当前任务顺序与门禁以 `docs/plans/2026-10-27-remaining-work-and-offline-notifications-plan.md` 为准：C2-D 与 Android/Harmony 真机验收、E2 平台审核/测试分发、E1 安全兼容汇总，以及独立 E3 HTTPS 离线通知。E3 先设计 WhaleTerm→edo 通知接口、鉴权/设备路由及最小事件，再做 edo 转发、WhaleTerm 非阻塞发送、三端推送接收和实际离线送达。D98 App 内离线演示已替代公网 WSS 审核服务作为当前 TestFlight 路线；待 Apple Beta 审核结果。Harmony 1.0.1 签名包等待后台新版本上传/审核，Android/Harmony 真机仍待验。
 
-1. 本地 CLI 修正已提交为 `9c4d98c`；用户推送或同步该提交后，让报错机器更新并在 Intel Mac 执行 `bash scripts/macos/3_cli_run.sh --profile local` 复核，本轮未获推送授权。将本轮 debug APK 安装到 Android 设备后，人工验收列表/设置/PC 管理、扫码、重启恢复、消息和权限、键盘/抽屉/返回手势；无 Android 设备时这些结果保持未验证。此前 WhaleTerm P4/Remote 兼容修正仍待审阅，随后继续 C2-D iOS 真机联调；iOS 工程编译、安全存储/VPN 门禁与 Harmony DevEco 构建仍待补。
-   WhaleTerm 的 P4 合并冲突工作树已解决；须在获得该次 Git 写操作的明确授权后，才可暂存 4 个冲突文件并完成合并提交。随后复核实际合并结果及 Remote Control 真机路径。
-2. WhaleTerm 嵌入宿主如需稳定 PC 分组与主机名，后续需向公共 Remote Server 传入同机编码与名称；当前仍兼容旧版地址分组。暂停的自动化测试补强、断线 replay、系统后台推送与 Relay 多 Session 映射继续作为后续独立设计。后续 Git 写操作需另行明确授权。
+其他遗留事项：Intel Mac 对已提交 CLI 修正的异机复核；WhaleTerm 稳定 PC 标识和名称的宿主接线；断线 replay 及已暂停的自动化补强另行排期。早期 WhaleTerm P4 合并与 Git 推送记录须先核对当前工作区，不按旧记录直接执行 Git 写操作。Relay 多 Session 映射已按 D100 取消。
 
 ## 约束提醒
 

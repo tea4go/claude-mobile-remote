@@ -1,0 +1,23 @@
+[Unit]
+Description=Claude Mobile Remote HTTPS notification gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cmr-notify
+Group=cmr-notify
+WorkingDirectory=/opt/cmr-notify
+EnvironmentFile=/etc/cmr-notify/notify.env
+ExecStart=/opt/cmr-notify/notify-server --listen 127.0.0.1:18767
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+StateDirectory=cmr-notify
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

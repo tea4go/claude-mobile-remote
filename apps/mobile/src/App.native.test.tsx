@@ -160,6 +160,27 @@ test('通知点击在原生恢复完成后打开对应 Session，卸载移除监
   await waitFor(() => expect(remove).toHaveBeenCalledOnce())
 })
 
+test('冷启动保留的通知在监听注册时立即交付，仍进入对应详情', async () => {
+  const native = bindings([
+    { metadata: { sessionId: 'cold-target', name: '冷启动目标', customName: true, lastConnectedAt: null }, payload: pairing('cold-target') },
+    { metadata: { sessionId: 'other', name: '其他会话', customName: true, lastConnectedAt: null }, payload: pairing('other') },
+  ])
+  const clearNotifications = vi.fn(async () => undefined)
+  const experience = {
+    addListener: vi.fn(async (_event: 'notificationOpened', callback: (value: { sessionId: string }) => void) => {
+      // Mirrors CAPPlugin retainUntilConsumed replay when JS first subscribes.
+      callback({ sessionId: 'cold-target' })
+      return { remove: vi.fn(async () => undefined) }
+    }),
+    clearNotifications,
+    notify: vi.fn(async () => undefined),
+  } as unknown as ExperiencePort
+  render(<App native={native.native} experience={experience} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(clearNotifications).toHaveBeenCalledWith({ sessionId: 'cold-target' }))
+  expect(screen.getByTestId('detail-scroll')).toBeInTheDocument()
+  expect(screen.getByText('冷启动目标')).toBeInTheDocument()
+})
+
 test('原生文件缓存启动后恢复目录和消息，过期配对仍可只读查看，删除配对清理文件', async () => {
   const { encodeSessionCache } = await import('./native/sessionCache')
   const { createInitialState } = await import('./session/reducer')
