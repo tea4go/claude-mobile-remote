@@ -1,3 +1,4 @@
+import { debugLog, type LogCode } from '../debug/log'
 import { BusinessError } from '@kit.BasicServicesKit'
 import { webSocket } from '@kit.NetworkKit'
 import { decodeServerMessage } from './decode'
@@ -245,6 +246,9 @@ export class ProtocolClient {
   private pendingCommandId: string | null = null
   private pendingKind: 'command' | 'create_session' | 'stop_session' | null = null
   private generation = 0
+  private deadline: number = -1
+  private heartbeat: number = -1
+  private pongAt: number = 0
   private userClosed = false
   private wireVersion: number = PREFERRED_PROTOCOL_VERSION
   private observer: ProtocolClientObserver | null = null
@@ -271,6 +275,9 @@ export class ProtocolClient {
     this.generation = generation
     this.socket = socket
     this.stage = 'CONNECTING'
+    debugLog.record('connect')
+    debugLog.connectionTarget(this.pairing.wsUrl)
+    this.armDeadline('connect_timeout', 10000)
     this.userClosed = false
     this.pendingCommandId = null
     this.pendingKind = null
@@ -284,6 +291,8 @@ export class ProtocolClient {
         return
       }
       this.stage = 'AUTHENTICATING'
+      debugLog.record('socket_open')
+      this.armDeadline('auth_timeout', 8000)
       if (this.observer?.onSocketOpened !== undefined) {
         this.observer.onSocketOpened()
       }
@@ -310,6 +319,8 @@ export class ProtocolClient {
       if (generation !== this.generation || this.socket !== socket) {
         return
       }
+      this.clearTimers()
+      debugLog.record('closed', value.code)
       this.socket = null
       this.stage = 'IDLE'
       if (this.userClosed) {
@@ -341,12 +352,49 @@ export class ProtocolClient {
     })
   }
 
+  private clearTimers(): void {
+    if (this.deadline !== -1) clearTimeout(this.deadline)
+    if (this.heartbeat !== -1) clearTimeout(this.heartbeat)
+    this.deadline = -1; this.heartbeat = -1; this.pongAt = 0
+  }
+  private armDeadline(code: LogCode, ms: number): void {
+    if (this.deadline !== -1) clearTimeout(this.deadline)
+    this.deadline = setTimeout(() => {
+      debugLog.record(code, ms)
+      this.terminate('DISCONNECTED', makeError(code, '连接阶段超时，请检查网络、VPN或电脑端服务'))
+    }, ms)
+  }
+  networkLost(): void {
+    debugLog.record('network_lost')
+    if (this.socket !== null) this.terminate('DISCONNECTED', makeError('network_lost', '网络连接已断开；配对与消息保留，请恢复网络后重连'))
+  }
+  checkConnection(): void {
+    if (this.stage !== 'READY' || this.wireVersion < 6 || this.socket === null) return
+    if (this.pongAt > 0) {
+      if (Date.now() - this.pongAt >= 5000) { debugLog.record('heartbeat_timeout', 5000); this.terminate('DISCONNECTED', makeError('heartbeat_timeout', '连接探活超时，操作结果未知，请核对电脑端状态')) }
+      return
+    }
+    if (this.heartbeat !== -1) clearTimeout(this.heartbeat)
+    this.heartbeat = -1
+    this.pongAt = Date.now(); debugLog.record('ping', 5000)
+    this.sendFrame(encodeEnvelope(this.wireVersion, 'ping', this.pairing.sessionId, '', '', 0, createEmptyPayload() as Object))
+    if (this.stage !== 'READY') return
+    this.heartbeat = setTimeout(() => this.checkConnection(), 5000)
+  }
+  private scheduleHeartbeat(): void {
+    if (this.heartbeat !== -1) clearTimeout(this.heartbeat)
+    this.heartbeat = setTimeout(() => this.checkConnection(), 10000)
+  }
+
   reconnect(): void {
+    debugLog.record('reconnect')
     this.close()
     this.connect()
   }
 
   close(): void {
+    this.clearTimers()
+    debugLog.record('closed')
     const socket = this.socket
     this.userClosed = true
     this.generation += 1
@@ -455,6 +503,7 @@ export class ProtocolClient {
     reason: 'DISCONNECTED' | 'PAIRING_INVALID' | 'PROTOCOL_ERROR',
     error: ErrorInfo | null,
   ): void {
+    debugLog.record(reason === 'PROTOCOL_ERROR' ? 'protocol_error' : reason === 'PAIRING_INVALID' ? 'pairing_invalid' : 'socket_error')
     const pendingCommandId = this.pendingCommandId
     this.pendingCommandId = null
     this.pendingKind = null
@@ -473,6 +522,7 @@ export class ProtocolClient {
     error: ErrorInfo | null,
   ): void {
     const socket = this.socket
+    this.clearTimers()
     this.userClosed = true
     this.generation += 1
     this.socket = null
@@ -492,13 +542,13 @@ export class ProtocolClient {
       return
     }
 
-    const legacy = message.version === 2 || message.version === 3
+    const legacy = message.version >= 2 && message.version <= 5
     if (legacy && message.version < this.wireVersion && this.stage === 'AUTHENTICATING' && message.type === 'hello_ack') {
       this.wireVersion = message.version
     }
     const fallbackError = message.type === 'error' && this.stage === 'AUTHENTICATING' && legacy &&
       message.payload.code === 'unsupported_version' &&
-      (message.payload.expectedVersion === 2 || message.payload.expectedVersion === 3) &&
+      (message.payload.expectedVersion !== undefined && message.payload.expectedVersion >= 2 && message.payload.expectedVersion <= 5) &&
       message.payload.expectedVersion < this.wireVersion
     const legacyUnauthorized = message.type === 'error' && this.stage === 'AUTHENTICATING' && legacy &&
       message.payload.code === 'unauthorized'
@@ -508,7 +558,7 @@ export class ProtocolClient {
     }
 
     if (
-      (message.type === 'snapshot' ||
+      (message.type === 'pong' || message.type === 'snapshot' ||
         message.type === 'event' ||
         message.type === 'unsupported' ||
         message.type === 'command_result' ||
@@ -521,12 +571,21 @@ export class ProtocolClient {
     }
 
     switch (message.type) {
+      case 'pong':
+        if (this.stage !== 'READY' || this.pongAt === 0) { this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'unexpected pong')); return }
+        if (Date.now() - this.pongAt >= 5000) { debugLog.record('heartbeat_timeout', 5000); this.terminate('DISCONNECTED', makeError('heartbeat_timeout', '连接探活响应超过5秒，操作结果未知')); return }
+        debugLog.record('pong', Date.now() - this.pongAt)
+        this.pongAt = 0
+        this.scheduleHeartbeat()
+        return
       case 'hello_ack': {
         if (this.stage !== 'AUTHENTICATING') {
           this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'hello_ack arrived before hello'))
           return
         }
         this.stage = 'SUBSCRIBING'
+        debugLog.record('authenticated')
+        this.armDeadline('subscribe_timeout', 8000)
         if (this.observer?.onHelloAck !== undefined) {
           this.observer.onHelloAck()
         }
@@ -540,6 +599,8 @@ export class ProtocolClient {
           return
         }
         this.stage = 'SUBSCRIBED'
+        debugLog.record('subscribed')
+        this.armDeadline('snapshot_timeout', 10000)
         if (this.observer?.onSubscribed !== undefined) {
           this.observer.onSubscribed()
         }
@@ -550,6 +611,10 @@ export class ProtocolClient {
           return
         }
         this.stage = 'READY'
+        this.clearTimers()
+        debugLog.record('ready')
+        if (this.wireVersion >= 6) this.scheduleHeartbeat()
+        else debugLog.record('legacy', this.wireVersion)
         this.pendingCommandId = null
         this.pendingKind = null
         if (this.observer?.onSnapshot !== undefined) {
@@ -627,6 +692,7 @@ export class ProtocolClient {
       }
       case 'error':
         if (fallbackError) {
+          debugLog.record('legacy', message.payload.expectedVersion ?? 2)
           this.close()
           this.wireVersion = message.payload.expectedVersion ?? PROTOCOL_VERSION
           this.connect()

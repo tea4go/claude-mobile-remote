@@ -39,6 +39,10 @@ export struct SessionListPage {
   onRename: (sessionId: string, name: string) => void = () => {}
   onRemovePC: (key: string) => void = () => {}
   onNotifications: () => void = () => {}
+  onDemo: () => void = () => {}
+  @Prop debugEnabled: boolean = true
+  onDebug: (value: boolean) => void = () => {}
+  onDebugOpen: () => void = () => {}
   onClearCache: () => void = () => {}
   @State private settings: boolean = false
   @State private computers: boolean = false
@@ -140,6 +144,12 @@ export struct SessionListPage {
             if (this.sessions.length === 0) { Text('暂无已配对电脑').fontSize(14).fontColor(SECONDARY).padding(24) }
           } else if (this.settings) {
             Column() {
+              Button('体验演示（无需连接电脑）').height(44).onClick(() => this.onDemo())
+              Row() {
+                Text('调试日志').layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.debugEnabled }).onChange((value: boolean) => this.onDebug(value))
+                Button('查看').height(36).fontSize(12).onClick(() => this.onDebugOpen())
+              }.padding(12).width('100%')
               Row() {
                 Text('系统提醒').fontSize(16).layoutWeight(1)
                 Toggle({ type: ToggleType.Switch, isOn: this.notificationsEnabled }).selectedColor(PRIMARY)

@@ -1,4 +1,5 @@
 import {
+  type ProgressPhase, type DiagnosticCode, type TurnProgress, type SessionDiagnostic,
   ACTION_KIND_VALUES,
   ASK_USER_QUESTION_TOOL_NAME,
   BLOCK_KIND_VALUES,
@@ -82,6 +83,7 @@ interface SessionSnapshotCandidate {
 }
 
 interface TurnSnapshotCandidate {
+  progress?: Object | null
   status?: string
   requestId?: string
   source?: string
@@ -100,6 +102,8 @@ interface EventPayloadCandidate {
 }
 
 interface EventCandidate {
+  progress?: Object | null
+  diagnostic?: Object | null
   permissionMode?: string
   seq?: number
   kind?: string
@@ -223,10 +227,11 @@ const SESSION_SNAPSHOT_KEYS: Array<string> = [
   'queuedRequests',
   'projectCwd', 'sessionTitle', 'createdAt', 'lastActivityAt',
 ]
-const TURN_SNAPSHOT_KEYS: Array<string> = ['status', 'requestId', 'source', 'message', 'error', 'pendingAction']
+const TURN_SNAPSHOT_KEYS: Array<string> = ['progress', 'status', 'requestId', 'source', 'message', 'error', 'pendingAction']
 const ERROR_INFO_KEYS: Array<string> = ['code', 'message']
 const EVENT_PAYLOAD_KEYS: Array<string> = ['event']
 const EVENT_KEYS: Array<string> = [
+  'progress', 'diagnostic',
   'permissionMode',
   'seq',
   'kind',
@@ -724,7 +729,30 @@ function decodeQueuedRequests(value: Array<Object> | null | undefined): Array<Qu
   return requests
 }
 
-function decodeTurnSnapshot(value: Object | null): TurnSnapshot {
+interface ProgressCandidate { phase?: string; toolName?: string; startedAt?: number; updatedAt?: number; outputTokens?: number; tokensKnown?: boolean; tokensEstimated?: boolean }
+interface DiagnosticCandidate { code?: string; httpStatus?: number; attempt?: number; maxAttempts?: number; retryDelayMs?: number }
+function decodeProgress(value: Object | null): TurnProgress {
+  const c = requireAllowedObject(value, 'progress', ['phase','toolName','startedAt','updatedAt','outputTokens','tokensKnown','tokensEstimated']) as ProgressCandidate
+  const phase = readString(c.phase, 'phase')
+  if (['waiting','working','thinking','writing','tool','subtask','compacting','requesting','retrying','waiting_followup','tool_result','subtask_result'].indexOf(phase) < 0) fail('invalid progress phase')
+  const p: TurnProgress = { phase: phase as ProgressPhase, startedAt: readNonNegativeInteger(c.startedAt, 'startedAt'), updatedAt: readNonNegativeInteger(c.updatedAt, 'updatedAt'), outputTokens: readNonNegativeInteger(c.outputTokens, 'outputTokens'), tokensKnown: readBoolean(c.tokensKnown, 'tokensKnown'), tokensEstimated: readBoolean(c.tokensEstimated, 'tokensEstimated') }
+  if (p.startedAt === 0 || p.updatedAt < p.startedAt || p.outputTokens > 1000000000) fail('invalid progress metadata')
+  if (c.toolName !== undefined) { p.toolName = readString(c.toolName, 'toolName'); if (phase !== 'tool' || !/^[a-zA-Z0-9_:.@\/-]{1,128}$/.test(p.toolName)) fail('tool name too long') }
+  return p
+}
+function decodeDiagnostic(value: Object | null): SessionDiagnostic {
+  const c = requireAllowedObject(value, 'diagnostic', ['code','httpStatus','attempt','maxAttempts','retryDelayMs']) as DiagnosticCandidate
+  const code = readString(c.code, 'code')
+  if (['api_retry','query_failed','receive_failed','response_incomplete','assistant_error','result_error','turn_failed','tool_failed'].indexOf(code) < 0) fail('invalid diagnostic code')
+  const d: SessionDiagnostic = { code: code as DiagnosticCode }
+  if (c.httpStatus !== undefined) { d.httpStatus = readNonNegativeInteger(c.httpStatus, 'httpStatus'); if (d.httpStatus !== 0 && (d.httpStatus < 100 || d.httpStatus > 599)) fail('invalid httpStatus') }
+  if (c.attempt !== undefined) { d.attempt = readNonNegativeInteger(c.attempt, 'attempt'); if (d.attempt > 1000000) fail('invalid attempt') }
+  if (c.maxAttempts !== undefined) { d.maxAttempts = readNonNegativeInteger(c.maxAttempts, 'maxAttempts'); if (d.maxAttempts > 1000000) fail('invalid maxAttempts') }
+  if (c.retryDelayMs !== undefined) { d.retryDelayMs = readNonNegativeInteger(c.retryDelayMs, 'retryDelayMs'); if (d.retryDelayMs > 86400000) fail('invalid delay') }
+  return d
+}
+
+function decodeTurnSnapshot(value: Object | null, version: number): TurnSnapshot {
   const candidate = requireAllowedObject(value, 'turn', TURN_SNAPSHOT_KEYS) as TurnSnapshotCandidate
   const requestId = readString(candidate.requestId, 'requestId')
   const source = readOptionalInputSource(candidate.source, 'source')
@@ -744,6 +772,10 @@ function decodeTurnSnapshot(value: Object | null): TurnSnapshot {
     message: readString(candidate.message, 'message'),
     error: decodeErrorInfo(candidate.error !== undefined ? candidate.error : null, 'error'),
     pendingAction,
+  }
+  if (candidate.progress !== undefined) {
+    if (version < 5 || requestId.length === 0 || ['running','waiting'].indexOf(snapshot.status) < 0) fail('unexpected snapshot progress')
+    snapshot.progress = decodeProgress(candidate.progress)
   }
   if (snapshot.pendingAction !== null && snapshot.status !== 'waiting') {
     fail('pendingAction requires turnStatus waiting')
@@ -778,7 +810,7 @@ function decodeSessionSnapshot(value: Object | null, version: number): SessionSn
     sessionStatus: readSessionStatus(candidate.sessionStatus, 'sessionStatus'),
     sessionError: decodeErrorInfo(candidate.sessionError !== undefined ? candidate.sessionError : null, 'sessionError'),
     seq: readNonNegativeInteger(candidate.seq, 'seq'),
-    turn: decodeTurnSnapshot(candidate.turn !== undefined ? candidate.turn : null),
+    turn: decodeTurnSnapshot(candidate.turn !== undefined ? candidate.turn : null, version),
     queueDepth,
     queuedRequests,
   }
@@ -879,6 +911,15 @@ function decodeEventPayload(value: Object | null, version: number): EventPayload
     }
   }
 
+  if (eventCandidate.progress !== undefined || event.kind === 'turn_progress') {
+    if (version < 5 || event.kind !== 'turn_progress') fail('unexpected progress')
+    event.progress = decodeProgress(eventCandidate.progress ?? null)
+  }
+  if (eventCandidate.diagnostic !== undefined || event.kind === 'session_diagnostic') {
+    if (version < 5 || event.kind !== 'session_diagnostic') fail('unexpected diagnostic')
+    event.diagnostic = decodeDiagnostic(eventCandidate.diagnostic ?? null)
+  }
+  if ((event.kind === 'turn_progress' || event.kind === 'session_diagnostic') && (requestId.length === 0 || event.turnStatus !== '' || event.sessionStatus !== '' || event.error !== null)) fail('invalid observation event')
   validateEventSemantics(event)
   const payload: EventPayload = { event }
   return payload
@@ -961,7 +1002,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
 
   const envelope = requireAllowedObject(parsedValue, 'message', ENVELOPE_KEYS) as EnvelopeCandidate
   const version = readInteger(envelope.version, 'version')
-  if (version !== PROTOCOL_VERSION && version !== 3 && version !== PREFERRED_PROTOCOL_VERSION) {
+  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== PREFERRED_PROTOCOL_VERSION) {
     fail('unsupported protocol version')
   }
 
@@ -975,7 +1016,8 @@ export function decodeServerMessage(raw: string): ServerMessage {
   }
   const payloadValue = envelope.payload
 
-  if (type === 'hello_ack' || type === 'subscribed' || type === 'unsubscribed') {
+  if (type === 'pong' && (version < 6 || commandId !== '' || requestId !== '' || seq !== 0)) fail('invalid heartbeat')
+  if (type === 'pong' || type === 'hello_ack' || type === 'subscribed' || type === 'unsubscribed') {
     const emptyPayload = decodeEmptyPayload(payloadValue)
     const message = {
       version,

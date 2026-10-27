@@ -1,3 +1,4 @@
+import { debugLog } from '../debug/log'
 import {
   ProtocolClient,
   type ActionResolution,
@@ -50,6 +51,8 @@ export interface HarmonySessionStore {
   connectWithPairing(pairing: PairingPayload): void
   disconnect(): void
   reset(): void
+  networkLost(): void
+  checkConnection(): void
   reconnect(): boolean
   sendText(text: string): boolean
   setPermissionMode(mode: PermissionMode): boolean
@@ -199,7 +202,11 @@ class SessionStore implements HarmonySessionStore {
     this.emit()
   }
 
+  networkLost(): void { this.client?.networkLost() }
+  checkConnection(): void { this.client?.checkConnection() }
+
   reconnect(): boolean {
+    debugLog.record('reconnect')
     if (this.state.pairing === null) {
       this.dispatch(localError(makeError('not_paired', 'no pairing payload is loaded')))
       return false
@@ -275,6 +282,7 @@ class SessionStore implements HarmonySessionStore {
     if (this.client === null || this.pendingManagement !== null) {
       return false
     }
+    debugLog.record('command')
     const commandId = nextCommandId()
     const sent = operation === 'create_session'
       ? this.client.createSession(commandId).ok
@@ -325,6 +333,7 @@ class SessionStore implements HarmonySessionStore {
 
   handleEvent(event: DomainEvent): void {
     this.dispatch(eventReceived(event))
+    if (this.state.connection === ConnectionStage.READY && event.diagnostic !== undefined) debugLog.host(event.diagnostic)
     if (this.state.connection === ConnectionStage.READY) this.eventListener?.(event)
   }
 
@@ -333,9 +342,10 @@ class SessionStore implements HarmonySessionStore {
   }
 
   handleCommandResult(result: CommandResultInfo): void {
-    if (this.commandTimer >= 0) clearTimeout(this.commandTimer)
+    if (this.commandTimer !== -1) clearTimeout(this.commandTimer)
     this.commandTimer = -1
     const isSend = this.state.pendingCommand?.kind === 'send_text' || this.state.pendingCommand?.kind === 'send_attachments'
+    debugLog.record(result.accepted ? 'command_accepted' : 'command_rejected')
     if (result.accepted) {
       this.dispatch(commandAccepted(result.commandId, result.requestId))
       if (isSend && this.pendingAttachments.length > 0) {
@@ -361,10 +371,11 @@ class SessionStore implements HarmonySessionStore {
   }
 
   handleClosed(info: CloseInfo): void {
-    if (this.commandTimer >= 0) clearTimeout(this.commandTimer)
+    if (this.commandTimer !== -1) clearTimeout(this.commandTimer)
     this.commandTimer = -1
     if (this.state.pendingCommand?.kind === 'send_text' || this.state.pendingCommand?.kind === 'send_attachments') this.sendListener?.(false)
     this.pendingAttachments = []
+    this.abandonManagement()
     this.client = null
     if (info.pendingCommandId !== null && (this.pendingManagement === null || info.pendingCommandId !== this.pendingManagement.commandId)) {
       this.dispatch(commandUnknown(info.pendingCommandId))
@@ -392,6 +403,7 @@ class SessionStore implements HarmonySessionStore {
       this.dispatch(localError(makeError('not_ready', 'connection is not ready')))
       return false
     }
+    debugLog.record('command')
     const commandId = nextCommandId()
     this.dispatch(commandStarted(commandId, kind, text, targetId))
     const sent = sender(commandId)
@@ -402,6 +414,7 @@ class SessionStore implements HarmonySessionStore {
     this.commandTimer = setTimeout(() => {
       this.commandTimer = -1
       if (this.state.pendingCommand?.commandId !== commandId) return
+      debugLog.record('command_unknown')
       this.dispatch(commandUnknown(commandId))
       this.detachClient()
       this.dispatch(socketClosed(makeError('timeout', '结果未知，请核对电脑端后再发送；草稿已保留')))
@@ -440,7 +453,7 @@ class SessionStore implements HarmonySessionStore {
   }
 
   private detachClient(): void {
-    if (this.commandTimer >= 0) clearTimeout(this.commandTimer)
+    if (this.commandTimer !== -1) clearTimeout(this.commandTimer)
     this.commandTimer = -1
     if (this.client === null) {
       return

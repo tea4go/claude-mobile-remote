@@ -1,0 +1,19 @@
+[Unit]
+Description=Claude Mobile Remote synthetic review demo
+After=network.target
+
+[Service]
+User=tony
+WorkingDirectory=/home/tony/cmr-review
+ExecStart=/home/tony/cmr-review/review-server --data /home/tony/cmr-review/private --url wss://edo.iwhalecloud.com/verfiles/review/ws
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/tony/cmr-review/private
+
+[Install]
+WantedBy=multi-user.target

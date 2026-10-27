@@ -1,4 +1,5 @@
 import type {
+  TurnProgress,
   Attachment,
   CommandKind,
   ContentBlock,
@@ -76,6 +77,8 @@ export interface NoticeInfo {
 }
 
 export interface HarmonySessionState {
+  progress?: TurnProgress
+  progressRequestId?: string
   permissionMode: PermissionMode
   pairing: PairingPayload | null
   connection: ConnectionStage

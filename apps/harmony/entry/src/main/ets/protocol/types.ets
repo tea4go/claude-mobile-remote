@@ -1,5 +1,5 @@
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 4
+export const PREFERRED_PROTOCOL_VERSION = 6
 export const PAIRING_PAYLOAD_VERSION = 1
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
 export const MAX_TEXT_BYTES = 1024 * 1024
@@ -17,6 +17,7 @@ export const INPUT_SOURCE_VALUES: string[] = ['terminal', 'mobile']
 export const PERMISSION_MODE_VALUES: string[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 export const EVENT_KIND_VALUES: string[] = [
+  'turn_progress', 'session_diagnostic',
   'session_started',
   'turn_started',
   'text_delta',
@@ -34,6 +35,7 @@ export const TOOL_CLASS_VALUES: string[] = ['builtin', 'mcp']
 export const ACTION_KIND_VALUES: string[] = ['tool_approval', 'ask_user_question']
 export const QUESTION_INPUT_TYPE_VALUES: string[] = ['choice', 'text']
 export const MESSAGE_TYPE_VALUES: string[] = [
+  'ping', 'pong',
   'hello',
   'hello_ack',
   'subscribe',
@@ -52,6 +54,7 @@ export const MESSAGE_TYPE_VALUES: string[] = [
   'error',
 ]
 export const SERVER_MESSAGE_TYPE_VALUES: string[] = [
+  'pong',
   'hello_ack',
   'subscribed',
   'unsubscribed',
@@ -74,6 +77,7 @@ export type SessionStatus = 'starting' | 'ready' | 'stopped' | 'failed'
 export type TurnStatus = 'idle' | 'running' | 'waiting' | 'completed' | 'cancelled' | 'failed'
 export type InputSource = 'terminal' | 'mobile'
 export type EventKind =
+  | 'turn_progress' | 'session_diagnostic'
   | 'session_started'
   | 'turn_started'
   | 'text_delta'
@@ -90,6 +94,7 @@ export type ToolClass = 'builtin' | 'mcp'
 export type PendingActionKind = 'tool_approval' | 'ask_user_question'
 export type QuestionInputType = 'choice' | 'text'
 export type MessageType =
+  | 'ping' | 'pong'
   | 'hello'
   | 'hello_ack'
   | 'subscribe'
@@ -107,6 +112,7 @@ export type MessageType =
   | 'stop_session_result'
   | 'error'
 export type ServerMessageType =
+  | 'pong'
   | 'hello_ack'
   | 'subscribed'
   | 'unsubscribed'
@@ -224,7 +230,19 @@ export interface ToolResultContentBlock {
 
 export type ContentBlock = ThinkingContentBlock | ToolUseContentBlock | ToolResultContentBlock
 
+export type ProgressPhase = 'waiting' | 'working' | 'thinking' | 'writing' | 'tool' | 'subtask' | 'compacting' | 'requesting' | 'retrying' | 'waiting_followup' | 'tool_result' | 'subtask_result'
+export type DiagnosticCode = 'api_retry' | 'query_failed' | 'receive_failed' | 'response_incomplete' | 'assistant_error' | 'result_error' | 'turn_failed' | 'tool_failed'
+export interface TurnProgress {
+ phase: 'waiting' | 'working' | 'thinking' | 'writing' | 'tool' | 'subtask' | 'compacting' | 'requesting' | 'retrying' | 'waiting_followup' | 'tool_result' | 'subtask_result'
+ toolName?: string
+ startedAt: number; updatedAt: number; outputTokens: number; tokensKnown: boolean; tokensEstimated: boolean
+}
+export interface SessionDiagnostic {
+ code: 'api_retry' | 'query_failed' | 'receive_failed' | 'response_incomplete' | 'assistant_error' | 'result_error' | 'turn_failed' | 'tool_failed'
+ httpStatus?: number; attempt?: number; maxAttempts?: number; retryDelayMs?: number
+}
 export interface TurnSnapshot {
+  progress?: TurnProgress
   status: TurnStatus
   requestId: string
   source: InputSource | ''
@@ -249,6 +267,8 @@ export interface SessionSnapshot {
 }
 
 export interface DomainEvent {
+  progress?: TurnProgress
+  diagnostic?: SessionDiagnostic
   permissionMode?: PermissionMode
   seq: number
   kind: EventKind
@@ -310,7 +330,7 @@ export interface BaseServerMessage {
 }
 
 export interface HelloAckServerMessage extends BaseServerMessage {
-  type: 'hello_ack'
+  type: 'hello_ack' | 'pong'
   payload: EmptyPayload
 }
 

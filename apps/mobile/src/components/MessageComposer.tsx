@@ -20,6 +20,7 @@ import sendIcon from '../assets/icons/svgs/send.svg'
 interface MessageComposerProps {
   enabled: boolean
   experience?: ExperiencePort | null
+  textOnly?: boolean
   onSendAttachments?: (text: string, attachments: Attachment[]) => Promise<AttachmentSendResult>
   onSend: (text: string) => void
   progress?: TurnProgress | null
@@ -98,6 +99,7 @@ export default function MessageComposer({
   cancelEnabled = false,
   onCancelTurn,
   permissionPending = false,
+  textOnly = false,
   permissionMode = 'default',
   onPermissionModeChange = () => undefined,
   onCreateSession,
@@ -274,7 +276,7 @@ export default function MessageComposer({
                   submit()
                 }
               }}
-              placeholder="输入消息或添加附件"
+              placeholder={textOnly ? "输入消息体验模拟回复" : "输入消息或添加附件"}
               autoSize={{ minRows: 1, maxRows: 4 }}
               disabled={!enabled || sendingAttachments || preparingAttachments}
             />
@@ -314,7 +316,7 @@ export default function MessageComposer({
                   data-testid="attachment-toggle"
                   fill="none"
                   style={ICON_BUTTON_STYLE}
-                  disabled={!enabled || sendingAttachments || preparingAttachments}
+                  disabled={textOnly || !enabled || sendingAttachments || preparingAttachments}
                 >
                   <img src={documentIcon} alt="" style={TOOL_ICON_STYLE} />
                 </Button>
@@ -332,7 +334,7 @@ export default function MessageComposer({
                   className="composer-icon-button"
                   data-testid="permission-mode"
                   fill="none"
-                  disabled={!enabled || permissionPending}
+                  disabled={textOnly || !enabled || permissionPending}
                   style={ICON_BUTTON_STYLE}
                 >
                   <img src={permissionIcon} alt="" style={{ ...TOOL_ICON_STYLE, width: 19, height: 19 }} />
@@ -348,7 +350,7 @@ export default function MessageComposer({
                 data-testid="voice-input"
                 fill="none"
                 style={ICON_BUTTON_STYLE}
-                disabled={!enabled || sendingAttachments || preparingAttachments}
+                disabled={textOnly || !enabled || sendingAttachments || preparingAttachments}
                 onClick={() => {
                   if (experience === null) setNativeNotice('语音输入需要原生麦克风能力，当前 Web 版本暂未启用。')
                   else void speech.toggle()
@@ -376,9 +378,9 @@ export default function MessageComposer({
           </div>
         </div>
       </div>
-      <input ref={photoInputRef} data-testid="photo-picker" hidden type="file" accept="image/*" multiple disabled={!enabled || sendingAttachments || preparingAttachments} onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} />
-      <input ref={fileInputRef} data-testid="file-picker" hidden type="file" multiple disabled={!enabled || sendingAttachments || preparingAttachments} onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} />
-      <input ref={cameraInputRef} data-testid="camera-picker" hidden type="file" accept="image/*" capture="environment" disabled={!enabled || sendingAttachments || preparingAttachments} onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} />
+      <input ref={photoInputRef} data-testid="photo-picker" hidden type="file" accept="image/*" multiple disabled={textOnly || !enabled || sendingAttachments || preparingAttachments} onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} />
+      <input ref={fileInputRef} data-testid="file-picker" hidden type="file" multiple disabled={textOnly || !enabled || sendingAttachments || preparingAttachments} onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} />
+      <input ref={cameraInputRef} data-testid="camera-picker" hidden type="file" accept="image/*" capture="environment" disabled={textOnly || !enabled || sendingAttachments || preparingAttachments} onChange={(event) => { chooseFiles(event.target.files); event.target.value = '' }} />
     </div>
   )
 }
