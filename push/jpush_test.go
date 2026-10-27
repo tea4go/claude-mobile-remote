@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -28,18 +29,19 @@ func TestJPushSendsOnlyScopedPrivateReminder(t *testing.T) {
 			t.Fatal("wrong authentication/destination")
 		}
 		data, _ := io.ReadAll(r.Body)
-		if strings.Contains(string(data), "synthetic-pairing") || strings.Contains(string(data), "fixture-secret") {
+		if strings.Contains(string(data), "synthetic-pairing") || strings.Contains(string(data), "fixture-secret") || strings.Contains(string(data), "sessionId") {
 			t.Fatal("credential leaked into body")
 		}
 		var payload struct {
 			Audience struct {
-				Tag []string `json:"tag"`
+				Tag            []string `json:"tag"`
+				RegistrationID []string `json:"registration_id"`
 			} `json:"audience"`
 			Notification struct {
 				IOS struct {
 					Extras struct {
-						SessionID string `json:"sessionId"`
-						Seq       uint64 `json:"seq"`
+						Topic   string `json:"topic"`
+						EventID string `json:"eventId"`
 					} `json:"extras"`
 				} `json:"ios"`
 			} `json:"notification"`
@@ -50,12 +52,12 @@ func TestJPushSendsOnlyScopedPrivateReminder(t *testing.T) {
 		if err := json.Unmarshal(data, &payload); err != nil {
 			t.Fatal(err)
 		}
-		if len(payload.Audience.Tag) != 1 || payload.Audience.Tag[0] != topic || payload.Notification.IOS.Extras.SessionID != "s" || payload.Notification.IOS.Extras.Seq != 7 || payload.Options.Production {
+		if len(payload.Audience.Tag) != 0 || len(payload.Audience.RegistrationID) != 1 || payload.Audience.RegistrationID[0] != "010b81b3582" || payload.Notification.IOS.Extras.Topic != topic || payload.Notification.IOS.Extras.EventID != strings.Repeat("a", 32) || payload.Options.Production {
 			t.Fatal("wrong reminder scope")
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"msg_id":1}`))}, nil
 	})}
-	if err := sender.Send(context.Background(), Notification{Topic: topic, SessionID: "s", Seq: 7, Kind: "completed"}); err != nil {
+	if err := sender.Send(context.Background(), Notification{Topic: topic, SessionID: "s", Seq: 7, Kind: "completed", RegistrationIDs: []string{"010b81b3582"}, EventID: strings.Repeat("a", 32), ExpiresAt: time.Now().Add(time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -63,10 +65,10 @@ func TestJPushSendsOnlyScopedPrivateReminder(t *testing.T) {
 func TestJPushDoesNotReturnProviderBody(t *testing.T) {
 	sender, _ := newJPush("fixture-key", "fixture-secret", true)
 	sender.client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader("private upstream detail"))}, nil
+		return &http.Response{StatusCode: 403, Body: io.NopCloser(strings.NewReader(`{"error":{"code":2009,"message":"private upstream detail"}}`))}, nil
 	})}
-	err := sender.Send(context.Background(), Notification{Topic: Topic("s", "synthetic-pairing"), SessionID: "s", Seq: 1, Kind: "failed"})
-	if err == nil || strings.Contains(err.Error(), "private") {
+	err := sender.Send(context.Background(), Notification{Topic: Topic("s", "synthetic-pairing"), SessionID: "s", Seq: 1, Kind: "failed", RegistrationIDs: []string{"010b81b3582"}, EventID: strings.Repeat("a", 32), ExpiresAt: time.Now().Add(time.Minute)})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 403 (code 2009)") || strings.Contains(err.Error(), "private") {
 		t.Fatal("unsafe or missing error")
 	}
 }

@@ -66,3 +66,17 @@ func TestPushWorksWithoutMobileWebSocket(t *testing.T) {
 		t.Fatal("no notification while no mobile is connected")
 	}
 }
+
+func TestInvalidNotificationConfigDoesNotBlockRemote(t *testing.T) {
+	t.Setenv("CMR_NOTIFY_URL", "http://insecure.invalid/v1/events")
+	t.Setenv("CMR_NOTIFY_TOKEN", "fixture-notification-token-0000000000")
+	config := testConfig(&fakeController{})
+	config.EnablePush = true
+	server, err := newServer(config, fakeFactory(&fakeTransport{}))
+	if err != nil {
+		t.Fatal("notification config blocked remote:", err)
+	}
+	if server.pushSender != nil {
+		t.Fatal("invalid notification sender enabled")
+	}
+}

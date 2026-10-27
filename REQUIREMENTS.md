@@ -1,6 +1,10 @@
 # Claude Mobile Remote 产品需求文档
 
+
+> 2026-10-27 E3 最新状态：D102 将极光目标从当前账号不允许的 tag 改为 Registration ID；固定文字提醒与点击本地 Session 定位不变。edo 新服务已部署并验证登记路径，Apple Push/APNs 配置及 Debug 签名已就绪；用户已验证真实手机系统通知送达；点击详情修复已完成源码与移动定向回归，待重新构建真机验收。详见 `docs/specs/2026-10-27-https-jpush-design.md` 与 `docs/testing/2026-10-27-https-jpush-result.md`。
 > 2026-10-21 iOS 人工反馈补充：图片预览、上传不断线、工具结果正文、抽屉内部滚动、运行中停止/加载状态、PC 分层与机器名纳入本轮修复。极光 JPush 的 APNs 通知替代仅在线本地提醒作为后台/退出通知目标；SDK 与 PC 发送链路可先实现，实际送达待 AppKey/APNs/PC 凭证配置与真机验收。协议 v4 保留 v2/v3 兼容；详见 `docs/specs/2026-10-21-ios-feedback-design.md` 和 `docs/testing/2026-10-21-ios-feedback-result.md`。
+
+> 2026-10-27 路线修订：按 D100 取消公司内网真实会话的公网 Relay。WhaleTerm 通过已验证可达的 HTTPS 路径向 edo 发送最小通知事件，由 edo 调用极光等平台实现后台/退出后的系统通知；实时会话仍使用 LAN/VPN 直连。剩余任务和门禁见 `docs/plans/2026-10-27-remaining-work-and-offline-notifications-plan.md`。
 
 ## 一、产品目标
 
@@ -21,7 +25,7 @@
 | 中期 | 宿主复用 | 公共 Remote Server 保持单 Session 组件；Standalone CLI 另设多 Session 管理层 |
 | 后期 | 原生体验 | 支持原生扫码、安全存储、语音输入、生命周期恢复和系统通知 |
 | 后期 | 三端覆盖 | iOS / Android 先行，HarmonyOS NEXT 独立开发 |
-| 后期 | 多机器与独立公网访问 | 通过多个配对记录切换 Session；可信 Relay 的 CLI 多 Session 映射后续单独设计 |
+| 后期 | 多机器与离线通知 | 通过多个配对记录在可互通网络内切换 Session；WhaleTerm 经 edo HTTPS 触发手机离线系统通知 |
 
 当前 iOS 体验反馈将列表、详情和配对页的连贯转场提前到 C2-D 真机门禁之前完成；真机需确认切换方向、滚动位置、快速往返和系统“减少动态效果”。
 
@@ -42,7 +46,7 @@ flowchart LR
     G <-->|"首条或后续消息与操作"| H["控制同一会话"]
 ```
 
-二维码包含手机可访问的 Remote Server 地址、`sessionId` 和临时配对凭证。地址首期为 LAN/VPN 直连地址，后期可为 Relay `wss://` 地址。手机不读取扫码前的完整对话，只接收当前任务状态、待处理事项和连接后的新消息。
+二维码包含手机可访问的 Remote Server 地址、`sessionId` 和临时配对凭证。产品使用 LAN/VPN 可达的直连地址；已取消公网 Relay 地址目标。手机不读取扫码前的完整对话，只接收当前任务状态、待处理事项和连接后的新消息。
 
 ## 四、总体方案
 
@@ -72,7 +76,7 @@ flowchart LR
 - WebSocket 是网络传输协议，不使用操作系统 Pipe 连接手机；
 - 移动端可保存多个独立配对记录；App 前台生命周期内分别连接和同步全部有效配对 Session，一次只展示一个 Session 详情；
 - 手机默认先连接 VPN，再通过 WebSocket 直连 PC；不开发局域网发现或 NAT 穿透；
-- 后期 Relay 与 CLI 多 Session 的隧道映射需另行设计，当前不实现；Relay 不保存 Claude 状态或历史。
+- 已取消公司内网真实会话的公网 Relay；HTTPS 离线通知是独立链路，不转发会话实时消息或命令。
 
 ## 五、首期范围
 
@@ -111,7 +115,7 @@ flowchart LR
 | 移动 Web | React + TypeScript + Zustand + antd-mobile + Vite | App 级多 Session 状态可精确订阅，移动端组件成熟，浏览器调试方便 | A5 / D66 |
 | iOS / Android | Capacitor | 复用 Web UI，并接入扫码、语音和推送 | C |
 | HarmonyOS NEXT | ArkTS + ArkUI 独立开发 | 符合 HarmonyOS NEXT 原生体系 | D |
-| 公网能力 | 可信的每 CLI 单隧道 Relay | 通过出站 WSS 解决跨网络访问，不迁移 Claude 状态 | 后期 |
+| 离线通知 | WhaleTerm → edo HTTPS → 极光等推送平台 | App 后台/退出后显示最小系统提醒；点击时按手机与 PC 网络互通处理 | E3 |
 
 ## 七、App 研发范围
 
@@ -186,14 +190,14 @@ flowchart TD
 | B 完整会话控制 | B1 消息渲染与已配对 Session 列表；B2 结构化 Thinking/Tool 展示、工具审批、AskUserQuestion 与取消；B3 单 Session Remote Server 组件化 |
 | C iOS / Android | C1 Capacitor 工程、Web 接入与局域网明文放行；C2 扫码、安全存储、多配对列表、两端真机、VPN 与生命周期；C3 语音和通知 |
 | W WhaleTerm | W1 为 WhaleTerm 持有的 Claude Session 分别启动独立的进程内 Remote Server，不跨 Session 路由或创建第二个 SDK Client |
-| D HarmonyOS NEXT | D1 工程与协议；D2 功能迁移；D3 真机、推送与发布验证 |
-| E 发布与后续能力 | E1 安全与兼容验收；E2 签名与上架；E3 可信公网 Relay 与多 PC |
+| D HarmonyOS NEXT | D1 工程与协议；D2 功能迁移；D3 真机、在线本地通知与发布验证；E3 再验离线推送接收 |
+| E 发布与后续能力 | E1 安全与兼容验收；E2 签名与上架；E3 WhaleTerm→edo HTTPS 离线通知与三端送达验证 |
 
 每次只展开当前子阶段的实施计划；直接依赖的门禁未通过，不进入该子阶段。C1 在 A6 后可与 B 并行，C2 依赖 C1 与 B2，W1 依赖 B3。
 
 2026-10-21 执行顺序：C 阶段优先完成 iOS，由 AI 直接实施并完成本机验证，用户统一进行最后真机验收；Android 与 HarmonyOS NEXT 原生同步在 iOS 验收后进行。C3 iOS 语音识别生成可编辑草稿，经既有文本输入链路手动发送；系统提醒针对已收到的实时事件，默认隐藏会话正文。系统挂起/关闭后的离线推送需要独立服务与平台配置，当前不承诺送达。详细范围见 `docs/specs/2026-10-21-C3-ios-voice-notifications-design.md`，验收见 `docs/testing/2026-10-21-C3-ios-result.md`。
 
-Standalone CLI 单进程多 Session 已按 D68–D71 确认并进入实现与验证；公网中转、系统推送和云端多机器管理继续单独排期。
+Standalone CLI 单进程多 Session 已按 D68–D71 确认并进入实现与验证；公网 Relay 按 D100 取消，离线系统推送列入 E3，云端多机器管理不在当前范围。
 
 ### 9.3 新增子阶段：Standalone CLI 多 Session
 
@@ -232,7 +236,7 @@ Standalone CLI 单进程多 Session 已按 D68–D71 确认并进入实现与验
 | HarmonyOS NEXT 成本 | 独立开发、调试和上架周期长 | 后置实施并复用统一协议与验收用例 |
 | WebView 套壳兼容（C1） | 明文 WebSocket 被 iOS ATS / Android cleartext 策略拦截，壳子只能显示空布局 | C1 只放行局域网明文（D44）：iOS Info.plist 使用 `NSAllowsLocalNetworking` 并提供 `NSLocalNetworkUsageDescription`（iOS 14+ 本地网络权限），Android 使用 cleartext 放行；不使用 `NSAllowsArbitraryLoads`，不放行公网明文；移动 Web 路由自 A5 起约束为 hash / 内存路由，规避自定义 scheme 路径解析问题 |
 | 共用契约被单端污染 | 前两端收尾后 HarmonyOS NEXT 无法实现，被迫换方案 | 协议与状态变更强制核对三端可实现性（硬约束 11 / 设计 §8.1），核对结论记入 DECISIONS |
-| 可信 Relay 可见协议流量 | 公网中转基础设施可接触会话内容 | Relay 不存储内容并与 Pair Token 权限分离；若未来要求不可信中转，再独立设计端到端加密 |
+| 离线通知接口泄漏敏感内容 | edo 或第三方平台接触不必要的会话数据 | 仅发送固定事件类别和最小不透明路由/去重标识，不发送 Pair Token、正文、工具参数或 Claude 上下文；凭证由 edo 保管 |
 
 ### 移动端附件补全（2026-10-21）
 
@@ -240,7 +244,7 @@ Standalone CLI 单进程多 Session 已按 D68–D71 确认并进入实现与验
 
 ### iOS 人工测试反馈（2026-10-21）
 
-C-ios-result.md 指定：消息内图片预览、上传不断线、工具结果正文、限高滚动抽屉、运行中停止替换发送及加载指示、PC/项目/会话分层和系统机器名。新增极光 JPush 的 APNs 系统通知，替代仅在线本地提醒作为后台/退出后的实现目标；保留本地提醒作为未配置时的有限降级。协议 v4 对工具结果下发最多 16 KiB 文本并标明截断；v2/v3 兼容。SDK/发送链路可先实现，AppKey、APNs 签名/极光证书与实际送达需要真机验收；公网会话恢复待 Relay。
+C-ios-result.md 指定：消息内图片预览、上传不断线、工具结果正文、限高滚动抽屉、运行中停止替换发送及加载指示、PC/项目/会话分层和系统机器名。新增极光 JPush 的 APNs 系统通知，替代仅在线本地提醒作为后台/退出后的实现目标；保留本地提醒作为未配置时的有限降级。协议 v4 对工具结果下发最多 16 KiB 文本并标明截断；v2/v3 兼容。D100 将离线通知改为 WhaleTerm→edo HTTPS→推送平台，AppKey、APNs 签名/极光配置与实际送达仍需真机验收；点击后按手机与 PC 网络互通处理。
 
 ### 10-22 iOS 反馈补充
 

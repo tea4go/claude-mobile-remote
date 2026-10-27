@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -91,11 +92,10 @@ func newManagedCLI(config cliConfig) (*managedCLI, error) {
 	}
 	var sender push.Sender
 	if config.fakeHostScenario == "" {
-		configured, e := push.LoadDefault()
+		configured, e := push.LoadHostDefault()
 		if e != nil {
-			return nil, e
-		}
-		if configured != nil {
+			log.Print("[remote-push] notification configuration invalid; push disabled")
+		} else if configured != nil {
 			sender = configured
 		}
 	}

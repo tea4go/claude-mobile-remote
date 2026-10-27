@@ -164,6 +164,9 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
     private let preferenceKey = "cmr.notifications.enabled"
 
     override public func load() {
+        // CapacitorBridge installs its default notification delegate during init.
+        // Reclaim delivery only after that init, before exposing our JS listener.
+        UNUserNotificationCenter.current().delegate = SessionNotificationRouter.shared
         SessionNotificationRouter.shared.opened = { [weak self] sessionId in
             self?.notifyListeners("notificationOpened", data: ["sessionId": sessionId], retainUntilConsumed: true)
         }
@@ -272,27 +275,36 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func notificationStatus(_ call: CAPPluginCall) {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             let allowed = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
-            call.resolve(["enabled": allowed && UserDefaults.standard.bool(forKey: self.preferenceKey), "remoteConfigured": false, "remoteReady": false])
+            DispatchQueue.main.async {
+                let push = SessionPushManager.shared
+                call.resolve(["enabled": allowed && push.enabled, "remoteConfigured": push.configured, "remoteEnabled": push.remoteEnabled, "remoteReady": allowed && push.ready, "pushError": push.pushError])
+            }
         }
     }
     @objc func setNotifications(_ call: CAPPluginCall) {
         guard call.getBool("enabled") == true else {
             UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
             UNUserNotificationCenter.current().removeAllDeliveredNotifications()
-            UserDefaults.standard.set(false, forKey: preferenceKey)
+            SessionPushManager.shared.setEnabled(false)
             call.resolve(["enabled": false]); return
         }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { allowed, _ in
-            UserDefaults.standard.set(allowed, forKey: self.preferenceKey)
-            call.resolve(["enabled": allowed, "remoteConfigured": false, "remoteReady": false])
+            DispatchQueue.main.async {
+                SessionPushManager.shared.setEnabled(allowed)
+                call.resolve(["enabled": allowed])
+            }
         }
     }
     @objc func syncPushSessions(_ call: CAPPluginCall) {
-        // Keep the bridge method for the shared Web app while APNs/JPush is paused.
-        SessionNotificationRouter.shared.viewedSession = call.getString("viewedSession") ?? ""
-        call.resolve()
+        DispatchQueue.main.async {
+            SessionNotificationRouter.shared.viewedSession = call.getString("viewedSession") ?? ""
+            guard let sessions = call.getArray("sessions", JSObject.self),
+                  SessionPushManager.shared.syncSessions(sessions) else { call.reject("invalid_push_sessions"); return }
+            call.resolve()
+        }
     }
     @objc func notify(_ call: CAPPluginCall) {
+        if SessionPushManager.shared.ready && UIApplication.shared.applicationState != .active { call.resolve(); return }
         let messages = ["approval": "有工具操作等待审批", "question": "有问题等待回答", "completed": "Claude 已完成本轮任务", "failed": "Claude 执行失败，请打开会话查看", "stopped": "Claude 会话已结束"]
         guard UserDefaults.standard.bool(forKey: preferenceKey),
               let sessionId = call.getString("sessionId"), !sessionId.isEmpty, sessionId.count <= 256,
@@ -315,7 +327,17 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
         guard let sessionId = call.getString("sessionId") else { call.resolve(); return }
         let id = "cmr.session.\(sessionId)"
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
-        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [id])
+        center.getDeliveredNotifications { notices in
+            DispatchQueue.main.async {
+                let ids = notices.filter { notice in
+                    guard let topic = notice.request.content.userInfo["topic"] as? String else { return false }
+                    return SessionPushManager.shared.session(for: topic) == sessionId
+                }.map { $0.request.identifier }
+                center.removeDeliveredNotifications(withIdentifiers: ids)
+            }
+        }
         call.resolve()
     }
 }
@@ -334,17 +356,36 @@ final class SessionNotificationRouter: NSObject, UNUserNotificationCenterDelegat
         }
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        let info = notification.request.content.userInfo
-        let viewed = info["sessionId"] as? String == viewedSession
-        completionHandler(UserDefaults.standard.bool(forKey: "cmr.notifications.enabled") && !viewed ? [.banner, .sound] : [])
+        DispatchQueue.main.async {
+            let info = notification.request.content.userInfo
+            if notification.request.trigger is UNPushNotificationTrigger {
+                SessionPushManager.shared.received(info)
+                completionHandler([]) // Foreground reminders come from realtime events.
+                return
+            }
+            let viewed = info["sessionId"] as? String == self.viewedSession
+            completionHandler(UserDefaults.standard.bool(forKey: "cmr.notifications.enabled") && !viewed ? [.banner, .sound] : [])
+        }
+    }
+    // Shared by the notification delegate and UIScene cold-start delivery.
+    func open(_ response: UNNotificationResponse) {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+        let info = response.notification.request.content.userInfo
+        let remote = response.notification.request.trigger is UNPushNotificationTrigger
+        let sessionId: String?
+        if remote {
+            SessionPushManager.shared.received(info)
+            sessionId = (info["topic"] as? String).flatMap { SessionPushManager.shared.session(for: $0) }
+        } else { sessionId = info["sessionId"] as? String }
+        if let sessionId {
+            if let opened = opened { opened(sessionId) }
+            else { pendingSession = sessionId }
+        }
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-        if let sessionId = response.notification.request.content.userInfo["sessionId"] as? String {
-            DispatchQueue.main.async {
-                if let opened = self.opened { opened(sessionId) }
-                else { self.pendingSession = sessionId }
-            }
+        DispatchQueue.main.async {
+            self.open(response)
+            completionHandler()
         }
-        completionHandler()
     }
 }

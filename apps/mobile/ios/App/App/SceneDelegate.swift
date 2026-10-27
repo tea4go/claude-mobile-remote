@@ -76,6 +76,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
+        // Scene-based cold starts may deliver the tap here before JS is ready.
+        if let response = connectionOptions.notificationResponse {
+            SessionNotificationRouter.shared.open(response)
+        }
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

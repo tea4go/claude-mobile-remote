@@ -8,6 +8,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -114,11 +115,10 @@ func newServer(config Config, factory transportFactory) (*Server, error) {
 
 	sender := config.PushSender
 	if sender == nil && config.EnablePush {
-		configured, err := push.LoadDefault()
+		configured, err := push.LoadHostDefault()
 		if err != nil {
-			return nil, err
-		}
-		if configured != nil {
+			log.Print("[remote-push] notification configuration invalid; push disabled")
+		} else if configured != nil {
 			sender = configured
 		}
 	}

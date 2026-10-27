@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,6 +30,9 @@ func Topic(sessionID, token string) string {
 
 type Notification struct {
 	Topic, SessionID, Kind string
+	EventID                string
+	RegistrationIDs        []string
+	ExpiresAt              time.Time
 	Seq                    uint64
 }
 type Sender interface {
@@ -43,7 +47,7 @@ type JPush struct {
 	endpoint     string
 }
 
-// LoadDefault reads host-only credentials. Missing configuration disables push;
+// LoadDefault reads edo-only JPush credentials. Missing configuration disables push;
 // malformed/partial configuration is reported without exposing its contents.
 func LoadDefault() (*JPush, error) {
 	key, secret := os.Getenv("CMR_JPUSH_APP_KEY"), os.Getenv("CMR_JPUSH_MASTER_SECRET")
@@ -109,14 +113,29 @@ func Kind(event protocol.Event) string {
 
 func (j *JPush) Send(ctx context.Context, n Notification) error {
 	body := map[string]string{"approval": "有工具操作等待审批", "question": "有问题等待回答", "completed": "Claude 已完成本轮任务", "failed": "Claude 执行失败，请打开会话查看", "stopped": "Claude 会话已结束"}[n.Kind]
-	if body == "" || !strings.HasPrefix(n.Topic, "cmr_") || len(n.Topic) != 36 || n.SessionID == "" || n.Seq == 0 {
+	if body == "" || !topicPattern.MatchString(n.Topic) || !eventPattern.MatchString(n.EventID) || !n.ExpiresAt.After(time.Now()) {
 		return errors.New("invalid push notification")
 	}
+	ttl := int(time.Until(n.ExpiresAt).Seconds())
+	if ttl < 1 {
+		return errors.New("notification expired")
+	}
+	if ttl > 300 {
+		ttl = 300
+	}
+	if len(n.RegistrationIDs) == 0 || len(n.RegistrationIDs) > maxDevicesPerTopic {
+		return errors.New("invalid notification device count")
+	}
+	for _, id := range n.RegistrationIDs {
+		if !registrationIDPattern.MatchString(id) {
+			return errors.New("invalid notification device")
+		}
+	}
 	payload := map[string]any{
-		"platform": []string{"ios"}, "audience": map[string]any{"tag": []string{n.Topic}},
+		"platform": []string{"ios"}, "audience": map[string]any{"registration_id": n.RegistrationIDs},
 		"notification": map[string]any{"ios": map[string]any{"alert": map[string]string{"title": "Claude Mobile Remote", "body": body}, "sound": "default", "thread-id": n.Topic,
-			"extras": map[string]any{"sessionId": n.SessionID, "seq": n.Seq, "kind": n.Kind}}},
-		"options": map[string]any{"time_to_live": 86400, "apns_production": j.Production, "apns_collapse_id": n.Topic[4:]},
+			"extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}},
+		"options": map[string]any{"time_to_live": ttl, "apns_production": j.Production, "apns_collapse_id": n.Topic[4:]},
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -133,8 +152,18 @@ func (j *JPush) Send(ctx context.Context, n Notification) error {
 		return errors.New("JPush request failed")
 	}
 	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 16384))
+	providerBody, _ := io.ReadAll(io.LimitReader(response.Body, 16384))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var providerError struct {
+			Error struct {
+				Code int `json:"code"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(providerBody, &providerError) == nil && providerError.Error.Code > 0 {
+			log.Printf("[remote-push] JPush rejected notification: HTTP %d, code %d", response.StatusCode, providerError.Error.Code)
+			return fmt.Errorf("JPush returned HTTP %d (code %d)", response.StatusCode, providerError.Error.Code)
+		}
+		log.Printf("[remote-push] JPush rejected notification: HTTP %d", response.StatusCode)
 		return fmt.Errorf("JPush returned HTTP %d", response.StatusCode)
 	}
 	return nil

@@ -743,6 +743,7 @@
 
 用户确认提供服务器并自行部署，按专项设计生成简单独立模拟Host服务及Linux部署包。复用现有FakeHost、Controller和WebSocket契约，不调用真实Claude、不执行命令，明确披露演示限制；不改变移动App或wire，三端仍沿用既有契约。不部署公网、不含Git写操作。下载目录与运行私有凭证目录分离。
 
+
 ## D98 · App离线演示（2026-10-27）
 
 用户确认简单实现离线演示，替代当前必须部署公网演示环境的发布准备路线。独立内存合成场景复用移动UI，明确模拟标识，不连接Claude、不持久化、不改变三端wire/状态/配对契约；iOS/Android共用实现，Harmony可后续复用场景设计。真实连接流程保留；Apple接受程度仍待审核。详见docs/specs/2026-10-27-offline-demo-design.md。
@@ -751,3 +752,22 @@
 ## D99 · Android/Harmony同步与审核演示（2026-10-27）
 
 用户确认mobile-parity设计，Harmony补齐既有v5/v6与D89–D95能力及D98离线演示，替代D98中Harmony后置安排。三端使用既有纯JSON契约，无新增协议字段，演示独立内存不接真实端口；Android复用React并核验原生实现。授权完成后提交，不推送。
+
+
+## D100 · 取消公网 Relay，独立实施 HTTPS 离线通知（2026-10-27）
+
+用户确认公司内网 WebSocket 公网转发需要无法获批的额外审核，取消真实会话公网 Relay、CLI 出站 WebSocket 隧道及其多 Session 路由方案，替代 D43 和后续文档中的 Relay 目标；原每 CLI 单隧道设计此前也已不适配 CLI 多 Session。实时会话继续在手机与 PC 网络互通时通过 LAN/VPN WebSocket 直连，多 PC 由手机已有的多配对列表切换，不建设云端 Session 中心。
+
+离线通知保留为独立能力：WhaleTerm 遇权限审核等事件，向 edo 发送最小 HTTPS 通知事件；edo 接收并通过极光等第三方平台推送至手机，使 App 后台/退出时可显示系统通知。WhaleTerm 到 edo 的 HTTPS 通路已由线上自动升级功能验证，不再把通路可用性作为待核实前提；通知接口与真实设备送达仍须独立验收。点击通知后默认手机与 PC 网络互通，按既有配对进入对应会话；异常网络恢复不在此任务范围。此决策替代 D82 中“离线通知随 Relay 联调/点击恢复依赖 Relay”的部分，D83 暂停的 iOS 推送接收端需在实施时恢复；在线本地通知继续保留。
+
+WhaleTerm→edo 通知接口只传固定事件类别、最小不透明路由标识和去重标识，不传 Pair Token、会话正文或 Claude 上下文；edo 不转发会话命令/实时流。推送服务密钥在 edo 管理，发送失败不得阻塞 Claude 或宿主输入队列。具体认证、设备绑定、撤销、存储与重试规则在 E3 专项设计中定稿。三端共用契约核对：现有 WebSocket JSON envelope、Session/Turn 状态、配对负载及既有验收语义均不因通知链路改变；iOS/Android/Harmony 使用各自平台推送适配，通知点击只定位本地已配对 Session。新通知 HTTP 接口是 WhaleTerm 与 edo 的独立契约，不引入浏览器或单端专有字段到三端共用协议。
+
+## D101 · 实施 iOS 极光 HTTPS 离线通知（2026-10-27）
+
+用户确认实施iOS接收端、edo HTTPS服务及公共PC发送组件，准备部署配置；替代D83暂停状态。Master Secret只存edo，PC使用独立通知鉴权，事件最小化及LAN/VPN边界沿用D100。专项设计见docs/specs/2026-10-27-https-jpush-design.md。本轮不自动部署或发布。三端核对：不改wire/状态/配对/命令，通知路由使用D82已有平台中立hash，iOS原生SDK与端内状态不进入共用契约；Android/Harmony本轮保持现有通知行为。无Git写操作授权。
+
+## D102 · 用 Registration ID 发送基础文字通知（2026-10-27）
+
+真机故障定位证明当前极光账号按 tag 发送返回 HTTP 403 / 2009；极光文档将标签推送列为 VIP 能力。用户明确只需简单文字提醒，点击进入对应 Session 详情。因此 E3 改用 Registration ID 定向投递，替代 D82/D101 的极光 tag 目标选择；通知正文仍为服务端固定文字，APNs extras 中的不透明 topic 仍只供手机本地点击定位。手机经现有 edo HTTPS 精确入口登记 topic 与自身 Registration ID；edo 在受限私有状态中保存该映射及配对到期时间，不保存 Pair Token、Session ID 或 Claude 内容。一个 topic 可关联多设备，一个设备可关联多 topic。Registration ID 不回传给 PC，PC 事件最小载荷不变。关闭通知/移除配对时尽力解除登记，过期自动失效，PC 停止或凭证轮换后不再发送旧 topic。
+
+三端共用契约核对：WebSocket envelope、Session/Turn 状态、配对负载和命令没有变化；iOS 用本机极光 RID 登记，Android/Harmony 后续各用原生厂商/极光标识实现等价通知绑定，不依赖 DOM 或 iOS 专属 wire 字段。此次仅实施 iOS；用户自行编译 App 验证，不执行 Git 写操作。

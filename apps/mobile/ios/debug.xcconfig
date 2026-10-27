@@ -1,1 +1,3 @@
 CAPACITOR_DEBUG = true
+
+#include? "App/Push.local.xcconfig"

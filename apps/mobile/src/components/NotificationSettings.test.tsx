@@ -10,6 +10,31 @@ test('只在用户点击时请求授权，拒绝后保持关闭并提供指引',
   await waitFor(() => expect(screen.getByRole('button', { name: '启用会话通知' })).toBeEnabled())
   expect(setNotifications).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: '启用会话通知' }))
-  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('系统设置'))
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('系统设置'))
   expect(setNotifications).toHaveBeenCalledWith({ enabled: true })
+})
+
+
+test('区分原生注册状态与未配置状态，不再宣称极光暂停', async () => {
+  const port = { notificationStatus: vi.fn(async () => ({ enabled: true, remoteConfigured: true, remoteReady: true })), setNotifications: vi.fn() } as unknown as ExperiencePort
+  render(<NotificationSettings port={port} />)
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('本机远程通知已就绪'))
+  expect(screen.queryByText(/暂时停用/)).not.toBeInTheDocument()
+  expect(screen.getByText(/匿名会话标识/)).toBeInTheDocument()
+})
+
+test('未配置远程通知时保留在线提醒说明', async () => {
+  const port = { notificationStatus: vi.fn(async () => ({ enabled: true, remoteConfigured: false, remoteReady: false })) } as unknown as ExperiencePort
+  render(<NotificationSettings port={port} />)
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('尚未配置'))
+})
+
+test('旧版本地提醒用户需明确启用后台通知，读取状态不触发SDK注册', async () => {
+  const notificationStatus = vi.fn(async () => ({ enabled: true, remoteConfigured: true, remoteEnabled: false, remoteReady: false }))
+  const setNotifications = vi.fn(async () => ({ enabled: true }))
+  render(<NotificationSettings port={{ notificationStatus, setNotifications } as unknown as ExperiencePort} />)
+  await waitFor(() => expect(screen.getByRole('button', { name: '启用后台通知（极光）' })).toBeEnabled())
+  expect(setNotifications).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '启用后台通知（极光）' }))
+  await waitFor(() => expect(setNotifications).toHaveBeenCalledWith({ enabled: true }))
 })

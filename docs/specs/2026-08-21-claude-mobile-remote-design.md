@@ -9,6 +9,8 @@
 
 > 2026-10-26 修订：D93增加协议v5当前轮次进度与安全宿主诊断，兼容v2–v4，三端纯JSON契约及旧端同seq降级见 `2026-10-26-session-progress-design.md`。
 
+> 2026-10-27 路线替代：D100 取消下文作为历史方案保留的公网 Relay 描述。真实会话仅在手机与 PC 网络互通的 LAN/VPN 路径上使用 WebSocket；离线系统通知另走 WhaleTerm→edo HTTPS→推送平台，见 `../plans/2026-10-27-remaining-work-and-offline-notifications-plan.md`。原 Relay 段落不再是待实施任务。
+
 ## 1. 设计目标
 
 里程碑 A 建立独立 Standalone CLI，通过 `claude-agent-sdk-go` 托管一个 Claude Session，并用单 Session Remote Server 暴露当前 `sessionId`。后续按 D68 增加 CLI 进程内多 Session 管理；新增设计见 `2026-09-23-standalone-cli-multi-session-design.md`。里程碑 A 的浏览器双向文本闭环和跨机器 LAN 门禁保持历史验收边界。
@@ -236,8 +238,8 @@ iOS / Android 先行开发、HarmonyOS NEXT 独立开发，但以下四项是三
 - **WhaleTerm**：B3 提取单 Session Remote Server 与薄宿主接口，W1 在 WhaleTerm 进程内复用已有 Session 和 SDK Client；
 - **Capacitor**：复用 Mobile Web、协议客户端和状态模型，增加扫码、安全存储与 NativeBridge。移动 Web 的路由自 A5 起必须使用 hash 或内存路由，不使用依赖 History API 的路径路由——Capacitor WebView 以自定义 scheme（如 `capacitor://localhost`）加载资源，路径路由存在已知解析问题；
 - **HarmonyOS NEXT**：复用 §8.1 的共用契约，ArkTS/ArkUI 独立实现 UI；
-- **公网 Relay**：原每 CLI 单 Session 隧道方案不覆盖 CLI 多 Session；待未来单独设计，Relay 仍不保存 Claude 状态或历史；
-- **推送**：只携带提醒和定位信息，重新打开 App 后仍以 Session Host 状态为准。
+- **公网 Relay**：D100 已取消公司内网真实会话的公网 Relay；本文件前述 Relay 协议扩展设想仅作历史记录；
+- **推送**：E3 使用 WhaleTerm→edo HTTPS→第三方平台的独立通知链路，只携带提醒和定位信息；重新打开 App 后仍以 Session Host 状态为准。
 
 ## 9. 测试策略
 

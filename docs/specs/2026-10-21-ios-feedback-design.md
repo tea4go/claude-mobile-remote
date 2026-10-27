@@ -1,5 +1,7 @@
 # iOS 人工反馈修复
 
+> 2026-10-27 替代说明：下文 PC 直连极光、PC 持有 Master Secret、点击后依赖 Relay 的推送路径是 D82 当时的实现方案；D100 已取消 Relay，并将后续离线通知改为 WhaleTerm→edo HTTPS→极光等平台。当前 iOS 接收端仍按 D83 暂停，E3 需另做专项设计和真机验收；下文历史方案不作为新的实施计划。
+
 依据 C-ios-result.md 与 D80，iOS 优先自主实施，用户最终真机验收。
 
 1. 修复 WhaleTerm 将一段回复拆为每 32 字突发事件导致有界订阅溢出的风险；增大单段而不增加无界缓冲。EventStream 按 text_delta 累积当前 Turn 正文，宿主刷新快照不得抹掉同一 Turn 或刚结束 Turn 的正文。重连恢复最新 Turn 文本；不承诺完整离线历史与跨 Turn replay。
