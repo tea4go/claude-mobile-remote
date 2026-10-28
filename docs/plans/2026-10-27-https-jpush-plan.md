@@ -16,3 +16,10 @@
 ## 通知点击修复（2026-10-27）
 
 用户已验证系统通知送达。Capacitor 初始化会覆盖 AppDelegate 中提前安装的通知代理，因此在自定义插件 load（Bridge 初始化之后）重新安装 SessionNotificationRouter；Scene 冷启动 connectionOptions.notificationResponse 也交给同一个点击入口。入口继续只解析本地有效 topic 映射，事件通过 retainUntilConsumed 等待 Web 配对恢复后导航，不改变协议、配对或 edo。验证后台点击、冷启动点击及不存在的本地 Session 不串线；本轮不编译 App。
+
+## 2026-10-28 最小修复
+
+- 已有连接对象若已断开，打开详情时重新连接；正在连接或已连接不重复建连。
+- iOS 前台同时禁止本地与远程系统提醒，后台沿用 APNs；不增加服务端前后台状态同步。
+- 清理通知先固定当前 topic 映射，避免删除配对后的异步读取漏清理；沿用 DELETE 重试，已投递/离线撤销无法即时保证。
+- 定向回归、类型及 Swift 语法检查；不构建 App/WhaleTerm，不部署 edo，不执行 Git 写操作。

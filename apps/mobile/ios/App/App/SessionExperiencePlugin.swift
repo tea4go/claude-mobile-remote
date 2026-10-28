@@ -304,7 +304,7 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @objc func notify(_ call: CAPPluginCall) {
-        if SessionPushManager.shared.ready && UIApplication.shared.applicationState != .active { call.resolve(); return }
+        if UIApplication.shared.applicationState == .active || SessionPushManager.shared.ready { call.resolve(); return }
         let messages = ["approval": "有工具操作等待审批", "question": "有问题等待回答", "completed": "Claude 已完成本轮任务", "failed": "Claude 执行失败，请打开会话查看", "stopped": "Claude 会话已结束"]
         guard UserDefaults.standard.bool(forKey: preferenceKey),
               let sessionId = call.getString("sessionId"), !sessionId.isEmpty, sessionId.count <= 256,
@@ -329,11 +329,13 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [id])
+        // Capture before the asynchronous lookup: deleting a pairing also removes its routes.
+        let topics = SessionPushManager.shared.topics(for: sessionId)
         center.getDeliveredNotifications { notices in
             DispatchQueue.main.async {
                 let ids = notices.filter { notice in
                     guard let topic = notice.request.content.userInfo["topic"] as? String else { return false }
-                    return SessionPushManager.shared.session(for: topic) == sessionId
+                    return topics.contains(topic)
                 }.map { $0.request.identifier }
                 center.removeDeliveredNotifications(withIdentifiers: ids)
             }
@@ -360,11 +362,10 @@ final class SessionNotificationRouter: NSObject, UNUserNotificationCenterDelegat
             let info = notification.request.content.userInfo
             if notification.request.trigger is UNPushNotificationTrigger {
                 SessionPushManager.shared.received(info)
-                completionHandler([]) // Foreground reminders come from realtime events.
+                completionHandler([]) // Foreground state is shown inside the app.
                 return
             }
-            let viewed = info["sessionId"] as? String == self.viewedSession
-            completionHandler(UserDefaults.standard.bool(forKey: "cmr.notifications.enabled") && !viewed ? [.banner, .sound] : [])
+            completionHandler([]) // No system reminders while the app is in the foreground.
         }
     }
     // Shared by the notification delegate and UIScene cold-start delivery.

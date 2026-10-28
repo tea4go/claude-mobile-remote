@@ -114,6 +114,9 @@ final class SessionPushManager {
         guard validTopic(topic), let route = routes[topic], route.expires > Date(), remoteEnabled else { return nil }
         return route.session
     }
+    func topics(for session: String) -> Set<String> {
+        Set(routes.filter { $0.value.session == session }.keys)
+    }
     private func validTopic(_ topic: String) -> Bool {
         topic.range(of: "^cmr_[0-9a-f]{32}$", options: .regularExpression) != nil
     }
