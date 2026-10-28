@@ -109,7 +109,11 @@ export class SessionRuntimeManager {
   ensureConnected(payload: PairingPayload, verified?: ProtocolClient): void {
     const key = payloadKey(payload)
     const existing = this.entries.get(payload.sessionId)
-    if (existing?.payloadKey === key && verified === undefined) return
+    if (existing?.payloadKey === key && verified === undefined) {
+      existing.client.checkConnection(true)
+      if (existing.client.connectionState() === 'disconnected') this.reconnect(payload.sessionId)
+      return
+    }
     if (existing !== undefined) this.closeClient(payload.sessionId, existing)
 
     const generation = (this.generations.get(payload.sessionId) ?? 0) + 1

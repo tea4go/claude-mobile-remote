@@ -362,7 +362,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       }
     }
     runtime.closeSession(sessionId)
-    void experience?.clearNotifications({ sessionId }).catch(() => undefined)
+    if (experience !== null) await experience.clearNotifications({ sessionId }).catch(() => undefined)
     appStore.getState().removePairing(sessionId)
     return true
   }, [appStore, runtime, native, experience])

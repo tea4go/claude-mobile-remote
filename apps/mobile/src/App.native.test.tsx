@@ -160,6 +160,56 @@ test('通知点击在原生恢复完成后打开对应 Session，卸载移除监
   await waitFor(() => expect(remove).toHaveBeenCalledOnce())
 })
 
+test('断开后点击通知重新连接，同步审批，重复点击不重复建连', async () => {
+  const native = bindings([
+    { metadata: { sessionId: 'ready', name: '通知目标', customName: true, lastConnectedAt: null }, payload: pairing('ready') },
+  ])
+  let opened: ((value: { sessionId: string }) => void) | undefined
+  const experience = {
+    addListener: vi.fn(async (_event: 'notificationOpened', callback: (value: { sessionId: string }) => void) => { opened = callback; return { remove: vi.fn() } }),
+    clearNotifications: vi.fn(async () => undefined), notify: vi.fn(async () => undefined),
+  } as unknown as ExperiencePort
+  render(<App native={native.native} experience={experience} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(opened).toBeDefined())
+  completeNativeHandshake(FakeSocket.instances[0]!, 'ready')
+  act(() => FakeSocket.instances[0]!.onclose?.())
+  act(() => opened?.({ sessionId: 'ready' }))
+  expect(FakeSocket.instances).toHaveLength(2)
+  act(() => opened?.({ sessionId: 'ready' }))
+  expect(FakeSocket.instances).toHaveLength(2)
+  completeNativeHandshake(FakeSocket.instances[1]!, 'ready')
+  act(() => FakeSocket.instances[1]!.onmessage?.({ data: JSON.stringify({
+    version: 4, type: 'event', sessionId: 'ready', commandId: '', requestId: 'req-pc', seq: 1,
+    payload: { event: { seq: 1, kind: 'action_required', sessionId: 'ready', requestId: 'req-pc', source: '', text: '', sessionStatus: '', turnStatus: 'waiting', error: null,
+      pendingAction: { actionId: 'approval', requestId: 'req-pc', kind: 'tool_approval', toolName: 'Bash', preview: 'fixture command', allowSessionAvailable: true } } },
+  }) }))
+  expect(screen.getByText('已连接')).toBeInTheDocument()
+  expect(screen.getByText('fixture command')).toBeInTheDocument()
+})
+
+test('删除会话同步撤销推送订阅，旧通知点击不打开也不重新连接', async () => {
+  const native = bindings([
+    { metadata: { sessionId: 'removed', name: '待删除', customName: true, lastConnectedAt: null }, payload: pairing('removed') },
+  ])
+  let opened: ((value: { sessionId: string }) => void) | undefined
+  const syncPushSessions = vi.fn(async () => undefined)
+  const clearNotifications = vi.fn(async () => undefined)
+  const experience = {
+    addListener: vi.fn(async (_event: 'notificationOpened', callback: (value: { sessionId: string }) => void) => { opened = callback; return { remove: vi.fn() } }),
+    syncPushSessions, clearNotifications, notify: vi.fn(async () => undefined),
+  } as unknown as ExperiencePort
+  render(<App native={native.native} experience={experience} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(opened).toBeDefined())
+  fireEvent.click(screen.getByLabelText('更多操作 待删除'))
+  fireEvent.click(await screen.findByText('删除'))
+  await waitFor(() => expect(syncPushSessions).toHaveBeenLastCalledWith({ sessions: [], viewedSession: '' }))
+  expect(clearNotifications).toHaveBeenCalledWith({ sessionId: 'removed' })
+  expect(native.secure.has('removed')).toBe(false)
+  act(() => opened?.({ sessionId: 'removed' }))
+  expect(screen.queryByTestId('detail-scroll')).not.toBeInTheDocument()
+  expect(FakeSocket.instances).toHaveLength(1)
+})
+
 test('冷启动保留的通知在监听注册时立即交付，仍进入对应详情', async () => {
   const native = bindings([
     { metadata: { sessionId: 'cold-target', name: '冷启动目标', customName: true, lastConnectedAt: null }, payload: pairing('cold-target') },
