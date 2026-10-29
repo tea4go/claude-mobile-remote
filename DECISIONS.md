@@ -771,3 +771,9 @@ WhaleTerm→edo 通知接口只传固定事件类别、最小不透明路由标�
 真机故障定位证明当前极光账号按 tag 发送返回 HTTP 403 / 2009；极光文档将标签推送列为 VIP 能力。用户明确只需简单文字提醒，点击进入对应 Session 详情。因此 E3 改用 Registration ID 定向投递，替代 D82/D101 的极光 tag 目标选择；通知正文仍为服务端固定文字，APNs extras 中的不透明 topic 仍只供手机本地点击定位。手机经现有 edo HTTPS 精确入口登记 topic 与自身 Registration ID；edo 在受限私有状态中保存该映射及配对到期时间，不保存 Pair Token、Session ID 或 Claude 内容。一个 topic 可关联多设备，一个设备可关联多 topic。Registration ID 不回传给 PC，PC 事件最小载荷不变。关闭通知/移除配对时尽力解除登记，过期自动失效，PC 停止或凭证轮换后不再发送旧 topic。
 
 三端共用契约核对：WebSocket envelope、Session/Turn 状态、配对负载和命令没有变化；iOS 用本机极光 RID 登记，Android/Harmony 后续各用原生厂商/极光标识实现等价通知绑定，不依赖 DOM 或 iOS 专属 wire 字段。此次仅实施 iOS；用户自行编译 App 验证，不执行 Git 写操作。
+
+## D106 · Android发布身份与AGC签名方式二（2026-10-29）
+
+- **决策**：用户指定Android名称`Whale Remote Control`、包名`com.tea4go.claudemobileremote.android`，暂停系统通知推送功能开发，优先准备Android APK测试分发；用户确认采用AGC应用签名方式二，由开发者本地生成/保留发布密钥，将加密副本交给AGC托管。
+- **影响**：本轮Android身份独立于Harmony团队包`com.tea4go.claudemobileremote1028`；部分替代D105中Android暂不改名及D103中继续Android推送开发的安排。暂停开发不等于现有Android推送已被禁用，发布实现和配置仍待处理。若存在目标应用原有发布密钥需优先复用以保持升级连续性；首次发布且无现成密钥时再创建独立Android发布密钥。原始密钥及密码存于仓库外并备份，按当前AGC方式二要求使用PEPK导出加密ZIP。独立上传密钥可另行准备，尚未创建/登记；不得混同应用签名密钥与上传密钥证书。此次不改变三端WebSocket、Session/Turn状态或配对契约。
+- **状态**：方向已确认，Android改名、包名、发布签名和后台配置尚未实施。

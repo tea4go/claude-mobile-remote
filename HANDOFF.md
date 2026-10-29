@@ -4,6 +4,10 @@
 
 ## 当前状态
 
+- 当前执行（2026-10-29，Android上架进度归档）：用户要求先记录进度并执行本地Git提交。本次仅提交本轮新增的Android分发检查点和签名决策，不纳入工作区其他既有代码、历史文档差异或构建产物，不推送。通过条件为本轮文档差异核对、空白检查和本地提交完成。
+
+- Android上架检查点（2026-10-29）：目标名称为`Whale Remote Control`，包名为`com.tea4go.claudemobileremote.android`；系统通知推送开发继续暂停，这不代表Android现有推送SDK/初始化已被禁用。用户确认采用AGC应用签名方式二（本地保留发布密钥，上传加密副本供AGC托管），详见D106。只读检查确认Android工程仍使用旧名称`Claude Mobile Remote`及旧applicationId `com.tea4go.claudemobileremote`，未配置Release signingConfig，现有4_android_build.sh --release输出未签名APK。尚未修改Android名称/包名或隔离推送，未生成Android发布密钥、PEPK加密ZIP或上传证书，未构建签名APK、操作AGC签名配置或上传Android版本。下一步先核实是否已有适用于目标Android应用的发布密钥；若已有发布记录须保持签名连续性，否则准备独立Android发布密钥及仓库外备份，再按当前AGC页面要求导出PEPK ZIP。独立上传密钥为安全建议，尚未创建或登记。随后补齐Android发布设计/计划并实施名称、包名、暂停推送的发布配置及签名APK验证；平台接收、测试审核和真机安装均待验证。本轮仅文档归档，执行diff空白检查，不重跑功能测试。
+
 - 当前执行（2026-10-28，验收归档与提交）：用户反馈 iOS 通知最小修复验证通过，并明确授权连同此前 Harmony 图标及1.0.3相关改动一起提交。范围为移动端修复/测试、Harmony资源/生成器/版本及关联文档；排除独立TestFlight进度、历史截图、构建日志、签名材料和产物。沿用此前101项回归、类型/Swift语法及Harmony构建验签结果，本次提交内容核对与空白检查通过，按授权归档提交；不重新构建、不推送。
 
 - E3 通知最小修复完成（2026-10-28，用户验收通过）：相同配对已有连接对象时检查存活，断开则重连，连接中/已连接不重复建连；通知点击沿用详情入口。iOS 前台统一抑制本地和远程系统提醒，后台继续 APNs；PC/edo 仍可投递，无需在线状态上报。删除时先固定 topic 集合再异步清理通知，JS 等待清理入口返回后移除配对，避免映射先消失而漏清理；沿用既有尽力 DELETE/重试/到期机制，已投递/离线撤销不能即时保证。5文件101项回归、TypeScript noEmit、Swift语法、diff检查通过；初轮 await 空通知端口造成浏览器删除时序回归，限定有通知端口时等待后全部通过。未构建 App/WhaleTerm、未部署 edo、无 Git 写操作。用户随后反馈验证通过，未逐项说明设备和操作细节；本轮按授权归档提交，后续新问题另行记录。详见 docs/testing/2026-10-28-ios-notification-lifecycle-result.md。
