@@ -36,6 +36,7 @@ export struct PairingPage {
   onDemo: () => void = () => {}
   @Prop target: string = ''
   @Prop nativeReady: boolean = false
+  @Prop scanning: boolean = false
   onScan: () => void = () => {}
   @Prop pairingInput: string = ''
   @Prop connection: ConnectionStage = ConnectionStage.DISCONNECTED
@@ -47,12 +48,18 @@ export struct PairingPage {
   onPairingInputChange: (value: string) => void = () => {}
   onConnect: () => void = () => {}
 
+  private connecting(): boolean {
+    return this.connection === ConnectionStage.CONNECTING || this.connection === ConnectionStage.AUTHENTICATING ||
+      this.connection === ConnectionStage.SUBSCRIBING || this.connection === ConnectionStage.SUBSCRIBED
+  }
+
   build() {
     Scroll() {
       Column({ space: 16 }) {
-        Button('体验演示（无需连接电脑）').height(44).onClick(() => this.onDemo())
+        Button('体验演示（无需连接电脑）').id('open-demo-button').height(44).enabled(!this.scanning).onClick(() => this.onDemo())
         if (this.target.length > 0) { Text(`目标：${this.target} · ${phaseLabel(this.connection)}`).fontSize(12).width('100%') }
-        Button('扫描二维码').height(48).enabled(this.nativeReady).onClick(() => this.onScan())
+        Button(this.scanning ? '正在打开扫码…' : '扫描二维码').id('scan-button').height(48)
+          .enabled(this.nativeReady && !this.scanning && !this.connecting()).onClick(() => this.onScan())
         if (this.canBack) {
           Button('返回列表')
             .id('pairing-back-button')
@@ -61,7 +68,7 @@ export struct PairingPage {
             })
         }
 
-        Text('Claude Mobile Remote')
+        Text('Whale Remote Control')
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
           .width('100%')
@@ -82,8 +89,8 @@ export struct PairingPage {
             })
             .width('100%')
 
-          Button('连接当前 Session')
-            .id('connect-button').enabled(this.nativeReady)
+          Button(this.connecting() ? phaseLabel(this.connection) : '连接当前 Session')
+            .id('connect-button').enabled(this.nativeReady && !this.scanning && !this.connecting())
             .onClick(() => {
               this.onConnect()
             })

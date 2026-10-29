@@ -53,7 +53,7 @@ export struct MessageComposer {
                 Text(item.name).fontSize(12).maxLines(1).width(100)
                 Button('移除', { type: ButtonType.Normal }).height(44).fontSize(12).fontColor('#d4380d').backgroundColor(Color.Transparent).enabled(this.editable()).onClick(() => this.onRemoveAttachment(index))
               }
-            }, (item: Attachment, index: number) => `${index}-${JSON.stringify(item)}`)
+            }, (item: Attachment, index: number) => `${index}-${item.name}-${item.mediaType}`)
           }
         }.scrollable(ScrollDirection.Horizontal).width('100%')
       }

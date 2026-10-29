@@ -33,6 +33,9 @@ export struct SessionListPage {
   @Prop selfChecks: Array<string> = []
   @Prop selfCheckError: string = ''
   @Prop notificationsEnabled: boolean = false
+  @Prop pushConsent: boolean = false
+  @Prop pushStatus: string = ''
+  onEnablePush: () => void = () => {}
   onAdd: () => void = () => {}
   onOpen: (sessionId: string) => void = () => {}
   onRemove: (sessionId: string) => void = () => {}
@@ -151,10 +154,15 @@ export struct SessionListPage {
                 Button('查看').height(36).fontSize(12).onClick(() => this.onDebugOpen())
               }.padding(12).width('100%')
               Row() {
-                Text('系统提醒').fontSize(16).layoutWeight(1)
+                Text('系统提醒（极光）').fontSize(16).layoutWeight(1)
                 Toggle({ type: ToggleType.Switch, isOn: this.notificationsEnabled }).selectedColor(PRIMARY)
                   .onChange((enabled: boolean) => { if (enabled !== this.notificationsEnabled) this.onNotifications() })
               }.height(54).padding({ left: 16, right: 16 }).width('100%')
+              Text('后台通知使用极光推送，向edo登记本机推送ID和匿名会话标识。前台不显示系统提醒。').fontSize(12).fontColor('#6b7280').padding(12)
+              if (this.notificationsEnabled) {
+                Text(this.pushStatus).fontSize(12).padding(8)
+                if (!this.pushConsent) { Button('启用后台通知（极光）').onClick(() => this.onEnablePush()) }
+              }
               Divider().color('#eeeeef')
               Button({ type: ButtonType.Normal }) {
                 Text('清除消息缓存').fontSize(16).fontColor('#252525').width('100%').textAlign(TextAlign.Start)

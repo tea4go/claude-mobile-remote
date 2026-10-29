@@ -4,6 +4,10 @@
 
 ## 当前状态
 
+- 当前执行（2026-10-29，Harmony优化归档提交）：用户追加授权本地提交Harmony优化。范围为现有Harmony点击响应/消息懒加载/异步I/O/缓存裁剪及回归测试、团队新包与更名发布配置、设备采集脚本及对应文档；保留隔离目录中的未完成推送源码，不启用推送。排除Android/iOS/Go推送改动、无关进度、截图、构建缓存、签名材料和产物，不推送。
+
+- Harmony优化提交检查点（2026-10-29）：重新执行59项Harmony测试及16文件逻辑检查、2项点击采集工具单测、采集脚本bash语法检查，均通过；提交前核对差异及空白检查。沿用已有1.0.3（1000003）team-1028签名Release构建/官方验签结果，本轮未重建、未连接真机或操作后台。用户已上传修复包并提交云测的反馈沿用，云测报告尚未返回，不能认定319ms已降至250ms以内或审核通过；下一步收到云测报告后复核demo/扫码响应，并继续Android发布准备。详细修复和签名证据见docs/testing/2026-10-29-harmony-click-response-result.md。
+
 - 当前执行（2026-10-29，Android上架进度归档）：用户要求先记录进度并执行本地Git提交。本次仅提交本轮新增的Android分发检查点和签名决策，不纳入工作区其他既有代码、历史文档差异或构建产物，不推送。通过条件为本轮文档差异核对、空白检查和本地提交完成。
 
 - Android上架检查点（2026-10-29）：目标名称为`Whale Remote Control`，包名为`com.tea4go.claudemobileremote.android`；系统通知推送开发继续暂停，这不代表Android现有推送SDK/初始化已被禁用。用户确认采用AGC应用签名方式二（本地保留发布密钥，上传加密副本供AGC托管），详见D106。只读检查确认Android工程仍使用旧名称`Claude Mobile Remote`及旧applicationId `com.tea4go.claudemobileremote`，未配置Release signingConfig，现有4_android_build.sh --release输出未签名APK。尚未修改Android名称/包名或隔离推送，未生成Android发布密钥、PEPK加密ZIP或上传证书，未构建签名APK、操作AGC签名配置或上传Android版本。下一步先核实是否已有适用于目标Android应用的发布密钥；若已有发布记录须保持签名连续性，否则准备独立Android发布密钥及仓库外备份，再按当前AGC页面要求导出PEPK ZIP。独立上传密钥为安全建议，尚未创建或登记。随后补齐Android发布设计/计划并实施名称、包名、暂停推送的发布配置及签名APK验证；平台接收、测试审核和真机安装均待验证。本轮仅文档归档，执行diff空白检查，不重跑功能测试。

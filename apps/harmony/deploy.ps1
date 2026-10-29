@@ -68,7 +68,7 @@ foreach ($dev in $devices) {
 Write-Host ""
 
 # 逐台安装并启动
-$bundleName = "com.tea4go.claudemobileremote"
+$bundleName = "com.tea4go.claudemobileremote1028"
 $okCount = 0
 foreach ($dev in $devices) {
     Write-Host "  ▶ $dev" -ForegroundColor Cyan

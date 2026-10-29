@@ -18,3 +18,19 @@
 此前完整图案放背景、空前景的方案由本次修复替代。保留蓝色主体，移除设计网格；使用真正矢量路径作为源，生成1024×1024透明主体前景和不透明白色背景，两层不预裁圆角、不额外添加边框内间距。同步AppScope、entry、启动图以及216px后台展示PNG。以像素/尺寸、资源引用和视觉核对验收，不构建、不提交；真实平台自检仍待上传新包验证。官方依据：[通用UX标准2.1.4.3.1](https://developer.huawei.com/consumer/cn/doc/doccenter-ux-design/ux-guidelines-general-0000001760708152#section1353515481417)。
 
 2026-10-28 用户授权构建1.0.3(1000003)签名Release APP，包含最新真实分层图标；本机验签与包内容核对后交用户上传，不提交Git。
+
+### 2026-10-28 团队新应用发布修订（用户已确认）
+
+使用团队刘启铨已创建的包名`com.tea4go.claudemobileremote1028`、APP ID `6917620267596106735`，替代旧包名约束；版本沿用1.0.3。先核实团队证书及新应用app_gallery发布Profile，再同步Harmony标识和打包检查、禁用尚未配置的推送入口、构建验签、上传并创建邀请测试。推送接入另行实施，不修改iOS/Android/edo；保留旧签名材料。以平台实际接收/审核/发布状态记录结果。
+
+### 2026-10-28 指定设备Debug包（用户确认）
+
+原团队MyPhoneCSR私钥不可得，创建独立Debug私钥/CSR并由刘启铨团队签发新调试证书。为新包com.tea4go.claudemobileremote1028创建匹配证书及已登记设备的Debug Profile；在私有隔离副本注入签名、执行debug assembleHap，使用官方verify-profile/verify-app校验Profile和HAP，核对包名、版本、debug标志、证书和Profile一致性。交付签名HAP和摘要；不把此产物作为AppTest发布APP。
+
+### 2026-10-29 Harmony 显示名称修订（D105，用户已确认）
+
+对外名称统一为 Whale Remote Control，修改 AppScope 与 EntryAbility 名称资源、配对页、详情默认标题和通知标题。包名、版本、签名及共用协议保持原值，本次不构建、不提交、不操作后台。检查 JSON 资源、活动源码品牌文案和 diff；后续需重新签名打包，并同步后台名称、截图和隐私政策后再提交审核。
+
+2026-10-29 用户授权构建更名后的1.0.1（1000001）团队Release签名APP；沿用现有包名及发布材料，验签、核对包内名称和版本后交用户上传。
+
+2026-10-29 用户追加要求构建1.0.2（1000002）团队Release签名APP供其上传。沿用Whale Remote Control名称、com.tea4go.claudemobileremote1028包名及team-1028发布材料；版本升级后隔离构建，检查官方验签、APP/HAP ZIP、Release非debug及版本/名称，输出版本明确的文件名和SHA256。通知推送开发暂停，不上传后台、不执行Git写操作。

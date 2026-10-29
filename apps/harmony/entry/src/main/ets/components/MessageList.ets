@@ -1,4 +1,5 @@
 import { MarkdownText } from './MarkdownText'
+import { FeedDataSource, feedRenderKey } from '../ui/feedDataSource'
 import type {
   Attachment,
   ContentBlock,
@@ -64,31 +65,32 @@ function answerTitle(answer: ResolvedAnswer): string {
   return `${answer.header} · ${answer.question}`
 }
 
-// Feed entries are immutable plain objects. Include displayed changes in ForEach keys;
-// a requestId-only key would keep the first streamed text/status forever.
-function feedKey(message: FeedMessage, index: number): string {
-  if (message.kind === 'input') return JSON.stringify([index, message.kind, message.requestId, message.text,
-    message.status, message.attachments?.map((item: Attachment) => item.name + ':' + item.mediaType)])
-  return `${index}-${JSON.stringify(message)}`
-}
-
 @Component
 export struct MessageList {
-  @Prop messages: Array<FeedMessage> = []
+  @Prop @Watch('messagesChanged') messages: Array<FeedMessage> = []
+  scroller: Scroller = new Scroller()
+  onAtBottom: (value: boolean) => void = () => {}
+  private readonly source: FeedDataSource = new FeedDataSource()
   @State private preview: string = ''
 
+  aboutToAppear(): void { this.messagesChanged() }
+  private messagesChanged(): void { this.source.replace(this.messages) }
+
   build() {
-    Column({ space: 10 }) {
+    List({ space: 10, scroller: this.scroller }) {
       if (this.preview.length > 0) {
-        Image(this.preview).height(320).width('100%').objectFit(ImageFit.Contain).onClick(() => { this.preview = '' })
-        Text('点按图片收起预览').fontSize(12)
+        ListItem() {
+          Column() {
+            Image(this.preview).height(320).width('100%').objectFit(ImageFit.Contain).onClick(() => { this.preview = '' })
+            Text('点按图片收起预览').fontSize(12)
+          }
+        }
       }
       if (this.messages.length === 0) {
-        Text('还没有消息。')
-          .fontSize(14)
-          .opacity(0.7)
+        ListItem() { Text('还没有消息。').fontSize(14).opacity(0.7) }
       } else {
-        ForEach(this.messages, (message: FeedMessage, index: number) => {
+        LazyForEach(this.source, (message: FeedMessage, index: number) => {
+          ListItem() {
           if (message.kind === 'input') {
             Row() {
               Blank()
@@ -188,11 +190,15 @@ export struct MessageList {
             .backgroundColor(Color.Transparent)
             .borderRadius(12)
           }
-        }, (message: FeedMessage, index: number) => feedKey(message, index))
+          }
+        }, (message: FeedMessage, index: number) => feedRenderKey(message, index))
       }
     }
     .id('message-list')
     .width('100%')
-    .alignItems(HorizontalAlign.Start)
+    .height('100%')
+    .cachedCount(2)
+    .onScroll(() => this.onAtBottom(this.scroller.isAtEnd()))
+    .onReachEnd(() => this.onAtBottom(true))
   }
 }

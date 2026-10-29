@@ -26,15 +26,15 @@ function mediaType(bytes: Uint8Array, name: string): string {
 async function readAttachment(uri: string, photo: boolean): Promise<Attachment> {
   let name = 'attachment'
   try { name = decodeURIComponent(uri.split('/').pop() ?? name).replace(/[\\/\x00-\x1f\x7f]/g, '_').slice(0, 240) } catch (_) {}
-  const file = fs.openSync(uri, fs.OpenMode.READ_ONLY)
+  const file = await fs.open(uri, fs.OpenMode.READ_ONLY)
   let bytes: Uint8Array
   try {
-    const size = fs.statSync(file.fd).size
+    const size = (await fs.stat(file.fd)).size
     if (size <= 0 || size > (photo ? 20 * 1024 * 1024 : ATTACHMENT_BYTES)) throw new Error('文件为空或超过大小限制')
     const buffer = new ArrayBuffer(size)
-    if (fs.readSync(file.fd, buffer) !== size) throw new Error('文件读取不完整，请重新选择')
+    if (await fs.read(file.fd, buffer) !== size) throw new Error('文件读取不完整，请重新选择')
     bytes = new Uint8Array(buffer)
-  } finally { fs.closeSync(file) }
+  } finally { await fs.close(file) }
   let type = mediaType(bytes, name)
   if (photo && (bytes.length > ATTACHMENT_BYTES || type === 'application/octet-stream')) {
     const source = image.createImageSource(bytes.buffer)

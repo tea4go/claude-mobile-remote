@@ -14,21 +14,23 @@ export struct DebugPanel {
   aboutToDisappear(): void { this.unsubscribe?.() }
   private refresh(): void { this.entries = debugLog.list(); this.logEnabled = debugLog.enabled }
   private copy(): void {
+    this.feedback = '正在复制…'
     pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, debugLog.text())).then(() => { this.feedback = '已复制脱敏日志' }).catch(() => { this.feedback = '复制失败' })
   }
   private async share(): Promise<void> {
     const context = nativeLifecycle.context
     if (context === null) return
+    this.feedback = '正在导出…'
     const path = `${context.cacheDir}/cmr-debug.log`
     try {
-      const file = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC | fileIo.OpenMode.WRITE_ONLY)
-      try { fileIo.writeSync(file.fd, debugLog.text()) } finally { fileIo.closeSync(file) }
+      const file = await fileIo.open(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC | fileIo.OpenMode.WRITE_ONLY)
+      try { await fileIo.write(file.fd, debugLog.text()) } finally { await fileIo.close(file) }
       const data = new systemShare.SharedData({ utd: 'general.plain-text', uri: fileUri.getUriFromPath(path) })
       const controller = new systemShare.ShareController(data)
       await controller.show(context, { previewMode: systemShare.SharePreviewMode.DETAIL })
       this.feedback = '已打开分享'
     } catch (_) { this.feedback = '导出失败，可复制日志' }
-    finally { try { fileIo.unlinkSync(path) } catch (_) {} }
+    finally { try { await fileIo.unlink(path) } catch (_) {} }
   }
   build() {
     Column({ space: 4 }) {

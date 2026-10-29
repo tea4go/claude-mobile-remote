@@ -18,6 +18,7 @@ interface CacheFile { name: string; size: number; time: number }
 
 export class NativeStorage {
   private queue: Promise<void> = Promise.resolve()
+  private initialized: boolean = false
   private readonly root: string
   private readonly vault: string
   private readonly cache: string
@@ -25,13 +26,20 @@ export class NativeStorage {
     this.root = context.filesDir + '/cmr'
     this.vault = this.root + '/pairing'
     this.cache = this.root + '/display'
+    this.queue = this.initialize().catch(() => {})
+  }
+  private async initialize(): Promise<void> {
     for (const path of [this.root, this.vault, this.cache]) {
-      if (!fs.accessSync(path)) fs.mkdirSync(path)
-      legacyFileIo.chmodSync(path, 0o700)
+      if (!await fs.access(path)) await fs.mkdir(path)
+      await legacyFileIo.chmod(path, 0o700)
     }
+    this.initialized = true
   }
   private serial<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.queue.then(operation)
+    const result = this.queue.then(() => {
+      if (!this.initialized) throw new Error('storage initialization failed')
+      return operation()
+    })
     this.queue = result.then(() => {}).catch(() => {})
     return result
   }
@@ -41,28 +49,28 @@ export class NativeStorage {
     const digest = await md.digest()
     return Array.from(digest.data).map((byte: number) => byte.toString(16).padStart(2, '0')).join('')
   }
-  private read(path: string, limit: number): string | null {
-    if (!fs.accessSync(path)) return null
-    if (fs.statSync(path).size > limit) throw new Error('stored file exceeds limit')
-    return fs.readTextSync(path)
+  private async read(path: string, limit: number): Promise<string | null> {
+    if (!await fs.access(path)) return null
+    if ((await fs.stat(path)).size > limit) throw new Error('stored file exceeds limit')
+    return fs.readText(path)
   }
-  private write(path: string, data: string): void {
+  private async write(path: string, data: string): Promise<void> {
     const temporary = path + '.tmp'
-    const file = fs.openSync(temporary, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC)
+    const file = await fs.open(temporary, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC)
     try {
-      legacyFileIo.chmodSync(temporary, 0o600)
+      await legacyFileIo.chmod(temporary, 0o600)
       const bytes = encoder.encodeInto(data)
       let offset = 0
       while (offset < bytes.length) {
-        const written = fs.writeSync(file.fd, bytes.slice(offset).buffer)
+        const written = await fs.write(file.fd, bytes.slice(offset).buffer)
         if (written <= 0) throw new Error('short file write')
         offset += written
       }
-      fs.fsyncSync(file.fd)
-    } finally { fs.closeSync(file) }
-    fs.renameSync(temporary, path)
+      await fs.fsync(file.fd)
+    } finally { await fs.close(file) }
+    await fs.rename(temporary, path)
   }
-  private remove(path: string): void { if (fs.accessSync(path)) fs.unlinkSync(path) }
+  private async remove(path: string): Promise<void> { if (await fs.access(path)) await fs.unlink(path) }
   private async ensureKey(): Promise<void> {
     if (await huks.isKeyItemExist(KEY_ALIAS, { properties: [] })) return
     await huks.generateKeyItem(KEY_ALIAS, { properties: [
@@ -111,17 +119,17 @@ export class NativeStorage {
           const nonce = cryptoFramework.createRandom().generateRandomSync(12).data
           const encrypted = await this.crypt(record.sessionId, encoder.encodeInto(record.pairToken), nonce, true)
           const envelope: CipherEnvelope = { version: 1, nonce: base64.encodeToStringSync(nonce), data: base64.encodeToStringSync(encrypted) }
-          this.write(this.vault + '/' + key + '.json', JSON.stringify(envelope))
-        } else this.remove(this.vault + '/' + key + '.json')
+          await this.write(this.vault + '/' + key + '.json', JSON.stringify(envelope))
+        } else await this.remove(this.vault + '/' + key + '.json')
         record.pairToken = ''
       }
-      this.write(this.root + '/records.json', JSON.stringify(captured))
-      for (const file of fs.listFileSync(this.vault)) if (retained.indexOf(file) < 0) this.remove(this.vault + '/' + file)
+      await this.write(this.root + '/records.json', JSON.stringify(captured))
+      for (const file of await fs.listFile(this.vault)) if (retained.indexOf(file) < 0) await this.remove(this.vault + '/' + file)
     })
   }
   loadRecords(): Promise<Array<SessionRecord>> {
     return this.serial(async () => {
-      const raw = this.read(this.root + '/records.json', 2 * 1024 * 1024)
+      const raw = await this.read(this.root + '/records.json', 2 * 1024 * 1024)
       if (raw === null) return []
       const values = JSON.parse(raw) as Array<SessionRecord>
       if (!Array.isArray(values) || values.length > 1000) throw new Error('invalid saved pairings')
@@ -141,7 +149,7 @@ export class NativeStorage {
         if (Date.parse(record.expiresAt) > Date.now()) {
           try {
             const key = await this.key(record.sessionId)
-            const encrypted = this.read(this.vault + '/' + key + '.json', 16384)
+            const encrypted = await this.read(this.vault + '/' + key + '.json', 16384)
             if (encrypted !== null) {
               const envelope = JSON.parse(encrypted) as CipherEnvelope
               if (envelope.version !== 1) throw new Error('invalid cipher')
@@ -162,37 +170,41 @@ export class NativeStorage {
     return this.serial(async () => {
       const path = this.cache + '/' + await this.key(id) + '.json'
       try {
-        const data = this.read(path, CACHE_BYTES)
+        const data = await this.read(path, CACHE_BYTES)
         const state = data === null ? null : decodeCache(data, id, Date.now())
-        if (state === null) this.remove(path)
+        if (state === null) await this.remove(path)
         return state
-      } catch (_) { this.remove(path); return null }
+      } catch (_) { await this.remove(path); return null }
     })
   }
   writeCache(id: string, data: string): Promise<void> {
     return this.serial(async () => {
       if (decodeCache(data, id, Date.now()) === null) throw new Error('invalid cache')
-      this.write(this.cache + '/' + await this.key(id) + '.json', data)
-      this.prune()
+      await this.write(this.cache + '/' + await this.key(id) + '.json', data)
+      await this.prune()
     })
   }
-  private prune(): void {
+  private async prune(): Promise<void> {
     const files: Array<CacheFile> = []
     let total = 0
-    for (const name of fs.listFileSync(this.cache)) {
+    for (const name of await fs.listFile(this.cache)) {
       const path = this.cache + '/' + name
-      const stat = fs.statSync(path)
-      if (!/^[0-9a-f]{64}\.json$/.test(name) || stat.size > CACHE_BYTES || Date.now() - stat.mtime * 1000 > CACHE_AGE) this.remove(path)
+      const stat = await fs.stat(path)
+      if (!/^[0-9a-f]{64}\.json$/.test(name) || stat.size > CACHE_BYTES || Date.now() - stat.mtime * 1000 > CACHE_AGE) await this.remove(path)
       else { files.push({ name, size: stat.size, time: stat.mtime }); total += stat.size }
     }
     files.sort((a: CacheFile, b: CacheFile) => a.time - b.time)
     for (const file of files) {
       if (total <= CACHE_TOTAL) break
-      this.remove(this.cache + '/' + file.name); total -= file.size
+      await this.remove(this.cache + '/' + file.name); total -= file.size
     }
   }
   removeCache(id: string): Promise<void> { return this.serial(async () => this.remove(this.cache + '/' + await this.key(id) + '.json')) }
-  clearCache(): Promise<void> { return this.serial(async () => { for (const name of fs.listFileSync(this.cache)) this.remove(this.cache + '/' + name) }) }
-  readNotificationsEnabled(): boolean { return this.read(this.root + '/notifications', 16) === 'enabled' }
-  setNotificationsEnabled(enabled: boolean): void { this.write(this.root + '/notifications', enabled ? 'enabled' : 'disabled') }
+  clearCache(): Promise<void> { return this.serial(async () => { for (const name of await fs.listFile(this.cache)) await this.remove(this.cache + '/' + name) }) }
+  readPushState(): Promise<string> { return this.serial(async () => (await this.read(this.root + '/push-state', 1024 * 1024)) ?? '') }
+  writePushState(value: string): Promise<void> { return this.serial(() => this.write(this.root + '/push-state', value)) }
+  readPushConsent(): Promise<boolean> { return this.serial(async () => (await this.read(this.root + '/push-consent', 16)) === 'enabled') }
+  setPushConsent(enabled: boolean): Promise<void> { return this.serial(() => this.write(this.root + '/push-consent', enabled ? 'enabled' : 'disabled')) }
+  readNotificationsEnabled(): Promise<boolean> { return this.serial(async () => (await this.read(this.root + '/notifications', 16)) === 'enabled') }
+  setNotificationsEnabled(enabled: boolean): Promise<void> { return this.serial(() => this.write(this.root + '/notifications', enabled ? 'enabled' : 'disabled')) }
 }

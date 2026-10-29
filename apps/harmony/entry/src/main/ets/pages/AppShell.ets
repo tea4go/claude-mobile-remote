@@ -1,5 +1,6 @@
 import { NetworkMonitor } from '../native/network'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
+import { FeedbackFrame } from '../ui/feedbackFrame'
 import { nativeLifecycle } from '../native/lifecycle'
 import { NativeStorage } from '../native/storage'
 import { SpeechDraft } from '../native/speech'
@@ -116,6 +117,8 @@ export struct AppShell {
   private unsubscribe: (() => void) | null = null
 
   private storage: NativeStorage | null = null
+  @State private pushStatus: string = '远程通知已关闭'
+  @State private pushConsent: boolean = false
   private notifications: LocalNotifications | null = null
   private readonly speech: SpeechDraft = new SpeechDraft()
   private readonly drafts: Map<string, ComposerDraft> = new Map()
@@ -129,6 +132,8 @@ export struct AppShell {
   private alive: boolean = false
   private foreground: boolean = true
   @State private demoOpen: boolean = false
+  @State private demoOpening: boolean = false
+  private demoGeneration: number = 0
   @State private debugOpen: boolean = false
   @State private debugEnabled: boolean = true
   @State private pairingTarget: string = ''
@@ -140,6 +145,8 @@ export struct AppShell {
   @State private draft: ComposerDraft = emptyDraft()
   @State private speechActive: boolean = false
   @State private selecting: boolean = false
+  @State private scanning: boolean = false
+  @State private clearingCache: boolean = false
 
   @State private sessionState: HarmonySessionState = createInitialHarmonySessionState()
   @State private sessions: Array<SessionRecord> = []
@@ -168,6 +175,7 @@ export struct AppShell {
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
     nativeLifecycle.onBack = () => {
       if (this.debugOpen) { this.debugOpen = false; return true }
+      if (this.demoOpening) { this.demoGeneration += 1; this.demoOpening = false; return true }
       if (this.demoOpen) { if (nativeLifecycle.detailBack?.()) return true; this.demoOpen = false; return true }
       if (nativeLifecycle.detailBack?.()) return true
       if (this.view === 'detail') { this.handleBackFromDetail(); return true }
@@ -218,6 +226,9 @@ export struct AppShell {
 
   aboutToDisappear(): void {
     this.alive = false
+    this.demoGeneration += 1
+    this.demoOpening = false
+    this.scanning = false
     this.network.stop()
     this.debugUnsubscribe?.(); this.debugUnsubscribe = null
     this.pendingPairing = null
@@ -257,12 +268,15 @@ export struct AppShell {
     try {
       this.storage = new NativeStorage(context)
       this.notifications = new LocalNotifications(context)
-      this.notificationsEnabled = this.storage.readNotificationsEnabled()
+      this.notificationsEnabled = await this.storage.readNotificationsEnabled()
       this.notifications.enabled = this.notificationsEnabled
       await this.notifications.clear().catch(() => {})
       const records = await this.storage.loadRecords()
       if (!this.alive || generation !== this.nativeGeneration) return
       this.sessions = records
+      // Team package ships before remote push is configured.
+      this.pushStatus = '当前版本暂不支持后台推送'
+      this.pushConsent = false
       for (const record of this.sessions) {
         const cached = await this.storage.readCache(record.sessionId)
         if (!this.alive || generation !== this.nativeGeneration) return
@@ -290,7 +304,7 @@ export struct AppShell {
     this.stores.set(id, store)
     this.storeSubscriptions.set(id, store.subscribe((state: HarmonySessionState) => this.handleStoreState(id, state)))
     store.setManagementListener((result: ManagementResultInfo) => this.handleManagementResult(id, result))
-    store.setEventListener((event) => { void this.notifications?.event(event).catch(() => { this.nativeError = '系统提醒发送失败，请检查通知权限' }) })
+    // edo is the only notification source; no duplicate WebSocket local alert.
     store.setSendListener((accepted: boolean) => {
       const draft = this.drafts.get(id) ?? emptyDraft()
       const next: ComposerDraft = accepted ? emptyDraft() : { text: draft.text, attachments: draft.attachments, sending: false, error: '发送未确认，草稿已保留；请核对电脑端后再发送' }
@@ -320,6 +334,12 @@ export struct AppShell {
       }
     }
     if (foreground) this.stores.forEach((store: HarmonySessionStore) => store.checkConnection())
+    if (foreground && nativeLifecycle.pendingTopic.length > 0) {
+      const topic = nativeLifecycle.pendingTopic; nativeLifecycle.pendingTopic = ''
+      const target = ''
+      if (target.length > 0) nativeLifecycle.pendingSessionId = target
+      else this.nativeError = '通知对应的会话已移除或过期，请重新扫码'
+    }
     const id = nativeLifecycle.pendingSessionId
     if (foreground && id.length > 0) {
       nativeLifecycle.pendingSessionId = ''
@@ -353,19 +373,24 @@ export struct AppShell {
     this.dirty.clear()
   }
   private async clearCache(): Promise<void> {
+    if (this.clearingCache || this.storage === null) return
+    this.clearingCache = true
+    this.nativeError = '正在清除本地消息缓存…'
     if (this.cacheTimer >= 0) clearTimeout(this.cacheTimer)
     this.cacheTimer = -1; this.dirty.clear()
     this.states.forEach((state: HarmonySessionState, id: string) => { this.cacheGate.changed(id, encodeCache(id, state, Date.now())) })
     try { await this.storage?.clearCache(); this.nativeError = '本地消息缓存已清除' }
     catch (_) { this.nativeError = '清除缓存失败，请重试' }
+    finally { this.clearingCache = false }
   }
   private async toggleNotifications(): Promise<void> {
     if (this.notifications === null || this.storage === null) return
     try {
       if (this.notificationsEnabled) { this.notifications.enabled = false; await this.notifications.clear() }
-      else await this.notifications.enable()
+      else { await this.notifications.enable() }
+      this.pushConsent = await this.storage.readPushConsent()
       this.notificationsEnabled = this.notifications.enabled
-      this.storage.setNotificationsEnabled(this.notificationsEnabled)
+      await this.storage.setNotificationsEnabled(this.notificationsEnabled)
     } catch (_) { this.nativeError = '通知未开启，请在系统设置中允许通知' }
   }
   private activateDraft(): void {
@@ -409,9 +434,30 @@ export struct AppShell {
   }
   private async scan(): Promise<void> {
     const context = nativeLifecycle.context
-    if (context === null || !this.nativeReady) return
-    try { const raw = await scanPairing(context); if (this.alive) { this.pairingInput = raw; this.handleConnect() } }
-    catch (_) { this.nativeError = '扫码已取消或不可用，可粘贴配对信息' }
+    if (context === null || !this.nativeReady || this.scanning) return
+    this.scanning = true
+    const generation = this.nativeGeneration
+    try {
+      await new Promise<void>((resolve: () => void) => this.getUIContext().postFrameCallback(new FeedbackFrame(resolve)))
+      if (!this.alive || generation !== this.nativeGeneration || !this.foreground || this.view !== 'pairing') return
+      const raw = await scanPairing(context)
+      if (this.alive && generation === this.nativeGeneration && this.view === 'pairing' && !this.demoOpen && !this.demoOpening) {
+        this.pairingInput = raw; this.handleConnect()
+      }
+    } catch (_) {
+      if (this.alive && generation === this.nativeGeneration) this.nativeError = '扫码已取消或不可用，可粘贴配对信息'
+    } finally { if (generation === this.nativeGeneration) this.scanning = false }
+  }
+
+  private openDemo(): void {
+    if (this.demoOpen || this.demoOpening || this.scanning) return
+    const generation = ++this.demoGeneration
+    this.demoOpening = true
+    this.getUIContext().postFrameCallback(new FeedbackFrame(() => {
+      if (!this.alive || generation !== this.demoGeneration) return
+      this.demoOpening = false
+      if (this.foreground) this.demoOpen = true
+    }))
   }
 
   private handleStoreState(sessionId: string, nextState: HarmonySessionState): void {
@@ -754,7 +800,7 @@ export struct AppShell {
 
   private activeRecordTitle(): string {
     const record = this.activeRecord()
-    return record !== null ? record.name : 'Claude Mobile Remote'
+    return record !== null ? record.name : 'Whale Remote Control'
   }
 
   @Builder
@@ -815,10 +861,11 @@ export struct AppShell {
   @Builder
   private buildPairingView(): void {
     PairingPage({
-      onDemo: () => { this.demoOpen = true },
+      onDemo: () => this.openDemo(),
       target: this.pairingTarget,
       pairingInput: this.pairingInput,
       nativeReady: this.nativeReady,
+      scanning: this.scanning,
       onScan: () => { void this.scan() },
       connection: this.sessionState.connection,
       lastError: this.sessionState.lastError,
@@ -840,7 +887,7 @@ export struct AppShell {
   @Builder
   private buildListView(): void {
     SessionListPage({
-      onDemo: () => { this.demoOpen = true },
+      onDemo: () => this.openDemo(),
       debugEnabled: this.debugEnabled,
       onDebug: (value: boolean) => debugLog.setEnabled(value),
       onDebugOpen: () => { this.debugOpen = true },
@@ -848,6 +895,11 @@ export struct AppShell {
       scrollOffset: this.listOffset,
       onScrollOffset: (value: number) => { this.listOffset = value },
       notificationsEnabled: this.notificationsEnabled,
+      pushStatus: this.pushStatus,
+      pushConsent: this.pushConsent,
+      onEnablePush: () => {
+        AlertDialog.show({ title: '后台通知', message: '当前版本暂不支持后台推送。', confirm: { value: '知道了', action: () => {} } })
+      },
       onNotifications: () => { void this.toggleNotifications() },
       onClearCache: () => { void this.clearCache() },
       onRemovePC: (pcKey: string) => {
@@ -890,12 +942,17 @@ export struct AppShell {
         Text(this.nativeError).fontSize(13).fontColor('#a54b00').padding(8).onClick(() => { this.nativeError = '' })
       }
       if (!this.nativeReady) { LoadingProgress().width(32).height(32) }
-      if (this.demoOpen) { DemoPage({ onExit: () => { this.demoOpen = false } }).layoutWeight(1) }
+      if (this.demoOpening) {
+        Column({ space: 12 }) {
+          LoadingProgress().width(32).height(32)
+          Text('正在打开离线演示…').fontSize(14)
+        }.layoutWeight(1).width('100%').justifyContent(FlexAlign.Center)
+      } else if (this.demoOpen) { DemoPage({ onExit: () => { this.demoOpen = false } }).layoutWeight(1) }
       else { Column() { this.buildCurrentView() }.layoutWeight(1).width('100%') }
     }
     .width('100%')
     .height('100%')
-    if (this.debugEnabled && !this.debugOpen && !this.demoOpen) {
+    if (this.debugEnabled && !this.debugOpen && !this.demoOpen && !this.demoOpening) {
       Row() { Blank(); Button('调试').fontSize(12).height(38).onClick(() => { this.debugOpen = true }) }.width('100%').position({ x: 0, y: '60%' })
     }
     if (this.debugOpen) {

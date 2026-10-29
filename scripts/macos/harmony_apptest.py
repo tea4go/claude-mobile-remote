@@ -126,7 +126,7 @@ def main():
             if provision.get('type') != 'release':
                 raise ValueError('AppTest发布构建要求release Profile，拒绝调试Profile')
             bundle = provision.get('bundle-info', {})
-            if bundle.get('bundle-name') != 'com.tea4go.claudemobileremote':
+            if bundle.get('bundle-name') != 'com.tea4go.claudemobileremote1028':
                 raise ValueError('Profile包名与工程不匹配')
             if provision.get('app-distribution-type') != 'app_gallery':
                 raise ValueError('需应用市场发布Profile(app_gallery)，不接受指定设备或企业分发Profile')
@@ -180,7 +180,7 @@ def main():
                         raise ValueError('内嵌HAP压缩校验失败')
                     module = json.loads(hap.read('module.json'))
                     info = module['app']
-                    if info['bundleName'] != 'com.tea4go.claudemobileremote' or info.get('debug', False) or info.get('buildMode') != 'release':
+                    if info['bundleName'] != 'com.tea4go.claudemobileremote1028' or info.get('debug', False) or info.get('buildMode') != 'release':
                         raise ValueError('内嵌HAP包名或Release模式不匹配')
                     if info['minAPIVersion'] != 60101024:
                         raise ValueError('最低API不符合工程基准')

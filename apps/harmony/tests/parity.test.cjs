@@ -58,6 +58,38 @@ function readyStore() {
   return { store, socket }
 }
 test('existing self checks remain valid', () => assert.equal(load('debug/selfCheck').runSelfChecks().length, 8))
+test('lazy feed publishes streamed text/status changes and keeps attachment bytes out of render keys', () => {
+  const { FeedDataSource, feedRenderKey } = load('ui/feedDataSource')
+  const source = new FeedDataSource()
+  let notifications = 0
+  const listener = { onDataReloaded: () => { notifications++ } }
+  source.registerDataChangeListener(listener); source.registerDataChangeListener(listener)
+  const first = { kind: 'claude', requestId: 'r', source: 'mobile', text: '一', status: 'streaming', error: null }
+  source.replace([first])
+  const key = feedRenderKey(source.getData(0), 0)
+  source.replace([{ ...first, text: '一二', status: 'done' }])
+  assert.equal(notifications, 2); assert.equal(source.totalCount(), 1)
+  assert.equal(source.getData(0).text, '一二')
+  assert.notEqual(feedRenderKey(source.getData(0), 0), key)
+  const input = { kind: 'input', source: 'mobile', requestId: 'r', text: '', status: 'accepted', attachments: [{ ...attachment, data: 'synthetic-base64-must-not-enter-key' }] }
+  assert.equal(feedRenderKey(input, 0).includes(input.attachments[0].data), false)
+  source.unregisterDataChangeListener(listener); source.replace([])
+  assert.equal(notifications, 2); assert.equal(source.totalCount(), 0)
+})
+test('cache pruning matches the latest UTF-8 suffix without repeatedly serializing discarded messages', () => {
+  const state = createInitialHarmonySessionState()
+  state.messages = Array.from({ length: 200 }, (_, index) => ({ kind: 'claude', requestId: `r${index}`, source: 'mobile',
+    text: '中🐳"\\\n'.repeat(7000), status: 'done', error: null }))
+  const encoded = encodeCache('多字节会话', state, 100)
+  const value = JSON.parse(encoded)
+  assert.ok(Buffer.byteLength(encoded) <= CACHE_BYTES)
+  assert.equal(value.messages.at(-1).requestId, 'r199')
+  assert.ok(value.messages.length > 0 && value.messages.length < 200)
+  const missing = 200 - value.messages.length - 1
+  value.messages.unshift(state.messages[missing])
+  assert.ok(Buffer.byteLength(JSON.stringify(value)) > CACHE_BYTES, 'must keep the largest newest suffix that fits')
+  assert.equal(state.messages.length, 200, 'must not mutate the live feed')
+})
 test('UTF-8 pairing accepts Chinese and emoji in full QR URL', () => {
   const value = { ...pairing, pcName: '张的电脑 🐳' }
   const raw = 'https://example.test/#pair=' + Buffer.from(JSON.stringify(value)).toString('base64url')
