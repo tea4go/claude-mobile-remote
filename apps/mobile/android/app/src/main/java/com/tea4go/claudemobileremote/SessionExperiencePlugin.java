@@ -3,7 +3,6 @@ package com.tea4go.claudemobileremote;
 import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -15,7 +14,6 @@ import android.os.Looper;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
-import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -27,7 +25,6 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONObject;
@@ -38,22 +35,13 @@ import org.json.JSONObject;
 })
 public class SessionExperiencePlugin extends Plugin {
     private static final String CHANNEL = "cmr.session.events";
-    private static final String SESSION_EXTRA = "cmr.notification.sessionId";
-    private static final Map<String, String> BODIES = new java.util.HashMap<>();
-    static {
-        BODIES.put("approval", "有工具操作等待审批"); BODIES.put("question", "有问题等待回答");
-        BODIES.put("completed", "Claude 已完成本轮任务"); BODIES.put("failed", "Claude 执行失败，请打开会话查看");
-        BODIES.put("stopped", "Claude 会话已结束");
-    }
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private SessionDisplayCache cache;
     private SpeechRecognizer recognizer;
     private PluginCall speechCall;
     private String transcript = "";
-    private String viewedSession = "";
     private boolean stopped;
-    private volatile boolean foreground = true;
     private final Runnable speechTimeout = () -> finishSpeech(false);
 
     @Override public void load() {
@@ -72,7 +60,8 @@ public class SessionExperiencePlugin extends Plugin {
     private JSObject notificationState() {
         JSObject state = new JSObject();
         state.put("enabled", preferences().getBoolean("notifications.enabled", false) && notificationsAllowed());
-        state.put("remoteConfigured", false); state.put("remoteReady", false);
+        JSObject remote = SessionPushManager.get(getContext()).status();
+        for (String key : new String[]{"remoteConfigured", "remoteEnabled", "remoteReady", "pushError", "vendorConfigured"}) state.put(key, remote.opt(key));
         return state;
     }
     @PluginMethod public void notificationStatus(PluginCall call) { call.resolve(notificationState()); }
@@ -80,6 +69,7 @@ public class SessionExperiencePlugin extends Plugin {
     private void updateNotifications(PluginCall call) {
         if (!Boolean.TRUE.equals(call.getBoolean("enabled"))) {
             preferences().edit().putBoolean("notifications.enabled", false).apply();
+            SessionPushManager.get(getContext()).setEnabled(false);
             manager().cancelAll(); call.resolve(notificationState()); return;
         }
         if (Build.VERSION.SDK_INT >= 33 && getPermissionState("notifications") != PermissionState.GRANTED) {
@@ -88,44 +78,31 @@ public class SessionExperiencePlugin extends Plugin {
     }
     @PermissionCallback private void notificationPermission(PluginCall call) { enableNotifications(call); }
     private void enableNotifications(PluginCall call) {
-        preferences().edit().putBoolean("notifications.enabled", notificationsAllowed()).apply();
+        SessionPushManager.get(getContext()).setEnabled(notificationsAllowed());
         call.resolve(notificationState());
     }
     @PluginMethod public void syncPushSessions(PluginCall call) {
-        viewedSession = call.getString("viewedSession", "");
-        call.resolve();
+        try { SessionPushManager.get(getContext()).sessions(call.getArray("sessions")); call.resolve(); }
+        catch (Exception ignored) { call.reject("invalid_push_sessions"); }
     }
     @PluginMethod public void notify(PluginCall call) {
-        String sessionId = call.getString("sessionId", "");
-        String kind = call.getString("kind", "");
-        boolean validSequence = SessionNotificationPolicy.validSequence(call.getData().opt("seq"));
-        if (!preferences().getBoolean("notifications.enabled", false) || !notificationsAllowed() ||
-            sessionId.isEmpty() || sessionId.length() > 256 || !validSequence || !BODIES.containsKey(kind) || (foreground && sessionId.equals(viewedSession))) {
-            call.resolve(); return;
-        }
-        try {
-            Intent intent = new Intent(getContext(), MainActivity.class)
-                .setAction("com.tea4go.claudemobileremote.OPEN_SESSION")
-                .setData(Uri.parse("cmr-notification://session/" + Uri.encode(sessionId)))
-                .putExtra(SESSION_EXTRA, sessionId)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            PendingIntent pending = PendingIntent.getActivity(getContext(), 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            android.app.Notification notification = new NotificationCompat.Builder(getContext(), CHANNEL)
-                .setSmallIcon(R.drawable.ic_stat_session).setContentTitle("Claude Mobile Remote").setContentText(BODIES.get(kind))
-                .setContentIntent(pending).setAutoCancel(true).setOnlyAlertOnce(false)
-                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build();
-            manager().notify("cmr.session." + sessionId, 1, notification);
-            call.resolve();
-        } catch (Exception error) { call.reject("notification_unavailable"); }
+        // PC/edo is the sole reminder source, avoiding duplicate local/remote alerts.
+        call.resolve();
     }
     @PluginMethod public void clearNotifications(PluginCall call) {
         String sessionId = call.getString("sessionId", "");
+        SessionPushManager.get(getContext()).dismiss(sessionId);
         manager().cancel("cmr.session." + sessionId, 1); call.resolve();
     }
     private void handleNotificationIntent(Intent intent) {
-        if (intent == null || !"com.tea4go.claudemobileremote.OPEN_SESSION".equals(intent.getAction())) return;
-        String sessionId = intent.getStringExtra(SESSION_EXTRA);
-        intent.removeExtra(SESSION_EXTRA);
+        if (intent == null) return;
+        String sessionId = null;
+        Uri uri = intent.getData();
+        if (uri != null && "cmr-push".equals(uri.getScheme()) && "notification".equals(uri.getHost())) {
+            sessionId = SessionPushManager.get(getContext()).session(uri.getLastPathSegment());
+            intent.setData(null);
+        }
+
         if (sessionId == null || sessionId.isEmpty() || sessionId.length() > 256) return;
         JSObject data = new JSObject(); data.put("sessionId", sessionId);
         notifyListeners("notificationOpened", data, true);
@@ -192,8 +169,8 @@ public class SessionExperiencePlugin extends Plugin {
     private void failSpeech() { PluginCall call = cleanupSpeech(); transcript = ""; if (call != null) call.reject("speech_unavailable"); }
     @PluginMethod public void stopSpeech(PluginCall call) { main.post(() -> { finishSpeech(false); call.resolve(); }); }
     @PluginMethod public void cancelSpeech(PluginCall call) { main.post(() -> { finishSpeech(true); call.resolve(); }); }
-    @Override protected void handleOnResume() { stopped = false; foreground = true; }
-    @Override protected void handleOnPause() { foreground = false; if (recognizer != null) finishSpeech(true); }
+    @Override protected void handleOnResume() { stopped = false; SessionPushManager.get(getContext()).refresh(); SessionPushManager.get(getContext()).resumed(); }
+    @Override protected void handleOnPause() { SessionPushManager.get(getContext()).paused(); if (recognizer != null) finishSpeech(true); }
     @Override protected void handleOnStop() { stopped = true; finishSpeech(true); }
     @Override protected void handleOnDestroy() { stopped = true; finishSpeech(true); io.shutdown(); }
 

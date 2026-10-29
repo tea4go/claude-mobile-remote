@@ -82,6 +82,9 @@ apps/mobile/android/app/capacitor.build.gradle
 # Local Harmony command line SDK archives, tools and extraction staging
 /.local-tools/
 
+# Root Hvigor local build cache and logs
+/.hvigor/
+
 # Downloaded JPush binaries and local public AppKey configuration
 apps/mobile/ios/App/JPushSDK/Binaries/
 apps/mobile/ios/App/Push.local.xcconfig
@@ -89,3 +92,7 @@ apps/mobile/ios/App/Push.local.xcconfig
 # Harmony signing profiles and certificate requests
 *.p7b
 *.csr
+
+# Android vendor push client configuration (private local values)
+apps/mobile/android/app/push.local.properties
+apps/mobile/android/app/agconnect-services.json

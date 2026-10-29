@@ -18,7 +18,7 @@ export default function NotificationSettings({ port }: { port: ExperiencePort })
     const timer = window.setInterval(() => refresh(), 5000)
     return () => { mounted = false; window.clearInterval(timer) }
   }, [port])
-  const { enabled, remoteConfigured, remoteEnabled, remoteReady, pushError } = status
+  const { enabled, remoteConfigured, remoteEnabled, remoteReady, pushError, vendorConfigured } = status
   return <div style={{ padding: 16 }}>
     <Button disabled={busy} onClick={() => {
       setBusy(true)
@@ -28,7 +28,7 @@ export default function NotificationSettings({ port }: { port: ExperiencePort })
         setStatus(await port.notificationStatus())
       }).catch(() => setNotice('无法更新通知设置')).finally(() => setBusy(false))
     }}>{enabled ? '关闭会话通知' : '启用会话通知'}</Button>
-    <p>提醒待审批、待回答、任务完成和失败。通知隐藏会话内容；前台正在查看的会话不提醒。</p>
+    <p>提醒待审批、待回答、任务完成和失败。通知隐藏会话内容；应用在前台时不显示系统提醒。</p>
     {remoteConfigured === undefined
       ? <p>App 在线并收到会话事件时可显示本地提醒。</p>
       : <>
@@ -38,6 +38,7 @@ export default function NotificationSettings({ port }: { port: ExperiencePort })
           void port.setNotifications({ enabled: true }).then(() => port.notificationStatus()).then(setStatus)
             .catch(() => setNotice('无法启用后台通知')).finally(() => setBusy(false))
         }}>启用后台通知（极光）</Button>}
+        {enabled && vendorConfigured === false && <p>当前手机的离线通知通道尚未配置，应用退出后可能收不到提醒。</p>}
         <p role="status">{!remoteConfigured ? '远程通知尚未配置，当前仅提供在线提醒。'
           : !enabled ? '远程通知已关闭。'
           : remoteEnabled === false ? '后台通知尚未启用，当前仅提供在线提醒。'

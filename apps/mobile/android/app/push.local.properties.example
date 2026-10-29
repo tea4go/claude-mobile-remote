@@ -1,0 +1,13 @@
+# Copy to push.local.properties (ignored). Values must match the Android package/signature.
+# Only client SDK parameters belong here; NEVER add JPush Master Secret or vendor server secrets.
+XIAOMI_APPID=
+XIAOMI_APPKEY=
+HONOR_APPID=
+# OP- prefix is added automatically if absent.
+OPPO_APPID=
+OPPO_APPKEY=
+OPPO_APPSECRET=
+VIVO_APPID=
+VIVO_APPKEY=
+# Huawei: download the Android app's agconnect-services.json to this directory.
+# Do not use the Harmony application configuration.

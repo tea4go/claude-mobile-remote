@@ -772,6 +772,12 @@ WhaleTerm→edo 通知接口只传固定事件类别、最小不透明路由标�
 
 三端共用契约核对：WebSocket envelope、Session/Turn 状态、配对负载和命令没有变化；iOS 用本机极光 RID 登记，Android/Harmony 后续各用原生厂商/极光标识实现等价通知绑定，不依赖 DOM 或 iOS 专属 wire 字段。此次仅实施 iOS；用户自行编译 App 验证，不执行 Git 写操作。
 
+## D103 · Android/Harmony 接入极光基础离线通知（2026-10-28）
+
+用户确认将已验证的iOS文字通知与点击接力扩展至Android及HarmonyOS NEXT，继续沿用D100/D102的edo HTTPS、RID登记和不透明topic，不增加端口或公网WebSocket。前台抑制系统提醒，移除配对后拒绝旧点击并尽力解绑；系统强制停止及离线撤销受平台限制。可操作平台配置并按需部署edo，不发布、不提交。三端共用契约核对：不改WebSocket、配对及Session/Turn模型；两端原生适配实现相同hash/本地映射，平台专属通知字段仅在极光投递载荷内，不进入共用wire。
+
+D103范围调整：用户明确Harmony因签名变更先暂停，本轮先实现Android，并支持小米/Redmi、华为/荣耀、OPPO/vivo。极光统一API及路由，厂商离线通道仍需各自参数；不冒用Harmony应用凭据用于Android。
+
 ## D104 · Harmony团队新包优先发布
 
 - **日期**：2026-10-28
