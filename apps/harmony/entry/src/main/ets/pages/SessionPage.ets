@@ -68,7 +68,7 @@ export struct SessionPage {
   @Prop textOnly: boolean = false
   @State private now: number = Date.now()
   private clock: number = -1
-  @Prop title: string = 'Claude Mobile Remote'
+  @Prop title: string = 'Whale Remote Control'
   @Prop @Watch('stateChanged') state: HarmonySessionState
   @Prop draft: ComposerDraft = emptyDraft()
   @Prop speechActive: boolean = false
@@ -82,6 +82,7 @@ export struct SessionPage {
   @State private sheet: string = ''
   private trackedAction: string = ''
   private readonly scroller: Scroller = new Scroller()
+  @State private atBottom: boolean = true
   @Prop questionAnswers: Array<QuestionAnswer> = []
   @Prop capabilities: Array<string> = []
   @Prop managementBusy: boolean = false
@@ -215,12 +216,13 @@ export struct SessionPage {
           if (this.state.pendingAction !== null) { Button('待处理事项', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.sheet = 'action' }) }
           if (this.state.queuedRequests.length > 0) { Button(`排队 ${this.state.queuedRequests.length}`, { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.sheet = 'queue' }) }
         }
-        Scroll(this.scroller) {
-          MessageList({ messages: this.state.messages })
-        }.layoutWeight(1).width('100%').align(Alignment.TopStart).padding(12)
+        MessageList({ messages: this.state.messages, scroller: this.scroller,
+          onAtBottom: (value: boolean) => { this.atBottom = value } })
+          .layoutWeight(1).width('100%').padding(12)
         Row() {
           Blank()
-          Button('最新消息 ↓', { type: ButtonType.Normal }).height(32).fontSize(12).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.scroller.scrollEdge(Edge.Bottom))
+          Button(this.atBottom ? '已到最新消息' : '最新消息 ↓', { type: ButtonType.Normal }).height(32).fontSize(12).fontColor(PRIMARY)
+            .backgroundColor(Color.Transparent).enabled(!this.atBottom).onClick(() => this.scroller.scrollEdge(Edge.Bottom))
         }.padding({ right: 12 })
         Column() {
           MessageComposer({ textOnly: this.textOnly, draft: this.draft, composerEnabled: this.state.canSend,

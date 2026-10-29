@@ -772,6 +772,20 @@ WhaleTerm→edo 通知接口只传固定事件类别、最小不透明路由标�
 
 三端共用契约核对：WebSocket envelope、Session/Turn 状态、配对负载和命令没有变化；iOS 用本机极光 RID 登记，Android/Harmony 后续各用原生厂商/极光标识实现等价通知绑定，不依赖 DOM 或 iOS 专属 wire 字段。此次仅实施 iOS；用户自行编译 App 验证，不执行 Git 写操作。
 
+## D104 · Harmony团队新包优先发布
+
+- **日期**：2026-10-28
+- **决策**：用户确认Harmony迁移团队使用新包名`com.tea4go.claudemobileremote1028`及新APP ID `6917620267596106735`，先发布邀请测试；推送后续处理。
+- **影响**：替代AppTest设计中固定旧包名的限制；本轮不迁移iOS/Android极光配置或edo，不把未完成Harmony推送作为可用功能。旧应用删除申请独立等待平台处理。
+- **状态**：已确认
+
+## D105 · Harmony 显示名称改为 Whale Remote Control
+
+- **日期**：2026-10-29
+- **决策**：用户确认 Harmony 对外显示名称改为 `Whale Remote Control`，处理华为反馈的名称近似 Claude 问题。
+- **影响**：同步应用和桌面标签、应用内品牌标题、通知标题及后续上架资料；保留包名 `com.tea4go.claudemobileremote1028`、签名和功能协议，iOS/Android 本次不改名。平台审核通过与否仍以实际结果为准。
+- **状态**：已确认
+
 ## D106 · Android发布身份与AGC签名方式二（2026-10-29）
 
 - **决策**：用户指定Android名称`Whale Remote Control`、包名`com.tea4go.claudemobileremote.android`，暂停系统通知推送功能开发，优先准备Android APK测试分发；用户确认采用AGC应用签名方式二，由开发者本地生成/保留发布密钥，将加密副本交给AGC托管。

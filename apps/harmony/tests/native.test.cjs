@@ -6,6 +6,7 @@ const path = require('node:path')
 const os = require('node:os')
 const vm = require('node:vm')
 const crypto = require('node:crypto')
+const { promisify } = require('node:util')
 const ts = require('../../mobile/node_modules/typescript')
 const root = path.resolve(__dirname, '../entry/src/main/ets')
 const keys = new Map(), handles = new Map(); let handle = 0
@@ -27,13 +28,14 @@ const huks = {
   }, abortSession: async id => { handles.delete(id) },
 }
 const fileIo = {
-  accessSync: fs.existsSync, mkdirSync: fs.mkdirSync, listFileSync: fs.readdirSync,
-  statSync(value) { const stat = typeof value === 'number' ? fs.fstatSync(value) : fs.statSync(value); return { size: stat.size, mtime: stat.mtimeMs / 1000 } },
-  readTextSync: file => fs.readFileSync(file, 'utf8'),
+  access: async file => { try { await fs.promises.access(file); return true } catch (error) { if (error.code === 'ENOENT') return false; throw error } },
+  mkdir: fs.promises.mkdir, listFile: fs.promises.readdir,
+  async stat(value) { const stat = typeof value === 'number' ? await promisify(fs.fstat)(value) : await fs.promises.stat(value); return { size: stat.size, mtime: stat.mtimeMs / 1000 } },
+  readText: file => fs.promises.readFile(file, 'utf8'),
   OpenMode: { CREATE: fs.constants.O_CREAT, WRITE_ONLY: fs.constants.O_WRONLY, TRUNC: fs.constants.O_TRUNC },
-  openSync: (file, mode) => ({ fd: fs.openSync(file, mode) }),
-  writeSync: (fd, data) => fs.writeSync(fd, Buffer.from(data)), fsyncSync: fs.fsyncSync,
-  closeSync: file => fs.closeSync(file.fd), renameSync: fs.renameSync, unlinkSync: fs.unlinkSync,
+  open: async (file, mode) => ({ fd: await promisify(fs.open)(file, mode) }),
+  write: async (fd, data) => (await promisify(fs.write)(fd, Buffer.from(data))).bytesWritten,
+  fsync: promisify(fs.fsync), close: file => promisify(fs.close)(file.fd), rename: fs.promises.rename, unlink: fs.promises.unlink,
 }
 const util = {
   TextEncoder: class { encodeInto(text) { return new TextEncoder().encode(text) } },
@@ -51,9 +53,9 @@ function loader(overrides = {}) {
     if (modules.has(file)) return modules.get(file).exports
     const output = ts.transpileModule(fs.readFileSync(file, 'utf8'), { fileName: file.replace('.ets', '.ts'), compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } })
     const module = { exports: {} }; modules.set(file, module)
-    const kits = { '@kit.CoreFileKit': { fileIo }, '@kit.ArkTS': { util }, '@kit.CryptoArchitectureKit': { cryptoFramework }, '@kit.UniversalKeystoreKit': { huks }, ...overrides }
+    const kits = { '@kit.CoreFileKit': { fileIo }, '@kit.ArkTS': { util }, '@kit.ArkUI': { FrameCallback: class {} }, '@kit.CryptoArchitectureKit': { cryptoFramework }, '@kit.UniversalKeystoreKit': { huks }, ...overrides }
     vm.runInThisContext(`(function(require,module,exports){${output.outputText}\n})`, { filename: file })(id => {
-      if (id === '@ohos.fileio') return { chmodSync: fs.chmodSync }
+      if (id === '@ohos.fileio') return overrides[id] ?? { chmod: fs.promises.chmod }
       if (id.startsWith('@kit.')) return kits[id] ?? {}
       return load(path.relative(root, path.resolve(path.dirname(file), id)))
     }, module, module.exports)
@@ -62,6 +64,14 @@ function loader(overrides = {}) {
   return load
 }
 const pairing = { version: 1, wsUrl: 'ws://example.test/ws', sessionId: '测试/session', pairToken: 'synthetic-credential-only', expiresAt: '2099-01-01T00:00:00Z' }
+test('native/page work starts only after the feedback frame and cannot run twice', () => {
+  const { FeedbackFrame } = loader()('ui/feedbackFrame')
+  let calls = 0
+  const frame = new FeedbackFrame(() => { calls++ })
+  assert.equal(calls, 0)
+  frame.onFrame(0); assert.equal(calls, 0)
+  frame.onIdle(0); frame.onIdle(0); assert.equal(calls, 1)
+})
 async function storageTest(run) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-native-'))
   const load = loader(); const { NativeStorage } = load('native/storage')
@@ -122,6 +132,54 @@ test('cache total quota evicts oldest files and corrupted cache cannot load', as
   fs.writeFileSync(path.join(dirpath, name), '{invalid')
   assert.equal(await store.readCache('s12'), null)
 }))
+test('pending disk flush yields to UI timers and flags retain serial read-after-write order', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-async-storage-'))
+  let release, entered
+  const flushing = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  const load = loader({ '@kit.CoreFileKit': { fileIo: { ...fileIo, fsync: async fd => { entered(); await gate; await fileIo.fsync(fd) } } } })
+  const { NativeStorage } = load('native/storage')
+  const store = new NativeStorage({ filesDir: dir })
+  try {
+    const saving = store.setNotificationsEnabled(true)
+    await flushing
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(fs.existsSync(path.join(dir, 'cmr/notifications')), false, 'unflushed bytes must not replace the live file')
+    const reading = store.readNotificationsEnabled()
+    release(); await saving
+    assert.equal(await reading, true)
+    await Promise.all([store.setPushConsent(true), store.setPushConsent(false)])
+    assert.equal(await store.readPushConsent(), false)
+    assert.equal(fs.statSync(path.join(dir, 'cmr')).mode & 0o777, 0o700)
+    assert.equal(fs.statSync(path.join(dir, 'cmr/notifications')).mode & 0o777, 0o600)
+  } finally { release(); fs.rmSync(dir, { recursive: true, force: true }) }
+})
+test('short writes complete; a failed write preserves the prior value and releases the queue', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-storage-failure-'))
+  let fail = false, writes = 0
+  const load = loader({ '@kit.CoreFileKit': { fileIo: { ...fileIo, write: async (fd, data) => {
+    if (fail) throw new Error('synthetic write failure')
+    writes++
+    return fileIo.write(fd, Buffer.from(data).subarray(0, 3))
+  } } } })
+  const store = new (load('native/storage').NativeStorage)({ filesDir: dir })
+  try {
+    await store.setNotificationsEnabled(true)
+    assert.ok(writes > 1)
+    fail = true
+    await assert.rejects(store.setNotificationsEnabled(false), /synthetic write failure/)
+    assert.equal(await store.readNotificationsEnabled(), true)
+    fail = false
+    await store.setNotificationsEnabled(false)
+    assert.equal(await store.readNotificationsEnabled(), false)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+test('failed private-directory initialization cannot be bypassed by later queued operations', async () => {
+  const load = loader({ '@kit.CoreFileKit': { fileIo: { ...fileIo, access: async () => { throw new Error('synthetic permission failure') } } } })
+  const store = new (load('native/storage').NativeStorage)({ filesDir: '/unused-synthetic' })
+  await assert.rejects(store.readNotificationsEnabled(), /storage initialization failed/)
+  await assert.rejects(store.setNotificationsEnabled(true), /storage initialization failed/)
+})
 test('cold notification route is retained until consumed and lifecycle delivered', () => {
   const { nativeLifecycle } = loader()('native/lifecycle'); const calls = []
   nativeLifecycle.attach({}, { parameters: { cmrSessionId: 's1' } }); assert.equal(nativeLifecycle.pendingSessionId, 's1')

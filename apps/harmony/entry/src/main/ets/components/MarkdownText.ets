@@ -12,12 +12,15 @@ export struct MarkdownText {
   private inline(text: string, size: number = 14) {
     Text() {
       ForEach(inlineMarkdown(text), (part: InlineText) => {
+        if (part.style === 'link') {
+          Span(part.text).fontColor('#1677ff').onClick(() => this.openLink(part.url))
+        } else {
         Span(part.text)
           .fontWeight(part.style === 'bold' ? FontWeight.Bold : FontWeight.Normal)
           .fontFamily(part.style === 'code' ? 'monospace' : 'sans-serif')
           .fontColor(part.style === 'link' ? '#1677ff' : '#252525')
           .decoration({ type: part.style === 'strike' ? TextDecorationType.LineThrough : TextDecorationType.None })
-          .onClick(() => { if (part.style === 'link') this.openLink(part.url) })
+        }
       }, (part: InlineText, index: number) => `${index}-${JSON.stringify(part)}`)
     }.fontSize(size).copyOption(CopyOptions.LocalDevice).width('100%').textAlign(TextAlign.Start)
   }

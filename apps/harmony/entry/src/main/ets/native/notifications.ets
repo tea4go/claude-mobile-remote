@@ -44,7 +44,7 @@ export class LocalNotifications {
       await notificationManager.publish({ id, label: event.sessionId,
         notificationSlotType: notificationManager.SlotType.SOCIAL_COMMUNICATION,
         content: { notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
-          normal: { title: 'Claude Mobile Remote', text, additionalText: '打开应用查看当前状态' } },
+          normal: { title: 'Whale Remote Control', text, additionalText: '打开应用查看当前状态' } },
         wantAgent: agent, tapDismissed: true,
       })
       if (!this.enabled || this.ids.get(event.sessionId) !== id || (this.foreground && this.currentId === event.sessionId)) await notificationManager.cancel(id, event.sessionId)

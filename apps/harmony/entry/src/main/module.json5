@@ -10,6 +10,12 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    "metadata": [
+      {
+        "name": "client_id",
+        "value": "6917620267596106735"
+      }
+    ],
     "requestPermissions": [
       {
         "name": "ohos.permission.INTERNET"
@@ -20,7 +26,12 @@
       {
         "name": "ohos.permission.MICROPHONE",
         "reason": "$string:microphone_reason",
-        "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" }
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
       }
     ],
     "abilities": [
@@ -33,7 +44,19 @@
         "startWindowIcon": "$media:startIcon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
+        "launchType": "singleton",
         "skills": [
+          {
+            "actions": [
+              ""
+            ],
+            "uris": [
+              {
+                "scheme": "cmr-push",
+                "host": "notification"
+              }
+            ]
+          },
           {
             "entities": [
               "entity.system.home"

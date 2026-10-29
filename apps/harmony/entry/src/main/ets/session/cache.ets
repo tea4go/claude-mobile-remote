@@ -61,15 +61,23 @@ function displayMessage(message: FeedMessage): FeedMessage | null {
 }
 export function encodeCache(id: string, state: HarmonySessionState, now: number): string {
   const messages: Array<FeedMessage> = []
-  state.messages.slice(-200).forEach((item: FeedMessage) => { const value = displayMessage(item); if (value !== null) messages.push(value) })
   const cache: CachedSession = { version: 1, sessionId: id, savedAt: now,
     projectCwd: validText(state.projectCwd, 4096) ? state.projectCwd : undefined,
     sessionTitle: validText(state.sessionTitle, 4096) ? state.sessionTitle : undefined,
     createdAt: validText(state.createdAt, 4096) ? state.createdAt : undefined,
     lastActivityAt: validText(state.lastActivityAt, 4096) ? state.lastActivityAt : undefined, messages }
-  let encoded = JSON.stringify(cache)
-  while (utf8Bytes(encoded) > CACHE_BYTES && messages.length > 0) { messages.shift(); encoded = JSON.stringify(cache) }
-  return encoded
+  // Budget the newest suffix once. Re-stringifying a multi-MiB feed after each
+  // discarded message caused hundreds of full scans on the UI thread.
+  let bytes = utf8Bytes(JSON.stringify(cache))
+  for (let index = state.messages.length - 1; index >= Math.max(0, state.messages.length - 200); index -= 1) {
+    const value = displayMessage(state.messages[index])
+    if (value === null) continue
+    const size = utf8Bytes(JSON.stringify(value)) + (messages.length > 0 ? 1 : 0)
+    if (bytes + size > CACHE_BYTES) break
+    messages.unshift(value)
+    bytes += size
+  }
+  return JSON.stringify(cache)
 }
 export function decodeCache(data: string, id: string, now: number): HarmonySessionState | null {
   if (utf8Bytes(data) > CACHE_BYTES) return null

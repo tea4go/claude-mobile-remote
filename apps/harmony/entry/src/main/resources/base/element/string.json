@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "Claude Mobile Remote Harmony entry module"
+      "value": "Whale Remote Control Harmony entry module"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "Entry ability for Claude Mobile Remote Harmony"
+      "value": "Entry ability for Whale Remote Control Harmony"
     },
     {
       "name": "EntryAbility_label",
-      "value": "Claude Mobile Remote"
+      "value": "Whale Remote Control"
     },
     {
       "name": "microphone_reason",
