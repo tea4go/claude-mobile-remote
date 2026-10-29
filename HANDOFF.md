@@ -4,6 +4,10 @@
 
 ## 当前状态
 
+- 剩余工作区归档检查点（2026-10-29）：本轮提交范围已核对为既有Android五类厂商推送适配及配置模板、共享通知设置、Go Android通知载荷及回归测试、必要设计/使用文档、D103与历史进度。.gitignore新增根.hvigor缓存/日志忽略，保留Android私有push.local.properties及agconnect-services.json忽略；不纳入密钥、配置实值或构建产物。Web定向2文件8测试及TypeScript构建检查通过；Go push/remote race通过（remote初次回环绑定被沙箱阻止，获准后重跑通过）；Android离线testDebugUnitTest与compileDebugJavaWithJavac通过，121任务均up-to-date，现有4份JUnit报告合计9测试零失败/错误/跳过（初次Gradle缓存锁被沙箱阻止，获准后通过）。gofmt检查、diff空白检查及忽略规则核对通过；未重建安装包、未部署/上传、未验证厂商真机。测试截图7个PNG、2026-10-27-testflight-result.md既有差异及2026-10-28-ios-testflight-b4-result.md继续保留未提交。推送开发仍暂停；下一步为Android新包签名/发布准备及等待Harmony云测结果，不把此次归档当作推送或上架验收。
+
+- 当前执行（2026-10-29，剩余工作区归档）：用户授权检查剩余文件，提交需要版本管理的内容，将不需要入库的本机文件加入.gitignore。本轮归档此前已开发的Android厂商推送/通知设置、Go Android投递及测试、配置模板和必要设计/使用说明，补齐D103及历史进度；不新增推送功能，不改发布包名/签名，不构建发布包、不部署、不推送。忽略根目录.hvigor构建日志；测试PNG及TestFlight验证MD仍保留未提交。通过条件为相关Web/Go/Android验证、暂存内容核对及diff空白检查通过后本地提交；系统通知推送开发继续暂停，真实厂商送达和Android发布准备仍待后续处理。
+
 - 当前执行（2026-10-29，Harmony优化归档提交）：用户追加授权本地提交Harmony优化。范围为现有Harmony点击响应/消息懒加载/异步I/O/缓存裁剪及回归测试、团队新包与更名发布配置、设备采集脚本及对应文档；保留隔离目录中的未完成推送源码，不启用推送。排除Android/iOS/Go推送改动、无关进度、截图、构建缓存、签名材料和产物，不推送。
 
 - Harmony优化提交检查点（2026-10-29）：重新执行59项Harmony测试及16文件逻辑检查、2项点击采集工具单测、采集脚本bash语法检查，均通过；提交前核对差异及空白检查。沿用已有1.0.3（1000003）team-1028签名Release构建/官方验签结果，本轮未重建、未连接真机或操作后台。用户已上传修复包并提交云测的反馈沿用，云测报告尚未返回，不能认定319ms已降至250ms以内或审核通过；下一步收到云测报告后复核demo/扫码响应，并继续Android发布准备。详细修复和签名证据见docs/testing/2026-10-29-harmony-click-response-result.md。
@@ -11,6 +15,88 @@
 - 当前执行（2026-10-29，Android上架进度归档）：用户要求先记录进度并执行本地Git提交。本次仅提交本轮新增的Android分发检查点和签名决策，不纳入工作区其他既有代码、历史文档差异或构建产物，不推送。通过条件为本轮文档差异核对、空白检查和本地提交完成。
 
 - Android上架检查点（2026-10-29）：目标名称为`Whale Remote Control`，包名为`com.tea4go.claudemobileremote.android`；系统通知推送开发继续暂停，这不代表Android现有推送SDK/初始化已被禁用。用户确认采用AGC应用签名方式二（本地保留发布密钥，上传加密副本供AGC托管），详见D106。只读检查确认Android工程仍使用旧名称`Claude Mobile Remote`及旧applicationId `com.tea4go.claudemobileremote`，未配置Release signingConfig，现有4_android_build.sh --release输出未签名APK。尚未修改Android名称/包名或隔离推送，未生成Android发布密钥、PEPK加密ZIP或上传证书，未构建签名APK、操作AGC签名配置或上传Android版本。下一步先核实是否已有适用于目标Android应用的发布密钥；若已有发布记录须保持签名连续性，否则准备独立Android发布密钥及仓库外备份，再按当前AGC页面要求导出PEPK ZIP。独立上传密钥为安全建议，尚未创建或登记。随后补齐Android发布设计/计划并实施名称、包名、暂停推送的发布配置及签名APK验证；平台接收、测试审核和真机安装均待验证。本轮仅文档归档，执行diff空白检查，不重跑功能测试。
+
+- Harmony云测试已提交，等待结果（2026-10-29）：用户确认已上传1.0.3点击响应修复包并提交测试任务，页面预计310分钟（约5小时10分）。本机无Harmony设备；浏览器控制会话被停止，AI未独立核实任务编号、所选机型或实际预置条件。下一步依据云测报告核对demo/扫码点击响应是否<=250ms，原失败值319ms、环境HarmonyOS6.1/Pura80Pro+；当前不得标记云测或上架审核通过。无需等待本地设备即可继续云端复检。
+
+- Harmony点击响应修复包完成（2026-10-29）：针对用户提供1.0.1自检详情（HarmonyOS6.1/Pura80Pro+，319ms，目标250ms，demo/扫码），已修复演示/扫码反馈帧调度及迟到结果保护、消息List/LazyForEach、异步文件I/O、缓存超限反复序列化和空点击。59项Harmony测试/16文件逻辑检查、2项采集工具测试、官方API24 Release构建、team-1028签名与官方验签、包内标识/ZIP及diff检查通过。1.0.3（1000003）上传文件`.local-tools/harmony-apptest/signed/WhaleRemoteControl-1.0.3-click-fix-signed.app`，SHA256 `2b4ea4064786667af8a55ea2d460dc03a9b8bcb8b33e3c8eb0c855999676e57c`。用户要求按文字描述，未读取视频；实际hdc探测无设备，未测真机时延、未上传或执行Git写操作。下一步上传该修复包，云测重点复检demo/扫码是否<=250ms；本机采集入口`scripts/macos/6_harmony_click_check.sh`，验证记录`docs/testing/2026-10-29-harmony-click-response-result.md`。不能据本机检查宣称云端问题已通过。
+
+- 当前执行（2026-10-29，Harmony 点击响应修复，等待云测）：本机源码修复、59项测试、16文件检查、2项采集工具测试及1.0.3签名包已完成。用户已确认上传并提交云测，预计310分钟；用户暂无Harmony设备。等待报告核对demo/扫码是否<=250ms，再决定是否继续定位；任务编号、所选机型和预置条件未由AI独立核实。本轮未改iOS/Android、推送或通信协议，未由AI上传后台或提交Git。
+
+- Harmony 1.0.2上传包完成（2026-10-29）：Whale Remote Control 1.0.2（1000002），包名com.tea4go.claudemobileremote1028，沿用team-1028 Release证书及app_gallery Profile。隔离Release构建、官方verify-profile/verify-app、发布证书与内嵌Profile一致性、APP/HAP ZIP、pack.info及module.json版本/包名/非debug、包内新名称及git diff --check通过。上传文件.local-tools/harmony-apptest/signed/WhaleRemoteControl-1.0.2-signed.app，231299字节，SHA256 2aee8f222dad22897d1d804d1787da6d53f040a2b6fb69835328ba4f47967cce；脚本默认包与之逐字节一致。日志/tmp/cmr-harmony-102-build.log，记录docs/testing/2026-10-29-harmony-1.0.2-result.md。仅升级版本，未重跑功能测试、未真机安装、未上传或执行Git写操作；通知推送开发继续暂停。下一步用户上传并反馈平台接收/审核及安装结果；Android分发准备尚未实施。
+
+- 当前执行（2026-10-29，Harmony 1.0.2上传包）：用户明确要求再打包签名版供其上传。将版本从1.0.1（1000001）升级为1.0.2（1000002），沿用Whale Remote Control名称、新团队包名及既有Release/app_gallery签名材料；通过条件为Release构建、官方验签、APP/HAP完整性、包内版本/名称/非debug核对通过。系统通知推送开发按用户要求暂停；本轮不改Android、不上传后台、不执行Git写操作。
+
+- 当前执行（2026-10-29，Harmony隐私声明更名关联）：用户授权在Chrome处理上架名称不一致提示；核对团队新应用既有声明，优先复用原数据处理描述创建Whale Remote Control名称的新声明并关联，核实后台结果。不变更实际处理范围、不提交应用审核、不执行Git写操作；涉及法律承诺时展示具体内容后取得执行时确认。
+
+- 发布包完成（2026-10-29）：Harmony 1.0.1（1000001）Release签名APP构建完成，包含Whale Remote Control新名称，沿用团队app_gallery签名。官方verify-profile/verify-app、APP与HAP ZIP完整性、包名/版本/Release非debug及资源中英文新名称核对、git diff --check通过。上传文件.local-tools/harmony-apptest/signed/WhaleRemoteControl-1.0.1-signed.app，SHA256 93f3484f11d9bf41bf3799eb40b24192dfe935947b41a125da48f926bab946ac；原脚本默认同字节文件ClaudeMobileRemote-signed.app也已更新。日志/tmp/cmr-harmony-101-build.log。未重跑功能测试、未真机安装、未上传或提交Git；用户同步后台名称/截图/隐私政策后上传再审。
+
+- 当前执行（2026-10-29，Harmony 1.0.1发布包）：用户要求构建新版本；更新versionName为1.0.1、versionCode为1000001，包含D105新名称，沿用团队Release签名与app_gallery Profile。通过条件为Release构建、官方验签、ZIP完整性及包内版本/名称核对通过；交用户上传，不操作后台、不执行Git写操作。
+
+- Harmony更名完成（2026-10-29）：按D105统一为 Whale Remote Control，覆盖AppScope/EntryAbility名称及描述、配对页、详情默认标题、通知标题。两份JSON解析/名称断言、活动源码旧品牌扫描及git diff --check通过。包名、版本及签名未改；无构建、后台操作或Git写操作。现有签名APP仍是旧名称，后续需重新构建签名，同步后台名称、截图及隐私政策再提交；真机名称与重新审核尚未验证。
+
+- 当前执行（2026-10-29，Harmony更名）：用户确认采用 Whale Remote Control，以处理名称近似 Claude 的审核驳回。仅统一 Harmony 应用/桌面标签、应用内默认标题和通知标题，保留现有包名、版本及签名，不构建、不提交、不操作后台。通过条件为名称资源合法、活动源码旧品牌展示文案清理及 diff 检查通过；后续重新签名构建并同步上架资料、截图和隐私政策后再审。
+
+- 隐私草稿修订检查点（2026-10-28）：用户提供公开邮箱并在表单中设置为邮箱，已确认草稿保存；麦克风及处理描述修正为系统离线语音识别。项目所用SDK的speechRecognizer.d.ts明确online=1为offline，之前称在线是误判。后台仍提示个人信息部分错误，功能条款的“以便”下拉尚未选择（选项涉及订立/履行合同，未核实合同基础）；存储地点现为中国境内，但模板声称上述信息均存于该地区服务器，与用户自控电脑及本地/离线处理不必然一致，生成前须纠正或明确适用范围。正式协议尚未生成或关联。无Git写操作。
+
+- 隐私政策草稿检查点（2026-10-28）：Chrome团队新应用协议草稿已据1.0.0实现填写产品、配对和会话/附件、在线语音、本地加密凭证与缓存、麦克风用途及删除路径；未将极光离线推送描述为已启用。后台明确提示保存成功。模板中信息处理依据及具体用途下拉项、公开联系邮箱仍未填；存储字段暂写“用户自行控制的电脑所在地区，由用户确定”，模板将其套用全部信息，需在生成前纠正并核实系统在线语音服务的数据处理/存储地点，不得误称全部数据存于用户电脑。尚未生成正式协议或关联发布；已请求公开邮箱，下一步补齐并预览核对。无Git写操作。
+
+- 当前执行（2026-10-28，Harmony隐私政策草稿）：用户要求完善Chrome中团队新包的发布前隐私政策。依据当前1.0.0代码核查配对、消息、附件、系统扫码/文件选择、在线语音、本地通知及私有存储；在华为协议草稿中如实填写已知内容，不将暂停的极光推送写成已启用，不臆造服务器地域或联系方式。保存并核对草稿；生效/生成及应用关联状态据后台记录，无Git写操作。
+
+- 新包1.0.0 Release签名完成（2026-10-28）：按用户要求将Harmony版本名改为1.0.0、版本号1000000，重新用团队Release证书和app_gallery Profile构建。APP及嵌入HAP ZIP完整性、包名、Release非debug、版本、内嵌Profile和华为验签通过，git diff --check通过；之前53项测试及16文件逻辑检查通过，本次仅改版本未重跑。产物.local-tools/harmony-apptest/signed/ClaudeMobileRemote-signed.app，SHA256 708ec32fab1e35d91adf7a5d03633d5c4ce2881940d10c70ea7332240584819e，替代该路径此前1.0.3文件。用户自行上传，平台接收/审核及真机尚未验证；推送暂未启用，无Git写操作。
+
+- 当前执行（2026-10-28，新包版本重设）：用户要求团队新包使用1.0.0。将Harmony版本名从1.0.3改为1.0.0，版本号从1000003同步为1000000；沿用已匹配的新团队Release证书与app_gallery Profile，重新隔离构建签名APP并核验版本、包名、签名和完整性，交用户上传。此前1.0.3产物由本次新构建替代，推送暂不启用，无Git写操作。
+
+- 团队Release上传包完成（2026-10-28）：用户签发ClaudeRemoteControl-Mac-Release-1028并更新ClaudeMobileRemote1028-Release Profile。已核实证书与team-1028私钥/CSR匹配，Profile为release/app_gallery、新包名且证书匹配；1.0.3（1000003）Release APP隔离构建成功，嵌入HAP包名、release/debug标记、ZIP完整性、内嵌Profile及华为verify-profile/verify-app验签通过，签名叶证书与新团队Release证书一致。产物.local-tools/harmony-apptest/signed/ClaudeMobileRemote-signed.app，SHA256 602791aae3faaed8e95297342f40c6862a8b179416ca33ff2425be53346f9290。53测试、16文件逻辑检查及git diff --check通过；推送暂未启用。用户自行上传邀请测试，平台接收/审核和真机尚未验证，无Git写操作。
+
+- Release续办阻塞（2026-10-28）：team-1028仓库外Release私钥及CSR已备妥，团队现有MyPhoneCSR私钥未找到且不匹配本机两套旧密钥；签发新发布证书和匹配app_gallery Profile后方可签名。浏览器已切换刘启铨团队，但证书页和刷新后的标签页持续空白未完成载入，未申请/签发新Release证书，未构建签名Release APP。下一步恢复证书管理页，使用team-1028/release.csr申请发布证书并下载，更新新包Release Profile，核对匹配后运行5_harmony_apptest.sh --config team-1028/signing.json；用户自行上传。Debug HAP已完成但不能代替发布包。
+
+- 当前执行（2026-10-28，团队Release上传包）：用户要求编译签名版本供其自行上传邀请调试并等待审核真机验收。使用已准备于仓库外team-1028的独立Release私钥/CSR，申请匹配团队发布证书并创建或更新新包名的app_gallery发布Profile，隔离构建1.0.3 Release APP并核验签名/标识；用户自行上传。现有MyPhoneCSR原私钥不在本机，不撤销旧证书；推送暂不启用，无Git写操作。通过条件为签名产物及证书/Profile一致、华为工具验签与ZIP完整性检查通过。
+
+- 团队Debug签名HAP完成（2026-10-28）：用户更新Profile后已验证debug、新包名com.tea4go.claudemobileremote1028、2台设备及新团队Debug证书匹配，保存于仓库外私有签名目录。1.0.3 Debug HAP构建成功，ZIP完整性、debug标记/包名/版本、嵌入Profile及华为verify-profile/verify-app验签通过；签名证书为刘启铨Development。产物.local-tools/harmony-apptest/team-debug/ClaudeRemoteControl-1028-1.0.3-debug-signed.hap，SHA256 4cef63c6c54f4adbe2fbed5362474c8a324887ce55708880be8041a0d8880b8a。首次签名遇JDK ZIP64校验兼容错误，使用本次进程JAVA_TOOL_OPTIONS禁用该额外字段校验后成功，另做ZIP完整性检查。53项测试、16文件逻辑检查、git diff --check通过；hdc设备列表未返回结果已停止，尚未真机安装验证。Debug包仅限Profile包含设备，不能作为AppTest发布包；邀请发布仍需匹配团队Release证书私钥和Release Profile、签名上传及后台审核。推送未启用，无Git写操作。
+
+- Debug签名续办检查点（2026-10-28）：用户已签发并下载ClaudeRemoteControl-Mac-Debug-1028.cer，已验证叶证书匹配team-debug-1028本地私钥/CSR。用户更新并下载ClaudeMobileRemote1028-DebugDebug.p7b；已核实debug类型、新包名、2台设备及development-certificate匹配新团队证书。接下来保存私有Profile并执行隔离Debug HAP构建、官方验签、标识/嵌入Profile核对；不重新创建证书或Profile，不将Debug包声明为AppTest发布成功。
+
+- Debug证书提交前检查点（2026-10-28）：独立新材料已生成于仓库外harmony-signing/team-debug-1028（debug.p12/debug.csr、密码文件及signing.json，目录0700文件0600）。华为团队申请表已填写ClaudeRemoteControl-Mac-Debug-1028、调试证书，上传debug.csr，停在最终提交；依据浏览器新安全凭据规则已请求执行时确认，尚未签发。临时隔离Debug HAP打包/验签脚本已准备并通过语法检查，须待匹配证书及设备Profile下载后执行；未构建签名HAP。
+
+- 当前执行（2026-10-28，团队Debug新签名）：用户确认MyPhoneCSR原私钥不可得，明确要求新建团队Debug证书并用其打包ClaudeRemoteControl。当前交付转为新包com.tea4go.claudemobileremote1028的指定设备Debug签名HAP；先生成仓库外独立私钥/CSR，团队签发Debug证书及匹配设备Profile，再构建验签。此包不作为AppTest上传包；邀请测试仍待独立Release签名。旧证书/私钥不删除，不改推送/iOS/Android/edo，无Git写操作。
+
+- 当前执行修订（2026-10-28）：用户澄清本地两套密钥属于旧个人账号，明确授权重新生成本机签名材料并使用团队签发证书，替代此前“不新建证书/找回MyPhoneCSR私钥”的限制。继续仓库外team-1028独立材料及团队签发/Profile；邀请测试使用Release/app_gallery，指定设备本机调试使用独立Debug。旧个人材料保留，不影响新签名。通过条件沿用新包构建验签、平台接收及邀请状态核实，无Git写操作。
+
+- 签名范围修订（2026-10-28）：用户明确要求不新建华为证书，使用团队现有MyPhoneCSR Release和Debug。已停止新增流程，未上传CSR、未提交创建证书。此前已在仓库外team-1028生成一套未签发私钥/CSR（未使用，旧材料未删）。直接读取用户指定目录原有debug.p12与release/release.p12的证书公钥再次核对，均不匹配新应用发布Profile中MyPhoneCSR的公钥；因此不能用这两套旧本机私钥完成现有团队证书签名。当前需定位创建MyPhoneCSR时的原始.p12及本地密码配置；不得以下载.cer替代私钥。新包编译/53测试/16文件逻辑检查通过，签名上传及邀请发布仍未完成。
+
+- 新包检查点（2026-10-28）：新应用发布Profile已由用户创建并下载，核实release/app_gallery、新包名及APP ID正确；关联MyPhoneCSR公钥与用户指定私有目录内debug/release两套CSR均不匹配。新包1.0.3未签名Release真实构建通过（SHA256 07905fe94ef6096351d66d48f7fa44dc41fce9bbe76a9ef315baee54236e47dd），53项测试及16文件逻辑类型检查通过。未配置推送从活动依赖/Ability/AppShell初始化中隔离，未完成源码移至apps/harmony/deferred-push保留；iOS/Android/edo未改。本轮待准备匹配本机私钥的团队证书和新Profile，未签名/上传/发布；原本地旧材料保留。
+
+- 当前执行（2026-10-28，团队新包邀请测试）：用户明确确认使用已创建的新包名 com.tea4go.claudemobileremote1028，团队刘启铨，APP ID 6917620267596106735、项目101653523865476343。替代此前保留旧包名/等待删除的发布路线；本轮只完成Harmony新应用签名、1.0.3构建与AppTest邀请测试，不实现推送，不改iOS/Android/edo。保留旧签名和未完成推送源码，发布路径禁用未配置推送。通过条件为新包标识与团队Profile一致、本机构建验签通过、后台接收并核实邀请测试状态；真机安装另验，无Git写操作。
+
+- 删除申请已提交（2026-10-28）：用户在知悉不可恢复及凭据/服务影响后明确确认永久删除。对张玉梅主体Claude Mobile Remote（APP ID 6917619813829911575）点击删除最终确认，华为转入“已上架鸿蒙应用申请删除”申诉流程，要求运营审核。已提交指定应用删除申请，说明团队重建、固定原包名及请求确认释放规则；工单461323199010855107，后台状态“处理中”，提示3个工作日处理。互动中心同时可见更早同主题申请“使用团队账号发布，删除旧应用”（12:26）也在处理中，本轮不重复追加。应用尚未确认删除、包名尚未确认释放，未重签/构建/发布。等待华为处理后复核旧APP ID及团队创建结果；工程包名未改、旧本地签名材料保留，无Git写操作。
+
+- TestFlight build4外测发布完成（2026-10-28）：用户开通App管理权限后控件可用；已保存出口合规“不属于上述的任意一种算法”（沿用系统加密核查），将既有1.0(4)加入Public Beta，填写后台/退出推送、通知点击详情及重连、前台抑制、删除配对和离线演示测试说明，保持“自动通知测试员”勾选并点击提交审核。提交后后台Public Beta明确显示1.0(4)“正在测试”、90天后过期，故已可外测，无需等待中的审核操作。build3仍正在测试，公开链接https://testflight.apple.com/join/uCHWhPEK及50人上限保留。未重新构建上传、未执行Git写操作；生产APNs真机送达待用户通过TestFlight安装验收。此记录替代下面的权限阻塞及待发布状态。
+
+- 当前执行续办（2026-10-28，TestFlight build4）：用户已为当前账号开通App管理权限，授权继续原上传发布任务。浏览器已出现出口合规“管理”及外测管理控件；继续既有build4合规、Public Beta及审核发布，不重新构建上传，不执行Git写操作。以后台最终状态为通过依据。
+
+- TestFlight build4已上传，外测发布待账号切换（2026-10-28）：用户授权上传发布后，沿用原归档上传成功，Apple 12:30:23返回Upload succeeded。后台build4已处理完成，ID 9fe23515-d48d-4734-aa0b-abf94e14d5bf，当前缺少出口合规证明，群组0；旧build3继续在Public Beta测试，原公开链接及50人上限未改。当前Chrome账号个人设置明确角色为“开发者”，测试信息只读、外测组无添加构建控件；Apple文档要求账户持有人/Admin/App Manager处理合规和外测发布。已请求用户切换具备角色的账号，不自行提升权限；未填问卷、未提交Beta审核、未将build4声明为已发布。浏览器保留build4详情，上传无需重做；日志/tmp/cmr-testflight-b4-upload.log。无Git写操作。
+
+- 当前执行（2026-10-28，TestFlight build4上传发布）：用户明确授权上传并发布已验证的1.0(4)。使用既有归档及上传脚本，不重新构建；核对Apple处理、出口合规、现有Public Beta组并按需提交Beta审核/启用测试。沿用已批准的演示审核资料，测试重点补充极光后台文字通知及点击会话。通过条件为上传成功且后台核实build4状态；Apple尚未批准时仅报告待审，不宣称可安装。无Git写操作，不改其他平台发布。
+
+- iOS TestFlight推送测试包完成（2026-10-28）：1.0(4)已按Release归档并导出App Store分发IPA，包含当前iOS通知修复。37文件549项Web测试、lint、Web构建、archive/export、codesign严格验证与资源逐字节比对通过；最终IPA SDK环境、分发Profile及签名aps-environment均production，get-task-allow关闭、Team/Bundle匹配，无开发server.url，JPush/JCore隐私资源及ZIP检查通过。产物apps/mobile/ios/DerivedData/testflight-20261028-b4/export/App.ipa，2903314字节，SHA256 dad6b4551e595a92a1fb3c2a1cc0e3f39153969fa08e59a0bb1e9c109afdf233。edo原为development，已私有备份至/etc/cmr-notify/backups/20261028T034840Z-production并切换production，重启active/health204，运行进程开关true已核对；未修改密钥、Nginx或端口。下一步用户上传TestFlight、待Apple处理后真机验收；未上传/发布/执行Git写操作。详见docs/testing/2026-10-28-ios-testflight-b4-result.md。
+
+- 当前范围修订（2026-10-28）：用户撤回新包名方案，因极光Harmony应用已固定com.tea4go.claudemobileremote且不可修改，要求删除此前发布内容。尚未修改工程包名、未创建新包名应用；先只读核对旧应用、发布/测试记录、删除可恢复性及包名能否释放，不假定删除即可重新注册。永久删除须在明确对象和影响后取得执行时确认；签名重建/发布暂缓。
+
+- 删除前核查结果：已从刘启铨团队切回张玉梅个人主体，唯一Harmony应用为Claude Mobile Remote（APP ID 6917619813829911575，包名com.tea4go.claudemobileremote，准备提交）。打开删除说明，后台明确“应用删除后无法恢复”，申请的项目/应用凭据及服务也会同步删除或停用，并建议仅主体变更使用“应用转移流程”。未点最终确认，未删除任何应用；未核实删除可释放包名。下一步需用户在知悉以上影响后选择转移或明确永久删除；浏览器保留该确认框。
+
+- 当前执行补充（2026-10-28）：用户明确确认新包名com.tea4go.claudemobileremote.harmony，继续团队应用创建、工程/打包校验同步、匹配发布签名及AppTest邀请测试；旧包名占用阻塞已由本次确认解除。新应用独立安装，旧主体签名材料保留；不执行Git写操作。
+
+- 当前执行（2026-10-28，iOS TestFlight推送测试包）：用户自行配置Android各厂商key，本轮转为生成签名iOS包供其上传TestFlight，并授权检查/修正edo推送环境。现有最新已归档构建为1.0(3)，本次使用1.0(4)，Release/App Store分发签名；iOS Release已为production，edo核实为development需切回production并重启服务。范围为Web门禁/资源同步、既有自动签名归档导出、IPA/APNs/签名核验及edo环境切换；不上传、不发布、不执行Git写操作，不修改同期Harmony签名工作。通过条件为IPA签名/分发Profile及aps-environment均production，嵌入资源与最新dist一致，edo环境true且健康/鉴权检查通过；TestFlight处理及真机推送待用户验收。
+
+- Android阶段检查点（2026-10-28）：JPush6.3.0及小米/华为/荣耀/OPPO/vivo配套插件已接入，原生编译和9项单测通过，合并Manifest存在五类通道；移动相关18项测试、TS noEmit及Go push/remote race通过。RID登记/撤销、超时未知结果保留撤销记录、通知点击本地路由、前台抑制及缺厂商配置提示已实现。edo已部署ios/android载荷，SHA256 b9c918ff560dfffef148851cc8f49d6557316cf445982783351c13d16713ceb1，备份/etc/cmr-notify/backups/20261028T033314Z-android，健康204/公网GET405/无鉴权POST401。极光Android包名已保存，厂商通道0/8；用户决定自行配置各家key，尚未完成真机送达验收。无Git写操作。
+
+- 当前执行（2026-10-28，E2 Harmony团队主体签名与邀请测试）：用户确认目标主体为刘启铨/hid31950036，授权重新创建应用、更新匹配的发布签名、构建并通过AppTest发布邀请测试。先核实团队归属、包名可用性与已有证书/Profile；保留旧主体材料，复核暂停的Harmony极光改动，不将未完成推送接入视为可发布功能。通过条件为后台应用/签名一致、Release APP构建验签、平台接收和邀请测试状态核实；真机安装另验。不执行Git写操作。
+
+- 本轮检查结果：在当前主体的新建APP ID表单提交Claude Mobile Remote、原包名com.tea4go.claudemobileremote、手机及独立同名项目后，后台明确拒绝：“应用包名已存在，建议更换包名。”应用未创建，未更换包名、未生成新签名、未构建或发布。需用户确认采用新包名，或先处理旧应用归属；按既有设计不擅自更换包名。浏览器保留后台错误提示供复核。
+
+- 范围调整（2026-10-28，用户要求）：Harmony因签名变更暂停，不继续构建/配置/发布；已产生未完成接入改动保留供后续复核。当前只完成Android极光及小米/Redmi、华为、荣耀、OPPO、vivo厂商适配；厂商凭据及控制台配置为真实离线送达前置，不将普通极光长连接视为杀进程送达。Android初轮编译/原生旧测试及Go push/remote race通过，后续增量继续验证；edo尚未部署本轮代码。
+
+- 当前执行（2026-10-28，E3 Android/Harmony 极光推送）：用户确认实施两端基础文字通知、后台/退出提醒、点击对应详情并恢复连接、前台抑制、删除撤销；复用现有 edo HTTPS 路由，必要时更新部署，授权操作已打开的极光/华为配置页面。先补设计计划，再接原生SDK和多平台服务。通过条件为相关单测/静态检查、平台配置核对及用户真机验收；不发布、不执行Git写操作，不把构建通过视为送达通过。
 
 - 当前执行（2026-10-28，验收归档与提交）：用户反馈 iOS 通知最小修复验证通过，并明确授权连同此前 Harmony 图标及1.0.3相关改动一起提交。范围为移动端修复/测试、Harmony资源/生成器/版本及关联文档；排除独立TestFlight进度、历史截图、构建日志、签名材料和产物。沿用此前101项回归、类型/Swift语法及Harmony构建验签结果，本次提交内容核对与空白检查通过，按授权归档提交；不重新构建、不推送。
 

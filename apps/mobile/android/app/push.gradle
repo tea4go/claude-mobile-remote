@@ -1,0 +1,39 @@
+// Client-side identifiers only. Server secrets belong in the vendor/JPush console.
+def pushSettings = new Properties()
+def pushSettingsFile = file('push.local.properties')
+if (pushSettingsFile.exists()) pushSettingsFile.withInputStream { pushSettings.load(it) }
+def pushValue = { String key -> pushSettings.getProperty(key, '').trim() }
+def complete = { List<String> keys -> keys.every { !pushValue(it).isEmpty() } }
+def oppoValue = { String key -> def value = pushValue(key); value.isEmpty() || value.startsWith('OP-') ? value : 'OP-' + value }
+def huaweiConfig = file('agconnect-services.json')
+if (huaweiConfig.exists()) {
+    def config = new groovy.json.JsonSlurper().parse(huaweiConfig)
+    if (config.client?.package_name != 'com.tea4go.claudemobileremote') {
+        throw new GradleException('agconnect-services.json must belong to the Android application com.tea4go.claudemobileremote')
+    }
+    apply plugin: 'com.huawei.agconnect'
+}
+android {
+    buildFeatures { buildConfig true }
+    defaultConfig {
+        manifestPlaceholders += [
+            XIAOMI_APPID: pushValue('XIAOMI_APPID'), XIAOMI_APPKEY: pushValue('XIAOMI_APPKEY'),
+            HONOR_APPID: pushValue('HONOR_APPID'),
+            OPPO_APPID: oppoValue('OPPO_APPID'), OPPO_APPKEY: oppoValue('OPPO_APPKEY'), OPPO_APPSECRET: oppoValue('OPPO_APPSECRET'),
+            VIVO_APPID: pushValue('VIVO_APPID'), VIVO_APPKEY: pushValue('VIVO_APPKEY'),
+        ]
+        buildConfigField 'boolean', 'CMR_XIAOMI_PUSH_CONFIGURED', complete(['XIAOMI_APPID', 'XIAOMI_APPKEY']).toString()
+        buildConfigField 'boolean', 'CMR_HUAWEI_PUSH_CONFIGURED', huaweiConfig.exists().toString()
+        buildConfigField 'boolean', 'CMR_HONOR_PUSH_CONFIGURED', complete(['HONOR_APPID']).toString()
+        buildConfigField 'boolean', 'CMR_OPPO_PUSH_CONFIGURED', complete(['OPPO_APPID', 'OPPO_APPKEY', 'OPPO_APPSECRET']).toString()
+        buildConfigField 'boolean', 'CMR_VIVO_PUSH_CONFIGURED', complete(['VIVO_APPID', 'VIVO_APPKEY']).toString()
+    }
+}
+dependencies {
+    implementation 'cn.jiguang.sdk.plugin:xiaomi:6.3.0'
+    implementation 'cn.jiguang.sdk.plugin:huawei:6.3.0'
+    implementation 'cn.jiguang.sdk.plugin:honor:6.3.0'
+    implementation 'cn.jiguang.sdk.plugin:oppo:6.3.0'
+    implementation 'cn.jiguang.sdk.plugin:vivo:6.3.0'
+    implementation 'com.google.code.gson:gson:2.13.2'
+}

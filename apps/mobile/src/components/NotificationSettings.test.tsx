@@ -38,3 +38,10 @@ test('旧版本地提醒用户需明确启用后台通知，读取状态不触�
   fireEvent.click(screen.getByRole('button', { name: '启用后台通知（极光）' }))
   await waitFor(() => expect(setNotifications).toHaveBeenCalledWith({ enabled: true }))
 })
+
+test('Android设备登记成功也明确提示厂商离线通道未配置', async () => {
+  const port = { notificationStatus: vi.fn(async () => ({ enabled: true, remoteConfigured: true, remoteEnabled: true, remoteReady: true, vendorConfigured: false })) } as unknown as ExperiencePort
+  render(<NotificationSettings port={port} />)
+  await waitFor(() => expect(screen.getByText(/当前手机的离线通知通道尚未配置/)).toBeInTheDocument())
+  expect(screen.getByText(/应用退出后可能收不到提醒/)).toBeInTheDocument()
+})

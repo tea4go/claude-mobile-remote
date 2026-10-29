@@ -132,9 +132,13 @@ func (j *JPush) Send(ctx context.Context, n Notification) error {
 		}
 	}
 	payload := map[string]any{
-		"platform": []string{"ios"}, "audience": map[string]any{"registration_id": n.RegistrationIDs},
-		"notification": map[string]any{"ios": map[string]any{"alert": map[string]string{"title": "Claude Mobile Remote", "body": body}, "sound": "default", "thread-id": n.Topic,
-			"extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}},
+		"platform": []string{"ios", "android"}, "audience": map[string]any{"registration_id": n.RegistrationIDs},
+		"notification": map[string]any{
+			"android": map[string]any{"alert": body, "title": "Claude Mobile Remote", "display_foreground": "0", "channel_id": "cmr.session.events",
+				"intent": map[string]string{"url": "intent://notification/" + n.Topic + "#Intent;scheme=cmr-push;action=android.intent.action.VIEW;package=com.tea4go.claudemobileremote;component=com.tea4go.claudemobileremote/.MainActivity;end"},
+				"extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}},
+			"ios": map[string]any{"alert": map[string]string{"title": "Claude Mobile Remote", "body": body}, "sound": "default", "thread-id": n.Topic,
+				"extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}},
 		"options": map[string]any{"time_to_live": ttl, "apns_production": j.Production, "apns_collapse_id": n.Topic[4:]},
 	}
 	data, err := json.Marshal(payload)
