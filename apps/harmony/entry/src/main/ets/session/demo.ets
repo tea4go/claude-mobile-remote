@@ -1,5 +1,6 @@
 import { ConnectionStage, createInitialHarmonySessionState, type HarmonySessionState } from './model'
 import type { ActionResolution } from '../protocol/client'
+import { MARKDOWN_SAMPLE } from './markdownSample'
 // Memory-only synthetic scenarios. No transport, credentials, persistence or native ports.
 export class DemoController {
   state: HarmonySessionState = this.initial()
@@ -44,7 +45,8 @@ export class DemoController {
         this.state.progress = undefined; this.state.canResolveAction = true
         this.state.pendingAction = { kind: 'ask_user_question', actionId: id, requestId: id, toolName: 'AskUserQuestion', allowSessionAvailable: false,
           questions: [{ questionId: 'demo-question', header: '演示选择', question: '请选择模拟回复语言', inputType: 'choice', multiSelect: false, options: [{ label: '中文', description: '中文示例' }, { label: 'English', description: 'English example' }] }] }; this.emit()
-      } else this.stream('这是离线演示的预设回复。可以体验流式消息、审批、问答和停止。真实 Claude 操作需要扫码连接电脑。')
+      } else if (text.trim() === '演示Markdown') this.stream(MARKDOWN_SAMPLE)
+      else this.stream('这是离线演示的预设回复。可以体验流式消息、审批、问答和停止。真实 Claude 操作需要扫码连接电脑。')
     }, 500)
     return true
   }

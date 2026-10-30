@@ -1,4 +1,7 @@
 import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
+import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
+import { curves } from '@kit.ArkUI'
+import { pageFade } from '../ui/transitions'
 import { defaultSessionName, type SessionRecord } from '../session/records'
 
 function titleOf(record: SessionRecord): string {
@@ -49,10 +52,29 @@ export struct SessionListPage {
   onClearCache: () => void = () => {}
   @State private settings: boolean = false
   @State private computers: boolean = false
+  private menuSession: SessionRecord | null = null
+  private menuController: CustomDialogController = new CustomDialogController({
+    builder: ActionMenu({ title: this.menuSession === null ? '会话操作' : titleOf(this.menuSession),
+      items: this.menuItems(), onClose: (): void => { this.menuController.close() } }),
+    customStyle: true, alignment: DialogAlignment.Bottom, autoCancel: true,
+    openAnimation: { curve: curves.springMotion(0.25, 1) },
+    closeAnimation: { curve: curves.springMotion(0.25, 1) },
+  })
   private listOffset: number = 0
   @State private renamingId: string = ''
   @State private draftName: string = ''
   private readonly scroller: Scroller = new Scroller()
+
+  private menuItems(): Array<ActionMenuItem> {
+    const session = this.menuSession
+    if (session === null) return []
+    return [
+      { title: '进入', action: () => this.onOpen(session.sessionId) },
+      { title: '重命名', action: () => { this.renamingId = session.sessionId; this.draftName = titleOf(session) } },
+      { title: '移除配对', danger: true, action: () => this.remove(session) },
+    ]
+  }
+  aboutToDisappear(): void { this.menuController.close() }
 
   private remove(record: SessionRecord): void {
     AlertDialog.show({ title: '移除此配对？', message: '同时清除本机凭证、缓存与提醒，电脑端会话继续运行。',
@@ -101,21 +123,18 @@ export struct SessionListPage {
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').textAlign(TextAlign.End)
           Text(this.timeOf(session)).fontSize(11).fontColor(SECONDARY)
         }.width(72).alignItems(HorizontalAlign.End).onClick(() => this.onOpen(session.sessionId))
-        Button('⋯', { type: ButtonType.Normal }).width(44).height(44).fontSize(22).fontColor(SECONDARY).backgroundColor(Color.Transparent)
+        Button('⋯', { type: ButtonType.Normal }).width(44).height(44).fontSize(22).fontColor(SECONDARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
           .accessibilityText('会话操作').onClick(() => {
-            ActionSheet.show({ message: '', title: titleOf(session), sheets: [
-              { title: '进入', action: () => this.onOpen(session.sessionId) },
-              { title: '重命名', action: () => { this.renamingId = session.sessionId; this.draftName = titleOf(session) } },
-              { title: '移除配对', action: () => this.remove(session) },
-            ] })
+            this.menuSession = session
+            this.menuController.open()
           })
       }.width('100%').constraintSize({ minHeight: 100 }).padding({ left: 12, right: 4, top: 12, bottom: 12 })
       if (this.renamingId === session.sessionId) {
         Row({ space: 4 }) {
           TextInput({ text: this.draftName, placeholder: '本地名称' }).maxLength(255).layoutWeight(1).onChange((text: string) => { this.draftName = text })
-          Button('保存', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent)
+          Button('保存', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
             .onClick(() => { this.onRename(session.sessionId, this.draftName); this.renamingId = '' })
-          Button('取消', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(SECONDARY).backgroundColor(Color.Transparent)
+          Button('取消', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(SECONDARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
             .onClick(() => { this.renamingId = '' })
         }.padding(8)
       }
@@ -127,25 +146,27 @@ export struct SessionListPage {
       Row() {
         Text(this.settings ? (this.computers ? '已配对电脑' : '设置') : '会话列表').fontSize(22).fontWeight(FontWeight.Bold).layoutWeight(1)
         Button(this.settings ? '返回' : '设置', { type: ButtonType.Normal }).height(44).fontSize(16).fontColor(PRIMARY)
-          .backgroundColor(Color.Transparent).padding({ left: 10, right: 0 }).onClick(() => this.changePage())
+          .backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).constraintSize({ minWidth: 44 }).padding({ left: 10, right: 10 }).onClick(() => this.changePage())
       }.padding({ left: 16, right: 16, top: 8, bottom: 4 }).width('100%')
       Scroll(this.scroller) {
+        Stack({ alignContent: Alignment.TopStart }) {
+        ForEach([this.settings ? (this.computers ? 'computers' : 'settings') : 'sessions'], (page: string) => {
         Column({ space: 18 }) {
-          if (this.settings && this.computers) {
+          if (page === 'computers') {
             ForEach(devices(this.sessions), (record: SessionRecord) => {
               Row({ space: 8 }) {
                 Column({ space: 6 }) {
                   Text(pcName(record)).fontSize(16).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                   Text(this.pcStatus(record)).fontSize(12).fontColor(SECONDARY)
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                Button('移除', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor('#d4380d').backgroundColor(Color.Transparent).onClick(() => {
+                Button('移除', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor('#d4380d').backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => {
                   AlertDialog.show({ title: '移除此电脑的全部配对？', message: '本机配对与缓存会清除，电脑上的 Claude 会话继续运行。',
                     primaryButton: { value: '移除', action: () => this.onRemovePC(pcKey(record)) }, secondaryButton: { value: '取消', action: () => {} } })
                 })
               }.padding(12).width('100%').backgroundColor('#ffffff').borderRadius(12)
             }, (record: SessionRecord) => JSON.stringify([pcKey(record), pcName(record), this.pcStatus(record)]))
             if (this.sessions.length === 0) { Text('暂无已配对电脑').fontSize(14).fontColor(SECONDARY).padding(24) }
-          } else if (this.settings) {
+          } else if (page === 'settings') {
             Column() {
               Button('体验演示（无需连接电脑）').height(44).onClick(() => this.onDemo())
               Row() {
@@ -166,7 +187,7 @@ export struct SessionListPage {
               Divider().color('#eeeeef')
               Button({ type: ButtonType.Normal }) {
                 Text('清除消息缓存').fontSize(16).fontColor('#252525').width('100%').textAlign(TextAlign.Start)
-              }.width('100%').height(54).padding({ left: 16, right: 16 }).backgroundColor(Color.Transparent).onClick(() => {
+              }.width('100%').height(54).padding({ left: 16, right: 16 }).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => {
                   AlertDialog.show({ title: '清除本机消息缓存？', message: '配对仍保留；未缓存的历史无法从电脑补回。',
                     primaryButton: { value: '清除', action: () => this.onClearCache() }, secondaryButton: { value: '取消', action: () => {} } })
                 })
@@ -193,7 +214,9 @@ export struct SessionListPage {
             Button('新增配对', { type: ButtonType.Normal }).height(46).width('100%').fontSize(16).fontColor(PRIMARY)
               .backgroundColor('#ffffff').borderRadius(12).onClick(() => this.onAdd())
           }
-        }.padding({ left: 16, right: 16, top: 12, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
+        }.padding({ left: 16, right: 16, top: 12, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start).transition(pageFade())
+        }, (page: string) => page)
+        }.width('100%')
       }.layoutWeight(1).width('100%').align(Alignment.TopStart)
         .onAppear(() => { this.listOffset = this.scrollOffset; this.scroller.scrollTo({ xOffset: 0, yOffset: this.scrollOffset }) })
         .onScroll(() => { if (!this.settings) this.onScrollOffset(this.scroller.currentOffset().yOffset) })
