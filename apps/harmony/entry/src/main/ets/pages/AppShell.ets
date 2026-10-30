@@ -1,6 +1,7 @@
 import { NetworkMonitor } from '../native/network'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { FeedbackFrame } from '../ui/feedbackFrame'
+import { pageFade } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
 import { NativeStorage } from '../native/storage'
 import { SpeechDraft } from '../native/speech'
@@ -927,11 +928,11 @@ export struct AppShell {
   @Builder
   private buildCurrentView(): void {
     if (this.view === 'detail' && this.hasActiveRecord()) {
-      this.buildDetailPage()
+      Column() { this.buildDetailPage() }.width('100%').height('100%').transition(pageFade())
     } else if (this.view === 'pairing') {
-      this.buildPairingView()
+      Column() { this.buildPairingView() }.width('100%').height('100%').transition(pageFade())
     } else {
-      this.buildListView()
+      Column() { this.buildListView() }.width('100%').height('100%').transition(pageFade())
     }
   }
 
@@ -942,13 +943,16 @@ export struct AppShell {
         Text(this.nativeError).fontSize(13).fontColor('#a54b00').padding(8).onClick(() => { this.nativeError = '' })
       }
       if (!this.nativeReady) { LoadingProgress().width(32).height(32) }
+      Stack() {
       if (this.demoOpening) {
         Column({ space: 12 }) {
           LoadingProgress().width(32).height(32)
           Text('正在打开离线演示…').fontSize(14)
-        }.layoutWeight(1).width('100%').justifyContent(FlexAlign.Center)
-      } else if (this.demoOpen) { DemoPage({ onExit: () => { this.demoOpen = false } }).layoutWeight(1) }
-      else { Column() { this.buildCurrentView() }.layoutWeight(1).width('100%') }
+        }.height('100%').width('100%').justifyContent(FlexAlign.Center).transition(pageFade())
+      } else if (this.demoOpen) {
+        DemoPage({ onExit: () => { this.demoOpen = false } }).width('100%').height('100%').transition(pageFade())
+      } else { Stack() { this.buildCurrentView() }.width('100%').height('100%').transition(pageFade()) }
+      }.layoutWeight(1).width('100%').clip(true)
     }
     .width('100%')
     .height('100%')
@@ -956,8 +960,8 @@ export struct AppShell {
       Row() { Blank(); Button('调试').fontSize(12).height(38).onClick(() => { this.debugOpen = true }) }.width('100%').position({ x: 0, y: '60%' })
     }
     if (this.debugOpen) {
-      Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.debugOpen = false })
-      DebugPanel({ onClose: () => { this.debugOpen = false } })
+      Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.debugOpen = false }).transition(pageFade())
+      DebugPanel({ onClose: () => { this.debugOpen = false } }).transition(pageFade())
     }
     }.width('100%').height('100%')
   }

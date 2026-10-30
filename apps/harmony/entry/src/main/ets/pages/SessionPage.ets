@@ -1,4 +1,7 @@
 import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
+import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
+import { curves } from '@kit.ArkUI'
+import { pageFade } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
 import { type ComposerDraft, emptyDraft } from '../session/attachments'
 import type {
@@ -80,6 +83,13 @@ export struct SessionPage {
   onStopSpeech: () => void = () => {}
   onCancelSpeech: () => void = () => {}
   @State private sheet: string = ''
+  @State private pageHeight: number = 720
+  private menuController: CustomDialogController = new CustomDialogController({
+    builder: ActionMenu({ title: '会话操作', items: this.menuItems(), onClose: (): void => { this.menuController.close() } }),
+    customStyle: true, alignment: DialogAlignment.Bottom, autoCancel: true,
+    openAnimation: { curve: curves.springMotion(0.25, 1) },
+    closeAnimation: { curve: curves.springMotion(0.25, 1) },
+  })
   private trackedAction: string = ''
   private readonly scroller: Scroller = new Scroller()
   @State private atBottom: boolean = true
@@ -101,6 +111,19 @@ export struct SessionPage {
   onCancelQueued: (requestId: string) => void = () => {}
   onCreateSession: () => void = () => {}
   onStopSession: () => void = () => {}
+
+  private menuItems(): Array<ActionMenuItem> {
+    const items: Array<ActionMenuItem> = [
+      { title: '重新连接', action: () => this.onReconnect() },
+      { title: '断开连接', action: () => this.onDisconnect() },
+    ]
+    if (this.capabilities.indexOf('stop_session') >= 0) {
+      items.push({ title: '终止 Claude 会话', danger: true, enabled: this.commandReady(), action: () => {
+        if (this.commandReady()) this.onStopSession()
+      } })
+    }
+    return items
+  }
 
   private showReconnect(): boolean {
     return this.state.connection === ConnectionStage.DISCONNECTED ||
@@ -140,12 +163,17 @@ export struct SessionPage {
   aboutToAppear(): void {
     this.clock = setInterval(() => { this.now = Date.now() }, 1000)
     this.stateChanged()
-    nativeLifecycle.detailBack = () => {
+    nativeLifecycle.detailBack = this.backHandler
+  }
+  private readonly backHandler: () => boolean = () => {
       if (this.sheet.length === 0) return false
       this.closeSheet(); return true
-    }
   }
-  aboutToDisappear(): void { if (this.clock >= 0) clearInterval(this.clock); nativeLifecycle.detailBack = null }
+  aboutToDisappear(): void {
+    this.menuController.close()
+    if (this.clock >= 0) clearInterval(this.clock)
+    if (nativeLifecycle.detailBack === this.backHandler) nativeLifecycle.detailBack = null
+  }
   private stateChanged(): void {
     const id = this.state.pendingAction?.actionId ?? ''
     if (id.length > 0 && id !== this.trackedAction) this.sheet = 'action'
@@ -161,10 +189,10 @@ export struct SessionPage {
   }
   @Builder
   private drawer() {
-    Column({ space: 8 }) {
+    Column() {
       Row() {
         Text(this.sheet === 'action' ? '待处理事项' : '排队消息').fontSize(18).layoutWeight(1)
-        Button(this.sheet === 'action' ? '取消本轮' : '关闭', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent)
+        Button(this.sheet === 'action' ? '取消本轮' : '关闭', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
           .enabled(this.sheet !== 'action' || this.commandReady()).onClick(() => this.closeSheet())
       }.padding(12)
       Scroll() {
@@ -179,26 +207,20 @@ export struct SessionPage {
             QueuedSummary({ queuedRequests: this.state.queuedRequests, cancelAllowed: this.commandReady(), onCancelQueued: this.onCancelQueued })
           }
         }.padding(16).width('100%')
-      }.layoutWeight(1).width('100%').align(Alignment.TopStart)
-    }.height('70%').width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 20, topRight: 20 })
+      }.constraintSize({ maxHeight: Math.max(80, this.pageHeight * 0.75 - 68) }).width('100%').align(Alignment.TopStart)
+    }.width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 20, topRight: 20 }).transition(pageFade())
   }
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       Column() {
         Row({ space: 8 }) {
-          Button('‹', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(32).fontColor(PRIMARY).backgroundColor(Color.Transparent).accessibilityText('返回会话列表').onClick(() => this.onBack())
+          Button('‹', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(32).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).accessibilityText('返回会话列表').onClick(() => this.onBack())
           Text(this.title).fontSize(17).fontWeight(FontWeight.Medium).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           StatusBar({ state: this.state })
-          if (this.showReconnect()) { Button('重连', { type: ButtonType.Normal }).height(44).padding(4).fontSize(12).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onReconnect()) }
+          if (this.showReconnect()) { Button('重连', { type: ButtonType.Normal }).height(44).padding(4).fontSize(12).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => this.onReconnect()) }
           if (!this.textOnly) {
-          Button('⋯', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(24).fontColor(SECONDARY).backgroundColor(Color.Transparent).accessibilityText('更多会话操作').onClick(() => {
-            ActionSheet.show({ message: '', title: '会话操作', sheets: [
-              { title: '重新连接', action: () => this.onReconnect() },
-              { title: '断开连接', action: () => this.onDisconnect() },
-              { title: this.capabilities.indexOf('stop_session') >= 0 ? '终止 Claude 会话' : '关闭', action: () => {
-                if (this.capabilities.indexOf('stop_session') >= 0 && this.commandReady()) this.onStopSession()
-              } },
-            ] })
+          Button('⋯', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(24).fontColor(SECONDARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).accessibilityText('更多会话操作').onClick(() => {
+            this.menuController.open()
           })
           }
         }.padding({ left: 4, right: 4, top: 4, bottom: 4 }).width('100%').backgroundColor('#ffffff')
@@ -213,8 +235,8 @@ export struct SessionPage {
           Text(`${progressLabel(this.state.progress.phase)}${this.state.progress.toolName ? " · " + this.state.progress.toolName : ""} · ${Math.max(0, Math.floor((this.now - this.state.progress.startedAt) / 1000))}秒${this.state.progress.tokensKnown ? ' · ' + (this.state.progress.tokensEstimated ? '约' : '') + this.state.progress.outputTokens + ' tokens' : ''}`).fontSize(12).fontColor(SECONDARY).padding(6)
         }
         Row({ space: 8 }) {
-          if (this.state.pendingAction !== null) { Button('待处理事项', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.sheet = 'action' }) }
-          if (this.state.queuedRequests.length > 0) { Button(`排队 ${this.state.queuedRequests.length}`, { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.sheet = 'queue' }) }
+          if (this.state.pendingAction !== null) { Button('待处理事项', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => { this.sheet = 'action' }) }
+          if (this.state.queuedRequests.length > 0) { Button(`排队 ${this.state.queuedRequests.length}`, { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => { this.sheet = 'queue' }) }
         }
         MessageList({ messages: this.state.messages, scroller: this.scroller,
           onAtBottom: (value: boolean) => { this.atBottom = value } })
@@ -222,7 +244,7 @@ export struct SessionPage {
         Row() {
           Blank()
           Button(this.atBottom ? '已到最新消息' : '最新消息 ↓', { type: ButtonType.Normal }).height(32).fontSize(12).fontColor(PRIMARY)
-            .backgroundColor(Color.Transparent).enabled(!this.atBottom).onClick(() => this.scroller.scrollEdge(Edge.Bottom))
+            .backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).enabled(!this.atBottom).onClick(() => this.scroller.scrollEdge(Edge.Bottom))
         }.padding({ right: 12 })
         Column() {
           MessageComposer({ textOnly: this.textOnly, draft: this.draft, composerEnabled: this.state.canSend,
@@ -238,9 +260,10 @@ export struct SessionPage {
         }.padding({ left: 12, right: 12, top: 6, bottom: 12 }).width('100%')
       }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
       if (this.sheet.length > 0) {
-        Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { if (this.sheet !== 'action') this.closeSheet() })
+        Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { if (this.sheet !== 'action') this.closeSheet() }).transition(pageFade())
         this.drawer()
       }
     }.width('100%').height('100%')
+      .onAreaChange((_old: Area, area: Area) => { this.pageHeight = Number(area.height) })
   }
 }

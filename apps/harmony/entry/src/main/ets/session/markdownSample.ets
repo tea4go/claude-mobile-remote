@@ -1,0 +1,2 @@
+// Synthetic local sample, shared by the offline demo and the ArkUI preview.
+export const MARKDOWN_SAMPLE: string = '# Markdown 示例\n\n正文与 **粗体**、*斜体*、***组合强调***、~~删除线~~、`inline_code`。\n第二行保留换行，长正文随屏幕宽度自然折行。\n\n> 引用内容\n>\n> - 引用里的列表\n\n3. 有序列表从 3 开始\n4. 下一项\n   - 嵌套条目\n   - [x] 已完成\n   - [ ] 待处理\n\n---\n\n| 功能 | 状态 | 数量 |\n| :--- | :---: | ---: |\n| **表格** | 完成 | 12 |\n| `a \\| b` | 检查 | 3 |\n\n~~~ts\nconst message = "长代码保留原始换行，横向滚动查看，不强制折行"\nconsole.log(message)\n~~~\n\n[文档链接](https://developer.huawei.com/)\n\n远程图片被禁用，HTML 作为文本：<b>不会执行</b>。'

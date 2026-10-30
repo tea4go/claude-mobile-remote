@@ -25,6 +25,7 @@ export struct DemoPage {
       Text('离线演示 · 模拟数据，不连接电脑或 Claude').fontSize(13).fontColor('#614800').padding(8).width('100%').backgroundColor('#fff3ca')
       Text('发送任意文本体验预设流式回复；附件/语音需真实配对。').fontSize(12).padding(6)
       Flex({ wrap: FlexWrap.Wrap }) {
+        Button('Markdown示例').fontSize(12).height(36).enabled(this.state.canSend).onClick(() => this.send('演示Markdown'))
         Button('演示审批').fontSize(12).height(36).enabled(this.state.canSend).onClick(() => this.send('演示审批'))
         Button('演示问答').fontSize(12).height(36).enabled(this.state.canSend).onClick(() => this.send('演示问答'))
         Button('重新开始').fontSize(12).height(36).onClick(() => this.reset())

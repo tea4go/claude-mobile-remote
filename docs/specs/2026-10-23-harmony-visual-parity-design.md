@@ -47,11 +47,17 @@
 
 ### 审批抽屉
 
+2026-10-30 截图反馈补充：短内容抽屉按内容高度收缩，最大高度约75%可用页面，长内容仅正文滚动；标题保持固定，底部保留16vp内容间距。会话操作、输入区添加/权限模式及预览场景选择改用共用ArkUI自定义对话框，标题18fp、操作文字16fp、每项至少52vp，左右16vp、行间8vp、显式关闭44vp；保留所有原操作和危险操作的启用条件。导航透明按钮保留至少44vp热区，统一8vp圆角与Highlight悬停反馈并裁剪，避免默认矩形背板；不改变待处理遮罩不可关闭及取消当前Turn的语义。
+
 - 白色面板、顶部标题/轻量取消操作、正文内部滚动，沿用取消当前 Turn 的确认语义。
 - 工具内容独立浅灰块；审批操作显式设尺寸、字体和布局，窄屏可纵向排列，避免三个默认按钮挤成一排。
 - 统一问题选项和回答提交样式，不改变 actionId、回答内容或可执行条件。
 
 ## 3. 范围与验收
+
+2026-10-30 修复补充：列表、配对、详情、演示和设置/电脑管理层级采用 ArkUI `TransitionEffect.OPACITY.animation`，曲线 `curves.springMotion(0.25, 1)`；页面使用 Stack 叠放退出/进入内容，避免单帧换页和布局位移。不对流式消息和普通数据刷新施加页面转场，不通过固定延迟阻塞点击。抽屉及调试面板同样提供透明度过渡。依据 [ArkUI 系统转场](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-transition-animation-component.md) 与 [系统弹簧曲线](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/js-apis-curve.md)；实际兼容以本地 API24 构建为准。
+
+Markdown 以 `apps/mobile/src/components/MessageMarkdown.tsx` 的受限文本/GFM 语义为基准：标题加粗、强调组合、删除线、行内代码、反引号/波浪号围栏与未闭合流式代码、引用、有序/无序及任务列表、分隔线、表格对齐和安全 HTTP(S)/邮件链接。保留软换行、正文自然折行、代码/表格独立横向滚动与原生复制。禁止图片加载、原始 HTML 执行和危险链接；不引入 WebView 或改变协议。ArkUI 字体、选区和浏览器存在平台差异，不宣称完整 CommonMark/GFM 或像素完全一致；复杂混排须明确验证边界。
 
 - 仅改 Harmony 页面/组件、端内展示辅助、预览虚构数据和文档；不改三端通信契约、Session Host、FIFO、配对存储、签名和 SDK。
 - 预览补充两台电脑、多会话、长标题/目录、未读与近期查看、不同状态；详情检查审批前后、设置层级和窄屏工具栏。

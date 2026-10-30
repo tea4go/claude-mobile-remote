@@ -5,6 +5,10 @@ import { SessionPage } from './SessionPage'
 import { createInitialHarmonySessionState, ConnectionStage, type HarmonySessionState } from '../session/model'
 import type { SessionRecord } from '../session/records'
 import { emptyDraft, type ComposerDraft } from '../session/attachments'
+import { MARKDOWN_SAMPLE } from '../session/markdownSample'
+import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
+import { curves } from '@kit.ArkUI'
+import { pageFade } from '../ui/transitions'
 
 function records(): Array<SessionRecord> {
   return [
@@ -48,6 +52,26 @@ struct Index {
   @State private title: string = '检查移动端界面'
   @State private feedback: string = ''
   @State private notifications: boolean = false
+  private sceneController: CustomDialogController = new CustomDialogController({
+    builder: ActionMenu({ title: '预览场景（仅模拟数据）', items: this.sceneItems(),
+      onClose: (): void => { this.sceneController.close() } }),
+    customStyle: true, alignment: DialogAlignment.Bottom, autoCancel: true,
+    openAnimation: { curve: curves.springMotion(0.25, 1) },
+    closeAnimation: { curve: curves.springMotion(0.25, 1) },
+  })
+  aboutToDisappear(): void { this.sceneController.close() }
+  private sceneItems(): Array<ActionMenuItem> {
+    return [
+      { title: '会话列表', action: () => this.scene('list') },
+      { title: 'Markdown 排版', action: () => this.scene('markdown') },
+      { title: '工具审批', action: () => this.scene('approval') },
+      { title: '问题回答', action: () => this.scene('question') },
+      { title: '运行中', action: () => this.scene('running') },
+      { title: '录音中', action: () => this.scene('speech') },
+      { title: '断开连接', action: () => this.scene('disconnected') },
+      { title: '长标题', action: () => this.scene('long') },
+    ]
+  }
   private resolve(): void {
     const next = initialState()
     next.pendingAction = null
@@ -66,6 +90,7 @@ struct Index {
       next.permissionMode = 'acceptEdits'
     }
     if (kind === 'disconnected') { next.connection = ConnectionStage.DISCONNECTED; next.canSend = false; next.canResolveAction = false }
+    if (kind === 'markdown') next.messages = [{ kind: 'claude', source: 'mobile', requestId: 'preview-markdown', status: 'done', text: MARKDOWN_SAMPLE, error: null }]
     if (kind === 'question') {
       next.pendingAction = { actionId: 'preview-question', requestId: 'preview-request', kind: 'ask_user_question', toolName: 'AskUserQuestion', allowSessionAvailable: false,
         questions: [{ questionId: 'preview-choice', header: '预览选项', question: '选择要检查的布局', inputType: 'choice', multiSelect: false,
@@ -78,17 +103,9 @@ struct Index {
     Column() {
       Text('ArkUI 预览 · 模拟数据 · 点此切换场景').fontSize(12).padding(8).width('100%').backgroundColor('#fff3cd')
         .onClick(() => {
-          ActionSheet.show({ message: '', title: '预览场景（仅模拟数据）', sheets: [
-            { title: '会话列表', action: () => this.scene('list') },
-            { title: '工具审批', action: () => this.scene('approval') },
-            { title: '问题回答', action: () => this.scene('question') },
-            { title: '运行中', action: () => this.scene('running') },
-            { title: '录音中', action: () => this.scene('speech') },
-            { title: '断开连接', action: () => this.scene('disconnected') },
-            { title: '长标题', action: () => this.scene('long') },
-          ] })
+          this.sceneController.open()
         })
-      Column() {
+      Stack() {
       if (this.detail) {
         SessionPage({ title: this.title, questionAnswers: this.answers,
           onQuestionAnswerChange: (id: string, values: Array<string>) => { this.answers = [{ questionId: id, values: values }] },
@@ -100,7 +117,7 @@ struct Index {
           onSend: () => { this.feedback = '预览草稿已提交（未联网）'; this.draft = emptyDraft() },
           onAllowOnce: () => this.resolve(), onAllowSession: () => this.resolve(), onDeny: () => this.resolve(),
           onSelect: () => { this.feedback = '附件选择需要设备验证' },
-          onSpeech: () => { this.feedback = '语音需要设备验证' } })
+          onSpeech: () => { this.feedback = '语音需要设备验证' } }).transition(pageFade())
       } else {
         SessionListPage({ sessions: this.sessions, recentlyViewedId: this.recentlyViewed, notificationsEnabled: this.notifications,
           onOpen: (id: string) => { this.recentlyViewed = id; this.title = this.sessions.find((item: SessionRecord) => item.sessionId === id)?.name ?? '会话'; this.state = initialState(); this.feedback = ''; this.detail = true },
@@ -109,7 +126,7 @@ struct Index {
           onClearCache: () => {},
           onRemove: (id: string) => { this.sessions = this.sessions.filter((item: SessionRecord) => item.sessionId !== id) },
           onRemovePC: (key: string) => { this.sessions = this.sessions.filter((item: SessionRecord) => (item.pcId ?? item.wsUrl) !== key) },
-          onRename: (id: string, name: string) => { this.sessions = this.sessions.map((item: SessionRecord) => { if (item.sessionId === id) { item.name = name; item.customName = true }; return item }) } })
+          onRename: (id: string, name: string) => { this.sessions = this.sessions.map((item: SessionRecord) => { if (item.sessionId === id) { item.name = name; item.customName = true }; return item }) } }).transition(pageFade())
       }
       }.width('100%').layoutWeight(1)
     }.width('100%').height('100%')

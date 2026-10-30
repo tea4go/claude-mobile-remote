@@ -473,3 +473,76 @@ test('authentication, subscription and snapshot deadlines are distinct and clean
     store.disconnect()
   }
 })
+
+test('Markdown parses real multiline headings, rules, quotes, lists and task nesting', () => {
+  const { markdownBlocks } = load('session/markdown')
+  const blocks = markdownBlocks('# C#\n\nSubtitle\n---\n\n> **quote**\n>\n> - nested\n\n3. first\n   continuation\n   - [x] child\n4. second\n\n- [ ] todo\n\n***')
+  assert.equal(blocks[0].text, 'C#')
+  assert.equal(blocks[1].kind, 'heading'); assert.equal(blocks[1].level, 2)
+  assert.equal(blocks[2].quote, 1); assert.equal(blocks[2].text, '**quote**')
+  assert.equal(blocks[3].marker, '•'); assert.equal(blocks[3].quote, 1)
+  assert.equal(blocks[4].marker, '3.'); assert.equal(blocks[4].text, 'first\ncontinuation')
+  assert.equal(blocks[5].indent, 2); assert.equal(blocks[5].marker, '☑'); assert.equal(blocks[5].text, 'child')
+  assert.equal(blocks[6].marker, '4.'); assert.equal(blocks[7].marker, '☐')
+  assert.equal(blocks[8].kind, 'rule')
+})
+test('Markdown combines emphasis and preserves underscores in identifiers and escaped punctuation', () => {
+  const { inlineMarkdown } = load('session/markdown')
+  for (const input of ['***both***', '**bold *both***', '*italic **both***', '~~deleted **bold**~~']) {
+    const parts = inlineMarkdown(input)
+    assert.ok(parts.some(part => part.bold), input)
+    if (input.includes('both')) assert.ok(parts.some(part => part.bold && part.italic), input)
+    else assert.ok(parts.some(part => part.bold && part.strike), input)
+    assert.ok(!parts.map(part => part.text).join('').includes('*'), input)
+  }
+  assert.equal(inlineMarkdown('some_file_name \\*literal\\*').map(part => part.text).join(''), 'some_file_name *literal*')
+})
+test('Markdown inline code supports variable fences and protects literal syntax and entities', () => {
+  const { inlineMarkdown } = load('session/markdown')
+  const parts = inlineMarkdown('`` `x` **literal** &amp; `` and &amp; &#x1F433;')
+  assert.equal(parts[0].text, '`x` **literal** &amp;'); assert.equal(parts[0].code, true)
+  assert.equal(parts[1].text, ' and & 🐳')
+})
+test('Markdown fences preserve source through streaming, mixed markers, indentation and CRLF', () => {
+  const { markdownBlocks } = load('session/markdown')
+  const blocks = markdownBlocks('~~~~ts\r\nconst x = `literal`\r\n~~~\r\n~~~~\r\n\r\n```js\r\nincomplete')
+  assert.equal(blocks[0].kind, 'code'); assert.equal(blocks[0].language, 'ts')
+  assert.equal(blocks[0].text, 'const x = `literal`\n~~~')
+  assert.equal(blocks[1].text, 'incomplete'); assert.equal(blocks[1].kind, 'code')
+  assert.equal(markdownBlocks('    one\n    two')[0].text, 'one\ntwo')
+  assert.equal(markdownBlocks('```\n\n```')[0].text, '')
+})
+test('Markdown tables align columns, preserve escaped/code pipes and normalize missing cells', () => {
+  const { markdownBlocks } = load('session/markdown')
+  const blocks = markdownBlocks('| Left | Center | Right |\n| :--- | :---: | ---: |\n| a\\|b | `c|d` | 3 |\n| short |\n\nafter')
+  assert.equal(blocks[0].kind, 'table')
+  assert.deepEqual(blocks[0].alignments, ['left', 'center', 'right'])
+  assert.deepEqual(blocks[0].rows[1], ['a|b', '`c|d`', '3'])
+  assert.deepEqual(blocks[0].rows[2], ['short', '', ''])
+  assert.equal(blocks[1].text, 'after')
+})
+test('Markdown links handle nested parentheses, titles, emphasis and safe autolinks', () => {
+  const { inlineMarkdown } = load('session/markdown')
+  const parts = inlineMarkdown('[**docs**](https://example.test/a_(b) "title") https://example.test. <a@example.test>')
+  assert.equal(parts[0].text, 'docs'); assert.equal(parts[0].bold, true)
+  assert.equal(parts[0].url, 'https://example.test/a_(b)')
+  assert.ok(parts.some(part => part.url === 'https://example.test'))
+  assert.ok(parts.some(part => part.url === 'mailto:a@example.test'))
+})
+test('Markdown never opens unsafe URLs or turns remote images/HTML into resources', () => {
+  const { inlineMarkdown, safeMarkdownUrl } = load('session/markdown')
+  for (const target of ['javascript:alert(1)', 'data:text/html,hello', 'file:///private/test', '//example.test', 'java&#x73;cript:alert(1)', 'https://example.test/\u0000']) {
+    assert.equal(inlineMarkdown(`[label](${target})`).some(part => part.url.length > 0), false, target)
+  }
+  assert.equal(safeMarkdownUrl('HTTPS://example.test'), 'HTTPS://example.test')
+  assert.equal(safeMarkdownUrl('https://'), '')
+  assert.equal(inlineMarkdown('before ![private](https://example.test/image.png) after').map(part => part.text).join(''), 'before  after')
+  assert.equal(inlineMarkdown('<script>alert(1)</script>')[0].text, '<script>alert(1)</script>')
+})
+test('Markdown retains partial streaming syntax and bounds deeply nested input', () => {
+  const { markdownBlocks, inlineMarkdown } = load('session/markdown')
+  assert.equal(inlineMarkdown('**partial').map(part => part.text).join(''), '**partial')
+  assert.equal(inlineMarkdown('[partial](https://').map(part => part.text).join(''), '[partial](https://')
+  const blocks = markdownBlocks('> '.repeat(100) + 'deep')
+  assert.ok(blocks.length > 0); assert.ok(blocks.every(block => block.quote <= 13))
+})

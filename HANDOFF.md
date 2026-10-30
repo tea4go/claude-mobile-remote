@@ -4,6 +4,16 @@
 
 ## 当前状态
 
+- Harmony 1.0.4归档检查点（2026-10-30）：按用户明确授权整理本轮进展，并将Harmony转场、Markdown、抽屉/菜单、1.0.4版本源码及设计/计划/验证记录共20文件一并本地提交，不推送。已复核67测试/17文件检查、官方生产/预览/Release构建日志及签名包摘要；提交清单、敏感信息和diff空白检查通过。本轮未改功能、未重建或上传；签名/构建产物、7张测试PNG和两份既有iOS TestFlight文档排除。截图交付、预览停止及已完成执行项已合并为下列结果记录。下一步由用户上传并反馈云测/真机结果，系统通知推送开发继续暂停。
+
+- **Harmony 1.0.4界面修复完成（2026-10-30）**：页面、设置层级、演示及浮层改为ArkUI透明度/弹簧转场；Markdown补齐常用块/行内语法、安全链接、代码/表格横向滚动及原生复制，不承诺完整CommonMark/GFM等价。test1–5反馈全部覆盖：待处理抽屉自适应高度、正文限高滚动；会话操作、添加、权限模式与预览场景选择统一ActionMenu行高/间距；导航和输入工具栏圆角反馈。保留显式取消及操作启用校验，未改三端协议或iOS/Android。67项测试、17文件逻辑检查、官方API24预览HAP/PreviewBuild与真实AppShell入口Debug assembleHap通过；用户最新浏览器反馈“验证通过”。实际结果见`docs/testing/2026-10-30-harmony-transition-markdown-result.md`。真机安全区/键盘/附件/语音及云测转场警告消除仍待验，不能以编译或用户浏览器反馈替代。
+
+- **Harmony 1.0.4签名上传包已交付（2026-10-30）**：Whale Remote Control，包名`com.tea4go.claudemobileremote1028`，版本1.0.4（1000004）。沿用仓库外team-1028 Release/app_gallery材料，官方API24隔离Release构建、verify-profile/verify-app、证书/Profile一致性、APP/HAP ZIP及包内版本/包名/Release非debug/品牌名称检查通过。上传文件`.local-tools/harmony-apptest/signed/WhaleRemoteControl-1.0.4-signed.app`，254718字节，SHA256 `1e163c936a8897570531cb5ea20f8be3cc8c48f33c98ae2296d5964818617a8a`；详见`docs/testing/2026-10-30-harmony-1.0.4-result.md`。未自动上传、安装或复跑云测。下一步用户上传1.0.4，反馈平台接收与云测结果；系统通知推送开发继续暂停。
+
+- Harmony上架截图规格处理完成（2026-10-30）：Downloads/harmony_screen的screen1–4原图保留；已使用系统图像工具等比缩放并补浅灰边，输出到`/Users/zhangym/Downloads/harmony_screen/upload_9x16/`。四张均真PNG编码、720×1280、精确9:16，大小分别195101/228699/81249/215163字节，均低于5MB；全部输出已视觉复核并检查PNG头/尺寸/复制一致性，未裁剪画面或拉伸比例。原件为JPEG编码但png扩展名，输出已修正编码。图片未纳入本次提交、未上传，平台接收仍待验证。
+
+- 本机Harmony预览已全部停止（2026-10-30）：3个官方Previewer及对应harmony_preview.py宿主均已退出，无残留；HTTP端口60969/50585/51104及图像端口60968/50584/51103均已核实关闭。此前浏览器预览链接失效，后续需重新启动脚本。
+
 - 剩余工作区归档检查点（2026-10-29）：本轮提交范围已核对为既有Android五类厂商推送适配及配置模板、共享通知设置、Go Android通知载荷及回归测试、必要设计/使用文档、D103与历史进度。.gitignore新增根.hvigor缓存/日志忽略，保留Android私有push.local.properties及agconnect-services.json忽略；不纳入密钥、配置实值或构建产物。Web定向2文件8测试及TypeScript构建检查通过；Go push/remote race通过（remote初次回环绑定被沙箱阻止，获准后重跑通过）；Android离线testDebugUnitTest与compileDebugJavaWithJavac通过，121任务均up-to-date，现有4份JUnit报告合计9测试零失败/错误/跳过（初次Gradle缓存锁被沙箱阻止，获准后通过）。gofmt检查、diff空白检查及忽略规则核对通过；未重建安装包、未部署/上传、未验证厂商真机。测试截图7个PNG、2026-10-27-testflight-result.md既有差异及2026-10-28-ios-testflight-b4-result.md继续保留未提交。推送开发仍暂停；下一步为Android新包签名/发布准备及等待Harmony云测结果，不把此次归档当作推送或上架验收。
 
 - 当前执行（2026-10-29，剩余工作区归档）：用户授权检查剩余文件，提交需要版本管理的内容，将不需要入库的本机文件加入.gitignore。本轮归档此前已开发的Android厂商推送/通知设置、Go Android投递及测试、配置模板和必要设计/使用说明，补齐D103及历史进度；不新增推送功能，不改发布包名/签名，不构建发布包、不部署、不推送。忽略根目录.hvigor构建日志；测试PNG及TestFlight验证MD仍保留未提交。通过条件为相关Web/Go/Android验证、暂存内容核对及diff空白检查通过后本地提交；系统通知推送开发继续暂停，真实厂商送达和Android发布准备仍待后续处理。
