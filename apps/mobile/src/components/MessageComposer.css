@@ -1,3 +1,18 @@
+.composer-icon-button,
+.composer-popover-menu .adm-popover-menu-item {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 装饰图片由按钮/菜单承接触摸，避免 iOS 将其作为图片预览目标。 */
+.composer-icon-button img,
+.composer-popover-menu .adm-popover-menu-item-icon img {
+  pointer-events: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
 .composer-icon-button.adm-button {
   display: inline-flex;
   align-items: center;
