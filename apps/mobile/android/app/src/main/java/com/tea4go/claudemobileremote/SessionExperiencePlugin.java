@@ -59,7 +59,8 @@ public class SessionExperiencePlugin extends Plugin {
     }
     private JSObject notificationState() {
         JSObject state = new JSObject();
-        state.put("enabled", preferences().getBoolean("notifications.enabled", false) && notificationsAllowed());
+        state.put("available", BuildConfig.CMR_PUSH_ENABLED);
+        state.put("enabled", BuildConfig.CMR_PUSH_ENABLED && preferences().getBoolean("notifications.enabled", false) && notificationsAllowed());
         JSObject remote = SessionPushManager.get(getContext()).status();
         for (String key : new String[]{"remoteConfigured", "remoteEnabled", "remoteReady", "pushError", "vendorConfigured"}) state.put(key, remote.opt(key));
         return state;
@@ -67,6 +68,7 @@ public class SessionExperiencePlugin extends Plugin {
     @PluginMethod public void notificationStatus(PluginCall call) { call.resolve(notificationState()); }
     @PluginMethod public void setNotifications(PluginCall call) { main.post(() -> updateNotifications(call)); }
     private void updateNotifications(PluginCall call) {
+        if (!BuildConfig.CMR_PUSH_ENABLED) { call.resolve(notificationState()); return; }
         if (!Boolean.TRUE.equals(call.getBoolean("enabled"))) {
             preferences().edit().putBoolean("notifications.enabled", false).apply();
             SessionPushManager.get(getContext()).setEnabled(false);

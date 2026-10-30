@@ -10,14 +10,13 @@
 
     <!-- Permissions -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:name=".RemoteApplication"
+        android:name="com.tea4go.claudemobileremote.RemoteApplication"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -30,7 +29,7 @@
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
-            android:name=".MainActivity"
+            android:name="com.tea4go.claudemobileremote.MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
@@ -41,23 +40,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="cmr-push" android:host="notification" />
-            </intent-filter>
         </activity>
 
-        <receiver android:name=".SessionPushReceiver" android:enabled="true" android:exported="false">
-            <intent-filter>
-                <action android:name="cn.jpush.android.intent.RECEIVER_MESSAGE" />
-                <category android:name="${applicationId}" />
-            </intent-filter>
-        </receiver>
-        <service android:name=".SessionPushService" android:enabled="true" android:exported="false">
-            <intent-filter><action android:name="cn.jiguang.user.service.action" /></intent-filter>
-        </service>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

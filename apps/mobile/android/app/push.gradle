@@ -8,8 +8,8 @@ def oppoValue = { String key -> def value = pushValue(key); value.isEmpty() || v
 def huaweiConfig = file('agconnect-services.json')
 if (huaweiConfig.exists()) {
     def config = new groovy.json.JsonSlurper().parse(huaweiConfig)
-    if (config.client?.package_name != 'com.tea4go.claudemobileremote') {
-        throw new GradleException('agconnect-services.json must belong to the Android application com.tea4go.claudemobileremote')
+    if (config.client?.package_name != android.defaultConfig.applicationId) {
+        throw new GradleException('agconnect-services.json must belong to the current Android applicationId')
     }
     apply plugin: 'com.huawei.agconnect'
 }

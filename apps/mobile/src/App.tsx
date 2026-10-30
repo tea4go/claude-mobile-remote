@@ -1,4 +1,5 @@
 import DemoPage from './demo/DemoPage'
+import { Capacitor } from '@capacitor/core'
 import DebugPanel from './components/DebugPanel'
 import { debugLog, recordAction } from './debug/log'
 import { nativeSessionCache, decodeSessionCache, SessionCacheWriter, type SessionCachePort } from './native/sessionCache'
@@ -43,6 +44,7 @@ const defaultSocketFactory: SocketFactory = (url) =>
   new WebSocket(url) as unknown as ReturnType<SocketFactory>
 const defaultNow = () => Date.now()
 const EMPTY_STATE = createInitialState()
+const appDisplayName = Capacitor.getPlatform() === 'android' ? 'Whale Remote Control' : 'Claude Mobile Remote'
 
 function turnStatusOf(state: MobileState) {
   if (state.cachedAt != null) return 'unknown' as const
@@ -455,7 +457,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
               appStore.getState().setPairingError(null)
             }}
           >
-            Claude Mobile Remote
+            {appDisplayName}
           </NavBar>
         </div>
         <div style={{ padding: 16, textAlign: 'center' }}><button onClick={() => { cancelPairing(); setDemoOpen(true) }}>体验演示（无需连接电脑）</button></div>
@@ -512,7 +514,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     pageContent = (
     <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
       <div className="mobile-safe-area-header">
-        <NavBar back={null} right={<button className="mobile-settings-button" onClick={() => { setSettingsDirection('forward'); setSettingsPage('settings') }}>设置</button>}>Claude Mobile Remote</NavBar>
+        <NavBar back={null} right={<button className="mobile-settings-button" onClick={() => { setSettingsDirection('forward'); setSettingsPage('settings') }}>设置</button>}>{appDisplayName}</NavBar>
       </div>
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <ProjectSessionList

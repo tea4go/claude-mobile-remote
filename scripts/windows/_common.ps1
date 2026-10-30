@@ -361,14 +361,14 @@ function Get-AndroidAppId {
   return $null
 }
 
-# 通过 am start 显式拉起 App 的入口 Activity（Capacitor 默认入口为 .MainActivity，位于 namespace 包下，
-# 本工程 namespace 与 applicationId 一致）。installDebug 只安装、不启动，这里补上启动步骤。
+# 通过 am start 显式拉起入口 Activity；namespace 与发布 applicationId 独立。
+# installDebug 只安装、不启动，这里补上启动步骤。
 function Start-AndroidApp {
   param([Parameter(Mandatory = $true)][string]$AppId)
   $adb = Get-AndroidTool 'adb'
   if (-not $adb) { Fail '缺少 adb，无法启动 App。' }
   Write-Info "启动 App: $AppId"
-  $null = Invoke-Capture $adb @('shell', 'am', 'start', '-n', "$AppId/.MainActivity")
+  $null = Invoke-Capture $adb @('shell', 'am', 'start', '-n', "$AppId/com.tea4go.claudemobileremote.MainActivity")
 }
 
 # 探测本机某个 TCP 端口是否可连接，用于判断 -Live 模式依赖的 Web dev server 是否已在运行。

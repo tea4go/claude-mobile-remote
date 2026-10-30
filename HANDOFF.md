@@ -4,6 +4,13 @@
 
 ## 当前状态
 
+- 当前执行（2026-10-30，Android华为审核归档）：用户反馈APK发布配置已完成、正在等待审核，并明确授权记录进度和本地Git提交。本轮更新Android发布状态及验证记录，归档此前已完成的Android身份、默认关闭推送、发布签名脚本及必要文档；不改功能、不重建、不操作后台、不推送。归档复核已通过：既有550项Web测试/Release日志、9项原生JUnit报告、APK SHA256、3份推送源码迁移一致性、Python/Bash语法与diff空白检查；本轮未重跑功能测试。25个文件的提交内容、敏感文件与暂存区空白检查均通过，按授权归档为本地提交，不推送；审核通过及真机体验仍待验。
+
+- **Android华为APK发布配置完成，等待审核（2026-10-30）**：用户最新反馈“发布到华为平台apk配置完毕，正在等待审核”，替代此前仅保存草稿、暂不发布的检查点；本次依据用户反馈记录，未重新登录后台核实审核状态、提交时间或最终分发类型。Whale Remote Control / `com.tea4go.claudemobileremote.android` / 1.0.0（1），AGC APP ID `119552119`。Android桌面/界面品牌及包名、Manifest完整类名、按平台Capacitor同步、默认无推送适配和依赖隔离、正式资源/关闭WebView调试、签名与PEPK导出脚本已完成。原始推送实现保留于src/push，默认APK不含推送SDK/服务/通知权限/edo登记，设置说明暂未开放；系统通知开发继续暂停。550项Web测试、9项原生单测、lint（既有CDP警告）、TS/Vite、Release构建、v2/v3验签、16KiB ZIP对齐、ZIP/DEX/包内身份及脚本语法检查通过。iOS/Harmony身份及共用协议不改；用户本次授权归档上述源码和文档并本地提交，不推送。
+  - APK：`.local-tools/android-release/WhaleRemoteControl-1.0.0-android-signed.apk`，32335779字节，SHA256 `7d443557b7358d641b5071678db3b91217eb3caf9d9d43e510a90af937396d65`。华为已接收并解析1.0.0（1）/30.84MB。AGC方式二已完成：上传Google官方PEPK按页面公钥生成的加密ZIP，后台显示“此应用已加入应用签名计划”；SHA256证书指纹`7fe57b05b3ff6e80cbd3497dfb6ab7e82e533f76d9974b4b25010ef427b044b7`与APK/PEPK一致。未单设上传密钥，签名密钥兼作上传密钥。原始JKS、0600配置/密码及加密导出在仓库外`~/.config/claude-mobile-remote/android-signing/`，本机副本一致性检查通过；独立介质备份待用户安排。
+  - 平台进展：此前版本`v2072443135153186113`已保存APK和获授权的反馈邮箱，方式二签名托管已验证成功；用户现已完成后续发布配置并反馈等待审核。此前草稿为中国大陆开放式测试、名单为空，属于历史状态，不能据此断言最终分发类型、名单、声明或时间仍相同。本轮未操作后台、未发送邀请，也未独立核实审核任务或下载链接。
+  - 后续：等待华为审核结果；若退回，按实际驳回项修复后重新提交。此前应用资料/隐私政策、个人信息/AI声明、权限截图及“单机APP”分类曾列为发布前待复核项，用户后台最终配置未由AI再次核实。真实Android设备扫码/语音/附件/VPN、云测和审核通过仍无验证结论；独立介质密钥备份待用户安排。详见`docs/testing/2026-10-30-android-agc-draft-result.md`，使用说明`docs/android-release.md`。
+
 - Harmony 1.0.4归档检查点（2026-10-30）：按用户明确授权整理本轮进展，并将Harmony转场、Markdown、抽屉/菜单、1.0.4版本源码及设计/计划/验证记录共20文件一并本地提交，不推送。已复核67测试/17文件检查、官方生产/预览/Release构建日志及签名包摘要；提交清单、敏感信息和diff空白检查通过。本轮未改功能、未重建或上传；签名/构建产物、7张测试PNG和两份既有iOS TestFlight文档排除。截图交付、预览停止及已完成执行项已合并为下列结果记录。下一步由用户上传并反馈云测/真机结果，系统通知推送开发继续暂停。
 
 - **Harmony 1.0.4界面修复完成（2026-10-30）**：页面、设置层级、演示及浮层改为ArkUI透明度/弹簧转场；Markdown补齐常用块/行内语法、安全链接、代码/表格横向滚动及原生复制，不承诺完整CommonMark/GFM等价。test1–5反馈全部覆盖：待处理抽屉自适应高度、正文限高滚动；会话操作、添加、权限模式与预览场景选择统一ActionMenu行高/间距；导航和输入工具栏圆角反馈。保留显式取消及操作启用校验，未改三端协议或iOS/Android。67项测试、17文件逻辑检查、官方API24预览HAP/PreviewBuild与真实AppShell入口Debug assembleHap通过；用户最新浏览器反馈“验证通过”。实际结果见`docs/testing/2026-10-30-harmony-transition-markdown-result.md`。真机安全区/键盘/附件/语音及云测转场警告消除仍待验，不能以编译或用户浏览器反馈替代。
@@ -391,6 +398,8 @@
 
 ## 当前工作区
 
+- 2026-10-30 Android发布归档：本轮提交Android身份/通知隔离/签名脚本及相关文档，APK、签名材料和本地工具均排除。既有iOS TestFlight两份文档及测试PNG保持原样，不纳入本次提交。
+
 - 本轮新增 `cmd/claude-mobile-remote/pc_id.go` 及测试、`apps/mobile/src/components/PCSettings.tsx`/`pcGroups.ts` 及测试；这些新文件与此前 C2-C 未提交改动共处工作区。用户已完成本轮体验验收并授权提交这些相关改动；测试截图与参考图片不在提交范围。`pc_id.go` 及测试被既有 `.gitignore` 的 CLI 名称规则误匹配，已明确加入暂存。原生同步资源为生成产物。
 
 - 本轮页面转场改动包含 `apps/mobile` 的 App 导航呈现、转场组件/CSS与测试、C2-C 设计和计划、D75、需求、C2 验证记录及此交接文档；尚未执行 Git 写操作。Capacitor 同步资源为忽略的生成产物。
@@ -402,7 +411,7 @@
 
 ## 下一步
 
-当前任务顺序与门禁以 `docs/plans/2026-10-27-remaining-work-and-offline-notifications-plan.md` 为准：C2-D 与 Android/Harmony 真机验收、E2 平台审核/测试分发、E1 安全兼容汇总，以及独立 E3 HTTPS 离线通知。E3 先设计 WhaleTerm→edo 通知接口、鉴权/设备路由及最小事件，再做 edo 转发、WhaleTerm 非阻塞发送、三端推送接收和实际离线送达。D98 App 内离线演示已替代公网 WSS 审核服务作为当前 TestFlight 路线；待 Apple Beta 审核结果。Harmony 1.0.1 签名包等待后台新版本上传/审核，Android/Harmony 真机仍待验。
+当前任务顺序与门禁以 `docs/plans/2026-10-27-remaining-work-and-offline-notifications-plan.md` 为准：C2-D 与 Android/Harmony 真机验收、E2 平台审核/测试分发、E1 安全兼容汇总，以及独立 E3 HTTPS 离线通知。E3 先设计 WhaleTerm→edo 通知接口、鉴权/设备路由及最小事件，再做 edo 转发、WhaleTerm 非阻塞发送、三端推送接收和实际离线送达。D98 App 内离线演示已替代公网 WSS 审核服务作为当前 TestFlight 路线；待 Apple Beta 审核结果。Android 1.0.0（1）据用户反馈已完成华为发布配置、等待审核；Harmony 1.0.4签名包已交付，等待用户反馈平台/云测结果。Android/Harmony 真机仍待验，系统通知推送开发继续暂停。
 
 其他遗留事项：Intel Mac 对已提交 CLI 修正的异机复核；WhaleTerm 稳定 PC 标识和名称的宿主接线；断线 replay 及已暂停的自动化补强另行排期。早期 WhaleTerm P4 合并与 Git 推送记录须先核对当前工作区，不按旧记录直接执行 Git 写操作。Relay 多 Session 映射已按 D100 取消。
 
