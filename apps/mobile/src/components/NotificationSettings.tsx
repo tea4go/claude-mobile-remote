@@ -19,6 +19,9 @@ export default function NotificationSettings({ port }: { port: ExperiencePort })
     return () => { mounted = false; window.clearInterval(timer) }
   }, [port])
   const { enabled, remoteConfigured, remoteEnabled, remoteReady, pushError, vendorConfigured } = status
+  if (status.available === false) return <div style={{ padding: 16 }}>
+    <p role="status">当前测试版本暂未开放系统通知。请打开应用查看会话进展和待处理事项。</p>
+  </div>
   return <div style={{ padding: 16 }}>
     <Button disabled={busy} onClick={() => {
       setBusy(true)

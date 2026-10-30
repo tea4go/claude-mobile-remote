@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <application>
+        <activity android:name="com.tea4go.claudemobileremote.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cmr-push" android:host="notification" />
+            </intent-filter>
+        </activity>
+        <receiver android:name="com.tea4go.claudemobileremote.SessionPushReceiver" android:enabled="true" android:exported="false">
+            <intent-filter>
+                <action android:name="cn.jpush.android.intent.RECEIVER_MESSAGE" />
+                <category android:name="${applicationId}" />
+            </intent-filter>
+        </receiver>
+        <service android:name="com.tea4go.claudemobileremote.SessionPushService" android:enabled="true" android:exported="false">
+            <intent-filter><action android:name="cn.jiguang.user.service.action" /></intent-filter>
+        </service>
+    </application>
+</manifest>

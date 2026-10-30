@@ -4,16 +4,18 @@ import type { CapacitorConfig } from '@capacitor/cli';
 // 原生壳加载 Vite dev server 而非本地 dist；未设置时不输出 server 字段，
 // 发布构建始终加载本地 dist。仅用于开发，不得进入发布构建。
 const serverUrl = process.env.CAP_SERVER_URL;
+// Explicit Android sync keeps the existing iOS app identity unchanged.
+const androidTarget = process.argv.includes('android') || process.env.CMR_NATIVE_TARGET === 'android';
 
 const config: CapacitorConfig = {
-  appId: 'com.tea4go.claudemobileremote',
-  appName: 'Claude Mobile Remote',
+  appId: androidTarget ? 'com.tea4go.claudemobileremote.android' : 'com.tea4go.claudemobileremote',
+  appName: androidTarget ? 'Whale Remote Control' : 'Claude Mobile Remote',
   webDir: 'dist',
   backgroundColor: '#f2f2f7',
   // Capacitor 的 Debug 桥接日志会打印插件请求/结果，包含安全存储中的 Pair Token。
   loggingBehavior: 'none',
   android: {
-    webContentsDebuggingEnabled: true,
+    webContentsDebuggingEnabled: process.env.CMR_ANDROID_RELEASE !== '1',
   },
   ios: {
     // 用户要求 Debug 与 Release 都可通过 Safari 检查 WebView。

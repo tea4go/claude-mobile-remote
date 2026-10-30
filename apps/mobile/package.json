@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "sync:native": "npm run build && cap sync",
+    "sync:native": "npm run build && cap sync ios && cap sync android",
     "dev:emu": "vite --host 0.0.0.0",
     "emu:list": "$ANDROID_HOME/emulator/emulator -list-avds",
     "emu:start": "$ANDROID_HOME/emulator/emulator -avd ${AVD:-pixel7} >/dev/null 2>&1 & until $ANDROID_HOME/platform-tools/adb shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 2; done",

@@ -45,3 +45,11 @@ test('Android设备登记成功也明确提示厂商离线通道未配置', asyn
   await waitFor(() => expect(screen.getByText(/当前手机的离线通知通道尚未配置/)).toBeInTheDocument())
   expect(screen.getByText(/应用退出后可能收不到提醒/)).toBeInTheDocument()
 })
+
+test('暂停通知的测试版本不显示启用入口或发起授权', async () => {
+  const port = { notificationStatus: vi.fn(async () => ({ enabled: false, available: false })), setNotifications: vi.fn() } as unknown as ExperiencePort
+  render(<NotificationSettings port={port} />)
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('暂未开放系统通知'))
+  expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  expect(port.setNotifications).not.toHaveBeenCalled()
+})
