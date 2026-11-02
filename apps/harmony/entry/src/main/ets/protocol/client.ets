@@ -542,13 +542,13 @@ export class ProtocolClient {
       return
     }
 
-    const legacy = message.version >= 2 && message.version <= 5
+    const legacy = message.version >= 2 && message.version <= 6
     if (legacy && message.version < this.wireVersion && this.stage === 'AUTHENTICATING' && message.type === 'hello_ack') {
       this.wireVersion = message.version
     }
     const fallbackError = message.type === 'error' && this.stage === 'AUTHENTICATING' && legacy &&
       message.payload.code === 'unsupported_version' &&
-      (message.payload.expectedVersion !== undefined && message.payload.expectedVersion >= 2 && message.payload.expectedVersion <= 5) &&
+      (message.payload.expectedVersion !== undefined && message.payload.expectedVersion >= 2 && message.payload.expectedVersion <= 6) &&
       message.payload.expectedVersion < this.wireVersion
     const legacyUnauthorized = message.type === 'error' && this.stage === 'AUTHENTICATING' && legacy &&
       message.payload.code === 'unauthorized'

@@ -1,8 +1,8 @@
-// v2–v6 协议类型，字段与 internal/transport/protocol.go 对应。
+// v2–v7 协议类型，字段与 internal/transport/protocol.go 对应。
 // 组件不得复制消息定义，一律从本文件导入。
 
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 6
+export const PREFERRED_PROTOCOL_VERSION = 7
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
@@ -196,6 +196,7 @@ export interface SessionDiagnostic {
  httpStatus?: number; attempt?: number; maxAttempts?: number; retryDelayMs?: number
 }
 export interface TurnSnapshot {
+  inputText?: string
  progress?: TurnProgress
   status: TurnStatus
   requestId: string

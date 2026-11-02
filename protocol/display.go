@@ -3,6 +3,7 @@ package protocol
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const MaxSessionTitleRunes = 80
@@ -39,4 +40,20 @@ func SessionTitleFromInput(input string) string {
 		}
 	}
 	return ""
+}
+
+// CurrentInputText bounds a user-visible input without exposing execution paths.
+func CurrentInputText(text string) string {
+	if !utf8.ValidString(text) {
+		return ""
+	}
+	if len(text) <= MaxPromptBytes {
+		return text
+	}
+	const suffix = "\n[提问过长，余下内容请在电脑端查看]"
+	text = text[:MaxPromptBytes-len(suffix)]
+	for !utf8.ValidString(text) {
+		text = text[:len(text)-1]
+	}
+	return text + suffix
 }

@@ -369,6 +369,7 @@ function cloneState(state: HarmonySessionState): HarmonySessionState {
     sessionStatus: state.sessionStatus,
     sessionError: cloneErrorInfo(state.sessionError),
     seqBase: state.seqBase,
+    snapshotStartPending: state.snapshotStartPending,
     queueDepthHint: state.queueDepthHint,
     queuedRequests: cloneQueuedRequests(state.queuedRequests),
     pendingAction: clonePendingAction(state.pendingAction),
@@ -617,6 +618,7 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   next.sessionStatus = snapshot.sessionStatus
   next.sessionError = cloneErrorInfo(snapshot.sessionError)
   next.seqBase = snapshot.seq
+  next.snapshotStartPending = (snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting') && snapshot.turn.inputText !== undefined ? snapshot.turn.requestId : ''
   next.queueDepthHint = snapshot.queueDepth
   next.queuedRequests = cloneQueuedRequests(snapshot.queuedRequests)
   next.pendingAction = clonePendingAction(snapshot.turn.pendingAction)
@@ -629,6 +631,20 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   next.lastNotice = null
 
   const turnActive = snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting'
+  if (turnActive && snapshot.turn.inputText !== undefined && snapshot.turn.source !== '') {
+    let hasInput = false
+    let replyIndex = -1
+    for (let index = 0; index < next.messages.length; index += 1) {
+      const message = next.messages[index]
+      if (message.requestId === snapshot.turn.requestId && message.kind === 'input') hasInput = true
+      if (message.requestId === snapshot.turn.requestId && message.kind === 'claude' && replyIndex < 0) replyIndex = index
+    }
+    if (!hasInput) {
+      const input: InputFeedMessage = { kind: 'input', source: snapshot.turn.source, requestId: snapshot.turn.requestId, text: snapshot.turn.inputText, status: '' }
+      if (replyIndex < 0) next.messages.push(input)
+      else next.messages.splice(replyIndex, 0, input)
+    }
+  }
   if (snapshot.turn.source !== '' && (snapshot.turn.message.length > 0 || turnActive)) {
     const status = snapshot.turn.status === 'failed'
       ? 'failed'
@@ -660,8 +676,10 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
     return applyCapabilityFlags(failed)
   }
 
+  const snapshotStart = state.snapshotStartPending === event.requestId && event.requestId !== ''
   let next = cloneState(state)
   next.seqBase = event.seq
+  if (snapshotStart) next.snapshotStartPending = ''
   if (event.sessionTitle !== undefined && next.sessionTitle === undefined) next.sessionTitle = event.sessionTitle
   if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
 
@@ -698,6 +716,10 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
     case 'turn_started': {
       next.progress = undefined
       next.progressRequestId = event.requestId
+      if (snapshotStart && next.messages.some((message: FeedMessage) => message.kind === 'claude' && message.requestId === event.requestId && message.source === event.source && message.status === 'streaming') && next.messages.some((message: FeedMessage) => message.kind === 'input' && message.requestId === event.requestId && message.source === event.source)) {
+        next = withoutQueued(next, event.requestId)
+        break
+      }
       const merged = mergeTurnStarted(next, event)
       if (merged === null) {
         const failed = markPendingUnknown(next)

@@ -115,10 +115,10 @@ test('v2/v3/v4 snapshots and v3 display metadata are accepted', () => {
     assert.equal(decodeServerMessage(JSON.stringify(wire)).version, version)
   }
 })
-test('client negotiates v6 to v3 to v2 without command replay', () => {
+test('client negotiates v7 to v3 to v2 without command replay', () => {
   const client = new (load('protocol/client').ProtocolClient)(pairing)
   client.connect(); sockets.at(-1).emit('open', {})
-  assert.equal(sockets.at(-1).frames[0].version, 6)
+  assert.equal(sockets.at(-1).frames[0].version, 7)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 3 }, 3))
   sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 3)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 2 }, 2))
@@ -437,8 +437,8 @@ test('offline approvals allow/deny, question and dispose ignore late callbacks',
   const text = demo.state.messages[1].text; demo.dispose(); t.mock.timers.tick(5000)
   assert.equal(demo.state.messages[1].text, text)
 })
-test('v6 negotiates v5/v4 and retains progress only on capable versions', () => {
-  for (const version of [5, 4]) {
+test('v7 negotiates v6/v5/v4 and retains progress only on capable versions', () => {
+  for (const version of [6, 5, 4]) {
     const store = load('session/store').createSessionStore(); stores.push(store)
     store.connectWithPairing(pairing); sockets.at(-1).emit('open', {})
     sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: version }, version))
@@ -545,4 +545,31 @@ test('Markdown retains partial streaming syntax and bounds deeply nested input',
   assert.equal(inlineMarkdown('[partial](https://').map(part => part.text).join(''), '[partial](https://')
   const blocks = markdownBlocks('> '.repeat(100) + 'deep')
   assert.ok(blocks.length > 0); assert.ok(blocks.every(block => block.quote <= 13))
+})
+
+
+test('v7 snapshot restores current input before reply once; v6 rejects the new field', () => {
+  const wire = snapshot(); wire.version = 7
+  wire.payload.snapshot.turn = { status: 'running', requestId: 'current', source: 'terminal', inputText: '电脑上的问题', message: '正在回答', error: null, pendingAction: null }
+  const decoded = decodeServerMessage(JSON.stringify(wire)).payload.snapshot
+  let state = reducer.reduceHarmonySessionState(createInitialHarmonySessionState(), reducer.snapshotReceived(decoded))
+  assert.deepEqual(state.messages.map(item => item.kind), ['input', 'claude'])
+  assert.equal(state.messages[0].text, '电脑上的问题')
+  state = reducer.reduceHarmonySessionState(state, reducer.snapshotReceived(decoded))
+  assert.equal(state.messages.filter(item => item.kind === 'input').length, 1)
+  wire.version = 6
+  assert.throws(() => decodeServerMessage(JSON.stringify(wire)))
+})
+
+
+test('v7 snapshot racing same turn_started merges once and rejects a duplicate', () => {
+  const wire = snapshot(); wire.version = 7
+  wire.payload.snapshot.turn = { status: 'running', requestId: 'r1', source: 'mobile', inputText: '安全问题', message: '', error: null, pendingAction: null }
+  const decoded = decodeServerMessage(JSON.stringify(wire)).payload.snapshot
+  let state = reducer.reduceHarmonySessionState(createInitialHarmonySessionState(), reducer.snapshotReceived(decoded))
+  state = reducer.reduceHarmonySessionState(state, reducer.eventReceived(event('turn_started', 1, { text: '安全问题', turnStatus: 'running' })))
+  assert.notEqual(state.connection, ConnectionStage.PROTOCOL_ERROR)
+  assert.deepEqual(state.messages.map(item => item.kind), ['input', 'claude'])
+  state = reducer.reduceHarmonySessionState(state, reducer.eventReceived(event('turn_started', 2, { text: '安全问题', turnStatus: 'running' })))
+  assert.equal(state.connection, ConnectionStage.PROTOCOL_ERROR)
 })

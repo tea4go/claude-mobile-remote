@@ -28,6 +28,7 @@ const (
 	// 单条出站事件预算：最大合法 prompt + JSON envelope 余量。普通队列与
 	// 提前缓存至少容纳两条该预算的事件，数量上限保持不变。
 	outboundEventMaxBytes = protocol.MaxPromptBytes + 64*1024
+	maxSnapshotBytes      = 12*protocol.MaxPromptBytes + 128*1024
 	outboxMaxItems        = 64
 	outboxMaxBytes        = 2 * outboundEventMaxBytes
 	earlyMaxItems         = 32
@@ -464,6 +465,9 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 		return false
 	}
 	snapshot := subscription.Snapshot
+	if c.version < 7 || (snapshot.Turn.Status != protocol.TurnRunning && snapshot.Turn.Status != protocol.TurnWaiting) {
+		snapshot.Turn.InputText = ""
+	}
 	if c.version < 5 {
 		snapshot.Turn.Progress = nil
 	}
@@ -598,6 +602,9 @@ func (c *connection) enqueue(messageType MessageType, commandID, requestID strin
 	data, err := EncodeEnvelope(envelope)
 	if err != nil {
 		return err
+	}
+	if messageType == TypeSnapshot {
+		return c.outbox.EnqueueSnapshot(data)
 	}
 	return c.outbox.Enqueue(data)
 }
