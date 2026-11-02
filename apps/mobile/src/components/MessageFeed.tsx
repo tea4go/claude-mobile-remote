@@ -2,6 +2,7 @@ import { useEffect, useRef, type RefObject } from 'react'
 import { Tag } from 'antd-mobile'
 import MessageMarkdown from './MessageMarkdown'
 import ActivityGroup, { type Activity } from './ActivityGroup'
+import CopyTextButton from './CopyTextButton'
 import { FONT_SIZE_COMPACT, FONT_SIZE_SECONDARY } from './ui'
 import type { Message } from '../session/reducer'
 
@@ -173,6 +174,7 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
               <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888', textAlign: 'right' }}>
                 {sourceLabel}
                 {statusLabel}
+                {message.text !== '' && <CopyTextButton label="复制用户输入" text={message.text} />}
               </div>
             </div>
           )
@@ -204,7 +206,7 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
         // 让正文获得最大展示空间；来源标记压成小灰字。
         return (
           <div key={`message-${index}`} style={{ alignSelf: 'stretch' }}>
-            <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>Claude</div>
+            <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>Claude {message.text !== '' && <CopyTextButton label="复制 Claude 回复" text={message.text} />}</div>
             {message.text !== '' && (
               <div style={{ marginTop: 2, wordBreak: 'break-word' }}>
                 <MessageMarkdown text={message.text} />

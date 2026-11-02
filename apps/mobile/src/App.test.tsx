@@ -321,13 +321,13 @@ describe('App：返回列表', () => {
     await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
 
     fireEvent.click(screen.getByLabelText('返回'))
-    const list = document.querySelector<HTMLElement>('[data-mobile-page="list"]')!
+    const list = document.querySelector<HTMLElement>('[data-mobile-page="list"] .session-list-scroll')!
     list.scrollTop = 74
     fireEvent.scroll(list)
     fireEvent.click(screen.getByTestId('session-list-item'))
     fireEvent.click(screen.getByLabelText('返回'))
 
-    expect(document.querySelector<HTMLElement>('[data-mobile-page="list"]')?.scrollTop).toBe(74)
+    expect(document.querySelector<HTMLElement>('[data-mobile-page="list"] .session-list-scroll')?.scrollTop).toBe(74)
   })
 
   test('返回列表再进入保留本次 App 生命周期内已见消息', async () => {

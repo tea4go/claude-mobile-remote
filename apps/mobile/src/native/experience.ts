@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 import type { DomainEvent } from '../protocol/types'
 
 export interface ExperiencePort {
+  copyText?(options: { text: string }): Promise<void>
   copyDebugLog?(options: { text: string }): Promise<void>
   exportDebugLog?(options: { text: string }): Promise<{ completed: boolean }>
   syncPushSessions?(options: { sessions: { sessionId: string; pairToken: string; expiresAt: string }[]; viewedSession: string }): Promise<void>

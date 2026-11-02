@@ -332,7 +332,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   }, [appStore])
 
   const openSession = useCallback((sessionId: string) => {
-    const listPage = document.querySelector<HTMLElement>('[data-mobile-page-active="true"][data-mobile-page="list"]')
+    const listPage = document.querySelector<HTMLElement>('[data-mobile-page-active="true"][data-mobile-page="list"] .session-list-scroll')
     if (listPage !== null) listScrollY.current = listPage.scrollTop
     const record = appStore.getState().pairings.records.find((item) => item.sessionId === sessionId)
     if (record === undefined) return
@@ -402,7 +402,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
 
   useLayoutEffect(() => {
     if (pageKey !== 'list') return
-    const page = document.querySelector<HTMLElement>('[data-mobile-page-active="true"][data-mobile-page="list"]')
+    const page = document.querySelector<HTMLElement>('[data-mobile-page-active="true"][data-mobile-page="list"] .session-list-scroll')
     if (page !== null) page.scrollTop = listScrollY.current
   }, [pageKey])
 
@@ -512,10 +512,11 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     </div>
   } else {
     pageContent = (
-    <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
+    <div className="session-list-page">
       <div className="mobile-safe-area-header">
         <NavBar back={null} right={<button className="mobile-settings-button" onClick={() => { setSettingsDirection('forward'); setSettingsPage('settings') }}>设置</button>}>{appDisplayName}</NavBar>
       </div>
+      <div className="session-list-scroll" onScroll={(event) => { listScrollY.current = event.currentTarget.scrollTop }}>
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <ProjectSessionList
         sessions={sessions}
@@ -535,6 +536,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
           appStore.getState().renamePairing(sessionId, name)
         }}
       />
+      </div>
     </div>
     )
   }
@@ -544,7 +546,6 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   return <><DebugPanel /><PageTransition
     pageKey={pageKey}
     direction={pageKey === 'list' ? 'back' : pageKey === 'settings' || pageKey === 'pcs' ? settingsDirection : 'forward'}
-    onListScroll={(scrollTop) => { listScrollY.current = scrollTop }}
     onEdgeBack={pageKey.startsWith('detail:') ? backToList : pageKey === 'settings' ? () => setSettingsPage(null) : pageKey === 'pcs' ? () => { setSettingsDirection('back'); setSettingsPage('settings') } : undefined}
   >
     {pageContent}
