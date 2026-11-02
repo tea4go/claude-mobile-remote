@@ -414,6 +414,9 @@ func TestControllerFirstTurnEventOrderAndSnapshot(t *testing.T) {
 		t.Fatalf("Submit(first) = %q, %v, want request-01, nil", requestID, err)
 	}
 	first := receiveControlledTurn(t, host)
+	if snapshot := snapshotController(t, controller); snapshot.Turn.InputText != "first" || snapshot.Turn.RequestID != "request-01" {
+		t.Fatalf("running snapshot lost current input: %#v", snapshot.Turn)
+	}
 	first.emit(t, projectclaude.Event{Kind: projectclaude.EventText, Text: "pre"})
 	assertNoDomainEvent(t, events)
 

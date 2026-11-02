@@ -806,3 +806,8 @@ D103范围调整：用户明确Harmony因签名变更先暂停，本轮先实现
 - **替代关系**：扩展 D68“此需求不考虑 WhaleTerm”及 W1 仅接力范围，不替代每 Session 唯一 Host/Client、输入串行、精确配对鉴权或无公网 Relay 约束。具体设计/实施选择见同日设计；知识库受控会话不自动复制绑定。
 - **三端核对**：复用 D69/D70 的 create_session 请求/结果及 Pairing 可选能力。React Web/Capacitor 与 Harmony ArkTS 已有等价实现；不增加新 wire 消息、版本、状态字段或平台依赖。PC 列表事件只在本机 Wails 内使用，无凭证/正文，三端共享契约不变。
 - **状态**：需求与归属已确认，进入实施；体验和真机验收另记。
+
+## D109 · 配对快照恢复当前提问（2026-11-02）
+
+- 用户检查并确认 `docs/specs/2026-11-02-ios-current-input-sync-design.md`：v7 快照提供可选当前 Turn 用户可见输入，旧版本剥离并保留降级；不恢复完整历史或公开内部附件路径。
+- 三端核对：Go 宿主、React/Capacitor 与 Harmony ArkTS 均可用有界 UTF-8 字符串及 sessionId/requestId 归并；三端需同步 v7、严格键校验和旧端协商。快照尺寸需按最坏 JSON 转义设置有界预算。详见设计与计划。

@@ -317,9 +317,21 @@ describe('decodeServerMessage：非法 JSON 与基础结构', () => {
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 
-  test('version = 7（未来版本）拒绝', () => {
-    const envelope = baseEnvelope({ version: 7 })
+  test('version = 8（未来版本）拒绝', () => {
+    const envelope = baseEnvelope({ version: 8 })
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
+  })
+
+  test('v7 当前提问仅允许运行中携带，旧版本拒绝该字段', () => {
+    const payload = snapshotPayload()
+    const turn = payload.snapshot.turn as typeof payload.snapshot.turn & { inputText?: string }
+    turn.status = 'running'; turn.requestId = 'r1'; turn.inputText = '当前提问'
+    const wire = baseEnvelope({ version: 7, type: 'snapshot', seq: 7, payload })
+    const decoded = decodeServerMessage(JSON.stringify(wire))
+    expect(decoded.type === 'snapshot' && decoded.payload.snapshot.turn.inputText).toBe('当前提问')
+    expect(() => decodeServerMessage(JSON.stringify({ ...wire, version: 6 }))).toThrow()
+    turn.status = 'completed'
+    expect(() => decodeServerMessage(JSON.stringify(wire))).toThrow()
   })
 
   test('v3 snapshot 解码目录与稳定标题，v2 禁止新字段', () => {

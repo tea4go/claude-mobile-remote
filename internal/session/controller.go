@@ -982,6 +982,7 @@ func (c *Controller) startNext(state *actorState) {
 	state.currentCancelled = false
 	state.turnStartedPublished = false
 	state.snapshot.Turn = TurnSnapshot{
+		InputText:     protocol.CurrentInputText(protocol.DisplayInputText(next.Input)),
 		Status:        TurnRunning,
 		RequestID:     next.RequestID,
 		Source:        next.Input.Source,

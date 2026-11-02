@@ -15,7 +15,7 @@ import (
 
 // Version remains the v2 default for callers constructing legacy envelopes.
 const Version = 2
-const LatestVersion = 6
+const LatestVersion = 7
 
 var ErrInvalidMessage = errors.New("invalid protocol message")
 
@@ -216,7 +216,7 @@ func DecodeEnvelope(data []byte) (Envelope, error) {
 
 // ValidateEnvelope enforces the shared v2/v3 field and payload invariants.
 func ValidateEnvelope(envelope Envelope) error {
-	if envelope.Version != Version && envelope.Version != 3 && envelope.Version != 4 && envelope.Version != 5 && envelope.Version != LatestVersion {
+	if envelope.Version != Version && envelope.Version != 3 && envelope.Version != 4 && envelope.Version != 5 && envelope.Version != 6 && envelope.Version != LatestVersion {
 		return protocolError(CodeUnsupportedVersion, "unsupported protocol version")
 	}
 	if envelope.Type == "" || envelope.SessionID == "" || len(envelope.Payload) == 0 {
@@ -339,6 +339,9 @@ func validateDisplayTitle(value string) bool {
 }
 
 func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
+	if snapshot.Turn.InputText != "" && (version < 7 || !utf8.ValidString(snapshot.Turn.InputText) || len(snapshot.Turn.InputText) > protocol.MaxPromptBytes || snapshot.Turn.RequestID == "" || (snapshot.Turn.Status != protocol.TurnRunning && snapshot.Turn.Status != protocol.TurnWaiting)) {
+		return protocolError(CodeInvalidMessage, "invalid current input")
+	}
 	if snapshot.Turn.Progress != nil && (version < 5 || !snapshot.Turn.Progress.Valid() || snapshot.Turn.RequestID == "" || (snapshot.Turn.Status != protocol.TurnRunning && snapshot.Turn.Status != protocol.TurnWaiting)) {
 		return protocolError(CodeInvalidMessage, "invalid turn progress")
 	}

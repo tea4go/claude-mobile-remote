@@ -101,6 +101,7 @@ export interface MobileState {
   sessionError: ErrorInfo | null
   permissionMode: PermissionMode
   seqBase: number
+  snapshotStartPending?: string
   queueDepthHint: number
   queuedRequests: QueuedRequest[]
   messages: Message[]
@@ -374,6 +375,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     sessionError: snapshot.sessionError,
     permissionMode: snapshot.permissionMode ?? 'default',
     seqBase: snapshot.seq,
+    snapshotStartPending: turnActive && snapshot.turn.inputText ? snapshot.turn.requestId : '',
     progress: snapshot.turn.progress ?? null,
     progressRequestId: turnActive ? snapshot.turn.requestId : '',
     queueDepthHint: snapshot.queueDepth,
@@ -386,6 +388,12 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     pendingCommand: null,
     lastError: null,
     lastNotice: null,
+  }
+  if (turnActive && snapshot.turn.inputText && snapshot.turn.source && !next.messages.some((message) => message.kind === 'input' && message.requestId === snapshot.turn.requestId)) {
+    const input: InputMessage = { kind: 'input', source: snapshot.turn.source, requestId: snapshot.turn.requestId, text: snapshot.turn.inputText, status: 'accepted' }
+    const replyIndex = next.messages.findIndex((message) => message.kind === 'claude' && message.requestId === snapshot.turn.requestId)
+    if (replyIndex < 0) next.messages = [...next.messages, input]
+    else next.messages = [...next.messages.slice(0, replyIndex), input, ...next.messages.slice(replyIndex)]
   }
   // 运行/等待中的 Turn 即使尚无文本也创建占位消息：用户可能在 AI 回复
   // 前配对，订阅后的 text_delta 需要归并目标（A5.1 验收回归）。
@@ -476,7 +484,8 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
     // 重复、倒退或缺口：状态不可信，按协议错误处理（§6.2）。
     return { ...markPendingUnknown(state), phase: 'protocolError', canSend: false }
   }
-  let next: MobileState = { ...state, seqBase: event.seq }
+  const snapshotStart = state.snapshotStartPending === event.requestId && event.requestId !== ''
+  let next: MobileState = { ...state, seqBase: event.seq, snapshotStartPending: snapshotStart ? '' : state.snapshotStartPending }
   if (event.sessionTitle !== undefined && next.sessionTitle === null) next.sessionTitle = event.sessionTitle
   if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
 
@@ -512,6 +521,10 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
     case 'turn_started': {
       next.progress = null
       next.progressRequestId = event.requestId
+      if (snapshotStart && next.messages.some((message) => message.kind === 'claude' && message.requestId === event.requestId && message.source === event.source && message.status === 'streaming') && next.messages.some((message) => message.kind === 'input' && message.requestId === event.requestId && message.source === event.source)) {
+        next = withoutQueued(next, event.requestId)
+        break
+      }
       const merged = mergeTurnStarted(next, event)
       if (merged === null) {
         return { ...markPendingUnknown(next), phase: 'protocolError', canSend: false }

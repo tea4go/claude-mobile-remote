@@ -140,7 +140,7 @@ describe('握手流程', () => {
     socket.serverOpen()
     expect(socket.sent).toHaveLength(1)
     expect(JSON.parse(socket.sent[0]!)).toEqual({
-      version: 6,
+      version: 7,
       type: 'hello',
       sessionId: 'session-1',
       commandId: '',
@@ -729,16 +729,16 @@ describe('应用层心跳存活检测', () => {
     socket.serverMessage({ version: 6, type: 'pong', sessionId: 'other', commandId: '', requestId: '', seq: 0, payload: {} })
     expect(closed).toHaveBeenCalledWith({ kind: 'protocolError', pendingCommandId: null })
   })
-  test('v6被旧宿主拒绝后明确降级v5', () => {
+  test.each([5, 6])('v7 被旧宿主拒绝后明确降级 v%i', (version) => {
     const { client } = makeClient()
     client.connect()
     const socket = FakeWebSocket.instances.at(-1)!
     socket.serverOpen()
-    socket.serverMessage({version: 5, type:'error', sessionId:'session-1', commandId:'', requestId:'', seq:0, payload:{code:'unsupported_version',message:'unsupported',expectedVersion:5}})
+    socket.serverMessage({version, type:'error', sessionId:'session-1', commandId:'', requestId:'', seq:0, payload:{code:'unsupported_version',message:'unsupported',expectedVersion:version}})
     const retry = FakeWebSocket.instances.at(-1)!
     expect(retry).not.toBe(socket)
     retry.serverOpen()
-    expect(JSON.parse(retry.sent[0]!).version).toBe(5)
+    expect(JSON.parse(retry.sent[0]!).version).toBe(version)
     client.close()
   })
   test('旧v5宿主不发送不兼容心跳，仍接受网络离线信号', () => {

@@ -13,13 +13,14 @@ var (
 )
 
 type outbox struct {
-	mu       sync.Mutex
-	cond     *sync.Cond
-	items    [][]byte
-	bytes    int
-	maxItems int
-	maxBytes int
-	closed   bool
+	mu         sync.Mutex
+	cond       *sync.Cond
+	items      [][]byte
+	bytes      int
+	largeBytes int
+	maxItems   int
+	maxBytes   int
+	closed     bool
 }
 
 func newOutbox(maxItems, maxBytes int) *outbox {
@@ -28,14 +29,29 @@ func newOutbox(maxItems, maxBytes int) *outbox {
 	return queue
 }
 
-func (q *outbox) Enqueue(data []byte) error {
+func (q *outbox) Enqueue(data []byte) error { return q.enqueue(data, false) }
+
+func (q *outbox) EnqueueSnapshot(data []byte) error { return q.enqueue(data, true) }
+
+func (q *outbox) enqueue(data []byte, allowLargeSnapshot bool) error {
 	copyOfData := append([]byte(nil), data...)
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.closed {
 		return errOutboxClosed
 	}
-	if len(q.items) >= q.maxItems || q.bytes+len(copyOfData) > q.maxBytes {
+	// Allow one separately bounded large snapshot alongside the normal queue:
+	// subscribed and early events can already be queued before it is written.
+	// Ordinary events keep their original budget for slow-client isolation.
+	if len(q.items) >= q.maxItems {
+		return errOutboxOverflow
+	}
+	if len(copyOfData) > q.maxBytes {
+		if !allowLargeSnapshot || q.largeBytes != 0 || len(copyOfData) > maxSnapshotBytes {
+			return errOutboxOverflow
+		}
+		q.largeBytes = len(copyOfData)
+	} else if q.bytes-q.largeBytes+len(copyOfData) > q.maxBytes {
 		return errOutboxOverflow
 	}
 	q.items = append(q.items, copyOfData)
@@ -57,6 +73,9 @@ func (q *outbox) Next() ([]byte, bool) {
 	q.items[0] = nil
 	q.items = q.items[1:]
 	q.bytes -= len(item)
+	if len(item) == q.largeBytes {
+		q.largeBytes = 0
+	}
 	return item, true
 }
 

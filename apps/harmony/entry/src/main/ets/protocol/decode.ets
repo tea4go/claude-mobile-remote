@@ -83,6 +83,7 @@ interface SessionSnapshotCandidate {
 }
 
 interface TurnSnapshotCandidate {
+  inputText?: string
   progress?: Object | null
   status?: string
   requestId?: string
@@ -227,7 +228,7 @@ const SESSION_SNAPSHOT_KEYS: Array<string> = [
   'queuedRequests',
   'projectCwd', 'sessionTitle', 'createdAt', 'lastActivityAt',
 ]
-const TURN_SNAPSHOT_KEYS: Array<string> = ['progress', 'status', 'requestId', 'source', 'message', 'error', 'pendingAction']
+const TURN_SNAPSHOT_KEYS: Array<string> = ['inputText', 'progress', 'status', 'requestId', 'source', 'message', 'error', 'pendingAction']
 const ERROR_INFO_KEYS: Array<string> = ['code', 'message']
 const EVENT_PAYLOAD_KEYS: Array<string> = ['event']
 const EVENT_KEYS: Array<string> = [
@@ -773,6 +774,11 @@ function decodeTurnSnapshot(value: Object | null, version: number): TurnSnapshot
     error: decodeErrorInfo(candidate.error !== undefined ? candidate.error : null, 'error'),
     pendingAction,
   }
+  if (candidate.inputText !== undefined) {
+    const input = readString(candidate.inputText, 'inputText')
+    if (version < 7 || input.length === 0 || utf8ByteLength(input) > MAX_TEXT_BYTES || requestId.length === 0 || ['running', 'waiting'].indexOf(snapshot.status) < 0) fail('invalid current input')
+    snapshot.inputText = input
+  }
   if (candidate.progress !== undefined) {
     if (version < 5 || requestId.length === 0 || ['running','waiting'].indexOf(snapshot.status) < 0) fail('unexpected snapshot progress')
     snapshot.progress = decodeProgress(candidate.progress)
@@ -1002,7 +1008,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
 
   const envelope = requireAllowedObject(parsedValue, 'message', ENVELOPE_KEYS) as EnvelopeCandidate
   const version = readInteger(envelope.version, 'version')
-  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== PREFERRED_PROTOCOL_VERSION) {
+  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== PREFERRED_PROTOCOL_VERSION) {
     fail('unsupported protocol version')
   }
 

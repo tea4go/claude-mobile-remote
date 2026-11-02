@@ -509,6 +509,10 @@ function decodeSessionSnapshot(value: unknown, version: number): SessionSnapshot
   }
   // queueDepth 与列表长度恒等（B2 §4.3）：不一致说明快照自相矛盾。
   const rawTurn = requireObject(value, 'turn')
+  if (rawTurn.inputText !== undefined) {
+    if (version < 7 || typeof rawTurn.inputText !== 'string' || rawTurn.inputText === '' || new TextEncoder().encode(rawTurn.inputText).length > MAX_TEXT_BYTES || !snapshot.turn.requestId || !['running', 'waiting'].includes(snapshot.turn.status)) fail('invalid current input')
+    snapshot.turn.inputText = rawTurn.inputText
+  }
   if (rawTurn.progress !== undefined) {
    if (version < 5 || snapshot.turn.requestId === '' || !['running','waiting'].includes(snapshot.turn.status)) fail('unexpected snapshot progress')
    snapshot.turn.progress = decodeProgress(rawTurn.progress)
@@ -710,7 +714,7 @@ export function decodeServerMessage(text: string): ServerMessage {
   if (typeof version !== 'number' || !Number.isSafeInteger(version)) {
     fail('field version must be an integer')
   }
-  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== PREFERRED_PROTOCOL_VERSION) fail('unsupported protocol version')
+  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== PREFERRED_PROTOCOL_VERSION) fail('unsupported protocol version')
 
   const type = requireString(parsed, 'type') as MessageType
   if (!SERVER_TO_CLIENT_TYPES.has(type)) {

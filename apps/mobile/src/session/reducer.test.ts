@@ -1086,3 +1086,24 @@ test('重连快照合并当前轮次文本，不重复保留工具前后的正�
   expect(state.messages.find((message) => message.kind === 'claude')).toMatchObject({ text: 'beforeaftermissed' })
   expect(state.messages.filter((message) => message.kind === 'block')).toHaveLength(1)
 })
+
+
+test('v7 snapshot 恢复当前提问并在重连时按 requestId 去重', () => {
+  const turn = { status: 'running' as const, requestId: 'active', source: 'terminal' as const, inputText: 'PC 的问题', message: '回复中', error: null, pendingAction: null }
+  let state = reducer(createInitialState(), snapshotReceived(snapshot({ turn })))
+  expect(state.messages.map((item) => item.kind)).toEqual(['input', 'claude'])
+  expect(state.messages[0]).toMatchObject({ text: 'PC 的问题', requestId: 'active' })
+  state = reducer(state, snapshotReceived(snapshot({ turn })))
+  expect(state.messages.filter((item) => item.kind === 'input')).toHaveLength(1)
+})
+
+
+test('快照先于同一轮开始事件时归并一次，重复事件仍被拒绝', () => {
+  const turn = { status: 'running' as const, requestId: 'active', source: 'terminal' as const, inputText: '安全提问', message: '', error: null, pendingAction: null }
+  let state = reducer(createInitialState(), snapshotReceived(snapshot({ turn })))
+  state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'active', source: 'terminal', text: '安全提问' })))
+  expect(state.phase).toBe('connected')
+  expect(state.messages.map((item) => item.kind)).toEqual(['input', 'claude'])
+  state = reducer(state, eventReceived(event('turn_started', 12, { requestId: 'active', source: 'terminal', text: '安全提问' })))
+  expect(state.phase).toBe('protocolError')
+})

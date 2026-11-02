@@ -1668,3 +1668,54 @@ func TestConnectionHeartbeatRemovesSilentPeerButKeepsResponsivePeer(t *testing.T
 	}
 	t.Fatal("silent peer was not removed")
 }
+
+func TestCurrentInputOnlySentToV7Clients(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	fixture.controller.snapshot.Turn = projectsession.TurnSnapshot{Status: projectsession.TurnRunning, RequestID: "running", Source: projectsession.InputTerminal, InputText: "当前问题"}
+	for _, version := range []int{2, 3, 4, 5, 6, 7} {
+		socket := fixture.dial(t)
+		writeVersionedTestEnvelope(t, socket, version, TypeHello, "session-1", HelloPayload{PairToken: fixture.token})
+		_ = readTestEnvelope(t, socket)
+		writeVersionedTestEnvelope(t, socket, version, TypeSubscribe, "session-1", struct{}{})
+		_ = readTestEnvelope(t, socket)
+		msg := readTestEnvelope(t, socket)
+		var payload SnapshotPayload
+		if err := DecodePayload(msg, &payload); err != nil {
+			t.Fatal(err)
+		}
+		want := ""
+		if version == 7 {
+			want = "当前问题"
+		}
+		if payload.Snapshot.Turn.InputText != want {
+			t.Fatalf("version %d input = %q", version, payload.Snapshot.Turn.InputText)
+		}
+		_ = socket.Close()
+	}
+}
+
+func TestCurrentInputSnapshotWorstCaseJSONFitsBoundedOutbox(t *testing.T) {
+	text := strings.Repeat("\x01", protocol.MaxPromptBytes)
+	payload := SnapshotPayload{ConnectionStatus: "subscribed", Snapshot: protocol.Snapshot{SessionID: "s", Turn: protocol.TurnSnapshot{Status: protocol.TurnRunning, RequestID: "r", Source: protocol.InputTerminal, InputText: text, Message: text}}}
+	envelope, err := NewEnvelope(TypeSnapshot, "s", "", "r", 0, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := newOutbox(outboxMaxItems, outboxMaxBytes)
+	if err := queue.Enqueue([]byte("subscribed")); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.EnqueueSnapshot(encoded); err != nil {
+		t.Fatalf("valid v7 snapshot (%d bytes): %v", len(encoded), err)
+	}
+	if err := queue.Enqueue([]byte("early event")); err != nil {
+		t.Fatalf("event behind snapshot: %v", err)
+	}
+	if err := queue.EnqueueSnapshot(encoded); err == nil {
+		t.Fatal("second large snapshot exceeded the bound")
+	}
+}
