@@ -4,6 +4,8 @@ import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.ClipboardManager;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -25,6 +27,7 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import java.io.File;
 import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONObject;
@@ -64,6 +67,20 @@ public class SessionExperiencePlugin extends Plugin {
         JSObject remote = SessionPushManager.get(getContext()).status();
         for (String key : new String[]{"remoteConfigured", "remoteEnabled", "remoteReady", "pushError", "vendorConfigured"}) state.put(key, remote.opt(key));
         return state;
+    }
+    @PluginMethod public void copyText(PluginCall call) {
+        String text = call.getString("text");
+        if (text == null || text.isEmpty() || text.getBytes(StandardCharsets.UTF_8).length > 1024 * 1024) { call.reject("Invalid text"); return; }
+        main.post(() -> {
+            ClipboardManager clipboard = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null) { call.reject("Clipboard unavailable"); return; }
+            try {
+                clipboard.setPrimaryClip(ClipData.newPlainText("", text));
+                call.resolve();
+            } catch (RuntimeException error) {
+                call.reject("Clipboard unavailable");
+            }
+        });
     }
     @PluginMethod public void notificationStatus(PluginCall call) { call.resolve(notificationState()); }
     @PluginMethod public void setNotifications(PluginCall call) { main.post(() -> updateNotifications(call)); }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useRef } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import MessageFeed from './MessageFeed'
@@ -347,4 +347,15 @@ test('发送后的图片保留预览，任意 HTML 附件不按图片加载', ()
   expect(screen.getByAltText('photo.png')).toHaveAttribute('src','data:image/png;base64,aGVsbG8=')
   expect(screen.getAllByRole('img')).toHaveLength(1)
   expect(screen.getByText('unsafe.html')).toBeInTheDocument()
+})
+
+
+test('复制用户输入及 Claude 回复的原始正文', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  render(<MessageFeed messages={[input({ text: '用户输入' }), claude({ text: '**回复**\n内容' })]} />)
+  fireEvent.click(screen.getByRole('button', { name: '复制用户输入' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith('用户输入'))
+  fireEvent.click(screen.getByRole('button', { name: '复制 Claude 回复' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith('**回复**\n内容'))
 })

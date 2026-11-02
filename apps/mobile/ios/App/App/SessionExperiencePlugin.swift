@@ -10,6 +10,7 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "SessionExperiencePlugin"
     public let jsName = "SessionExperience"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "copyText", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "copyDebugLog", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "exportDebugLog", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "readSessionCache", returnType: CAPPluginReturnPromise),
@@ -25,6 +26,14 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "notify", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearNotifications", returnType: CAPPluginReturnPromise)
     ]
+    @objc func copyText(_ call: CAPPluginCall) {
+        guard let text = call.getString("text"), !text.isEmpty, text.utf8.count <= 1024 * 1024 else { call.reject("Invalid text"); return }
+        DispatchQueue.main.async {
+            UIPasteboard.general.string = text
+            call.resolve()
+        }
+    }
+
     @objc func copyDebugLog(_ call: CAPPluginCall) {
         guard let text = call.getString("text"), text.utf8.count <= 256 * 1024 else { call.reject("Invalid debug log"); return }
         DispatchQueue.main.async {

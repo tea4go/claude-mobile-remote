@@ -7,7 +7,6 @@ interface PageTransitionProps {
   pageKey: string
   direction: Direction
   children: ReactNode
-  onListScroll?: (scrollTop: number) => void
   onEdgeBack?: () => void
 }
 
@@ -24,7 +23,7 @@ interface TransitionState {
 
 const DURATION_MS = 360
 
-export default function PageTransition({ pageKey, direction, children, onListScroll, onEdgeBack }: PageTransitionProps) {
+export default function PageTransition({ pageKey, direction, children, onEdgeBack }: PageTransitionProps) {
   const latestPage = useRef({ key: pageKey, content: children })
   const edgeTouch = useRef<{ x: number, y: number, cancelled: boolean } | null>(null)
   const [transition, setTransition] = useState<TransitionState>(() => ({
@@ -105,9 +104,6 @@ export default function PageTransition({ pageKey, direction, children, onListScr
       data-mobile-page-active="true"
       data-mobile-page={pageKey}
       className={`mobile-page${animating ? ` mobile-page--enter-${transition.direction}` : ''}`}
-      onScroll={pageKey === 'list' && onListScroll !== undefined
-        ? (event) => onListScroll(event.currentTarget.scrollTop)
-        : undefined}
     >
       {children}
     </div>
