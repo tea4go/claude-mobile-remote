@@ -93,6 +93,65 @@ func TestServerStartReturnsPairing(t *testing.T) {
 	_ = srv.Close(context.Background())
 }
 
+type testSessionCreator struct {
+	source  string
+	command string
+}
+
+func (c *testSessionCreator) CreateSession(_ context.Context, source, command string) (protocol.Pairing, error) {
+	c.source, c.command = source, command
+	return protocol.Pairing{SessionID: "new-session"}, nil
+}
+
+func TestServerOptionalSessionCreation(t *testing.T) {
+	creator := &testSessionCreator{}
+	transport := &fakeTransport{}
+	config := testConfig(&fakeController{})
+	config.SessionCreator = creator
+	server, err := newServer(config, fakeFactory(transport))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairing, err := server.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close(context.Background())
+	if len(pairing.Capabilities) != 1 || pairing.Capabilities[0] != "create_session" {
+		t.Fatalf("capabilities = %v", pairing.Capabilities)
+	}
+	manager := transport.config.Management
+	if manager == nil {
+		t.Fatal("management callback missing")
+	}
+	created, err := manager.CreateSession(context.Background(), "session-1", "cmd-1")
+	if err != nil || created.SessionID != "new-session" || creator.source != "session-1" || creator.command != "cmd-1" {
+		t.Fatalf("creation = %+v, %v", created, err)
+	}
+	if err := manager.StopSession(context.Background(), "session-1"); err == nil {
+		t.Fatal("host-owned session was stoppable")
+	}
+	if _, err := manager.CreateSession(context.Background(), "other", "cmd-2"); err == nil {
+		t.Fatal("cross-session creation accepted")
+	}
+}
+
+func TestServerWithoutCreatorHasNoManagementCapability(t *testing.T) {
+	transport := &fakeTransport{}
+	server, err := newServer(testConfig(&fakeController{}), fakeFactory(transport))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairing, err := server.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close(context.Background())
+	if len(pairing.Capabilities) != 0 || transport.config.Management != nil {
+		t.Fatalf("unexpected management: %v", pairing.Capabilities)
+	}
+}
+
 func TestServerDoesNotCallControllerStartStop(t *testing.T) {
 	controller := &fakeController{}
 	srv, err := newServer(testConfig(controller), fakeFactory(&fakeTransport{}))

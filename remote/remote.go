@@ -44,6 +44,12 @@ const DefaultPairTokenTTL = 30 * 24 * time.Hour
 // back to transport defaults; PairingPersistenceFile empty disables restart
 // recovery, which the CLI uses for fake-host sessions.
 type Config struct {
+	// SessionCreator is optional. The host owns creation and lifecycle of the
+	// returned Session; this Server continues to expose only SessionID.
+	SessionCreator SessionCreator
+	// OnSubscribed observes successful authenticated subscriptions. Hosts may use
+	// it to expose a pre-reserved Session in their own local UI.
+	OnSubscribed           func(string)
 	EnablePush             bool
 	PushSender             push.Sender
 	SessionID              string
@@ -78,6 +84,7 @@ func defaultTransportFactory(cfg transport.Config, auth transport.Authenticator,
 // Server owns the pairing credential, the single Session Channel and the
 // WebSocket transport for one session. It is not safe for concurrent Start.
 type Server struct {
+	canCreate   bool
 	sessionID   string
 	pushSender  push.Sender
 	pushPairing protocol.Pairing
@@ -158,12 +165,17 @@ func newServer(config Config, factory transportFactory) (*Server, error) {
 		serviceConfig.ToolPreviewMaxRunes = protocol.DefaultToolPreviewMaxRunes
 	}
 	tcfg.ServiceConfig = serviceConfig
+	tcfg.OnSubscribed = config.OnSubscribed
+	if config.SessionCreator != nil {
+		tcfg.Management = sessionCreationAdapter{creator: config.SessionCreator, sessionID: config.SessionID}
+	}
 
 	server, err := factory(tcfg, manager, registry)
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
+		canCreate:  config.SessionCreator != nil,
 		sessionID:  config.SessionID,
 		pushSender: sender,
 		controller: config.Controller,
@@ -201,6 +213,7 @@ func (s *Server) Start() (protocol.Pairing, error) {
 		_ = s.server.Close(context.Background())
 		return protocol.Pairing{}, err
 	}
+	payload = s.withCapabilities(payload)
 
 	s.mu.Lock()
 	if s.ticks == nil {
@@ -290,7 +303,7 @@ func (s *Server) rotateLoop() {
 				continue
 			}
 			if rotated {
-				s.publishLatest(payload)
+				s.publishLatest(s.withCapabilities(payload))
 			}
 		}
 	}

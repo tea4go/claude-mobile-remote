@@ -797,3 +797,12 @@ D103范围调整：用户明确Harmony因签名变更先暂停，本轮先实现
 - **决策**：用户指定Android名称`Whale Remote Control`、包名`com.tea4go.claudemobileremote.android`，暂停系统通知推送功能开发，优先准备Android APK测试分发；用户确认采用AGC应用签名方式二，由开发者本地生成/保留发布密钥，将加密副本交给AGC托管。
 - **影响**：本轮Android身份独立于Harmony团队包`com.tea4go.claudemobileremote1028`；部分替代D105中Android暂不改名及D103中继续Android推送开发的安排。暂停开发不等于现有Android推送已被禁用，发布实现和配置仍待处理。若存在目标应用原有发布密钥需优先复用以保持升级连续性；首次发布且无现成密钥时再创建独立Android发布密钥。原始密钥及密码存于仓库外并备份，按当前AGC方式二要求使用PEPK导出加密ZIP。独立上传密钥可另行准备，尚未创建/登记；不得混同应用签名密钥与上传密钥证书。此次不改变三端WebSocket、Session/Turn状态或配对契约。
 - **状态**：方向已确认，Android改名、包名、发布签名和后台配置尚未实施。
+
+## D108 · WhaleTerm 支持同目录远程新建并持有会话
+
+- **日期**：2026-11-02
+- **用户确认**：新增需求立即优先实施；新会话也由 WhaleTerm 管理，并显示在 PC 会话列表。
+- **决策**：Claude 列表目录可启动配对入口，先预留 ID 并展示配对码，手机认证/订阅成功后才把新会话加入 PC 列表；手机进入后可通过既有 + 继续在同目录创建独立会话。由 WhaleTerm 唯一 Manager 持有各 Session/Client/FIFO，原会话继续运行；不启动独立 CLI 接管活跃会话。公共 Remote Server 仍单 Session，以可选创建回调把管理请求交宿主。
+- **替代关系**：扩展 D68“此需求不考虑 WhaleTerm”及 W1 仅接力范围，不替代每 Session 唯一 Host/Client、输入串行、精确配对鉴权或无公网 Relay 约束。具体设计/实施选择见同日设计；知识库受控会话不自动复制绑定。
+- **三端核对**：复用 D69/D70 的 create_session 请求/结果及 Pairing 可选能力。React Web/Capacitor 与 Harmony ArkTS 已有等价实现；不增加新 wire 消息、版本、状态字段或平台依赖。PC 列表事件只在本机 Wails 内使用，无凭证/正文，三端共享契约不变。
+- **状态**：需求与归属已确认，进入实施；体验和真机验收另记。
