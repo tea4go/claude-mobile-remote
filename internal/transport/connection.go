@@ -481,6 +481,9 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 	}
 	c.server.setSubscribed(c, c.sessionID)
 	c.server.recordConnectionEvent(c.sessionID, "subscribed")
+	if c.server.config.OnSubscribed != nil {
+		go c.server.config.OnSubscribed(c.sessionID)
+	}
 	_ = c.socket.SetReadDeadline(time.Now().Add(c.server.config.IdleTimeout))
 	c.socket.SetPongHandler(func(string) error {
 		return c.socket.SetReadDeadline(time.Now().Add(c.server.config.IdleTimeout))

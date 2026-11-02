@@ -255,6 +255,38 @@ func authenticateAndSubscribe(t *testing.T, fixture *serverFixture, connection *
 	return readTestEnvelope(t, connection)
 }
 
+func TestOnSubscribedFiresOnlyAfterAuthenticatedSubscription(t *testing.T) {
+	notified := make(chan string, 1)
+	fixture := newServerFixture(t, func(config *Config) {
+		config.OnSubscribed = func(sessionID string) { notified <- sessionID }
+	})
+	connection := fixture.dial(t)
+	writeTestEnvelope(t, connection, TypeHello, "session-1", "", "", 0, HelloPayload{PairToken: fixture.token})
+	if response := readTestEnvelope(t, connection); response.Type != TypeHelloAck {
+		t.Fatalf("hello response = %s", response.Type)
+	}
+	select {
+	case <-notified:
+		t.Fatal("authentication alone exposed a session")
+	default:
+	}
+	writeTestEnvelope(t, connection, TypeSubscribe, "session-1", "", "", 0, struct{}{})
+	if response := readTestEnvelope(t, connection); response.Type != TypeSubscribed {
+		t.Fatalf("subscribe response = %s", response.Type)
+	}
+	if response := readTestEnvelope(t, connection); response.Type != TypeSnapshot {
+		t.Fatalf("snapshot response = %s", response.Type)
+	}
+	select {
+	case id := <-notified:
+		if id != "session-1" {
+			t.Fatalf("callback session = %q", id)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("successful subscription did not notify host")
+	}
+}
+
 func writeVersionedTestEnvelope(t *testing.T, connection *websocket.Conn, version int, kind MessageType, sessionID string, payload any) {
 	t.Helper()
 	envelope, err := NewEnvelope(kind, sessionID, "", "", 0, payload)

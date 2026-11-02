@@ -19,8 +19,7 @@ type Authenticator interface {
 	Authenticate(sessionID, token string) (*pairing.Lease, error)
 }
 
-// ManagementHandler is installed only by the Standalone CLI. Embedded
-// single-Session remote.Server instances leave it nil and remain unchanged.
+// ManagementHandler delegates optional management operations to the owning host.
 type ManagementHandler interface {
 	CreateSession(context.Context, string, string) (protocol.Pairing, error)
 	StopSession(context.Context, string) error
@@ -28,6 +27,7 @@ type ManagementHandler interface {
 
 type Config struct {
 	ListenAddress  string
+	OnSubscribed   func(string)
 	AllowedOrigins []string
 	// AdvertiseURL is the address the phone is told to dial. Its host is trusted
 	// as an Origin host: the user has already declared that clients reach this
