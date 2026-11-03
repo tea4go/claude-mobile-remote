@@ -162,6 +162,30 @@ func (s *EventStream) Publish(event protocol.Event) error {
 	return nil
 }
 
+// PublishQueue atomically advances the snapshot and publishes the same FIFO
+// view to subscribers, so a concurrent Subscribe cannot miss the update.
+func (s *EventStream) PublishQueue(items []protocol.QueuedRequest) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrEventStreamClosed
+	}
+	queue := append([]protocol.QueuedRequest{}, items...)
+	s.snapshot.QueuedRequests = append([]protocol.QueuedRequest{}, queue...)
+	s.snapshot.QueueDepth = len(queue)
+	s.snapshot.Seq++
+	event := protocol.Event{Kind: protocol.EventQueueChanged, SessionID: s.snapshot.SessionID, Seq: s.snapshot.Seq, Queue: &queue}
+	for id, events := range s.subscribers {
+		select {
+		case events <- event:
+		default:
+			delete(s.subscribers, id)
+			close(events)
+		}
+	}
+	return nil
+}
+
 // Close closes all subscriber channels. It is idempotent.
 func (s *EventStream) Close() {
 	s.mu.Lock()

@@ -7,6 +7,7 @@ interface QueuedRequestListProps {
   // 连接就绪且无在途命令时才允许发取消命令。
   enabled: boolean
   onCancel: (requestId: string) => void
+  onSteer?: (requestId: string) => void
 }
 
 // 排队输入列表（B2 §6）：按 snapshot 的 queuedRequests 顺序展示服务端截断后的
@@ -15,6 +16,7 @@ export default function QueuedRequestList({
   requests,
   enabled,
   onCancel,
+  onSteer,
 }: QueuedRequestListProps) {
   if (requests.length === 0) return null
 
@@ -34,6 +36,7 @@ export default function QueuedRequestList({
             {request.source === 'terminal' ? '电脑端' : '手机端'}
           </Tag>
           <span style={{ flex: 1, fontSize: FONT_SIZE_SECONDARY, wordBreak: 'break-word' }}>{request.preview}</span>
+          {onSteer && <Button size="mini" fill="outline" style={COMPACT_BUTTON_STYLE} disabled={!enabled} onClick={() => onSteer(request.requestId)}>引导</Button>}
           <Button
             size="mini"
             fill="outline"

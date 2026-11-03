@@ -341,6 +341,10 @@ export class ProtocolClient {
     return this.sendCommand(commandId, { kind: 'cancel_queued', requestId })
   }
 
+  steerQueued(requestId: string, commandId: string): SendResult {
+    return this.sendCommand(commandId, { kind: 'steer_queued', requestId })
+  }
+
   setPermissionMode(permissionMode: PermissionMode, commandId: string): SendResult {
     return this.sendCommand(commandId, { kind: 'set_permission_mode', permissionMode })
   }
@@ -431,13 +435,13 @@ export class ProtocolClient {
       return
     }
 
-    const legacyVersion = message.version === 2 || message.version === 3 || message.version === 4 || message.version === 5 || message.version === 6
+    const legacyVersion = message.version >= 2 && message.version <= 7
     if (legacyVersion && message.version < this.wireVersion && this.stage === 'authenticating' && message.type === 'hello_ack') {
       this.wireVersion = message.version
     }
     const downgradeError = message.type === 'error' && this.stage === 'authenticating' && legacyVersion &&
       (message.payload.code === 'unauthorized' || (message.payload.code === 'unsupported_version' &&
-        (message.payload.expectedVersion === 2 || message.payload.expectedVersion === 3 || message.payload.expectedVersion === 4 || message.payload.expectedVersion === 5 || message.payload.expectedVersion === 6) && message.payload.expectedVersion < this.wireVersion))
+        message.payload.expectedVersion !== undefined && message.payload.expectedVersion >= 2 && message.payload.expectedVersion < this.wireVersion))
     if (message.version !== this.wireVersion && !downgradeError) {
       this.terminate('protocolError')
       return
@@ -561,7 +565,7 @@ export class ProtocolClient {
         return
       case 'error':
         if (message.payload.code === 'unsupported_version' && this.stage === 'authenticating' &&
-            (message.payload.expectedVersion === 2 || message.payload.expectedVersion === 3 || message.payload.expectedVersion === 4 || message.payload.expectedVersion === 5 || message.payload.expectedVersion === 6) && message.payload.expectedVersion < this.wireVersion) {
+            message.payload.expectedVersion !== undefined && message.payload.expectedVersion >= 2 && message.payload.expectedVersion < this.wireVersion) {
           this.wireVersion = message.payload.expectedVersion!
           this.diagnose('protocol_retry')
           this.close()

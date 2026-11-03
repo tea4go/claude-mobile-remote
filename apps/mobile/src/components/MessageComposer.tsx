@@ -3,7 +3,7 @@ import type { TurnProgress } from '../protocol/types'
 import { encodeFile, needsPhotoPreparation, preparePickedFile, validateFiles } from '../native/attachments'
 import type { Attachment, AttachmentSendResult } from '../protocol/types'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Button, Popover, Space, TextArea, type TextAreaRef } from 'antd-mobile'
+import { Button, ImageViewer, Popover, Space, TextArea, type TextAreaRef } from 'antd-mobile'
 import { AddOutline, CheckOutline } from 'antd-mobile-icons'
 import { MAX_TEXT_BYTES, type PermissionMode } from '../protocol/types'
 import { FONT_SIZE_COMPACT, FONT_SIZE_BODY } from './ui'
@@ -77,6 +77,7 @@ const PERMISSION_OPTIONS = [
 
 function AttachmentPreview({ file }: { file: File }) {
   const [preview, setPreview] = useState<{ file: File; source: string } | null>(null)
+  const [visible, setVisible] = useState(false)
   useEffect(() => {
     if (!file.type.startsWith('image/')) return
     const reader = new FileReader()
@@ -84,7 +85,13 @@ function AttachmentPreview({ file }: { file: File }) {
     reader.readAsDataURL(file)
     return () => { reader.onload = null; if (reader.readyState === FileReader.LOADING) reader.abort() }
   }, [file])
-  return preview?.file !== file ? null : <img src={preview.source} alt={file.name} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8 }} />
+  if (preview?.file !== file) return <div className="composer-attachment-file">{file.name}</div>
+  return <>
+    <button type="button" className="composer-attachment-image" aria-label={`预览 ${file.name}`} onClick={() => setVisible(true)}>
+      <img src={preview.source} alt="" />
+    </button>
+    <ImageViewer image={preview.source} visible={visible} onClose={() => setVisible(false)} />
+  </>
 }
 
 export default function MessageComposer({
@@ -161,6 +168,7 @@ export default function MessageComposer({
       return
     }
     setOversize(false)
+    speech.clearError()
     if (selectedFiles.length === 0) { onSend(trimmed); setText(''); return }
     if (onSendAttachments === undefined) { setNativeNotice('当前连接未启用附件发送，请更新电脑端'); return }
     setSendingAttachments(true)
@@ -243,16 +251,16 @@ export default function MessageComposer({
       {selectedFiles.length > 0 && (
         <div data-testid="composer-attachments" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span>已选 {selectedFiles.length} 个附件（每个最多 4 MiB，合计 8 MiB）</span>
-          {selectedFiles.map((file, index) => <div key={`${index}-${file.name}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AttachmentPreview file={file} /><span>{file.name} · {Math.ceil(file.size / 1024)} KiB</span>
-            <Button size="mini" fill="none" disabled={sendingAttachments || preparingAttachments} aria-label={`移除 ${file.name}`} onClick={() => setSelectedFiles((items) => items.filter((_, i) => i !== index))}>移除</Button>
-          </div>)}
-          <Button fill="none" size="mini" disabled={sendingAttachments || preparingAttachments} onClick={() => setSelectedFiles([])}>清除</Button>
+          <div className="composer-attachment-grid">{selectedFiles.map((file, index) => <div key={`${index}-${file.name}`} className="composer-attachment-item">
+            <AttachmentPreview file={file} />
+            <button type="button" className="composer-attachment-remove" disabled={sendingAttachments || preparingAttachments} aria-label={`移除 ${file.name}`} onClick={() => setSelectedFiles((items) => items.filter((_, i) => i !== index))}>×</button>
+            <span className="composer-attachment-name" title={file.name}>{file.name}</span>
+          </div>)}</div>
         </div>
       )}
       {preparingAttachments && <div role="status">正在处理照片或文件…</div>}
       {sendingAttachments && <div role="status">正在发送附件，等待电脑确认…</div>}
-      {speech.recording && <div role="status">正在聆听，点击语音按钮结束（最长 60 秒）</div>}
+      {speech.recording && <div className="composer-speech-status" role="status">{speech.finishing ? '正在识别，请稍候…' : '正在聆听，点击语音按钮结束（最长 60 秒）'}</div>}
       {speech.error !== null && <div role="alert">{speech.error}</div>}
       {nativeNotice !== null && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#64748b' }}>{nativeNotice}</div>}
       {((oversize && oversizeNow) || oversizeNow) && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#dc2626' }}>文本超出长度上限</div>}
@@ -268,10 +276,11 @@ export default function MessageComposer({
               value={text}
               onChange={(value) => {
                 setText(value)
+                speech.clearError()
                 if (!oversizeNow) setOversize(false)
               }}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
                   event.preventDefault()
                   submit()
                 }
@@ -344,13 +353,14 @@ export default function MessageComposer({
             <div style={{ flex: 1 }} />
             <Space align="center" style={{ '--gap': '4px' }}>
               <Button
-                aria-label={experience === null ? '语音输入（原生能力预留）' : speech.recording ? '结束语音输入' : '语音输入'}
+                aria-label={experience === null ? '语音输入（原生能力预留）' : speech.finishing ? '正在识别语音' : speech.recording ? '结束语音输入' : '语音输入'}
                 aria-pressed={speech.recording}
-                className="composer-icon-button"
+                aria-busy={speech.finishing}
+                className={`composer-icon-button${speech.recording && !speech.finishing ? ' composer-voice-recording' : ''}`}
                 data-testid="voice-input"
                 fill="none"
-                style={ICON_BUTTON_STYLE}
-                disabled={textOnly || !enabled || sendingAttachments || preparingAttachments}
+                style={{ ...ICON_BUTTON_STYLE, ...(speech.recording ? { background: '#198FF9' } : {}) }}
+                disabled={textOnly || !enabled || sendingAttachments || preparingAttachments || speech.finishing}
                 onClick={() => {
                   if (experience === null) setNativeNotice('语音输入需要原生麦克风能力，当前 Web 版本暂未启用。')
                   else void speech.toggle()
@@ -358,12 +368,12 @@ export default function MessageComposer({
               >
                 <img src={voiceIcon} alt="" style={TOOL_ICON_STYLE} />
               </Button>
-              {turnRunning && cancelTarget !== null && onCancelTurn !== undefined ? (
+              {turnRunning && cancelTarget !== null && onCancelTurn !== undefined && (
                 <Button aria-label="取消当前 Turn" data-testid="floating-cancel-turn" className="composer-icon-button" fill="none" style={ICON_BUTTON_STYLE} disabled={!cancelEnabled} onClick={() => onCancelTurn(cancelTarget)}>
                   <span className="composer-stop" aria-hidden="true">■</span>
                 </Button>
-              ) : (
-              <Button
+              )}
+              {(!turnRunning || trimmed !== '' || selectedFiles.length > 0) && <Button
                 aria-label="发送"
                 className="composer-icon-button"
                 fill="none"
@@ -372,8 +382,7 @@ export default function MessageComposer({
                 onClick={submit}
               >
                 <img src={sendIcon} alt="" style={{ width: 28, height: 28, display: 'block', opacity: !enabled || sendingAttachments || (trimmed === '' && selectedFiles.length === 0) || oversizeNow ? 0.28 : 0.9 }} />
-              </Button>
-              )}
+              </Button>}
             </Space>
           </div>
         </div>

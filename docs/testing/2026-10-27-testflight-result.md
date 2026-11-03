@@ -27,3 +27,9 @@
 当前浏览器UI读取空白，截图出现ScreenCaptureKit -3811错误；已请求用户解锁Mac并前台打开Chrome后台。未把本地上传成功当作Beta审核提交。
 
 待后台恢复：核对新构建处理结果及出口合规问卷，更新测试/审核资料为离线演示实际步骤，建立测试组，加入build 3并提交Beta审核；审核通过后启用公开邀请链接、生成二维码。无Git写操作，无真实配对或私人录屏上传。
+
+## 2026-10-28 获批与公开入口核验
+
+- E2 TestFlight公开入口已核验（2026-10-28）：后台1.0(3)已批准，Public Beta现有公开链接 https://testflight.apple.com/join/uCHWhPEK 已启用，上限50人、当前0人；本轮未更改公开范围。Chrome实测Apple邀请页显示本App及“在TestFlight中查看”。二维码`/tmp/claude-mobile-remote-testflight-20261028.png`已生成并由Vision解码比对成功；沙箱内CoreImage渲染失败，获准沙箱外重跑通过。未重建/上传，无Git写操作。此build不含后续E3极光接入。下一步用户iPhone扫码加入、安装1.0(3)，验离线演示与LAN/VPN配对；真机安装尚未验证。
+
+公开页和二维码核验不代表真机安装通过。请用户反馈扫码安装、离线演示和真实PC配对结果。

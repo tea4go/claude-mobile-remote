@@ -337,6 +337,8 @@ func (c *connection) dispatchCommand(payload CommandPayload) (string, error) {
 		return payload.RequestID, c.subscriptionChannel.CancelTurn(c.context, c.sessionID, payload.RequestID)
 	case CommandCancelQueued:
 		return payload.RequestID, c.subscriptionChannel.CancelQueued(c.context, c.sessionID, payload.RequestID)
+	case CommandSteerQueued:
+		return payload.RequestID, c.subscriptionChannel.SteerQueued(c.context, c.sessionID, payload.RequestID)
 	case CommandSetPermissionMode:
 		return c.sessionID, c.subscriptionChannel.SetPermissionMode(c.context, c.sessionID, payload.PermissionMode)
 	default:
@@ -465,6 +467,7 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 		return false
 	}
 	snapshot := subscription.Snapshot
+	snapshot.CanSteerQueue = c.version >= 8 && sessionChannel.CanSteerQueue()
 	if c.version < 7 || (snapshot.Turn.Status != protocol.TurnRunning && snapshot.Turn.Status != protocol.TurnWaiting) {
 		snapshot.Turn.InputText = ""
 	}
@@ -536,7 +539,30 @@ func (c *connection) forwardSubscription(subscription *channel.Subscription) {
 				return
 			}
 			data, err := EncodeEnvelope(envelope)
-			if err != nil || c.gate.EnqueueEvent(data) != nil {
+			if err != nil {
+				c.shutdown()
+				return
+			}
+			var enqueueErr error
+			if c.version >= 8 && len(event.Images) > 0 {
+				fallback := event
+				fallback.ImagesOmitted += len(fallback.Images)
+				fallback.Images = nil
+				fallbackEnvelope, fallbackErr := c.outboundEvent(fallback)
+				if fallbackErr == nil {
+					var fallbackData []byte
+					fallbackData, fallbackErr = EncodeEnvelope(fallbackEnvelope)
+					if fallbackErr == nil {
+						enqueueErr = c.gate.EnqueueDisplayEvent(data, fallbackData)
+					}
+				}
+				if fallbackErr != nil {
+					enqueueErr = fallbackErr
+				}
+			} else {
+				enqueueErr = c.gate.EnqueueEvent(data)
+			}
+			if enqueueErr != nil {
 				c.shutdown()
 				return
 			}
@@ -559,6 +585,16 @@ func (c *connection) forwardSubscription(subscription *channel.Subscription) {
 // session fields. Every other kind keeps the outbound semantics check: an
 // illegal event is an internal error and only closes this connection.
 func (c *connection) outboundEvent(event protocol.Event) (Envelope, error) {
+	if c.version < 8 {
+		event.Images = nil
+		event.ImagesOmitted = 0
+	}
+	if c.version < 8 && event.Kind == protocol.EventQueueChanged {
+		if err := validateEvent(event); err != nil {
+			return Envelope{}, err
+		}
+		event = protocol.Event{Kind: protocol.EventUnsupported, Seq: event.Seq, Code: protocol.UnsupportedUnknownSubtype}
+	}
 	if c.version < 5 && (event.Kind == protocol.EventTurnProgress || event.Kind == protocol.EventSessionDiagnostic) {
 		if err := validateEvent(event); err != nil {
 			return Envelope{}, err

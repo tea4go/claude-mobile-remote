@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net"
@@ -20,6 +21,32 @@ import (
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
 	"github.com/tea4go/claude-mobile-remote/protocol"
 )
+
+func TestWebSocketPCImageDeliveryAndLegacyIsolation(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	connections := make(map[int]*websocket.Conn)
+	for _, version := range []int{7, 8} {
+		connection := fixture.dial(t)
+		connections[version] = connection
+		writeVersionedTestEnvelope(t, connection, version, TypeHello, "session-1", HelloPayload{PairToken: fixture.token})
+		_ = readTestEnvelope(t, connection)
+		writeVersionedTestEnvelope(t, connection, version, TypeSubscribe, "session-1", struct{}{})
+		_ = readTestEnvelope(t, connection)
+		_ = readTestEnvelope(t, connection)
+	}
+	image := append([]byte("GIF89a"), bytes.Repeat([]byte{0}, 2*1024*1024)...)
+	fixture.controller.emit(projectsession.Event{Seq: 8, Kind: protocol.EventTurnStarted, SessionID: "session-1", RequestID: "image-turn", Source: protocol.InputTerminal, Text: "picture", TurnStatus: protocol.TurnRunning, Images: []protocol.Attachment{{Name: "image-1", MediaType: "image/gif", Data: base64.StdEncoding.EncodeToString(image)}}})
+	for _, version := range []int{7, 8} {
+		got := readTestEnvelope(t, connections[version])
+		var payload EventPayload
+		if err := DecodePayload(got, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if (len(payload.Event.Images) == 1) != (version == 8) {
+			t.Fatalf("v%d image count: %d", version, len(payload.Event.Images))
+		}
+	}
+}
 
 type transportResolveCall struct {
 	actionID string

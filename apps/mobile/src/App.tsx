@@ -8,7 +8,7 @@ import NotificationSettings from './components/NotificationSettings'
 import { ProtocolClient } from './protocol/client'
 import { networkDiagnostics, networkCodeText, safeNetworkTarget } from './protocol/diagnostics'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { List, NavBar, Switch } from 'antd-mobile'
+import { Button, List, NavBar, Switch } from 'antd-mobile'
 import { LeftOutline } from 'antd-mobile-icons'
 import { useStore } from 'zustand'
 import PairingForm from './components/PairingForm'
@@ -429,6 +429,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         onResolveAction={(resolution: ActionResolution) => runtime.resolveAction(currentSessionId, resolution)}
         onCancelTurn={(requestId) => runtime.cancelTurn(currentSessionId, requestId)}
         onCancelQueued={(requestId) => runtime.cancelQueued(currentSessionId, requestId)}
+        onSteerQueued={(requestId) => runtime.steerQueued(currentSessionId, requestId)}
         managementBusy={managementBusy[currentSessionId] ?? false}
         managementFeedback={managementFeedback[currentSessionId] ?? null}
         onCreateSession={() => {
@@ -481,7 +482,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   } else if (settingsPage === 'settings') {
     pageContent = <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
       <div className="mobile-safe-area-header"><NavBar back="" backIcon={<LeftOutline aria-label="返回" />} onBack={() => setSettingsPage(null)}>设置</NavBar></div>
-      <List className="mobile-settings-list">
+      <List>
         <List.Item arrow onClick={() => { setSettingsDirection('forward'); setSettingsPage('pcs') }}>PC 管理</List.Item>
       </List>
       <List><List.Item arrow onClick={() => setDemoOpen(true)}>体验演示（无需连接电脑）</List.Item></List>
@@ -491,11 +492,10 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       <List header="本地保存说明">
         <List.Item description="原生 App 重启后恢复已配对会话、设备信息和自定义名称。未过期凭证保存在系统安全存储；移除 PC 或会话会删除对应本机配对。浏览器仅保存在内存。">配对与设备</List.Item>
         <List.Item description="iOS / Android 保存最近已收到的消息、标题与工作目录，重启先展示缓存，再连接 PC 更新状态。每会话最多 200 项/2 MiB，总计 20 MiB，保留 30 天；不缓存图片原件，不支持离线发送。浏览器仅保存在内存。">消息与状态</List.Item>
+        {cache !== null && <List.Item arrow={false} description={cacheMessage !== null ? <span role="status">{cacheMessage}</span> : undefined} extra={<Button color="primary" fill="none" size="small" onClick={() => {
+          void cacheWriter.current?.clear().then(() => setCacheMessage('离线缓存已清除；当前页面内容仍可继续使用')).catch(() => setCacheMessage('清除缓存失败，请重试'))
+        }}>清除</Button>}>清除离线缓存</List.Item>}
       </List>
-      {cache !== null && <List><List.Item arrow onClick={() => {
-        void cacheWriter.current?.clear().then(() => setCacheMessage('离线缓存已清除；当前页面内容仍可继续使用')).catch(() => setCacheMessage('清除缓存失败，请重试'))
-      }}>清除离线缓存</List.Item></List>}
-      {cacheMessage !== null && <p role="status" style={{ padding: 16 }}>{cacheMessage}</p>}
       {experience !== null && <NotificationSettings port={experience} />}
     </div>
   } else if (settingsPage === 'pcs') {

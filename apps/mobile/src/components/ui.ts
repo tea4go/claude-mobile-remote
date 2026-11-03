@@ -27,14 +27,11 @@ export const BLOCK_BUTTON_STYLE: CSSProperties = {
   borderRadius: 8,
 }
 
-// 页面底色采用 iOS 设置页常见的系统灰，让白色分组列表和内容面板形成
-// 清楚层次；详情页仍使用下方的独立渐变背景。
+// 页面底色采用 iOS 设置页常见的系统灰，让白色分组列表和内容面板形成层次。
 export const PAGE_BACKGROUND = '#f2f2f7'
 
-// 会话详情页底色：玻璃表面需要背后有层次才看得出模糊，因此用自上而下
-// 收白的清浅渐变，最深处也只比 PAGE_BACKGROUND 低一档。
-export const SESSION_BACKGROUND =
-  'linear-gradient(180deg, #f2f5fa 0%, #f8fafc 45%, #fdfefe 100%)'
+// 会话详情按人工反馈使用纯白底，蓝灰气泡区分问答。
+export const SESSION_BACKGROUND = '#ffffff'
 
 // 半透明玻璃表面：导航栏与固定输入栏共用。backdropFilter 是纯 CSS
 // 能力，不依赖 antd-mobile；不支持的老 WebView 会退化为半透明纯色，

@@ -21,6 +21,7 @@ import {
   noticeReceived,
   permissionModeSent,
   queuedCancelSent,
+  queuedSteerSent,
   sessionOpened,
   snapshotReceived,
   turnCancelSent,
@@ -250,6 +251,11 @@ export class SessionRuntimeManager {
       (client, commandId) => client.cancelQueued(requestId, commandId),
       (commandId) => queuedCancelSent({ commandId, requestId }),
     )
+  }
+
+  steerQueued(sessionId: string, requestId: string): boolean {
+    return this.send(sessionId, (client, commandId) => client.steerQueued(requestId, commandId),
+      (commandId) => queuedSteerSent({ commandId, requestId }))
   }
 
   private send(
