@@ -2,7 +2,7 @@
 // 组件不得复制消息定义，一律从本文件导入。
 
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 7
+export const PREFERRED_PROTOCOL_VERSION = 8
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
@@ -28,6 +28,7 @@ export type InputSource = 'terminal' | 'mobile'
 
 // unsupported 不是事件 kind：它走独立的 type=unsupported envelope。
 export type EventKind =
+  | 'queue_changed'
   | 'turn_progress'
   | 'session_diagnostic'
   | 'session_started'
@@ -209,6 +210,7 @@ export interface TurnSnapshot {
 }
 
 export interface SessionSnapshot {
+  canSteerQueue?: boolean
   sessionId: string
   sessionStatus: SessionStatus
   sessionError: ErrorInfo | null
@@ -227,6 +229,9 @@ export interface SessionSnapshot {
 // 领域事件：按 kind 部分携带字段，其余枚举在线上为空字符串（Go 零值
 // 序列化）。kind 语义校验由 decoder 的 validateEventSemantics 负责。
 export interface DomainEvent {
+  images?: Attachment[]
+  imagesOmitted?: number
+  queue?: QueuedRequest[]
  progress?: TurnProgress
  diagnostic?: SessionDiagnostic
   seq: number
@@ -302,6 +307,7 @@ export type CommandKind =
   | 'resolve_action'
   | 'cancel_turn'
   | 'cancel_queued'
+  | 'steer_queued'
   | 'set_permission_mode'
 
 export type ActionDecision = 'allow_once' | 'allow_session' | 'deny'
@@ -319,6 +325,7 @@ export type CommandPayload =
   | { kind: 'resolve_action'; actionId: string; answers: QuestionAnswer[] }
   | { kind: 'cancel_turn'; requestId: string }
   | { kind: 'cancel_queued'; requestId: string }
+  | { kind: 'steer_queued'; requestId: string }
   | { kind: 'set_permission_mode'; permissionMode: PermissionMode }
 
 // 服务端可发送给客户端的消息：envelope 关键字段与已验证的 payload 绑定。

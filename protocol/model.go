@@ -195,6 +195,7 @@ type TurnSnapshot struct {
 }
 
 type Snapshot struct {
+	CanSteerQueue  bool            `json:"canSteerQueue,omitempty"`
 	SessionID      string          `json:"sessionId"`
 	SessionStatus  SessionStatus   `json:"sessionStatus"`
 	SessionError   *ErrorInfo      `json:"sessionError"`

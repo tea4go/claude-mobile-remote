@@ -5,6 +5,7 @@ type EventKind string
 const (
 	EventTurnProgress      EventKind = "turn_progress"
 	EventSessionDiagnostic EventKind = "session_diagnostic"
+	EventQueueChanged      EventKind = "queue_changed"
 	EventSessionStarted    EventKind = "session_started"
 	EventTurnStarted       EventKind = "turn_started"
 	EventTextDelta         EventKind = "text_delta"
@@ -54,6 +55,12 @@ func (code UnsupportedCode) IsKnown() bool {
 }
 
 type Event struct {
+	// Images are transient display data for a v8 terminal turn, never paths.
+	Images        []Attachment `json:"images,omitempty"`
+	ImagesOmitted int          `json:"imagesOmitted,omitempty"`
+	// Queue is present only on v8 queue_changed events. A pointer preserves an
+	// explicitly empty queue on the wire.
+	Queue         *[]QueuedRequest   `json:"queue,omitempty"`
 	Progress      *TurnProgress      `json:"progress,omitempty"`
 	Diagnostic    *SessionDiagnostic `json:"diagnostic,omitempty"`
 	Seq           uint64             `json:"seq"`

@@ -167,6 +167,8 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
     private var task: SFSpeechRecognitionTask?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var timeout: DispatchWorkItem?
+    private var finalizationTimeout: DispatchWorkItem?
+    private var finishingSpeech = false
     private var transcript = ""
     private var tapInstalled = false
     private var backgroundObserver: NSObjectProtocol?
@@ -192,6 +194,7 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
         if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
         if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
         timeout?.cancel()
+        finalizationTimeout?.cancel()
         engine.stop()
         if tapInstalled { engine.inputNode.removeTap(onBus: 0) }
         task?.cancel()
@@ -202,6 +205,7 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
             guard self.speechCall == nil else { call.reject("speech_busy"); return }
             self.speechCall = call
             self.transcript = ""
+            self.finishingSpeech = false
             SFSpeechRecognizer.requestAuthorization { authorization in
                 DispatchQueue.main.async {
                     guard self.speechCall === call else { return }
@@ -237,14 +241,23 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
             task = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 DispatchQueue.main.async {
                     guard let self, self.speechCall === call else { return }
-                    if let result { self.transcript = result.bestTranscription.formattedString }
+                    if let result {
+                        let text = result.bestTranscription.formattedString
+                        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { self.transcript = text }
+                    }
                     if result?.isFinal == true { self.finishSpeech(cancelled: false) }
-                    else if error != nil { self.failSpeech() }
+                    else if error != nil {
+                        if self.finishingSpeech || !self.transcript.isEmpty { self.finishSpeech(cancelled: false) }
+                        else { self.failSpeech() }
+                    }
                 }
             }
             engine.prepare()
             try engine.start()
-            let timeout = DispatchWorkItem { [weak self] in self?.finishSpeech(cancelled: false) }
+            let timeout = DispatchWorkItem { [weak self] in
+                guard let self, self.speechCall === call else { return }
+                self.stopAudioAndFinalize()
+            }
             self.timeout = timeout
             DispatchQueue.main.asyncAfter(deadline: .now() + 60, execute: timeout)
         } catch { failSpeech() }
@@ -255,6 +268,9 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
         speechCall = nil
         timeout?.cancel()
         timeout = nil
+        finalizationTimeout?.cancel()
+        finalizationTimeout = nil
+        finishingSpeech = false
         engine.stop()
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
         request?.endAudio()
@@ -267,15 +283,34 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func finishSpeech(cancelled: Bool) {
         let text = cancelled ? "" : transcript
-        cleanupSpeech()?.resolve(["text": text])
+        cleanupSpeech()?.resolve(["text": text, "cancelled": cancelled])
         transcript = ""
     }
     private func failSpeech() {
         cleanupSpeech()?.reject("speech_unavailable")
         transcript = ""
     }
+    private func stopAudioAndFinalize() {
+        guard let currentCall = speechCall, !finishingSpeech else { return }
+        // Stopping audio is distinct from cancelling recognition: endAudio lets
+        // Speech finish the buffered utterance and deliver its final result.
+        guard request != nil else { finishSpeech(cancelled: true); return }
+        finishingSpeech = true
+        timeout?.cancel()
+        timeout = nil
+        engine.stop()
+        if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
+        request?.endAudio()
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        let deadline = DispatchWorkItem { [weak self] in
+            guard let self, self.speechCall === currentCall else { return }
+            self.finishSpeech(cancelled: false)
+        }
+        finalizationTimeout = deadline
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: deadline)
+    }
     @objc func stopSpeech(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { self.finishSpeech(cancelled: false); call.resolve() }
+        DispatchQueue.main.async { self.stopAudioAndFinalize(); call.resolve() }
     }
     @objc func cancelSpeech(_ call: CAPPluginCall) {
         DispatchQueue.main.async { self.finishSpeech(cancelled: true); call.resolve() }

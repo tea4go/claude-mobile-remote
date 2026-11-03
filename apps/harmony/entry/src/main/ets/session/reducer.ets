@@ -594,7 +594,8 @@ function mergeTurnStarted(state: HarmonySessionState, event: DomainEvent): Harmo
       kind: 'input',
       source: event.source,
       requestId: event.requestId,
-      text: event.text,
+      text: event.text + (event.imagesOmitted !== undefined ? `\n[${event.imagesOmitted} 张图片未能同步]` : ''),
+      attachments: event.images,
       status: '',
     }
     next.messages.push(input)
@@ -685,6 +686,10 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
 
   if (['turn_completed','turn_failed','session_failed','session_stopped'].indexOf(event.kind) >= 0) next.progress = undefined
   switch (event.kind) {
+    case 'queue_changed':
+      next.queuedRequests = cloneQueuedRequests(event.queue ?? [])
+      next.queueDepthHint = next.queuedRequests.length
+      break
     case 'turn_progress':
       if (next.messages.some((message: FeedMessage) => message.kind === 'claude' && message.requestId === event.requestId && message.status === 'streaming')) { next.progress = event.progress; next.progressRequestId = event.requestId }
       break
@@ -717,6 +722,12 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       next.progress = undefined
       next.progressRequestId = event.requestId
       if (snapshotStart && next.messages.some((message: FeedMessage) => message.kind === 'claude' && message.requestId === event.requestId && message.source === event.source && message.status === 'streaming') && next.messages.some((message: FeedMessage) => message.kind === 'input' && message.requestId === event.requestId && message.source === event.source)) {
+        next.messages.forEach((message: FeedMessage) => {
+          if (message.kind === 'input' && message.requestId === event.requestId) {
+            if (event.images !== undefined) message.attachments = event.images
+            if (event.imagesOmitted !== undefined) message.text += `\n[${event.imagesOmitted} 张图片未能同步]`
+          }
+        })
         next = withoutQueued(next, event.requestId)
         break
       }

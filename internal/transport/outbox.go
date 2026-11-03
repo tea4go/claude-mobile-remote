@@ -127,6 +127,26 @@ func (g *commandGate) EnqueueEvent(data []byte) error {
 	return nil
 }
 
+// EnqueueDisplayEvent permits one separately bounded large display event. If
+// that slot is occupied or a command is buffering events, enqueue the small
+// omission notice instead. Image delivery must never starve normal events.
+func (g *commandGate) EnqueueDisplayEvent(data, fallback []byte) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.active {
+		if err := g.outbox.EnqueueSnapshot(data); err == nil {
+			return nil
+		}
+		return g.outbox.Enqueue(fallback)
+	}
+	if len(g.early) >= g.maxEarlyItems || g.earlyBytes+len(fallback) > g.maxEarlyBytes {
+		return errEarlyBufferOverflow
+	}
+	g.early = append(g.early, append([]byte(nil), fallback...))
+	g.earlyBytes += len(fallback)
+	return nil
+}
+
 func (g *commandGate) Finish(result []byte) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()

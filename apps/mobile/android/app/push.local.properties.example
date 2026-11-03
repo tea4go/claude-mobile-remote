@@ -1,5 +1,6 @@
 # Copy to push.local.properties (ignored). Values must match the Android package/signature.
 # Only client SDK parameters belong here; NEVER add JPush Master Secret or vendor server secrets.
+JPUSH_APPKEY=
 XIAOMI_APPID=
 XIAOMI_APPKEY=
 HONOR_APPID=

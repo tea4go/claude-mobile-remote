@@ -3,11 +3,64 @@ package transport
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
+
+func TestDisplayImagesOnlyReachV8(t *testing.T) {
+	event := protocol.Event{Seq: 1, Kind: protocol.EventTurnStarted, SessionID: "s", RequestID: "r", Source: protocol.InputTerminal, Text: "picture", TurnStatus: protocol.TurnRunning, Images: []protocol.Attachment{{Name: "image-1", MediaType: "image/gif", Data: "R0lGODlhAQABAAAAAA=="}}}
+	for version := 2; version <= 8; version++ {
+		c := &connection{version: version, sessionID: "s"}
+		wire, err := c.outboundEvent(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload EventPayload
+		if err := json.Unmarshal(wire.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if (len(payload.Event.Images) != 0) != (version == 8) {
+			t.Fatalf("v%d images: %d", version, len(payload.Event.Images))
+		}
+	}
+}
+
+func TestDisplayEventFallsBackWithoutDisplacingOrdinaryEvents(t *testing.T) {
+	queue := newOutbox(8, 32)
+	gate := newCommandGate(queue, 8, 32)
+	large := []byte(strings.Repeat("x", 64))
+	if err := gate.EnqueueDisplayEvent(large, []byte("omitted-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := gate.EnqueueDisplayEvent(large, []byte("omitted-2")); err != nil {
+		t.Fatal(err)
+	}
+	if item, _ := queue.Next(); string(item) != string(large) {
+		t.Fatal("first image not queued")
+	}
+	if item, _ := queue.Next(); string(item) != "omitted-2" {
+		t.Fatal("second image did not fall back")
+	}
+	if err := gate.Begin("cmd"); err != nil {
+		t.Fatal(err)
+	}
+	if err := gate.EnqueueDisplayEvent(large, []byte("omitted-3")); err != nil {
+		t.Fatal(err)
+	}
+	if err := gate.Finish([]byte("result")); err != nil {
+		t.Fatal(err)
+	}
+	if item, _ := queue.Next(); string(item) != "result" {
+		t.Fatal("result ordering changed")
+	}
+	if item, _ := queue.Next(); string(item) != "omitted-3" {
+		t.Fatal("early image did not fall back")
+	}
+}
 
 func TestConnectionBudgetsAccommodateMaximumPromptEvent(t *testing.T) {
 	if outboundEventMaxBytes < projectsession.MaxPromptBytes+64*1024 {

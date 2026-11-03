@@ -9,7 +9,33 @@ import (
 	"time"
 
 	projectsession "github.com/tea4go/claude-mobile-remote/internal/session"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
+
+type steeringController struct {
+	*fakeController
+	steered string
+}
+
+func (f *steeringController) SteerQueued(_ context.Context, requestID string) error {
+	f.steered = requestID
+	return nil
+}
+
+func TestSteerQueuedRequiresMatchingSessionAndHostCapability(t *testing.T) {
+	host := &steeringController{fakeController: &fakeController{}}
+	c := New("session-a", host)
+	if err := c.SteerQueued(context.Background(), "session-b", "request"); !errors.Is(err, protocol.ErrSessionMismatch) || host.steered != "" {
+		t.Fatalf("cross-session steer: err=%v target=%q", err, host.steered)
+	}
+	if err := c.SteerQueued(context.Background(), "session-a", "request"); err != nil || host.steered != "request" {
+		t.Fatalf("steer: err=%v target=%q", err, host.steered)
+	}
+	unsupported := New("session-a", &fakeController{})
+	if err := unsupported.SteerQueued(context.Background(), "session-a", "request"); !errors.Is(err, protocol.ErrSessionUnavailable) {
+		t.Fatalf("unsupported steer: %v", err)
+	}
+}
 
 type resolveCall struct {
 	actionID string

@@ -1,5 +1,6 @@
 import {
   type ProgressPhase, type DiagnosticCode, type TurnProgress, type SessionDiagnostic,
+  type Attachment,
   ACTION_KIND_VALUES,
   ASK_USER_QUESTION_TOOL_NAME,
   BLOCK_KIND_VALUES,
@@ -51,6 +52,7 @@ import {
   type UnsupportedPayload,
 } from './types'
 import { decodePairingPayload } from './pairing'
+import { validateAttachments } from '../session/attachments'
 
 interface EnvelopeCandidate {
   version?: number
@@ -68,6 +70,7 @@ interface SnapshotPayloadCandidate {
 }
 
 interface SessionSnapshotCandidate {
+  canSteerQueue?: boolean
   permissionMode?: string
   sessionId?: string
   sessionStatus?: string
@@ -102,7 +105,12 @@ interface EventPayloadCandidate {
   event?: Object | null
 }
 
+interface ImageCandidate { name?: string; mediaType?: string; data?: string }
+
 interface EventCandidate {
+  images?: Array<Object>
+  imagesOmitted?: number
+  queue?: Array<Object>
   progress?: Object | null
   diagnostic?: Object | null
   permissionMode?: string
@@ -218,6 +226,7 @@ interface UnsupportedPayloadCandidate {
 const ENVELOPE_KEYS: Array<string> = ['version', 'type', 'sessionId', 'commandId', 'requestId', 'seq', 'payload']
 const SNAPSHOT_PAYLOAD_KEYS: Array<string> = ['connectionStatus', 'snapshot']
 const SESSION_SNAPSHOT_KEYS: Array<string> = [
+  'canSteerQueue',
   'permissionMode',
   'sessionId',
   'sessionStatus',
@@ -232,6 +241,7 @@ const TURN_SNAPSHOT_KEYS: Array<string> = ['inputText', 'progress', 'status', 'r
 const ERROR_INFO_KEYS: Array<string> = ['code', 'message']
 const EVENT_PAYLOAD_KEYS: Array<string> = ['event']
 const EVENT_KEYS: Array<string> = [
+  'images', 'imagesOmitted', 'queue',
   'progress', 'diagnostic',
   'permissionMode',
   'seq',
@@ -805,6 +815,7 @@ function permissionMode(value: string | undefined): PermissionMode {
 
 function decodeSessionSnapshot(value: Object | null, version: number): SessionSnapshot {
   const candidate = requireAllowedObject(value, 'snapshot', SESSION_SNAPSHOT_KEYS) as SessionSnapshotCandidate
+  if (candidate.canSteerQueue !== undefined && (version < 8 || typeof candidate.canSteerQueue !== 'boolean')) fail('invalid queue capability')
   const queueDepth = readNonNegativeInteger(candidate.queueDepth, 'queueDepth')
   const queuedRequests = decodeQueuedRequests(candidate.queuedRequests)
   if (queueDepth !== queuedRequests.length) {
@@ -894,6 +905,35 @@ function decodeEventPayload(value: Object | null, version: number): EventPayload
     turnStatus: readOptionalTurnStatus(eventCandidate.turnStatus, 'turnStatus'),
     error: decodeErrorInfo(eventCandidate.error !== undefined ? eventCandidate.error : null, 'error'),
   }
+  if (eventCandidate.images !== undefined || eventCandidate.imagesOmitted !== undefined) {
+    if (version < 8 || event.kind !== 'turn_started' || event.source !== 'terminal') fail('invalid display images')
+    if (eventCandidate.imagesOmitted !== undefined) {
+      const count = readNonNegativeInteger(eventCandidate.imagesOmitted, 'imagesOmitted')
+      if (count < 1 || count > 1024) fail('invalid omitted images')
+      event.imagesOmitted = count
+    }
+    if (eventCandidate.images !== undefined) {
+      if (!Array.isArray(eventCandidate.images)) fail('invalid images')
+      const images: Array<Attachment> = []
+      for (const raw of eventCandidate.images) {
+        const item = requireAllowedObject(raw, 'image', ['name', 'mediaType', 'data']) as ImageCandidate
+        const image: Attachment = { name: readString(item.name, 'name'), mediaType: readString(item.mediaType, 'mediaType'), data: readString(item.data, 'data') }
+        if (!/^image-[1-4]$/.test(image.name) || ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].indexOf(image.mediaType) < 0) fail('invalid image')
+        images.push(image)
+      }
+      if (validateAttachments(images) !== '') fail('invalid images')
+      event.images = images
+    }
+  }
+  if (event.kind === 'queue_changed') {
+    if (version < 8 || !Array.isArray(eventCandidate.queue) || eventCandidate.queue.length > 256 || event.requestId !== '' || event.source !== '' || event.text !== '' || event.sessionStatus !== '' || event.turnStatus !== '' || event.error !== null) fail('invalid queue update')
+    event.queue = decodeQueuedRequests(eventCandidate.queue)
+    const ids: Array<string> = []
+    for (const item of event.queue) {
+      if (item.requestId.length > 256 || ids.indexOf(item.requestId) >= 0) fail('invalid queue entry')
+      ids.push(item.requestId)
+    }
+  } else if (eventCandidate.queue !== undefined) fail('unexpected queue')
   event.sessionTitle = displayField(eventCandidate.sessionTitle, 'sessionTitle', version)
   event.lastActivityAt = displayField(eventCandidate.lastActivityAt, 'lastActivityAt', version)
   if (event.sessionTitle !== undefined && event.kind !== 'turn_started') fail('title requires turn_started')
@@ -1008,7 +1048,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
 
   const envelope = requireAllowedObject(parsedValue, 'message', ENVELOPE_KEYS) as EnvelopeCandidate
   const version = readInteger(envelope.version, 'version')
-  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== PREFERRED_PROTOCOL_VERSION) {
+  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== PREFERRED_PROTOCOL_VERSION) {
     fail('unsupported protocol version')
   }
 

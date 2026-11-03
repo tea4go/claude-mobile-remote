@@ -442,6 +442,13 @@ describe('A5 闭环回归：命令后事件序列', () => {
     expect(claude).toMatchObject({ requestId: 'req-pc', text: 'PC 回复' })
   })
 
+  test('PC 图片和未同步提示与对应输入关联', () => {
+    let state = reducer(reducer(createInitialState(), pairLoaded()), snapshotReceived(loopSnapshot(7)))
+    const images = [{ name: 'image-1', mediaType: 'image/gif', data: 'R0lGODlhAQABAAAAAA==' }]
+    state = reducer(state, eventReceived(event('turn_started', 8, { source: 'terminal', requestId: 'pc-image', text: '查看', images, imagesOmitted: 1 })))
+    expect(state.messages.find(m => m.kind === 'input')).toMatchObject({ requestId: 'pc-image', attachments: images, text: '查看\n[1 张图片未能同步]' })
+  })
+
   test('连续多轮 Turn 均渲染', () => {
     let state = createInitialState()
     state = reducer(state, pairLoaded())
@@ -1088,6 +1095,16 @@ test('重连快照合并当前轮次文本，不重复保留工具前后的正�
 })
 
 
+test('运行中受理的新输入进入队列并在开始执行时移除', () => {
+  let state = reducer(createInitialState(), snapshotReceived(snapshot({ turn: { status: 'running', requestId: 'active', source: 'terminal', message: '', error: null, pendingAction: null } })))
+  state = reducer(state, commandSent({ commandId: 'queued-command', text: '稍后处理' }))
+  state = reducer(state, commandAccepted({ commandId: 'queued-command', requestId: 'queued-request' }))
+  expect(state.queuedRequests).toMatchObject([{ requestId: 'queued-request', preview: '稍后处理' }])
+  state = reducer(state, eventReceived(event('turn_started', 11, { source: 'mobile', requestId: 'queued-request', text: '稍后处理' })))
+  expect(state.queuedRequests).toEqual([])
+})
+
+
 test('v7 snapshot 恢复当前提问并在重连时按 requestId 去重', () => {
   const turn = { status: 'running' as const, requestId: 'active', source: 'terminal' as const, inputText: 'PC 的问题', message: '回复中', error: null, pendingAction: null }
   let state = reducer(createInitialState(), snapshotReceived(snapshot({ turn })))
@@ -1101,9 +1118,11 @@ test('v7 snapshot 恢复当前提问并在重连时按 requestId 去重', () => 
 test('快照先于同一轮开始事件时归并一次，重复事件仍被拒绝', () => {
   const turn = { status: 'running' as const, requestId: 'active', source: 'terminal' as const, inputText: '安全提问', message: '', error: null, pendingAction: null }
   let state = reducer(createInitialState(), snapshotReceived(snapshot({ turn })))
-  state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'active', source: 'terminal', text: '安全提问' })))
+  const images = [{ name: 'image-1', mediaType: 'image/gif', data: 'R0lGODlhAQABAAAAAA==' }]
+  state = reducer(state, eventReceived(event('turn_started', 11, { requestId: 'active', source: 'terminal', text: '安全提问', images })))
   expect(state.phase).toBe('connected')
   expect(state.messages.map((item) => item.kind)).toEqual(['input', 'claude'])
+  expect(state.messages[0]).toMatchObject({ attachments: images })
   state = reducer(state, eventReceived(event('turn_started', 12, { requestId: 'active', source: 'terminal', text: '安全提问' })))
   expect(state.phase).toBe('protocolError')
 })

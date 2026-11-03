@@ -1,6 +1,6 @@
 # Android / Harmony 极光基础通知
 
-> 2026-10-29状态：D106已暂停系统通知推送开发，优先Android APK上架准备；本设计保留此前实现依据。归档提交不启用Harmony推送、不代表Android新包配置完成，也不替代厂商真机送达验收。
+> 2026-10-30状态：D107恢复 Android 华为推送配置，使用已发布 Android 包名及新极光应用；旧极光应用继续服务 iOS，Harmony 推送保持暂停。后台配置和构建不替代厂商真机送达验收。
 
 依据用户确认D103，复用D100/D102链路与现有iOS通知HTTP契约。PC发送组件不变；edo极光载荷扩展Android/Harmony平台及各自点击字段，不记录正文/PairToken/RID。固定文字、300秒TTL、Registration ID目标不变。
 
@@ -17,3 +17,9 @@ HarmonyOS NEXT独立接入极光鸿蒙SDK及华为Push Kit所需配置；同样�
 用户因Harmony签名变更要求暂停该端，保留未完成改动待后续复核；本轮edo只启用ios/android，不启用hmos。Android接入小米（含Redmi）、华为、荣耀、OPPO、vivo配套6.3.0插件；客户端参数从忽略的push.local.properties注入，华为AGC文件校验Android包名，后台Secret只填对应控制台。厂商参数缺失时不宣称厂商离线送达，设置显示当前机型通道未配置。详见../../docs/android-push.md。
 
 通知清理只消除已展示提醒，不撤销有效配对；配对完整集合同步才执行登记/解绑，避免用户点击通知后失去后续提醒。PUT请求超时也保留待确认登记，关闭/移除时仍发送DELETE，防止服务端已成功而客户端丢失登记记录。
+
+## Android 新发布身份配置（2026-10-30）
+
+Android 使用 `com.tea4go.claudemobileremote.android`、华为 APP ID `119552119` 和新极光应用 ClaudeRemoteControlNew；Java namespace/入口仍为 `com.tea4go.claudemobileremote.MainActivity`。AppKey 从忽略入库的本机 properties 注入，不复用旧 iOS AppKey；推送仍为显式构建开关及用户端内同意，未配置时拒绝生成推送包，普通发布包保留无 SDK 的构建路径。
+
+AGC 文件必须校验包名和 APP ID，华为登记证书应与实际安装签名一致。服务端 Secret 不进入客户端。新极光 RID 不能直接发送给旧 AppKey，edo 需支持新旧应用目标隔离后才能联调；在此之前不得宣称端到端就绪，不能通过覆盖旧凭据迁移现有 iOS。后台华为通道填写已获用户明确授权，服务类权益、消息分类及真实后台/退出送达按平台和真机结果另行记录。
