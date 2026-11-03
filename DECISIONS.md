@@ -798,6 +798,13 @@ D103范围调整：用户明确Harmony因签名变更先暂停，本轮先实现
 - **影响**：本轮Android身份独立于Harmony团队包`com.tea4go.claudemobileremote1028`；部分替代D105中Android暂不改名及D103中继续Android推送开发的安排。暂停开发不等于现有Android推送已被禁用，发布实现和配置仍待处理。若存在目标应用原有发布密钥需优先复用以保持升级连续性；首次发布且无现成密钥时再创建独立Android发布密钥。原始密钥及密码存于仓库外并备份，按当前AGC方式二要求使用PEPK导出加密ZIP。独立上传密钥可另行准备，尚未创建/登记；不得混同应用签名密钥与上传密钥证书。此次不改变三端WebSocket、Session/Turn状态或配对契约。
 - **状态**：方向已确认，Android改名、包名、发布签名和后台配置尚未实施。
 
+## D107 · Android 恢复推送，极光新旧应用逐步迁移（2026-10-30）
+
+- 用户明确恢复 Android 推送配置，使用华为 Android APP `119552119` 及绑定 `com.tea4go.claudemobileremote.android` 的新极光应用；旧极光应用目前仅继续服务 iOS，后续逐步迁移，不能直接覆盖旧服务端凭据。
+- 部分替代 D106 的 Android 推送暂停安排；Harmony 推送继续暂停。客户端只保存 SDK 所需参数，华为服务端 Secret 仅用于华为/极光后台，极光 Master Secret 仅放 edo 私有配置。
+- 本轮先配置 Android 华为通道和本地 SDK，并复核 edo 多应用路由；不发布新版 APK、不自动迁移 iOS。共用 WebSocket、Session/Turn、配对及 PC 最小通知事件不变，极光应用选择属于通知适配层，不进入会话协议；真机送达仍需验收。
+
+
 ## D108 · WhaleTerm 支持同目录远程新建并持有会话
 
 - **日期**：2026-11-02
@@ -811,3 +818,9 @@ D103范围调整：用户明确Harmony因签名变更先暂停，本轮先实现
 
 - 用户检查并确认 `docs/specs/2026-11-02-ios-current-input-sync-design.md`：v7 快照提供可选当前 Turn 用户可见输入，旧版本剥离并保留降级；不恢复完整历史或公开内部附件路径。
 - 三端核对：Go 宿主、React/Capacitor 与 Harmony ArkTS 均可用有界 UTF-8 字符串及 sessionId/requestId 归并；三端需同步 v7、严格键校验和旧端协商。快照尺寸需按最坏 JSON 转义设置有界预算。详见设计与计划。
+
+## D110 · 远程队列与 PC 图片同步（2026-11-03）
+
+- 用户检查并确认 `docs/specs/2026-11-03-mobile-queue-and-pc-images-design.md`，要求手机输入区提供队列入口，PC 和手机的队列操作双向同步，并展示 PC 发送的图片。
+- 队列以会话唯一宿主为准，复用 WhaleTerm FIFO 和引导；使用 v8 扩展并兼容 v2–v7，按宿主能力开放引导，不传 PC 内部路径。图片必须使用有界、经验证的展示数据，无法安全表达时明确降级。
+- 三端核对：Go/WhaleTerm 实现权威队列和版本过滤；React/Capacitor 与 Harmony 更新严格解码、协商和状态模型，可按能力降级，不引入平台专属协议。传输边界与快照原子性在实施时继续核实。

@@ -8,6 +8,38 @@ import (
 	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
+func TestPublishQueueKeepsSnapshotAndEventAtSameSequence(t *testing.T) {
+	stream, err := NewEventStream(protocol.Snapshot{SessionID: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	_, events, err := stream.Subscribe(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := []protocol.QueuedRequest{{RequestID: "q", Source: protocol.InputTerminal, Preview: "hello"}}
+	if err := stream.PublishQueue(items); err != nil {
+		t.Fatal(err)
+	}
+	items[0].Preview = "changed"
+	event := <-events
+	snapshot, err := stream.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Seq != snapshot.Seq || event.Queue == nil || len(*event.Queue) != 1 || (*event.Queue)[0].Preview != "hello" || snapshot.QueueDepth != 1 || snapshot.QueuedRequests[0].Preview != "hello" {
+		t.Fatalf("event=%#v snapshot=%#v", event, snapshot)
+	}
+	if err := stream.PublishQueue(nil); err != nil {
+		t.Fatal(err)
+	}
+	event = <-events
+	if event.Queue == nil || len(*event.Queue) != 0 {
+		t.Fatalf("empty queue event=%#v", event)
+	}
+}
+
 func TestEventStreamBroadcastsIndependently(t *testing.T) {
 	stream, err := NewEventStream(protocol.Snapshot{SessionID: "session-1"})
 	if err != nil {

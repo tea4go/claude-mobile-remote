@@ -140,7 +140,7 @@ describe('握手流程', () => {
     socket.serverOpen()
     expect(socket.sent).toHaveLength(1)
     expect(JSON.parse(socket.sent[0]!)).toEqual({
-      version: 7,
+      version: 8,
       type: 'hello',
       sessionId: 'session-1',
       commandId: '',

@@ -110,7 +110,8 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, onAdd, 
           arrowIcon={false}
           aria-label={`进入 ${displayTitle(session)}`}
           extra={<div className="project-session-list__extra">
-            <div className="project-session-list__meta"><span className={`project-session-list__status${status === '等待处理' || status === '需要重新配对' ? ' project-session-list__status--attention' : ''}`}>{status}</span><span className="project-session-list__time">{time}</span></div>
+            {status && <span className={`project-session-list__status${status === '等待处理' || status === '需要重新配对' ? ' project-session-list__status--attention' : ''}`}>{status}</span>}
+            <div className="project-session-list__meta"><span className="project-session-list__time">{time}</span></div>
             <span onClick={(event) => event.stopPropagation()}>
               <Popover.Menu
               trigger="click"

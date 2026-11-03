@@ -893,6 +893,7 @@ describe('App：B2 取消与排队', () => {
       },
     })
 
+    fireEvent.click(await screen.findByRole('button', { name: '队列（1）' }))
     await waitFor(() => {
       expect(screen.getByText('排队中的输入')).toBeInTheDocument()
     })

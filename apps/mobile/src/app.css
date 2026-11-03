@@ -45,7 +45,22 @@ body {
 
 .session-detail-header .adm-nav-bar-left,
 .session-detail-header .adm-nav-bar-right {
-  flex: 0 0 auto;
+  flex: 0 0 80px;
+  min-width: 0;
+}
+
+.session-detail-header .adm-nav-bar {
+  --height: auto;
+  min-height: 64px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.session-detail-heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .session-detail-header .adm-nav-bar-title {
@@ -66,21 +81,23 @@ body {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  justify-content: flex-end;
 }
 
-.session-detail-header-actions [data-testid='session-status-compact'] {
+.session-detail-heading [data-testid='session-status-compact'] {
   display: flex;
-  flex-direction: column;
-  max-width: 92px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 6px;
+  white-space: normal;
   font-size: 11px;
+  font-weight: normal;
+  line-height: 1.5;
+  color: #8c8c8c;
 }
 
-.session-detail-header-actions [data-testid='session-status-compact'] span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.session-detail-heading [data-testid='session-status-compact'] > span {
+  white-space: nowrap;
 }
 
 .session-detail-connection-line {

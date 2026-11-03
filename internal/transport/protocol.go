@@ -15,7 +15,7 @@ import (
 
 // Version remains the v2 default for callers constructing legacy envelopes.
 const Version = 2
-const LatestVersion = 7
+const LatestVersion = 8
 
 var ErrInvalidMessage = errors.New("invalid protocol message")
 
@@ -104,6 +104,7 @@ const (
 	CommandResolveAction     CommandKind = "resolve_action"
 	CommandCancelTurn        CommandKind = "cancel_turn"
 	CommandCancelQueued      CommandKind = "cancel_queued"
+	CommandSteerQueued       CommandKind = "steer_queued"
 	CommandSetPermissionMode CommandKind = "set_permission_mode"
 )
 
@@ -216,7 +217,7 @@ func DecodeEnvelope(data []byte) (Envelope, error) {
 
 // ValidateEnvelope enforces the shared v2/v3 field and payload invariants.
 func ValidateEnvelope(envelope Envelope) error {
-	if envelope.Version != Version && envelope.Version != 3 && envelope.Version != 4 && envelope.Version != 5 && envelope.Version != 6 && envelope.Version != LatestVersion {
+	if envelope.Version < Version || envelope.Version > LatestVersion {
 		return protocolError(CodeUnsupportedVersion, "unsupported protocol version")
 	}
 	if envelope.Type == "" || envelope.SessionID == "" || len(envelope.Payload) == 0 {
@@ -252,6 +253,9 @@ func ValidateEnvelope(envelope Envelope) error {
 		}
 		if err := validateCommand(payload); err != nil {
 			return err
+		}
+		if payload.Kind == CommandSteerQueued && envelope.Version < 8 {
+			return protocolError(CodeInvalidMessage, "queue steering requires v8")
 		}
 	case TypeHello:
 		if envelope.CommandID != "" || envelope.RequestID != "" || envelope.Seq != 0 {
@@ -339,6 +343,9 @@ func validateDisplayTitle(value string) bool {
 }
 
 func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
+	if version < 8 && snapshot.CanSteerQueue {
+		return protocolError(CodeInvalidMessage, "queue steering requires v8")
+	}
 	if snapshot.Turn.InputText != "" && (version < 7 || !utf8.ValidString(snapshot.Turn.InputText) || len(snapshot.Turn.InputText) > protocol.MaxPromptBytes || snapshot.Turn.RequestID == "" || (snapshot.Turn.Status != protocol.TurnRunning && snapshot.Turn.Status != protocol.TurnWaiting)) {
 		return protocolError(CodeInvalidMessage, "invalid current input")
 	}
@@ -359,6 +366,12 @@ func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
 }
 
 func validateEventDisplay(version int, event protocol.Event) error {
+	if version < 8 && (len(event.Images) != 0 || event.ImagesOmitted != 0) {
+		return protocolError(CodeInvalidMessage, "display images require v8")
+	}
+	if version < 8 && (event.Kind == protocol.EventQueueChanged || event.Queue != nil) {
+		return protocolError(CodeInvalidMessage, "queue updates require v8")
+	}
 	if version < 5 && (event.Progress != nil || event.Diagnostic != nil || event.Kind == protocol.EventTurnProgress || event.Kind == protocol.EventSessionDiagnostic) {
 		return protocolError(CodeInvalidMessage, "progress requires v5")
 	}
@@ -411,7 +424,7 @@ func validateCommand(payload CommandPayload) error {
 		if hasAnswers {
 			return validateAnswerShape(payload.Answers)
 		}
-	case CommandCancelTurn, CommandCancelQueued:
+	case CommandCancelTurn, CommandCancelQueued, CommandSteerQueued:
 		if payload.RequestID == "" || payload.ActionID != "" || payload.Text != "" ||
 			payload.Decision != "" || len(payload.Answers) > 0 {
 			return protocolError(CodeInvalidMessage, "invalid cancel command")
@@ -559,6 +572,20 @@ func isEmptyPayload(envelope Envelope) bool {
 // turn_started must carry the normalized input text, text_delta a non-empty
 // increment, and all other kinds no text at all.
 func validateEvent(event protocol.Event) error {
+	if len(event.Images) > 0 || event.ImagesOmitted != 0 {
+		if event.Kind != protocol.EventTurnStarted || event.Source != protocol.InputTerminal || event.ImagesOmitted < 0 || event.ImagesOmitted > 1024 {
+			return protocolError(CodeInvalidMessage, "invalid display images")
+		}
+		valid, omitted := protocol.DisplayImages(event.Images)
+		if omitted != 0 || len(valid) != len(event.Images) {
+			return protocolError(CodeInvalidMessage, "invalid display images")
+		}
+		for i := range valid {
+			if valid[i].Name != event.Images[i].Name {
+				return protocolError(CodeInvalidMessage, "invalid display image name")
+			}
+		}
+	}
 	if err := validateEventPayloadFields(event); err != nil {
 		return err
 	}
@@ -586,6 +613,22 @@ func validateEvent(event protocol.Event) error {
 // that own them. Every other kind must leave them absent, so a client never has
 // to guess whether a block or an action belongs to the event it is reading.
 func validateEventPayloadFields(event protocol.Event) error {
+	if event.Kind == protocol.EventQueueChanged {
+		if event.Queue == nil || len(*event.Queue) > 256 || event.RequestID != "" || event.Source != "" || event.Text != "" || event.SessionStatus != "" || event.TurnStatus != "" || event.Error != nil || event.Progress != nil || event.Diagnostic != nil || event.Block != nil || event.PendingAction != nil || event.Code != "" || len(event.Answers) != 0 || event.PermissionMode != "" || event.SessionTitle != "" || event.LastActivityAt != "" {
+			return protocolError(CodeInvalidMessage, "invalid queue update")
+		}
+		seen := make(map[string]bool, len(*event.Queue))
+		for _, item := range *event.Queue {
+			if item.RequestID == "" || len(item.RequestID) > 256 || seen[item.RequestID] || (item.Source != protocol.InputTerminal && item.Source != protocol.InputMobile) || !utf8.ValidString(item.Preview) || len([]rune(item.Preview)) > protocol.DefaultToolPreviewMaxRunes {
+				return protocolError(CodeInvalidMessage, "invalid queue entry")
+			}
+			seen[item.RequestID] = true
+		}
+		return nil
+	}
+	if event.Queue != nil {
+		return protocolError(CodeInvalidMessage, "unexpected queue")
+	}
 	if (event.Progress != nil) != (event.Kind == protocol.EventTurnProgress) || (event.Diagnostic != nil) != (event.Kind == protocol.EventSessionDiagnostic) {
 		return protocolError(CodeInvalidMessage, "unexpected progress fields")
 	}

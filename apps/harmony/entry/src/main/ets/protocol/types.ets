@@ -1,5 +1,5 @@
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 7
+export const PREFERRED_PROTOCOL_VERSION = 8
 export const PAIRING_PAYLOAD_VERSION = 1
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
 export const MAX_TEXT_BYTES = 1024 * 1024
@@ -17,6 +17,7 @@ export const INPUT_SOURCE_VALUES: string[] = ['terminal', 'mobile']
 export const PERMISSION_MODE_VALUES: string[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 export const EVENT_KIND_VALUES: string[] = [
+  'queue_changed',
   'turn_progress', 'session_diagnostic',
   'session_started',
   'turn_started',
@@ -77,6 +78,7 @@ export type SessionStatus = 'starting' | 'ready' | 'stopped' | 'failed'
 export type TurnStatus = 'idle' | 'running' | 'waiting' | 'completed' | 'cancelled' | 'failed'
 export type InputSource = 'terminal' | 'mobile'
 export type EventKind =
+  | 'queue_changed'
   | 'turn_progress' | 'session_diagnostic'
   | 'session_started'
   | 'turn_started'
@@ -268,6 +270,9 @@ export interface SessionSnapshot {
 }
 
 export interface DomainEvent {
+  images?: Array<Attachment>
+  imagesOmitted?: number
+  queue?: Array<QueuedRequest>
   progress?: TurnProgress
   diagnostic?: SessionDiagnostic
   permissionMode?: PermissionMode

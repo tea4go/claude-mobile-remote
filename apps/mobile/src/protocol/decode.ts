@@ -60,6 +60,7 @@ const PERMISSION_MODES: ReadonlySet<string> = new Set(['default', 'acceptEdits',
 const INPUT_SOURCES: ReadonlySet<string> = new Set(['terminal', 'mobile'])
 
 const EVENT_KINDS: ReadonlySet<string> = new Set([
+ 'queue_changed',
  'turn_progress', 'session_diagnostic',
   'session_started',
   'turn_started',
@@ -503,6 +504,10 @@ function decodeSessionSnapshot(value: unknown, version: number): SessionSnapshot
       return raw as PermissionMode
     })(),
   }
+  if (value.canSteerQueue !== undefined) {
+    if (version < 8 || typeof value.canSteerQueue !== 'boolean') fail('invalid queue steering capability')
+    snapshot.canSteerQueue = value.canSteerQueue
+  }
   for (const key of ['projectCwd', 'sessionTitle', 'createdAt', 'lastActivityAt'] as const) {
     const field = displayField(value, key, version)
     if (field !== undefined) snapshot[key] = field
@@ -573,6 +578,29 @@ function decodeEventPayload(value: unknown, version: number): EventPayload {
     turnStatus: requireEnum<TurnStatus>(event, 'turnStatus', TURN_STATUSES),
     error: decodeErrorInfo(event.error),
   }
+  if (event.images !== undefined || event.imagesOmitted !== undefined) {
+    if (version < 8 || kind !== 'turn_started' || domainEvent.source !== 'terminal') fail('invalid display images')
+    if (event.imagesOmitted !== undefined) {
+      if (!Number.isInteger(event.imagesOmitted) || (event.imagesOmitted as number) < 1 || (event.imagesOmitted as number) > 1024) fail('invalid omitted images')
+      domainEvent.imagesOmitted = event.imagesOmitted as number
+    }
+    if (event.images !== undefined) {
+      if (!Array.isArray(event.images) || event.images.length < 1 || event.images.length > 4) fail('invalid images')
+      let total = 0
+      domainEvent.images = event.images.map((item: unknown) => {
+        if (!isObject(item) || typeof item.name !== 'string' || !/^image-[1-4]$/.test(item.name) || typeof item.mediaType !== 'string' || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(item.mediaType) || typeof item.data !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(item.data) || item.data.length % 4 !== 0) fail('invalid image')
+        const size = item.data.length / 4 * 3 - (item.data.endsWith('==') ? 2 : item.data.endsWith('=') ? 1 : 0)
+        total += size
+        if (size < 1 || size > 4 * 1024 * 1024 || total > 8 * 1024 * 1024) fail('image too large')
+        return { name: item.name, mediaType: item.mediaType, data: item.data }
+      })
+    }
+  }
+  if (kind === 'queue_changed') {
+    if (version < 8 || !Array.isArray(event.queue) || event.queue.length > 256 || requestId !== '' || domainEvent.source !== '' || domainEvent.text !== '' || domainEvent.turnStatus !== '' || domainEvent.sessionStatus !== '' || domainEvent.error !== null) fail('invalid queue update')
+    domainEvent.queue = decodeQueuedRequests({ queuedRequests: event.queue })
+    if (new Set(domainEvent.queue.map(item => item.requestId)).size !== domainEvent.queue.length) fail('duplicate queue request')
+  } else if (event.queue !== undefined) fail('unexpected queue')
   for (const key of ['sessionTitle', 'lastActivityAt'] as const) {
     const field = displayField(event, key, version)
     if (field !== undefined) domainEvent[key] = field
@@ -714,7 +742,7 @@ export function decodeServerMessage(text: string): ServerMessage {
   if (typeof version !== 'number' || !Number.isSafeInteger(version)) {
     fail('field version must be an integer')
   }
-  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== PREFERRED_PROTOCOL_VERSION) fail('unsupported protocol version')
+  if (version < PROTOCOL_VERSION || version > PREFERRED_PROTOCOL_VERSION) fail('unsupported protocol version')
 
   const type = requireString(parsed, 'type') as MessageType
   if (!SERVER_TO_CLIENT_TYPES.has(type)) {

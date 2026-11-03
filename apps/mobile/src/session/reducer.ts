@@ -87,6 +87,7 @@ export interface Notice {
 }
 
 export interface MobileState {
+  canSteerQueue: boolean
  progress: TurnProgress | null
  progressRequestId: string
   cachedAt: number | null
@@ -115,6 +116,7 @@ export interface MobileState {
 
 export function createInitialState(): MobileState {
   return {
+    canSteerQueue: false,
     progress: null,
     progressRequestId: '',
     cachedAt: null,
@@ -221,6 +223,10 @@ export function queuedCancelSent(info: {
     text: '',
     targetId: info.requestId,
   }
+}
+
+export function queuedSteerSent(info: { commandId: string; requestId: string }): CommandSentAction {
+  return { type: 'commandSent', commandId: info.commandId, kind: 'steer_queued', text: '', targetId: info.requestId }
 }
 
 export function permissionModeSent(info: { commandId: string; permissionMode: PermissionMode }): CommandSentAction {
@@ -367,6 +373,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     phase: 'connected',
     connection: 'connected',
     sessionId: snapshot.sessionId,
+    canSteerQueue: snapshot.canSteerQueue ?? false,
     projectCwd: snapshot.projectCwd ?? null,
     sessionTitle: snapshot.sessionTitle ?? null,
     createdAt: snapshot.createdAt ?? null,
@@ -460,7 +467,8 @@ function mergeTurnStarted(
       kind: 'input',
       source,
       requestId: event.requestId,
-      text: event.text,
+      text: event.text + (event.imagesOmitted ? `\n[${event.imagesOmitted} 张图片未能同步]` : ''),
+      attachments: event.images,
       status: null,
     }
     messages = [...state.messages, input]
@@ -490,6 +498,10 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
   if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
 
   switch (event.kind) {
+    case 'queue_changed':
+      next.queuedRequests = event.queue ?? []
+      next.queueDepthHint = next.queuedRequests.length
+      break
     case 'turn_progress':
       if (next.progressRequestId === event.requestId && next.messages.some(m => m.kind === 'claude' && m.requestId === event.requestId && m.status === 'streaming')) next.progress = event.progress ?? null
       break
@@ -522,6 +534,9 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       next.progress = null
       next.progressRequestId = event.requestId
       if (snapshotStart && next.messages.some((message) => message.kind === 'claude' && message.requestId === event.requestId && message.source === event.source && message.status === 'streaming') && next.messages.some((message) => message.kind === 'input' && message.requestId === event.requestId && message.source === event.source)) {
+        next.messages = next.messages.map(message => message.kind === 'input' && message.requestId === event.requestId
+          ? { ...message, attachments: event.images ?? message.attachments, text: message.text + (event.imagesOmitted ? `\n[${event.imagesOmitted} 张图片未能同步]` : '') }
+          : message)
         next = withoutQueued(next, event.requestId)
         break
       }
@@ -699,6 +714,14 @@ export function reducer(state: MobileState, action: Action): MobileState {
             status: 'accepted',
           }
           next.messages = [...state.messages, accepted]
+          // The command result precedes buffered turn events. While another
+          // turn is active, expose this accepted request for cancellation;
+          // turn_started or a later snapshot reconciles the queue.
+          if (state.messages.some((message) => message.kind === 'claude' && message.status === 'streaming') && !state.queuedRequests.some((request) => request.requestId === action.requestId)) {
+            const preview = (pending.text.trim() || pending.attachments?.map((item) => item.name).join('、') || '附件').slice(0, 200)
+            next.queuedRequests = [...state.queuedRequests, { requestId: action.requestId, source: 'mobile', preview }]
+            next.queueDepthHint = next.queuedRequests.length
+          }
           break
         }
         case 'resolve_action':
@@ -706,6 +729,7 @@ export function reducer(state: MobileState, action: Action): MobileState {
           next.pendingAction = null
           break
         case 'cancel_queued':
+        case 'steer_queued':
           // 取消排队不发领域事件，只能按 command_result 本地移除。
           return applyCanSend(withoutQueued(next, pending.targetId))
         case 'cancel_turn':

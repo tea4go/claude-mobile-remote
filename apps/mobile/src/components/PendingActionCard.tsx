@@ -33,6 +33,9 @@ const BODY_STYLE: CSSProperties = {
   overflowY: 'auto',
   minHeight: 0,
   flex: '1 1 auto',
+  WebkitUserSelect: 'text',
+  userSelect: 'text',
+  WebkitTouchCallout: 'default',
 }
 
 // 待处理事项抽屉（B2 §6 + D53）：工具审批与 AskUserQuestion 共用同一形态，

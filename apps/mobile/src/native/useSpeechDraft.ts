@@ -3,9 +3,11 @@ import type { ExperiencePort } from './experience'
 
 export function useSpeechDraft(port: ExperiencePort | null, enabled: boolean, append: (text: string) => void) {
   const [recording, setRecording] = useState(false)
+  const [finishing, setFinishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const generation = useRef(0)
   const active = useRef(false)
+  const stopping = useRef(false)
   const appendRef = useRef(append)
   useEffect(() => { appendRef.current = append }, [append])
 
@@ -13,7 +15,10 @@ export function useSpeechDraft(port: ExperiencePort | null, enabled: boolean, ap
     if (!enabled && active.current) {
       generation.current += 1
       active.current = false
+      stopping.current = false
       setRecording(false)
+      setFinishing(false)
+      setError(null)
       void port?.cancelSpeech().catch(() => undefined)
     }
   }, [enabled, port])
@@ -21,21 +26,35 @@ export function useSpeechDraft(port: ExperiencePort | null, enabled: boolean, ap
     generation.current += 1
     if (active.current) void port?.cancelSpeech().catch(() => undefined)
     active.current = false
+    stopping.current = false
   }, [port])
 
   const toggle = async () => {
     if (port === null || !enabled) return
     if (active.current) {
-      try { await port.stopSpeech() } catch { setError('无法停止语音，请重试') }
+      if (stopping.current) return
+      const current = generation.current
+      stopping.current = true
+      setFinishing(true)
+      try { await port.stopSpeech() } catch {
+        if (generation.current === current && active.current) {
+          stopping.current = false
+          setFinishing(false)
+          setError('无法停止语音，请重试')
+        }
+      }
       return
     }
     const current = ++generation.current
     active.current = true
+    stopping.current = false
     setRecording(true)
+    setFinishing(false)
     setError(null)
     try {
       const result = await port.recognize()
       if (generation.current !== current) return
+      if (result.cancelled) return
       if (result.text.trim() !== '') appendRef.current(result.text)
       else setError('未识别到文字，请重试')
     } catch {
@@ -43,9 +62,11 @@ export function useSpeechDraft(port: ExperiencePort | null, enabled: boolean, ap
     } finally {
       if (generation.current === current) {
         active.current = false
+        stopping.current = false
         setRecording(false)
+        setFinishing(false)
       }
     }
   }
-  return { recording, error, toggle }
+  return { recording, finishing, error, toggle, clearError: () => setError(null) }
 }

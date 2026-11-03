@@ -6,7 +6,7 @@ export interface ExperiencePort {
   copyDebugLog?(options: { text: string }): Promise<void>
   exportDebugLog?(options: { text: string }): Promise<{ completed: boolean }>
   syncPushSessions?(options: { sessions: { sessionId: string; pairToken: string; expiresAt: string }[]; viewedSession: string }): Promise<void>
-  recognize(): Promise<{ text: string }>
+  recognize(): Promise<{ text: string; cancelled?: boolean }>
   stopSpeech(): Promise<void>
   cancelSpeech(): Promise<void>
   notificationStatus(): Promise<{ enabled: boolean; available?: boolean; remoteConfigured?: boolean; remoteEnabled?: boolean; remoteReady?: boolean; vendorConfigured?: boolean; pushError?: string }>

@@ -1,5 +1,5 @@
 import type { Attachment, AttachmentSendResult } from '../protocol/types'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import type { ExperiencePort } from '../native/experience'
 import { Button, NavBar } from 'antd-mobile'
 import { LeftOutline } from 'antd-mobile-icons'
@@ -36,6 +36,7 @@ interface SessionDetailProps {
   onResolveAction: (resolution: ActionResolution) => boolean | void
   onCancelTurn: (requestId: string) => boolean | void
   onCancelQueued: (requestId: string) => boolean | void
+  onSteerQueued?: (requestId: string) => boolean | void
   onCreateSession?: () => void
   managementBusy?: boolean
   managementFeedback?: string | null
@@ -60,6 +61,7 @@ export default function SessionDetail({
   onResolveAction,
   onCancelTurn,
   onCancelQueued,
+  onSteerQueued,
   onCreateSession,
   managementBusy = false,
   managementFeedback = null,
@@ -73,6 +75,7 @@ export default function SessionDetail({
     !pairingInvalid && state.phase === 'connected' && state.pendingCommand === null && !managementBusy
   const cancelRequested = state.pendingCommand?.kind === 'cancel_turn'
   const contentScrollRef = useRef<HTMLDivElement>(null)
+  const [queueOpen, setQueueOpen] = useState(false)
   const disabledReason = pairingInvalid
     ? '配对已失效，请返回列表重新配对'
     : state.sessionStatus === 'stopped'
@@ -88,7 +91,7 @@ export default function SessionDetail({
               : '当前会话暂不可输入'
   const showDetailNotices = state.sessionStatus === 'stopped' || state.sessionStatus === 'failed' ||
     state.sessionError !== null || managementFeedback !== null || state.lastNotice !== null ||
-    state.queuedRequests.length > 0 || pairingInvalid || state.phase === 'protocolError' || state.lastError !== null
+    pairingInvalid || state.phase === 'protocolError' || state.lastError !== null
 
   return (
     <div
@@ -103,17 +106,19 @@ export default function SessionDetail({
       {/* 导航、状态与输入栏固定，中间的详情和消息共用滚动区。 */}
       <div className={`${topSafeArea ? 'mobile-safe-area-header' : ''} session-detail-header`} style={GLASS_SURFACE_STYLE}>
         <NavBar back="" backIcon={<LeftOutline aria-label="返回" />} onBack={onBack} right={<div className="session-detail-header-actions">
-          <SessionStatus
-            connection={pairingInvalid ? 'disconnected' : state.connection}
-            sessionStatus={state.sessionStatus}
-            sessionError={state.sessionError}
-            turnStatus={turnStatus}
-            queueDepthHint={state.queueDepthHint}
-            variant="compact"
-          />
           {showReconnect && <Button size="mini" color="primary" onClick={onReconnect}>重新连接</Button>}
         </div>}>
-          <span className="session-detail-title">{record.name}</span>
+          <div className="session-detail-heading">
+            <span className="session-detail-title">{record.name}</span>
+            <SessionStatus
+              connection={pairingInvalid ? 'disconnected' : state.connection}
+              sessionStatus={state.sessionStatus}
+              sessionError={state.sessionError}
+              turnStatus={turnStatus}
+              queueDepthHint={state.queueDepthHint}
+              variant="compact"
+            />
+          </div>
         </NavBar>
       </div>
       {state.cachedAt != null && <div role="status" style={{ padding: '8px 16px', fontSize: 12, color: '#666' }}>本地缓存 · {new Date(state.cachedAt).toLocaleString()} · 运行状态待连接 PC 确认</div>}
@@ -141,11 +146,6 @@ export default function SessionDetail({
             {state.lastNotice.message}
           </div>
         )}
-        <QueuedRequestList
-          requests={state.queuedRequests}
-          enabled={commandReady}
-          onCancel={onCancelQueued}
-        />
         {pairingInvalid && <div style={{ color: '#e00' }}>配对已失效，请返回列表重新配对</div>}
         {state.phase === 'protocolError' && !pairingInvalid && (
           <div style={{ color: '#e00' }}>状态异常，请重新连接以获取最新状态</div>
@@ -169,6 +169,12 @@ export default function SessionDetail({
           flexShrink: 0,
         }}
       >
+        <Button size="mini" fill="none" aria-expanded={queueOpen} onClick={() => setQueueOpen(!queueOpen)}>
+          队列（{state.queuedRequests.length}）
+        </Button>
+        {queueOpen && (state.queuedRequests.length > 0 ? (
+          <QueuedRequestList requests={state.queuedRequests} enabled={commandReady} onCancel={onCancelQueued} onSteer={state.canSteerQueue && cancelTarget !== null ? onSteerQueued : undefined} />
+        ) : <div role="status">暂无排队输入</div>)}
         {/* 待处理事项以底部抽屉强呈现（D53）：事项出现即弹出，显式关闭即取消当前 Turn。 */}
         {state.pendingAction !== null && (
           <PendingActionCard
