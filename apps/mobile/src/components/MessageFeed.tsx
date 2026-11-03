@@ -164,7 +164,7 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
                 : ''
           return (
             <div key={index} style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
-              <div style={{ background: '#e6f4ff', borderRadius: 8, padding: '8px 12px' }}>
+              <div style={{ background: '#198FF9', color: '#fff', borderRadius: 16, padding: '10px 14px' }}>
                 <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.text}</div>
                 {message.attachments?.map((attachment, i) => <div key={i} style={{ marginTop: 6 }}>
                   {/^image\/(jpeg|png|gif|webp)$/.test(attachment.mediaType) && <img alt={attachment.name} src={`data:${attachment.mediaType};base64,${attachment.data}`} style={{ display: 'block', maxWidth: '100%', maxHeight: 240, borderRadius: 8, objectFit: 'contain' }} />}
@@ -188,7 +188,7 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
               {message.answers.map((answer) => (
                 <div key={answer.questionId} style={{ marginTop: 4, wordBreak: 'break-word' }}>
                   <div style={{ fontSize: FONT_SIZE_SECONDARY, color: '#333' }}>
-                    {answer.header === '' ? answer.question : `${answer.header} · ${answer.question}`}
+                      {answer.header === '' ? answer.question : `${answer.header} · ${answer.question}`}
                   </div>
                   <div style={{ marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {answer.values.map((value) => (
@@ -202,13 +202,12 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
             </div>
           )
         }
-        // Claude 回复占满行宽且不用气泡背景（参考 qoder/sessionDetail.png），
-        // 让正文获得最大展示空间；来源标记压成小灰字。
+        // Claude正文使用浅灰气泡，保留全宽Markdown和横向滚动空间。
         return (
           <div key={`message-${index}`} style={{ alignSelf: 'stretch' }}>
             <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>Claude {message.text !== '' && <CopyTextButton label="复制 Claude 回复" text={message.text} />}</div>
             {message.text !== '' && (
-              <div style={{ marginTop: 2, wordBreak: 'break-word' }}>
+              <div style={{ marginTop: 4, background: '#EBF0F3', color: '#1f2937', borderRadius: 16, padding: '10px 14px', wordBreak: 'break-word' }}>
                 <MessageMarkdown text={message.text} />
               </div>
             )}

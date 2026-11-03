@@ -115,10 +115,10 @@ test('v2/v3/v4 snapshots and v3 display metadata are accepted', () => {
     assert.equal(decodeServerMessage(JSON.stringify(wire)).version, version)
   }
 })
-test('client negotiates v7 to v3 to v2 without command replay', () => {
+test('client negotiates v8 to v3 to v2 without command replay', () => {
   const client = new (load('protocol/client').ProtocolClient)(pairing)
   client.connect(); sockets.at(-1).emit('open', {})
-  assert.equal(sockets.at(-1).frames[0].version, 7)
+  assert.equal(sockets.at(-1).frames[0].version, 8)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 3 }, 3))
   sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 3)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 2 }, 2))
@@ -130,6 +130,25 @@ test('client rejects another Session event', () => {
   const value = eventWire(event('turn_started', 1, { text: 'hello', turnStatus: 'running' }))
   value.sessionId = value.payload.event.sessionId = 'session-2'
   socket.wire(value); assert.equal(store.getState().connection, ConnectionStage.PROTOCOL_ERROR)
+})
+test('v8 displays terminal images and rejects images on older versions', () => {
+  const image = { name: 'image-1', mediaType: 'image/gif', data: 'R0lGODlhAQABAAAAAA==' }
+  const wire = eventWire(event('turn_started', 1, { source: 'terminal', text: '查看', turnStatus: 'running', images: [image], imagesOmitted: 1 }), 8)
+  assert.deepEqual(decodeServerMessage(JSON.stringify(wire)).payload.event.images, [image])
+  assert.throws(() => decodeServerMessage(JSON.stringify({ ...wire, version: 7 })))
+  let state = createInitialHarmonySessionState()
+  state.seqBase = 0
+  state = reducer.reduceHarmonySessionState(state, reducer.eventReceived(wire.payload.event))
+  assert.equal(state.messages[0].attachments[0].data, image.data)
+  assert.match(state.messages[0].text, /1 张图片未能同步/)
+})
+test('v8 queue updates stay decodable while image support is enabled', () => {
+  const queue = [{ requestId: 'queued', source: 'terminal', preview: 'next' }]
+  const wire = eventWire(event('queue_changed', 1, { requestId: '', source: '', queue }), 8)
+  const decoded = decodeServerMessage(JSON.stringify(wire)).payload.event
+  const state = reducer.reduceHarmonySessionState(createInitialHarmonySessionState(), reducer.eventReceived(decoded))
+  assert.equal(state.queuedRequests[0].requestId, 'queued')
+  assert.throws(() => decodeServerMessage(JSON.stringify({ ...wire, version: 7 })))
 })
 test('attachment limits reject oversized, combined, invalid and traversal names', () => {
   assert.equal(validateAttachments([attachment]), '')
@@ -564,12 +583,14 @@ test('v7 snapshot restores current input before reply once; v6 rejects the new f
 
 test('v7 snapshot racing same turn_started merges once and rejects a duplicate', () => {
   const wire = snapshot(); wire.version = 7
-  wire.payload.snapshot.turn = { status: 'running', requestId: 'r1', source: 'mobile', inputText: '安全问题', message: '', error: null, pendingAction: null }
+  wire.payload.snapshot.turn = { status: 'running', requestId: 'r1', source: 'terminal', inputText: '安全问题', message: '', error: null, pendingAction: null }
   const decoded = decodeServerMessage(JSON.stringify(wire)).payload.snapshot
   let state = reducer.reduceHarmonySessionState(createInitialHarmonySessionState(), reducer.snapshotReceived(decoded))
-  state = reducer.reduceHarmonySessionState(state, reducer.eventReceived(event('turn_started', 1, { text: '安全问题', turnStatus: 'running' })))
+  const images = [{ name: 'image-1', mediaType: 'image/gif', data: 'R0lGODlhAQABAAAAAA==' }]
+  state = reducer.reduceHarmonySessionState(state, reducer.eventReceived(event('turn_started', 1, { source: 'terminal', text: '安全问题', turnStatus: 'running', images })))
   assert.notEqual(state.connection, ConnectionStage.PROTOCOL_ERROR)
   assert.deepEqual(state.messages.map(item => item.kind), ['input', 'claude'])
-  state = reducer.reduceHarmonySessionState(state, reducer.eventReceived(event('turn_started', 2, { text: '安全问题', turnStatus: 'running' })))
+  assert.deepEqual(state.messages[0].attachments, images)
+  state = reducer.reduceHarmonySessionState(state, reducer.eventReceived(event('turn_started', 2, { source: 'terminal', text: '安全问题', turnStatus: 'running' })))
   assert.equal(state.connection, ConnectionStage.PROTOCOL_ERROR)
 })

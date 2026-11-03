@@ -26,10 +26,21 @@ type PermissionModeController interface {
 	SetPermissionMode(context.Context, protocol.PermissionMode) error
 }
 
+// QueueSteeringController is optional: a host that cannot steer its active
+// SDK client must not expose this capability to remote clients.
+type QueueSteeringController interface {
+	SteerQueued(context.Context, string) error
+}
+
 // Channel routes one exact session ID to its Controller.
 type Channel struct {
 	sessionID  string
 	controller Controller
+}
+
+func (c *Channel) CanSteerQueue() bool {
+	_, ok := c.controller.(QueueSteeringController)
+	return ok
 }
 
 func New(sessionID string, controller Controller) *Channel {
@@ -113,6 +124,17 @@ func (c *Channel) CancelQueued(ctx context.Context, sessionID, requestID string)
 		return err
 	}
 	return c.controller.CancelQueued(ctx, requestID)
+}
+
+func (c *Channel) SteerQueued(ctx context.Context, sessionID, requestID string) error {
+	if err := c.guard(sessionID); err != nil {
+		return err
+	}
+	host, ok := c.controller.(QueueSteeringController)
+	if !ok {
+		return protocol.ErrSessionUnavailable
+	}
+	return host.SteerQueued(ctx, requestID)
 }
 
 func (c *Channel) SetPermissionMode(ctx context.Context, sessionID string, mode protocol.PermissionMode) error {

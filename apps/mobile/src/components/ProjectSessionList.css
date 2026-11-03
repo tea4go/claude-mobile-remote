@@ -42,6 +42,8 @@
   background: #fff;
 }
 
+.project-session-list__item .adm-list-item-content { position: relative; }
+
 .project-session-list__item .adm-list-item-content-main {
   min-width: 0;
   padding: 16px 0;
@@ -111,9 +113,10 @@
 
 .project-session-list__extra {
   display: flex;
+  min-width: 88px;
   align-items: center;
   gap: 6px;
-  min-width: 0;
+  justify-content: flex-end;
 }
 
 .project-session-list__meta {
@@ -132,6 +135,8 @@
   color: var(--adm-color-weak);
   font-size: 11px;
 }
+
+.project-session-list__status { position: absolute; top: 18px; right: 14px; }
 
 .project-session-list__status--attention {
   color: var(--adm-color-warning);

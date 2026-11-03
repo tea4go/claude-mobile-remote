@@ -1,7 +1,14 @@
 apply plugin: 'com.android.application'
 
-// Push development is paused. Default builds contain neither SDK nor services.
+// Push remains an explicit build choice; ordinary builds omit SDK and services.
 def pushEnabled = providers.gradleProperty('cmrPushEnabled').getOrElse('false') == 'true'
+def pushSettings = new Properties()
+def pushSettingsFile = file('push.local.properties')
+if (pushSettingsFile.exists()) pushSettingsFile.withInputStream { pushSettings.load(it) }
+def pushAppKey = pushSettings.getProperty('JPUSH_APPKEY', '').trim()
+if (pushEnabled && !(pushAppKey ==~ /[0-9a-fA-F]{24}/)) {
+    throw new GradleException('Push builds require the Android application JPUSH_APPKEY in push.local.properties')
+}
 
 android {
     namespace = "com.tea4go.claudemobileremote"
@@ -10,7 +17,7 @@ android {
         applicationId "com.tea4go.claudemobileremote.android"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        manifestPlaceholders = [JPUSH_PKGNAME: "com.tea4go.claudemobileremote.android", JPUSH_APPKEY: "ebbfcb038cd6482185c33348", JPUSH_CHANNEL: "cmr"]
+        manifestPlaceholders = [JPUSH_PKGNAME: "com.tea4go.claudemobileremote.android", JPUSH_APPKEY: pushEnabled ? pushAppKey : "", JPUSH_CHANNEL: "cmr"]
         versionCode 1
         versionName "1.0.0"
         buildConfigField 'boolean', 'CMR_PUSH_ENABLED', pushEnabled.toString()

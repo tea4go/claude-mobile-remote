@@ -154,6 +154,14 @@ function turnStartedPayload() {
 }
 
 describe('decodeServerMessage：合法消息', () => {
+  test('v8 接收 PC 图片，旧版本拒绝图片字段', () => {
+    const image = { name: 'image-1', mediaType: 'image/gif', data: 'R0lGODlhAQABAAAAAA==' }
+    const payload = { event: { ...turnStartedPayload().event, source: 'terminal', images: [image], imagesOmitted: 1 } }
+    const wire = baseEnvelope({ version: 8, type: 'event', requestId: 'req-9', seq: 8, payload })
+    expect(decodeServerMessage(JSON.stringify(wire))).toMatchObject({ payload: { event: { images: [image], imagesOmitted: 1 } } })
+    expect(() => decodeServerMessage(JSON.stringify({ ...wire, version: 7 }))).toThrow()
+    expect(() => decodeServerMessage(JSON.stringify({ ...wire, payload: { event: { ...payload.event, images: [{ ...image, name: '/private/image' }] } } }))).toThrow()
+  })
   test('hello_ack：空对象 payload', () => {
     const message = decodeServerMessage(JSON.stringify(baseEnvelope()))
     expect(message.type).toBe('hello_ack')
@@ -317,8 +325,8 @@ describe('decodeServerMessage：非法 JSON 与基础结构', () => {
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 
-  test('version = 8（未来版本）拒绝', () => {
-    const envelope = baseEnvelope({ version: 8 })
+  test('version = 9（未来版本）拒绝', () => {
+    const envelope = baseEnvelope({ version: 9 })
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 

@@ -95,6 +95,19 @@ describe('MessageComposer', () => {
     expect(onSend).toHaveBeenCalledWith('第一行\n第二行')
   })
 
+  test('输入法组合期间确认候选词不会发送消息', () => {
+    const onSend = vi.fn()
+    render(<MessageComposer enabled onSend={onSend} />)
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: '长文本和拼音' } })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(input).toHaveValue('长文本和拼音')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledWith('长文本和拼音')
+  })
+
   test('附件、相机和语音入口明确标记为原生能力预留', () => {
     const onSend = vi.fn()
     render(<MessageComposer enabled onSend={onSend} />)
@@ -128,6 +141,15 @@ describe('MessageComposer', () => {
     expect(screen.getByText(/正在等待 Claude 响应/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '取消当前 Turn' }))
     expect(onCancelTurn).toHaveBeenCalledWith('turn-1')
+  })
+
+  test('运行中可保留停止并把新输入送入既有队列', () => {
+    const onSend = vi.fn()
+    render(<MessageComposer enabled onSend={onSend} turnRunning cancelTarget="turn-1" cancelEnabled onCancelTurn={vi.fn()} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '稍后执行' } })
+    expect(screen.getByRole('button', { name: '取消当前 Turn' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(onSend).toHaveBeenCalledWith('稍后执行')
   })
 
   test('取消请求发出后显示简洁反馈并禁用重复点击', () => {
@@ -187,6 +209,16 @@ describe('attachment sending', () => {
     expect(screen.getByTestId('composer-attachments')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
     await act(async () => { finish('accepted') })
+    expect(screen.queryByTestId('composer-attachments')).not.toBeInTheDocument()
+  })
+
+  test('点击缩略图可预览并可独立移除', async () => {
+    render(<MessageComposer enabled experience={null} onSend={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('photo-picker'), { target: { files: [new File(['pixels'], 'photo.png', { type: 'image/png' })] } })
+    const preview = await screen.findByRole('button', { name: '预览 photo.png' })
+    fireEvent.click(preview)
+    await waitFor(() => expect(document.querySelector('.adm-image-viewer-content img')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: '移除 photo.png' }))
     expect(screen.queryByTestId('composer-attachments')).not.toBeInTheDocument()
   })
 
