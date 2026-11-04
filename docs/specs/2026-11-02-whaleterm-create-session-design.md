@@ -29,7 +29,7 @@ WhaleTerm TClaudeRemoteService 保存各 Session 创建种子（只驻内存，�
 | PC 列表、会话标识、详情和实时消息 | ListClaudeLocalSessions / GetClaudeLocalSessionDetail / localClaude store / W1 监听 | 仅合并首轮前无 JSONL 的已配对草稿及触发刷新 |
 | 新建事务归属 | Standalone managedCLI 只管理自身 Controller，不能创建 WhaleTerm Manager 的 Session | 公共可选 SessionCreator 转交 WhaleTerm；宿主内保留自身幂等、限流及失败回滚，不复用 CLI 的生命周期管理器 |
 
-创建串行化，按源 Session/commandId 有界缓存最近 128 个结果，断线重试不重复创建；源会话每秒最多一次。沿用 CLI 默认容量：每个 cwd 最多四个由本功能新增且仍由 Manager 持有的会话（已有源会话不占新增名额），总保留 128 个；Manager 已释放项不计名额。关闭 Remote 本身不释放仍由 Manager 持有的会话名额。固定错误码表示容量/限流/不可用，不向手机发送宿主原始错误。
+创建串行化，按源 Session/commandId 有界缓存最近 128 个结果，断线重试不重复创建；源会话每秒最多一次。按 D115 每个 cwd 最多 16 个已开启 Remote 的会话，包括已有源会话与待配对草稿；关闭 Remote 即释放创建名额。PC 展示所需的已配对会话元数据不作为容量限制，Manager 释放后清理。固定错误码表示容量/限流/不可用，不向手机发送宿主原始错误。此容量限制适用于通过目录入口新建，不限制用户为已有会话单独开启远程控制。
 
 新会话在 手机成功完成订阅后 PC 本地列表才可见，包括首轮前没有 JSONL 的草稿。只向本机 Wails 发不含凭证/配置/正文的变更事件，前端刷新现有列表；后端把存活草稿与磁盘列表按 ID 合并去重，首轮前详情返回空展示模型。该展示补充不用于读取/接管活跃 JSONL；执行始终走 Manager。普通历史加载规则不变。
 
@@ -42,3 +42,6 @@ WhaleTerm TClaudeRemoteService 保存各 Session 创建种子（只驻内存，�
 门禁覆盖：首张/轮换能力、无回调兼容、未认证/未订阅拒绝、同目录与配置复制、UUID/队列隔离、同 commandId 幂等、容量/限流、失败回滚、PC 列表及首轮前详情、关闭原 Remote 后子会话独立。Go race/vet/build 和 WhaleTerm 定向 Go/前端测试及构建；真实 PC 与三端扫码、并行 Turn、审批、关闭/重开由用户验收。
 
 2026-11-02 用户验收修订：目录扫码及手机 + 新建已由用户复测通过；新建完成后 PC 需复用既有 selectClaudeLocalSession 打开、touchClaudeLocalSession 更新最近活动，继续使用原目录排序与激活后展开/定位。不再创建前端草稿或分配新 ID；本机事件增加首次创建标记，普通 Turn 活动仍只刷新，防止抢焦点。不改变三端共享契约。
+# 目录二维码网络刷新补充
+
+目录二维码弹窗使用统一的右上角关闭交互，提供当前可用地址选择和手动刷新；弹窗保持打开时切换网络后可重新获取地址并更新二维码，沿用已分配端口、Session 和配对凭证。保留自动刷新及配对成功后关闭行为，不修改共享协议。

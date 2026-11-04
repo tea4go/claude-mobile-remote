@@ -1,177 +1,58 @@
-.project-session-list {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  box-sizing: border-box;
-  width: 100%;
-  padding: 18px 16px calc(24px + env(safe-area-inset-bottom, 0px));
-}
-
-.project-session-list__title {
-  margin: 0 0 -4px;
-  font-size: 22px;
-  line-height: 1.25;
-}
-
-.project-session-list__pc {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
-}
-
-.project-session-list__pc-title {
-  margin: 0 4px;
-  color: #6e6e73;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 22px;
-}
-
-.project-session-list__group {
-  --padding-left: 12px;
-  --padding-right: 10px;
-  --extra-max-width: 40%;
-  min-width: 0;
-}
-
-.project-session-list__group .adm-list-body {
-  overflow: hidden;
-  border: 0;
-  border-radius: 12px;
-  background: #fff;
-}
-
-.project-session-list__item .adm-list-item-content { position: relative; }
-
-.project-session-list__item .adm-list-item-content-main {
-  min-width: 0;
-  padding: 16px 0;
-  min-height: 72px;
-  box-sizing: border-box;
-}
-
-.project-session-list__item .adm-list-item-content-extra {
-  padding-left: 8px;
-}
-
-.project-session-list__item--recent {
-  --active-background-color: #e9f3ff;
-  background: #f2f7ff;
-}
-
-.project-session-list__item--recent .adm-list-item-content {
-  background: #f2f7ff;
-}
-
-.project-session-list__main {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.project-session-list__heading {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-}
-
-.project-session-list__session-title,
-.project-session-list__preview {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-session-list__session-title {
-  min-width: 0;
-  font-size: 16px;
-}
-
-.project-session-list__preview {
-  color: var(--adm-color-weak);
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.project-session-list__unread {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--adm-color-primary);
-}
-
-.project-session-list__recent {
-  flex: none;
-  color: var(--adm-color-primary);
-  font-size: 11px;
-}
-
-.project-session-list__extra {
-  display: flex;
-  min-width: 88px;
-  align-items: center;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.project-session-list__meta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  min-width: 0;
-}
-
-.project-session-list__status,
-.project-session-list__time {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--adm-color-weak);
-  font-size: 11px;
-}
-
-.project-session-list__status { position: absolute; top: 18px; right: 14px; }
-
-.project-session-list__status--attention {
-  color: var(--adm-color-warning);
-}
-
-.project-session-list__more {
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0;
-  color: var(--adm-color-weak);
-}
-
-.project-session-list__rename {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.project-session-list__rename .adm-input {
-  min-width: 0;
-}
-
-.project-session-list__add {
-  overflow: hidden;
-  border-radius: 12px;
-  background: #fff;
-}
-
-.project-session-list__add .adm-button {
-  min-height: 46px;
-  border: 0;
-  border-radius: 0;
-  font-size: 16px;
-}
-
-.project-session-list__directory { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8e8e93; font-size: 12px; line-height: 20px; }
-.project-session-list__group .adm-list-item { min-height: 100px; }
-.project-session-list__group .adm-list-item-content-extra { max-width: 34%; }
+.project-session-list { display: flex; flex-direction: column; gap: 18px; box-sizing: border-box; width: 100%; padding: 26px 24px calc(110px + env(safe-area-inset-bottom, 0px)); }
+.project-session-list__heading-row { display: flex; gap: 10px; align-items: center; }
+.project-session-list__title { margin: 0; font-size: 32px; line-height: 1.2; color: #202938; }
+.project-session-list__count { padding: 5px 11px; border-radius: 20px; color: #4f6385; background: #e7eefc; font-size: 12px; white-space: nowrap; }
+.project-session-list__pc { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.project-session-list__pc-card { width: 100%; min-height: 60px; display: flex; gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid #dfe6f1; border-radius: 18px; background: white; color: #394760; text-align: left; box-shadow: 0 8px 24px rgba(51, 76, 120, .06); font: inherit; }
+.project-session-list__pc-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: white; background: #3376f6; font-size: 23px; }
+.project-session-list__pc-text { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 3px; }
+.project-session-list__pc-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-session-list__pc-text small { color: #8390a6; font-size: 12px; }
+.project-session-list__filter, .project-session-list__sources { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; background: #fff; border-radius: 12px; }
+.project-session-list__filter button, .project-session-list__sources button, .project-session-list__clear-filter { min-height: 44px; border: 0; background: transparent; color: #3376f6; font: inherit; }
+.project-session-list__project { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.project-session-list__project-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-left: 5px; }
+.project-session-list__project-heading > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.project-session-list__project-heading strong { font-size: 17px; color: #202938; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-session-list__project-heading span { color: #94a1b6; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-session-list__project-add { width: 44px; height: 44px; border: 0; background: none; color: var(--adm-color-primary); font-size: 27px; line-height: 1; flex: none; }
+.project-session-list__project-add > span { color: inherit; }
+.project-session-list__group { --padding-left: 16px; --padding-right: 12px; --extra-max-width: 20%; }
+.project-session-list__group .adm-list-body { border: 0; background: transparent; }
+.project-session-list__group .adm-list-body-inner { display: flex; flex-direction: column; gap: 9px; margin-top: 0; }
+.project-session-list__group .adm-list-item { position: relative; border: 1px solid #dfe6f1; border-radius: 18px; background: white; overflow: hidden; box-shadow: 0 8px 24px rgba(51, 76, 120, .06); }
+.project-session-list__group .adm-list-item-content { border-top: 0; }
+.project-session-list__group .adm-list-item-content-main { min-width: 0; min-height: 88px; box-sizing: border-box; padding: 14px 0; }
+.project-session-list__group .adm-list-item-content-extra { align-self: flex-start; padding: 4px 0 0; }
+.project-session-list__item--recent, .project-session-list__item--recent .adm-list-item-content { background: #f3f7ff !important; }
+.project-session-list__item--recent::before { content: ''; position: absolute; left: 0; top: 25%; bottom: 25%; width: 3px; background: #3376f6; border-radius: 4px; z-index: 1; }
+.project-session-list__main { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.project-session-list__heading { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.project-session-list__session-title, .project-session-list__preview { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-session-list__session-title { min-width: 0; font-size: 16px; color: #202938; }
+.project-session-list__preview { color: #748198; font-size: 13px; line-height: 20px; }
+.project-session-list__unread { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #3376f6; }
+.project-session-list__recent { flex: none; color: #3376f6; font-size: 11px; }
+.project-session-list__meta { display: flex; justify-content: space-between; color: #8997ac; font-size: 12px; }
+.project-session-list__status::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #d13d43; }
+.project-session-list__status--connected { color: #31a577; }
+.project-session-list__status--connected::before { background: #31a577; }
+.project-session-list__status--attention::before { background: #c88a27; }
+.project-session-list__more { min-width: 44px; min-height: 44px; padding: 0; color: #98a5b9; }
+.project-session-list__rename { display: flex; align-items: center; gap: 4px; }
+.project-session-list__rename .adm-input { min-width: 0; }
+.project-session-list__add { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; padding: 12px 24px calc(12px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(transparent, #f4f6fa 35%); }
+.project-session-list__add .adm-button { min-height: 52px; border-radius: 16px; font-size: 16px; box-shadow: 0 10px 24px rgba(51, 118, 246, .2); }
+@media (max-width: 340px) { .project-session-list { padding-left: 16px; padding-right: 16px; } .project-session-list__add { padding-left: 16px; padding-right: 16px; } }
+.project-session-list__project-toggle { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; border: 0; padding: 0; text-align: left; background: none; font: inherit; }
+.project-session-list__project-add[aria-disabled='true'] { color: var(--adm-color-primary); opacity: .6; }
+.project-session-list__group .adm-list-item-content-extra { padding: 0; }
+.project-session-list__more.adm-button { width: 44px; height: 44px; font-size: 22px; }
+.project-session-list__meta > span:last-child { position: absolute; right: 17px; bottom: 16px; }
+.project-session-list__filter { display: flex; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 0; overflow-y: auto; min-height: 0; padding: 20px 24px 16px; }
+.mobile-drawer-sheet > .project-session-list__filter { flex-shrink: 1; }
+.project-session-list__filter > button, .project-session-list__filter-title { flex-shrink: 0; }
+.project-session-list__filter-title { display: flex; justify-content: space-between; align-items: center; font-size: 18px; }
+.project-session-list__filter button { text-align: left; color: #202938; border-bottom: 1px solid #e8edf4; }
+.project-session-list__filter button[aria-pressed='true'] { color: var(--adm-color-primary); font-weight: 600; }
+.project-session-list__filter-title button { border: 0; width: 44px; text-align: center; }

@@ -1,3 +1,4 @@
+import SessionIcon from './SessionIcon'
 import { debugButtonBottom } from '../debug/placement'
 import { Capacitor } from '@capacitor/core'
 import { nativeExperience } from '../native/experience'
@@ -8,6 +9,7 @@ import './DebugPanel.css'
 
 export default function DebugPanel() {
   const { enabled } = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
+  useEffect(observeDebugErrors, [])
   return enabled ? <EnabledDebugPanel /> : null
 }
 
@@ -16,7 +18,11 @@ function EnabledDebugPanel() {
   const floatRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
-  useEffect(observeDebugErrors, [])
+  useEffect(() => {
+    const openDebug = () => { setFeedback(''); setOpen(true) }
+    window.addEventListener('mobile-open-debug', openDebug)
+    return () => window.removeEventListener('mobile-open-debug', openDebug)
+  }, [])
   useEffect(() => {
     let frame = 0
     const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
@@ -92,7 +98,7 @@ function EnabledDebugPanel() {
     finally { if (url) setTimeout(() => URL.revokeObjectURL(url!), 1000) }
   }
   return createPortal(<>
-    <button ref={floatRef} className="debug-float" aria-label="打开调试日志" onClick={() => { setFeedback(''); setOpen(true) }}>调试</button>
+    <button ref={floatRef} className="debug-float" aria-label="打开调试日志" onClick={() => { setFeedback(''); setOpen(true) }}><SessionIcon name="debug" size={22} /></button>
     {open && <div className="debug-overlay" onClick={() => setOpen(false)}>
       <section className="debug-dialog" role="dialog" aria-modal="true" aria-labelledby="debug-title" onClick={(event) => event.stopPropagation()}>
         <header><strong id="debug-title">调试日志（{entries.length}/200）</strong><button id="debug-panel-close" onClick={() => setOpen(false)}>关闭</button></header>

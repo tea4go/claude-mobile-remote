@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>image</title>
+    <g id="Claude-Mobile-Remote" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round">
+        <g id="07附件选择弹窗" transform="translate(-75, -696)" stroke="currentColor" stroke-width="1.8">
+            <g id="附件选择" transform="translate(58, 626)">
+                <g id="image" transform="translate(16, 69)">
+                    <rect id="image-1" x="2.25" y="2.25" width="13.5" height="13.5" rx="1.5"></rect>
+                    <circle id="image-2" cx="6.75" cy="6.75" r="1.5"></circle>
+                    <polyline id="image-3" points="15.7500049 11.2500036 13.4354949 8.93549809 13.2082094 8.74902134 12.9489189 8.61045537 12.6675803 8.52513186 12.3749971 8.49632423 12.0824261 8.52513186 11.8010753 8.61045537 11.5417847 8.74902134 11.3144993 8.93549809 4.49999505 15.7499961"></polyline>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

@@ -55,96 +55,10 @@ describe('SessionDetail：基本渲染', () => {
     expect(scroll.style.overflowY).toBe('auto')
   })
 
-  test('CLI 配对在输入区左下角新建，终止入口隐藏', () => {
-    const onCreateSession = vi.fn()
-    render(
-      <SessionDetail
-        record={{ ...record(), capabilities: ['create_session', 'stop_session'] }}
-        state={connectedState()}
-        turnStatus="idle"
-        pairingInvalid={false}
-        cancelTarget={null}
-        onResolveAction={noop}
-        onCancelTurn={noop}
-        onCancelQueued={noop}
-        onBack={noop}
-        onReconnect={noop}
-        onSend={noop}
-        onCreateSession={onCreateSession}
-      />,
-    )
-
-    const create = screen.getByRole('button', { name: '新建会话' })
-    const attachment = screen.getByRole('button', { name: '添加照片或文件' })
-    expect(create.compareDocumentPosition(attachment) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '终止此会话' })).not.toBeInTheDocument()
-    fireEvent.click(create)
-    expect(onCreateSession).toHaveBeenCalledOnce()
-  })
-
-  test('终态仍保留新建入口，但不显示终止操作', () => {
-    render(
-      <SessionDetail
-        record={{ ...record(), capabilities: ['create_session', 'stop_session'] }}
-        state={connectedState({ sessionStatus: 'stopped', canSend: false })}
-        turnStatus="idle"
-        pairingInvalid={false}
-        cancelTarget={null}
-        onResolveAction={noop}
-        onCancelTurn={noop}
-        onCancelQueued={noop}
-        onBack={noop}
-        onReconnect={noop}
-        onSend={noop}
-        onCreateSession={noop}
-      />,
-    )
-    expect(screen.getByRole('button', { name: '新建会话' })).toBeEnabled()
-    expect(screen.queryByRole('button', { name: '终止此会话' })).not.toBeInTheDocument()
-  })
-
-  test('创建中禁用新建入口，附件入口保持独立', () => {
-    render(
-      <SessionDetail
-        record={{ ...record(), capabilities: ['create_session', 'stop_session'] }}
-        state={connectedState()}
-        turnStatus="idle"
-        pairingInvalid={false}
-        cancelTarget={null}
-        onResolveAction={noop}
-        onCancelTurn={noop}
-        onCancelQueued={noop}
-        onBack={noop}
-        onReconnect={noop}
-        onSend={noop}
-        onCreateSession={vi.fn()}
-        managementBusy
-      />,
-    )
-    expect(screen.getByRole('button', { name: '新建会话' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '添加照片或文件' })).toBeEnabled()
-  })
-
-  test('WhaleTerm 配对无新建与终止入口，附件入口保留', () => {
-    render(
-      <SessionDetail
-        record={record()}
-        state={connectedState()}
-        turnStatus="idle"
-        pairingInvalid={false}
-        cancelTarget={null}
-        onResolveAction={noop}
-        onCancelTurn={noop}
-        onCancelQueued={noop}
-        onBack={noop}
-        onReconnect={noop}
-        onSend={noop}
-        onCreateSession={vi.fn()}
-      />,
-    )
+  test('详情不显示新建会话入口，附件入口保留', () => {
+    render(<SessionDetail record={{ ...record(), capabilities: ['create_session', 'stop_session'] }} state={connectedState()} turnStatus="idle" pairingInvalid={false} cancelTarget={null} onResolveAction={noop} onCancelTurn={noop} onCancelQueued={noop} onBack={noop} onReconnect={noop} onSend={noop} />)
     expect(screen.queryByRole('button', { name: '新建会话' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '终止此会话' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '添加照片或文件' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '添加照片或文件' })).toBeEnabled()
   })
 
   test('显示会话名称、状态栏与输入区', () => {

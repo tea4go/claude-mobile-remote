@@ -11,7 +11,7 @@ test('iOS uses native clipboard and file sharing, with cancel and failure feedba
   ports.exportDebugLog.mockResolvedValue({ completed: false })
   debugLog.setEnabled(true)
   render(<DebugPanel />)
-  fireEvent.click(screen.getByText('调试'))
+  fireEvent.click(screen.getByRole('button', { name: '打开调试日志' }))
   fireEvent.click(screen.getByText('复制日志'))
   expect(await screen.findByText('日志已复制')).toBeInTheDocument()
   expect(ports.copyDebugLog).toHaveBeenCalledWith({ text: debugLog.exportText() })

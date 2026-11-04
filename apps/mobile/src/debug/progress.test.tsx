@@ -43,10 +43,9 @@ test('loading uses server start time, shows estimated tokens and permission prio
  expect(screen.getByRole('status')).toHaveTextContent('等待审批或回答')
  unmount();expect(vi.getTimerCount()).toBe(0)
 })
-test('host diagnostics obey switch, fixed code allowlist and never copy arbitrary fields',()=>{
+test('host diagnostics record while hidden, use fixed codes and never copy arbitrary fields',()=>{
  debugLog.setEnabled(false)
- recordHostDiagnostic({code:'receive_failed'});expect(debugLog.getSnapshot().entries).toHaveLength(0)
- debugLog.setEnabled(true)
+ recordHostDiagnostic({code:'receive_failed'});expect(debugLog.getSnapshot().entries).toHaveLength(1)
  const raw = {code:'api_retry' as const,httpStatus:429,attempt:2,maxAttempts:5,retryDelayMs:1000,message:'SECRET',sessionId:'PRIVATE',error:'RAW'}
  recordHostDiagnostic(raw)
  recordHostDiagnostic({...raw,code:'RAW' as 'api_retry'})

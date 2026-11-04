@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>server</title>
+    <g id="Claude-Mobile-Remote" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round">
+        <g id="03-连接会话" transform="translate(-38, -464)" stroke="currentColor" stroke-width="1.7">
+            <g id="目标地址" transform="translate(24, 448)">
+                <g id="server" transform="translate(14, 16)">
+                    <rect id="server-1" x="1.33333333" y="1.33333333" width="13.3333333" height="5.33333333" rx="1.33333333"></rect>
+                    <rect id="server-2" x="1.33333333" y="9.33333333" width="13.3333333" height="5.33333333" rx="1.33333333"></rect>
+                    <line x1="4.00000014" y1="4" x2="4.00666653" y2="4" id="server-3"></line>
+                    <line x1="4.00000014" y1="12" x2="4.00666653" y2="12" id="server-4"></line>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

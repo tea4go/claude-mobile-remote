@@ -1,9 +1,11 @@
+import './PendingActionCard.css'
+import SessionIcon from './SessionIcon'
 import { useEffect, useRef, type RefObject } from 'react'
 import { Tag } from 'antd-mobile'
 import MessageMarkdown from './MessageMarkdown'
 import ActivityGroup, { type Activity } from './ActivityGroup'
 import CopyTextButton from './CopyTextButton'
-import { FONT_SIZE_COMPACT, FONT_SIZE_SECONDARY } from './ui'
+import { FONT_SIZE_COMPACT } from './ui'
 import type { Message } from '../session/reducer'
 
 interface MessageFeedProps {
@@ -17,7 +19,7 @@ function resolveToolName(messages: Message[], index: number, toolUseId: string):
   for (let i = index - 1; i >= 0; i -= 1) {
     const candidate = messages[i]
     if (candidate === undefined) continue
-    if (candidate.kind !== 'block') continue
+    if (candidate.kind !== 'block' || candidate.requestId !== messages[index]?.requestId) continue
     const block = candidate.block
     if (block.kind === 'tool_use' && block.toolUseId === toolUseId) {
       return block.toolName
@@ -28,7 +30,7 @@ function resolveToolName(messages: Message[], index: number, toolUseId: string):
 
 type DisplayItem =
   | { kind: 'message'; message: Exclude<Message, { kind: 'block' }> }
-  | { kind: 'activities'; activities: Activity[] }
+  | { kind: 'activities'; requestId: string; activities: Activity[] }
 
 // turn_started 会先追加一条空文本的 Claude 占位消息，随后的文本事件因为中间夹了
 // 内容块而另起一条（reducer）。占位消息没有任何可展示内容，渲染出来只是一个孤立的
@@ -46,6 +48,7 @@ function hasVisibleContent(message: Exclude<Message, { kind: 'block' }>): boolea
 function buildDisplayItems(messages: Message[]): DisplayItem[] {
   const items: DisplayItem[] = []
   const pendingTools = new Map<string, Extract<Activity, { kind: 'tool' }>>()
+  const completedTurns = new Set(messages.filter((message) => message.kind === 'claude' && message.status !== 'streaming').map((message) => message.requestId))
 
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index]
@@ -58,6 +61,7 @@ function buildDisplayItems(messages: Message[]): DisplayItem[] {
     if (block.kind === 'thinking') {
       items.push({
         kind: 'activities',
+        requestId: message.requestId,
         activities: [{ kind: 'thinking', id: block.id, text: block.thinking }],
       })
       continue
@@ -67,18 +71,20 @@ function buildDisplayItems(messages: Message[]): DisplayItem[] {
         kind: 'tool',
         id: block.id,
         tool: block,
+        turnEnded: completedTurns.has(message.requestId),
       }
-      pendingTools.set(block.toolUseId, activity)
-      items.push({ kind: 'activities', activities: [activity] })
+      pendingTools.set(JSON.stringify([message.requestId, block.toolUseId]), activity)
+      items.push({ kind: 'activities', requestId: message.requestId, activities: [activity] })
       continue
     }
-    const pending = pendingTools.get(block.toolUseId)
+    const pending = pendingTools.get(JSON.stringify([message.requestId, block.toolUseId]))
     if (pending !== undefined) {
       pending.result = block
       continue
     }
     items.push({
       kind: 'activities',
+      requestId: message.requestId,
       activities: [
         {
           kind: 'result',
@@ -95,7 +101,7 @@ function buildDisplayItems(messages: Message[]): DisplayItem[] {
   const grouped: DisplayItem[] = []
   for (const item of items) {
     const previous = grouped[grouped.length - 1]
-    if (item.kind === 'activities' && previous?.kind === 'activities') {
+    if (item.kind === 'activities' && previous?.kind === 'activities' && item.requestId === previous.requestId) {
       previous.activities.push(...item.activities)
       continue
     }
@@ -129,6 +135,8 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
     }
   }, [messages])
 
+  const displayItems = buildDisplayItems(messages)
+
   return (
     <div
       ref={feedRef}
@@ -142,12 +150,13 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
       }}
       style={{ display: 'flex', flexDirection: 'column', gap: 12, height: scrollContainerRef === undefined ? '100%' : undefined, overflowY: scrollContainerRef === undefined ? 'auto' : undefined, padding: '8px 0' }}
     >
-      {buildDisplayItems(messages).map((item, index) => {
+      {displayItems.map((item, index) => {
         if (item.kind === 'activities') {
           // 结构化活动是行式摘要（参考图），占满行宽而不是气泡宽度。
+          const previous = displayItems[index - 1]
           return (
             <div key={`activities-${index}`} style={{ alignSelf: 'stretch' }}>
-              <ActivityGroup activities={item.activities} />
+              <ActivityGroup activities={item.activities} variant={previous?.kind === 'message' && previous.message.kind === 'claude' ? 'inline' : 'card'} />
             </div>
           )
         }
@@ -164,7 +173,7 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
                 : ''
           return (
             <div key={index} style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
-              <div style={{ background: '#198FF9', color: '#fff', borderRadius: 16, padding: '10px 14px' }}>
+              <div style={{ background: '#3478f6', color: '#fff', borderRadius: 20, padding: '12px 16px' }}>
                 <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.text}</div>
                 {message.attachments?.map((attachment, i) => <div key={i} style={{ marginTop: 6 }}>
                   {/^image\/(jpeg|png|gif|webp)$/.test(attachment.mediaType) && <img alt={attachment.name} src={`data:${attachment.mediaType};base64,${attachment.data}`} style={{ display: 'block', maxWidth: '100%', maxHeight: 240, borderRadius: 8, objectFit: 'contain' }} />}
@@ -183,20 +192,13 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
           // 你的回答（D52）：答案由服务端回带，因此别的端答的也看得到。这里只显示
           // 问题与所选取值，不含任何工具结果。
           return (
-            <div key={`answer-${index}`} data-testid="answer-echo" style={{ alignSelf: 'stretch' }}>
-              <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>你的回答</div>
+            <div key={`answer-${index}`} data-testid="answer-echo" className="answer-echo">
+              <div className="answer-echo-title"><strong><span aria-hidden="true">✓ &nbsp;</span>你的回答</strong><span>{message.answers.reduce((total, answer) => total + answer.values.length, 0)} 项已选</span></div>
               {message.answers.map((answer) => (
-                <div key={answer.questionId} style={{ marginTop: 4, wordBreak: 'break-word' }}>
-                  <div style={{ fontSize: FONT_SIZE_SECONDARY, color: '#333' }}>
-                      {answer.header === '' ? answer.question : `${answer.header} · ${answer.question}`}
-                  </div>
-                  <div style={{ marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {answer.values.map((value) => (
-                      <Tag key={value} color="primary" fill="outline">
-                        {value}
-                      </Tag>
-                    ))}
-                  </div>
+                <div key={answer.questionId} className="answer-echo-question">
+                  {answer.header !== '' && <div className="answer-echo-header">{answer.header}</div>}
+                  <div className="answer-echo-text">{answer.question}</div>
+                  <div className="answer-echo-values">{answer.values.map((value) => <Tag key={value} color="primary" fill="outline">{value}</Tag>)}</div>
                 </div>
               ))}
             </div>
@@ -205,9 +207,9 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
         // Claude正文使用浅灰气泡，保留全宽Markdown和横向滚动空间。
         return (
           <div key={`message-${index}`} style={{ alignSelf: 'stretch' }}>
-            <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>Claude {message.text !== '' && <CopyTextButton label="复制 Claude 回复" text={message.text} />}</div>
+            <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}><span className="claude-avatar"><SessionIcon name="logo" size={20} /></span>Claude {message.text !== '' && <CopyTextButton label="复制 Claude 回复" text={message.text} />}</div>
             {message.text !== '' && (
-              <div style={{ marginTop: 4, background: '#EBF0F3', color: '#1f2937', borderRadius: 16, padding: '10px 14px', wordBreak: 'break-word' }}>
+              <div style={{ marginTop: 4, background: '#fff', border: '1px solid #e0e7f1', color: '#34435b', borderRadius: 20, padding: '14px 16px', wordBreak: 'break-word' }}>
                 <MessageMarkdown text={message.text} />
               </div>
             )}

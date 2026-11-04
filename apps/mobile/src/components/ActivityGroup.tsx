@@ -1,4 +1,7 @@
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import './ActivityGroup.css'
+import SessionIcon from './SessionIcon'
+import { useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { debugLog } from '../debug/log'
 import { Tag } from 'antd-mobile'
 import BottomDrawer from './BottomDrawer'
 import type { ContentBlock } from '../protocol/types'
@@ -19,10 +22,10 @@ type ToolResult = Extract<ContentBlock, { kind: 'tool_result' }>
 // `result` 变体只用于重连后孤立的 tool_result（找不到对应 tool_use）。
 export type Activity =
   | { kind: 'thinking'; id: string; text: string }
-  | { kind: 'tool'; id: string; tool: ToolUse; result?: ToolResult }
+  | { kind: 'tool'; id: string; tool: ToolUse; result?: ToolResult; turnEnded?: boolean }
   | { kind: 'result'; id: string; toolName: string; result: ToolResult }
 
-type ActivityStatus = 'running' | 'success' | 'failed'
+type ActivityStatus = 'running' | 'success' | 'failed' | 'missing'
 
 // 抽屉是一个带两级视图的状态机：`view` 总是有值，因此不存在
 // 「详情已开但没有目标活动」这类无效组合；关闭后保留 `view`，
@@ -38,18 +41,21 @@ const STATUS_LABEL: Record<ActivityStatus, string> = {
   running: '执行中',
   success: '成功',
   failed: '失败',
+  missing: '结果未收到',
 }
 
 const STATUS_COLOR: Record<ActivityStatus, 'default' | 'success' | 'danger'> = {
   running: 'default',
   success: 'success',
   failed: 'danger',
+  missing: 'default',
 }
 
 const STATUS_DOT_COLOR: Record<ActivityStatus, string> = {
   running: '#bfbfbf',
   success: '#00b578',
   failed: '#ff3141',
+  missing: '#b88020',
 }
 
 const ROW_DETAIL_LIMIT = 48
@@ -97,7 +103,7 @@ const BODY_TEXT_STYLE: CSSProperties = {
 function statusOf(activity: Activity): ActivityStatus | null {
   if (activity.kind === 'thinking') return null
   if (activity.kind === 'result') return activity.result.isError ? 'failed' : 'success'
-  if (activity.result === undefined) return 'running'
+  if (activity.result === undefined) return activity.turnEnded ? 'missing' : 'running'
   return activity.result.isError ? 'failed' : 'success'
 }
 
@@ -185,16 +191,18 @@ function DrawerHeader({
   status,
   onBack,
   onClose,
+  showDebug,
 }: {
   title: string
   status?: ActivityStatus | null
   onBack?: () => void
   onClose: () => void
+  showDebug?: boolean
 }) {
   return (
-    <div style={DRAWER_HEADER_STYLE}>
+    <div className="activity-drawer-header" style={DRAWER_HEADER_STYLE}>
       {onBack === undefined ? (
-        <span style={{ width: 32, flexShrink: 0 }} />
+        <span style={{ width: 4, flexShrink: 0 }} />
       ) : (
         <button type="button" aria-label="返回" style={ICON_BUTTON_STYLE} onClick={onBack}>
           <Chevron direction="left" size={18} color="#333" />
@@ -206,7 +214,7 @@ function DrawerHeader({
           minWidth: 0,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
           gap: 6,
         }}
       >
@@ -220,6 +228,7 @@ function DrawerHeader({
           </Tag>
         )}
       </span>
+      {showDebug && <button type="button" aria-label="打开调试日志" style={ICON_BUTTON_STYLE} onClick={() => window.dispatchEvent(new Event('mobile-open-debug'))}><SessionIcon name="debug" size={20} /></button>}
       <button type="button" aria-label="关闭" style={ICON_BUTTON_STYLE} onClick={onClose}>
         ✕
       </button>
@@ -240,7 +249,7 @@ function ActivityRow({ activity, onOpen }: { activity: Activity; onOpen: () => v
   const status = statusOf(activity)
   const detail = firstLine(inputOf(activity))
   return (
-    <button type="button" data-testid="activity-row" style={ROW_STYLE} onClick={onOpen}>
+    <button type="button" data-testid="activity-row" className="activity-row" style={ROW_STYLE} onClick={onOpen}>
       <StatusDot status={status} />
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontSize: FONT_SIZE_SECONDARY, color: '#333', wordBreak: 'break-word' }}>
@@ -308,7 +317,8 @@ function ActivityDetail({ activity }: { activity: Activity }) {
 // 展开不再挤占正文空间；抽屉内点击某条活动推进二级详情视图。
 // 两级视图共用同一个 Popup：避开两层遮罩叠加，也不会在切换动画
 // 期间同时保留两份内容。
-export default function ActivityGroup({ activities }: { activities: Activity[] }) {
+export default function ActivityGroup({ activities, variant = 'inline' }: { activities: Activity[]; variant?: 'inline' | 'card' }) {
+  const { enabled: debugEnabled } = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
   const [drawer, setDrawer] = useState<DrawerState>({ open: false, view: { kind: 'list' } })
   const close = () => setDrawer((current) => ({ ...current, open: false }))
   const openList = () => setDrawer({ open: true, view: { kind: 'list' } })
@@ -328,10 +338,11 @@ export default function ActivityGroup({ activities }: { activities: Activity[] }
       <button
         type="button"
         data-testid="activity-group-summary"
+        className={`activity-summary activity-summary--${variant}`}
         style={SUMMARY_STYLE}
         onClick={openList}
       >
-        <span style={{ flex: 1, wordBreak: 'break-word' }}>{summary}</span>
+        <SessionIcon name="steps" size={18} style={{ color: "#3478f6", marginRight: 6 }} /><span style={{ flex: 1, wordBreak: 'break-word' }}>{summary}</span>
         <Chevron direction="right" />
       </button>
 
@@ -341,7 +352,7 @@ export default function ActivityGroup({ activities }: { activities: Activity[] }
       >
         {detail === undefined ? (
           <>
-            <DrawerHeader title={summary} onClose={close} />
+            <DrawerHeader title={summary} onClose={close} showDebug={debugEnabled} />
             <div
               data-testid="activity-list"
               style={{

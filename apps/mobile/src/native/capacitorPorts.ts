@@ -46,6 +46,11 @@ export interface NativePairingBindings {
   logic: NativePairingLogic
   scanner: NativeScanPort
   appState: NativeAppStatePort
+  preferences?: {
+    read(): Promise<{ selectedPC: string | null; selectedPCConfigured?: boolean; debugEnabled: boolean }>
+    writeSelectedPC(value: string | null): Promise<void>
+    writeDebugEnabled(value: boolean): Promise<void>
+  }
 }
 
 export function createCapacitorPairingPorts(): NativePairingBindings {
@@ -115,5 +120,18 @@ export function createCapacitorPairingPorts(): NativePairingBindings {
       }
     },
   }
-  return { logic: new NativePairingLogic(secure, metadata), scanner, appState }
+  const preferences: NonNullable<NativePairingBindings['preferences']> = {
+    read: async () => {
+      const [pc, debug] = await Promise.all([
+        Preferences.get({ key: 'cmr.settings.selectedPC' }),
+        Preferences.get({ key: 'cmr.settings.debugEnabled' }),
+      ])
+      return { selectedPC: pc.value && pc.value !== 'all' ? pc.value : null, selectedPCConfigured: pc.value !== null, debugEnabled: debug.value === 'true' }
+    },
+    writeSelectedPC: async (value) => {
+      await Preferences.set({ key: 'cmr.settings.selectedPC', value: value ?? 'all' })
+    },
+    writeDebugEnabled: async (value) => Preferences.set({ key: 'cmr.settings.debugEnabled', value: String(value) }),
+  }
+  return { logic: new NativePairingLogic(secure, metadata), scanner, appState, preferences }
 }

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 32 32" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>编组</title>
+    <g id="Claude-Mobile-Remote" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="02-设置" transform="translate(-36, -124)">
+            <g id="PC-管理" transform="translate(24, 112)">
+                <g id="编组" transform="translate(12, 12)">
+                    <g id="monitor" transform="translate(8, 8)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8">
+                        <rect id="monitor-1" x="1.33333333" y="2" width="13.3333333" height="9.33333333" rx="1.33333333"></rect>
+                        <line x1="5.33333093" y1="14" x2="10.6666691" y2="14" id="monitor-2"></line>
+                        <line x1="8" y1="11.3333347" x2="8" y2="13.9999987" id="monitor-3"></line>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

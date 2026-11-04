@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 12 12" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>plus</title>
+    <g id="Claude-Mobile-Remote" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round">
+        <g id="01-会话列表" transform="translate(-351, -255)" stroke="currentColor" stroke-width="2">
+            <g id="plus" transform="translate(349.1, 253)">
+                <line x1="3.33333067" y1="8" x2="12.6666693" y2="8" id="plus-1"></line>
+                <line x1="8" y1="3.33333067" x2="8" y2="12.6666693" id="plus-2"></line>
+            </g>
+        </g>
+    </g>
+</svg>

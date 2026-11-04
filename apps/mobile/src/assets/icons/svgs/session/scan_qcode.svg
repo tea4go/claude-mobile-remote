@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 15 14" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>qr-code</title>
+    <g id="Claude-Mobile-Remote" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round">
+        <g id="03-连接会话" transform="translate(-131, -669)" stroke="currentColor" stroke-width="1.8">
+            <g id="次按钮" transform="translate(24, 650)">
+                <g id="qr-code" transform="translate(106.5, 18)">
+                    <rect id="qr-code-1" x="2" y="2" width="3.33333333" height="3.33333333" rx="0.666666667"></rect>
+                    <rect id="qr-code-2" x="10.6666667" y="2" width="3.33333333" height="3.33333333" rx="0.666666667"></rect>
+                    <rect id="qr-code-3" x="2" y="10.6666667" width="3.33333333" height="3.33333333" rx="0.666666667"></rect>
+                    <polyline id="qr-code-4" points="14.0000008 10.6666659 12.0000007 10.6666659 11.7398776 10.6922843 11.4897572 10.7681599 11.2592412 10.8913745 11.0571915 11.0571915 10.8913745 11.2592412 10.7681599 11.4897572 10.6922843 11.7398776 10.6666659 12.0000007 10.6666659 14.0000008"></polyline>
+                    <line x1="14" y1="14.0000002" x2="14" y2="14.0066665" id="qr-code-5"></line>
+                    <polyline id="qr-code-6" points="8.0000008 4.66666587 8.0000008 6.666666 7.9743824 6.92678907 7.8985068 7.17690947 7.77529213 7.40742547 7.6094752 7.6094752 7.40742547 7.77529213 7.17690947 7.8985068 6.92678907 7.9743824 6.666666 8.0000008 4.66666587 8.0000008"></polyline>
+                    <line x1="2.00000019" y1="8" x2="2.00666648" y2="8" id="qr-code-7"></line>
+                    <line x1="8.00000019" y1="2" x2="8.00666648" y2="2" id="qr-code-8"></line>
+                    <line x1="8" y1="10.6666669" x2="8" y2="10.6733331" id="qr-code-9"></line>
+                    <line x1="10.6666663" y1="8" x2="11.3333337" y2="8" id="qr-code-10"></line>
+                    <line x1="14" y1="8.00000019" x2="14" y2="8.00666648" id="qr-code-11"></line>
+                    <line x1="8" y1="14.0000004" x2="8" y2="13.3333329" id="qr-code-12"></line>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

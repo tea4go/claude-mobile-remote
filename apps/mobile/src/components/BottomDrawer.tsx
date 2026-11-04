@@ -9,10 +9,11 @@ interface BottomDrawerProps {
   visible: boolean
   onMaskClick?: () => void
   children: ReactNode
+  compact?: boolean
 }
 
 // Keep content mounted through exit so switching between list/detail never flashes.
-export default function BottomDrawer({ visible, onMaskClick, children }: BottomDrawerProps) {
+export default function BottomDrawer({ visible, onMaskClick, children, compact = false }: BottomDrawerProps) {
   const [mounted, setMounted] = useState(visible)
   const [entered, setEntered] = useState(false)
 
@@ -32,6 +33,6 @@ export default function BottomDrawer({ visible, onMaskClick, children }: BottomD
   if (!visible && !mounted) return null
   return createPortal(<div className={`mobile-drawer${entered ? ' mobile-drawer--entered' : ''}`}>
     <div className="mobile-drawer-mask" style={DRAWER_MASK_STYLE} onClick={onMaskClick} />
-    <div className="mobile-drawer-sheet" style={DRAWER_SHEET_STYLE}>{children}</div>
+    <div className="mobile-drawer-sheet" style={{ ...DRAWER_SHEET_STYLE, ...(compact ? { minHeight: 0 } : {}) }}>{children}</div>
   </div>, document.body)
 }

@@ -112,6 +112,59 @@ test('设置页按 PC 编码移除本地配对，其他 PC 保留且安全记录
   expect(screen.getAllByRole('button', { name: '移除此 PC' })).toHaveLength(1)
 })
 
+test('恢复筛选与调试设置，删除所选 PC 后选择剩余电脑', async () => {
+  const first = '0123456789abcdef0123456789abcdef'
+  const second = 'abcdef0123456789abcdef0123456789'
+  const state = bindings([first, second].map((pcId, index) => ({
+    metadata: { sessionId: `p${index}`, name: `会话 ${index}`, customName: true, lastConnectedAt: null },
+    payload: { ...pairing(`p${index}`), pcId, pcName: index === 0 ? 'Mac' : 'Studio' },
+  })))
+  const saved = { selectedPC: `pc:${first}` as string | null, debugEnabled: true }
+  state.native.preferences = {
+    read: async () => ({ ...saved }),
+    writeSelectedPC: async (value) => { saved.selectedPC = value },
+    writeDebugEnabled: async (value) => { saved.debugEnabled = value },
+  }
+  const { unmount } = render(<App native={state.native} cache={null} experience={null} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(screen.getByRole('button', { name: '筛选电脑，当前 Mac' })).toBeInTheDocument())
+  expect(screen.queryByRole('button', { name: '筛选电脑，当前 Studio' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '设置' }))
+  expect(screen.getByRole('switch', { name: '调试日志开关' })).toHaveAttribute('aria-checked', 'true')
+  fireEvent.click(screen.getByText('PC 管理'))
+  fireEvent.click(screen.getAllByRole('button', { name: '移除此 PC' })[0]!)
+  fireEvent.click(screen.getByRole('button', { name: '确认移除' }))
+  await waitFor(() => expect(saved.selectedPC).toBe(`pc:${second}`))
+  unmount()
+  render(<App native={state.native} cache={null} experience={null} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(screen.getByRole('button', { name: '筛选电脑，当前 Studio' })).toBeInTheDocument())
+  fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Studio' }))
+  expect(screen.getByRole('button', { name: 'Studio' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('首次仅一台电脑默认选中，主动选择全部后重启仍保留', async () => {
+  const pcId = '0123456789abcdef0123456789abcdef'
+  const state = bindings([{ metadata: { sessionId: 'p', name: '会话', customName: true, lastConnectedAt: null }, payload: { ...pairing('p'), pcId, pcName: 'Mac' } }])
+  let saved: string | null = null
+  let configured = false
+  state.native.preferences = {
+    read: async () => ({ selectedPC: saved, selectedPCConfigured: configured, debugEnabled: false }),
+    writeSelectedPC: async (value) => { saved = value; configured = true },
+    writeDebugEnabled: async () => {},
+  }
+  const renderApp = () => render(<App native={state.native} cache={null} experience={null} socketFactory={(url) => new FakeSocket(url)} />)
+  const first = renderApp()
+  await waitFor(() => expect(saved).toBe(`pc:${pcId}`))
+  fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac' }))
+  expect(screen.getByRole('button', { name: 'Mac' })).toHaveAttribute('aria-pressed', 'true')
+  fireEvent.click(screen.getByRole('button', { name: '全部电脑' }))
+  await waitFor(() => expect(saved).toBeNull())
+  first.unmount()
+  renderApp()
+  await waitFor(() => expect(screen.getByRole('button', { name: '筛选电脑，当前 Mac' })).toBeInTheDocument())
+  fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac' }))
+  expect(screen.getByRole('button', { name: '全部电脑' })).toHaveAttribute('aria-pressed', 'true')
+})
+
 test('原生扫码验证成功后安全保存，URL 不留配对凭证；前台过期后不重连', async () => {
   let currentTime = Date.parse('2026-09-24T00:00:00Z')
   const native = bindings()

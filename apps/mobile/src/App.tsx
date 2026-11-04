@@ -1,3 +1,4 @@
+import SessionIcon from './components/SessionIcon'
 import DemoPage from './demo/DemoPage'
 import { Capacitor } from '@capacitor/core'
 import DebugPanel from './components/DebugPanel'
@@ -9,12 +10,13 @@ import { ProtocolClient } from './protocol/client'
 import { networkDiagnostics, networkCodeText, safeNetworkTarget } from './protocol/diagnostics'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Button, List, NavBar, Switch } from 'antd-mobile'
-import { LeftOutline } from 'antd-mobile-icons'
 import { useStore } from 'zustand'
 import PairingForm from './components/PairingForm'
 import SessionDetail from './components/SessionDetail'
 import ProjectSessionList, { type SessionListItem } from './components/ProjectSessionList'
 import PCSettings from './components/PCSettings'
+import { groupPCs } from './components/pcGroups'
+import { LeftOutline, RightOutline } from 'antd-mobile-icons'
 import PageTransition from './components/PageTransition'
 import { PAGE_BACKGROUND } from './components/ui'
 import type { ActionResolution, SocketFactory } from './protocol/client'
@@ -64,19 +66,37 @@ function cancelTargetOf(state: MobileState): string | null {
 
 function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = defaultSocketFactory, native = null, experience = nativeExperience }: AppProps = {}) {
   const [demoOpen, setDemoOpen] = useState(false)
+  const [toast, setToast] = useState<{ message: string; id: number } | null>(null)
+  const showToast = useCallback((message: string) => setToast({ message, id: Date.now() }), [])
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 3000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
   const debugState = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
   const [appStore] = useState(createAppStore)
   const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now))
   const [managementBusy, setManagementBusy] = useState<Record<string, boolean>>({})
   const [managementFeedback, setManagementFeedback] = useState<Record<string, string | null>>({})
   const [recentlyViewedId, setRecentlyViewedId] = useState<string | null>(null)
+  const [selectedPC, setSelectedPC] = useState<string | null | undefined>(undefined)
+  const [preferencesReady, setPreferencesReady] = useState(native?.preferences === undefined)
+  const [preferencesReadable, setPreferencesReadable] = useState(true)
+  const [pairingsRestored, setPairingsRestored] = useState(native === null)
+  const preferenceWrites = useRef<Promise<void>>(Promise.resolve())
+  const selectedChanged = useRef(false)
+  const debugChanged = useRef(false)
   const [settingsPage, setSettingsPage] = useState<'settings' | 'pcs' | null>(null)
   const [settingsDirection, setSettingsDirection] = useState<'forward' | 'back'>('forward')
+  const [pairingDirection, setPairingDirection] = useState<'forward' | 'back'>('forward')
   const [restoring, setRestoring] = useState(native !== null)
   const cacheWriter = useRef<SessionCacheWriter | null>(null)
   const [cacheMessage, setCacheMessage] = useState<string | null>(null)
   const listScrollY = useRef(0)
   const candidate = useRef<ProtocolClient | null>(null)
+  const createdCandidateSource = useRef<string | null>(null)
+  const projectPairing = useRef<{ pcId: string; cwd: string } | null>(null)
+  const [projectPairingCwd, setProjectPairingCwd] = useState<string | null>(null)
   const pairingGeneration = useRef(0)
   const [pairingProgress, setPairingProgress] = useState<string | null>(null)
   const [pairingTarget, setPairingTarget] = useState<string | null>(null)
@@ -84,12 +104,18 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   const pairingSavingRef = useRef(false)
   const cancelPairing = useCallback(() => {
     if (pairingSavingRef.current) return
+    if (createdCandidateSource.current) {
+      const source = createdCandidateSource.current
+      createdCandidateSource.current = null
+      setManagementBusy((state) => ({ ...state, [source]: false }))
+      showToast('电脑已创建会话，但手机连接已取消，请在电脑检查后重新配对')
+    }
     if (candidate.current) recordAction('cancelled')
     pairingGeneration.current++
     candidate.current?.close()
     candidate.current = null
     setPairingProgress(null)
-  }, [])
+  }, [showToast])
   useEffect(() => () => {
     pairingGeneration.current++
     candidate.current?.close()
@@ -97,6 +123,36 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   }, [])
 
   const pairings = useStore(appStore, (state) => state.pairings)
+  useEffect(() => {
+    if (!native?.preferences) return
+    let active = true
+    void native.preferences.read().then((saved) => {
+      if (!active) return
+      if (!selectedChanged.current) setSelectedPC(saved.selectedPCConfigured === false ? undefined : saved.selectedPC)
+      if (!debugChanged.current) debugLog.setEnabled(saved.debugEnabled)
+    }).catch(() => { if (active) { setPreferencesReadable(false); showToast('设置读取失败，本次使用默认设置') } }).finally(() => { if (active) setPreferencesReady(true) })
+    return () => { active = false }
+  }, [native, showToast])
+
+  useEffect(() => {
+    if (!preferencesReady || restoring || !pairingsRestored) return
+    const pcs = groupPCs(pairings.records)
+    if (selectedPC === undefined || (selectedPC !== null && !pcs.some((pc) => pc.key === selectedPC))) {
+      if (pcs.length > 0) setSelectedPC(pcs.length === 1 ? pcs[0]!.key : null)
+      else if (selectedPC !== undefined) setSelectedPC(null)
+      return
+    }
+    if (!native?.preferences || !preferencesReadable) return
+    const preferences = native.preferences
+    preferenceWrites.current = preferenceWrites.current.catch(() => undefined).then(() => preferences.writeSelectedPC(selectedPC)).catch(() => { showToast('电脑筛选保存失败') })
+  }, [selectedPC, pairings.records, preferencesReady, preferencesReadable, restoring, pairingsRestored, native, showToast])
+
+  useEffect(() => {
+    if (!preferencesReady || !preferencesReadable || !native?.preferences) return
+    const preferences = native.preferences
+    const enabled = debugState.enabled
+    preferenceWrites.current = preferenceWrites.current.catch(() => undefined).then(() => preferences.writeDebugEnabled(enabled)).catch(() => { showToast('调试设置保存失败') })
+  }, [debugState.enabled, preferencesReady, preferencesReadable, native, showToast])
   const sessionStates = useStore(appStore, (state) => state.sessions)
   const unread = useStore(appStore, (state) => state.unread)
   const pairingInvalidBySession = useStore(appStore, (state) => state.pairingInvalid)
@@ -111,15 +167,18 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     unread: unread[record.sessionId] ?? false,
   })), [pairings, sessionStates, unread])
 
-  const openPairing = useCallback(async (payload: PairingPayload) => {
+  const openPairing = useCallback(async (payload: PairingPayload, createdSource?: string) => {
     if (pairingSavingRef.current) return
     cancelPairing()
+    createdCandidateSource.current = createdSource ?? null
     const generation = ++pairingGeneration.current
     appStore.getState().setPairingError(null)
-    appStore.getState().showList()
-    appStore.getState().setAdding(true)
-    setSettingsPage(null)
-    window.location.hash = ''
+    if (!createdSource) {
+      appStore.getState().showList()
+      appStore.getState().setAdding(true)
+      setSettingsPage(null)
+      window.location.hash = ''
+    }
     recordAction('pairing')
     setPairingTarget(safeNetworkTarget(payload.wsUrl))
     const client = new ProtocolClient(payload, socketFactory)
@@ -128,8 +187,17 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     const current = () => generation === pairingGeneration.current && candidate.current === client
     client.onClose = () => {
       if (!current()) return
+      candidate.current = null
       const diagnostic = networkDiagnostics.getSnapshot().filter((item) => item.sessionId === payload.sessionId).at(-1)
-      appStore.getState().setPairingError(diagnostic ? networkCodeText[diagnostic.code] : '连接失败，请重试')
+      const message = diagnostic ? networkCodeText[diagnostic.code] : '连接失败，请重试'
+      if (createdSource) {
+        createdCandidateSource.current = null
+        setManagementBusy((state) => ({ ...state, [createdSource]: false }))
+        showToast('电脑已创建会话，但手机连接失败，请在电脑检查后重新配对')
+      } else {
+        appStore.getState().setPairingError(message)
+        if (projectPairing.current) showToast(message)
+      }
       setPairingProgress(null)
     }
     client.onEvent = (event) => {
@@ -140,11 +208,19 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       if (pairingSavingRef.current) {
         if (bufferedEvents.length >= 64) {
           client.close()
-          appStore.getState().setPairingError('保存期间收到过多事件，请重试连接')
+          if (!createdSource) appStore.getState().setPairingError('保存期间收到过多事件，请重试连接')
         } else bufferedEvents.push(event)
         return
       }
       if (event.kind !== 'snapshot') return
+      const target = createdSource ? null : projectPairing.current
+      if (target && (payload.pcId !== target.pcId || event.snapshot.projectCwd !== target.cwd)) {
+        candidate.current = null
+        client.close()
+        setPairingProgress(null)
+        showToast(!payload.pcId || !event.snapshot.projectCwd ? '无法验证电脑或工作目录，请重新扫码' : payload.pcId !== target.pcId ? '电脑不匹配，请扫描目标电脑的配对码' : `工作目录不匹配：期望 ${target.cwd}，实际 ${event.snapshot.projectCwd}`)
+        return
+      }
       pairingSavingRef.current = true
       setPairingSaving(true)
       setPairingProgress('连接验证成功，正在保存配对…')
@@ -157,9 +233,17 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
           if (!current() || client.connectionState() !== 'connected') return
           recordAction('saved')
           appStore.getState().upsertPairing(payload)
+          setSelectedPC((current) => {
+            if (current == null) return current
+            const group = groupPCs(appStore.getState().pairings.records).find((pc) => pc.sessions.some((session) => session.sessionId === payload.sessionId))
+            return group?.key ?? current
+          })
           runtime.adoptVerified(payload, client, event.snapshot, bufferedEvents)
+          projectPairing.current = null
+          setProjectPairingCwd(null)
           candidate.current = null
           appStore.getState().openDetail(payload.sessionId)
+          if (createdSource) { createdCandidateSource.current = null; setManagementBusy((state) => ({ ...state, [createdSource]: false })) }
           setPairingProgress(null)
           window.location.hash = native === null ? `#pair=${encodePairingFragment(payload)}` : ''
         } catch {
@@ -168,7 +252,14 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
             client.close()
             candidate.current = null
             setPairingProgress(null)
-            appStore.getState().setPairingError('配对保存失败或连接已断开，请重试')
+            if (createdSource) {
+              createdCandidateSource.current = null
+              setManagementBusy((state) => ({ ...state, [createdSource]: false }))
+              showToast('电脑已创建会话，但手机保存失败，请在电脑检查后重新配对')
+            } else {
+              appStore.getState().setPairingError('配对保存失败或连接已断开，请重试')
+              if (projectPairing.current) showToast('配对保存失败或连接已断开，请重试')
+            }
           }
         } finally {
           pairingSavingRef.current = false
@@ -177,31 +268,51 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       })()
     }
     client.connect()
-  }, [appStore, runtime, native, now, socketFactory, cancelPairing])
+  }, [appStore, runtime, native, now, socketFactory, cancelPairing, showToast])
 
   useEffect(() => {
-    runtime.setManagementCallbacks((payload) => { void openPairing(payload) }, (sessionId, operation, accepted, code) => {
-      setManagementBusy((current) => ({ ...current, [sessionId]: false }))
+    runtime.setManagementCallbacks((payload, sourceId) => {
+      const source = appStore.getState().pairings.records.find((record) => record.sessionId === sourceId)
+      if (candidate.current || pairingSavingRef.current) {
+        setManagementBusy((current) => ({ ...current, [sourceId]: false }))
+        showToast('电脑已创建会话，但手机正在配对其他会话，请在电脑检查后重新配对')
+        return
+      }
+      try {
+        if (!source || (source.pcId && payload.pcId && source.pcId !== payload.pcId)) throw new Error('identity mismatch')
+        const origin = new URL(source.wsUrl)
+        const target = new URL(payload.wsUrl)
+        if (origin.protocol !== target.protocol) throw new Error('scheme mismatch')
+        target.hostname = origin.hostname
+        void openPairing({ ...payload, wsUrl: target.toString() }, sourceId)
+      } catch {
+        setManagementBusy((current) => ({ ...current, [sourceId]: false }))
+        showToast('电脑已创建会话，但无法验证连接地址，请在电脑检查后重新配对')
+      }
+    }, (sessionId, operation, accepted, code) => {
+      if (!(accepted && operation === 'create_session')) setManagementBusy((current) => ({ ...current, [sessionId]: false }))
       const text = accepted
         ? (operation === 'stop_session' ? 'Claude 会话已终止；配对入口仍保留' : null)
         : code === 'result_unknown' ? '操作结果未知，请重连核对；请勿重复新建会话'
         : code === 'session_capacity' ? '活跃会话已达上限' :
           code === 'create_rate_limited' ? '新建太频繁，请稍后重试' : '操作失败，请重试'
       setManagementFeedback((current) => ({ ...current, [sessionId]: text }))
+      if (!accepted && text) showToast(text)
     })
     return () => {
       runtime.setManagementCallbacks(null, null)
     }
-  }, [runtime, openPairing])
+  }, [runtime, openPairing, showToast, appStore])
 
   const submitJson = useCallback((json: string) => {
     const result = parsePairingInput(json, now())
     if (!result.ok) {
+      if (projectPairing.current) showToast(result.error)
       appStore.getState().setPairingError(result.error)
       return
     }
     void openPairing(result.value)
-  }, [appStore, now, openPairing])
+  }, [appStore, now, openPairing, showToast])
 
   useEffect(() => {
     if (native !== null && restoring) return
@@ -238,6 +349,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         if (appStore.getState().pairings.records.some((item) => item.sessionId === metadata.sessionId)) continue
         appStore.getState().restorePairing(metadata)
       }
+      setPairingsRestored(true)
     }).catch(() => {
       if (active) appStore.getState().setPairingError('原生配对存储暂不可用')
     }).finally(() => {
@@ -398,7 +510,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
 
   const pageKey = view === 'detail' && currentRecord !== undefined && currentSessionId !== null
     ? `detail:${currentSessionId}`
-    : restoring ? 'restoring' : adding ? 'pairing' : settingsPage ?? (sessions.length === 0 ? 'pairing' : 'list')
+    : restoring ? 'restoring' : settingsPage ?? (adding || sessions.length === 0 ? 'pairing' : 'list')
 
   useLayoutEffect(() => {
     if (pageKey !== 'list') return
@@ -432,12 +544,6 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         onSteerQueued={(requestId) => runtime.steerQueued(currentSessionId, requestId)}
         managementBusy={managementBusy[currentSessionId] ?? false}
         managementFeedback={managementFeedback[currentSessionId] ?? null}
-        onCreateSession={() => {
-          if (runtime.createSession(currentSessionId)) {
-            setManagementBusy((current) => ({ ...current, [currentSessionId]: true }))
-            setManagementFeedback((current) => ({ ...current, [currentSessionId]: null }))
-          }
-        }}
       />
       </>
     )
@@ -445,15 +551,18 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     pageContent = <div className="mobile-safe-area-content" style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>正在恢复已配对会话…</div>
   } else if ((adding && settingsPage === null) || (sessions.length === 0 && settingsPage === null)) {
     pageContent = (
-      <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
+      <div className="mobile-entry-page" style={{ background: PAGE_BACKGROUND }}>
         <div className="mobile-safe-area-header">
           <NavBar
             back={sessions.length === 0 ? null : ''}
-            backIcon={<LeftOutline aria-label="返回" />}
-            right={<button className="mobile-settings-button" onClick={() => { cancelPairing(); appStore.getState().setAdding(false); setSettingsPage('settings') }}>设置</button>}
+            backIcon={<LeftOutline aria-label="返回" fontSize={24} />}
+            right={<button className="mobile-settings-button" onClick={() => { cancelPairing(); appStore.getState().setPairingError(null); setSettingsDirection('forward'); setSettingsPage('settings') }}><SessionIcon name="settings" size={16} style={{ marginRight: 5 }} />设置</button>}
             onBack={() => {
               if (pairingSavingRef.current) return
               cancelPairing()
+              projectPairing.current = null
+              setProjectPairingCwd(null)
+              setPairingTarget(null)
               appStore.getState().setAdding(false)
               appStore.getState().setPairingError(null)
             }}
@@ -461,7 +570,8 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
             {appDisplayName}
           </NavBar>
         </div>
-        <div style={{ padding: 16, textAlign: 'center' }}><button onClick={() => { cancelPairing(); setDemoOpen(true) }}>体验演示（无需连接电脑）</button></div>
+        <div className="mobile-demo-entry"><button onClick={() => { cancelPairing(); appStore.getState().setPairingError(null); setDemoOpen(true) }}>• 体验演示（无需连接电脑）</button></div>
+        {projectPairingCwd && <p>请扫描目标电脑和目录下新会话的配对码：{projectPairingCwd}</p>}
         <PairingForm target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
           recordAction('scan')
           const generation = ++pairingGeneration.current
@@ -475,32 +585,36 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
             setPairingProgress(null)
             recordAction('scan_failed')
             appStore.getState().setPairingError('扫码暂不可用，请检查相机权限')
+            if (projectPairing.current) showToast('扫码暂不可用，请检查相机权限')
           })
         }} />
       </div>
     )
   } else if (settingsPage === 'settings') {
-    pageContent = <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
-      <div className="mobile-safe-area-header"><NavBar back="" backIcon={<LeftOutline aria-label="返回" />} onBack={() => setSettingsPage(null)}>设置</NavBar></div>
+    pageContent = <div className="mobile-settings-page" style={{ background: PAGE_BACKGROUND }}>
+      <div className="mobile-safe-area-header"><NavBar back="" backIcon={<LeftOutline aria-label="返回" fontSize={24} />} onBack={() => { setPairingDirection('back'); setSettingsPage(null) }}>设置</NavBar></div>
+      <div className="mobile-settings-content">
       <List>
-        <List.Item arrow onClick={() => { setSettingsDirection('forward'); setSettingsPage('pcs') }}>PC 管理</List.Item>
+        <List.Item prefix={<SessionIcon name="pcSettings" size={32} style={{ color: "#3478f6" }} />} arrowIcon={<RightOutline />} onClick={() => { setSettingsDirection('forward'); setSettingsPage('pcs') }}>PC 管理</List.Item>
       </List>
-      <List><List.Item arrow onClick={() => setDemoOpen(true)}>体验演示（无需连接电脑）</List.Item></List>
+      <List><List.Item prefix={<SessionIcon name="demo" size={32} style={{ color: "#3478f6" }} />} arrowIcon={<RightOutline />} onClick={() => setDemoOpen(true)}>体验演示（无需连接电脑）</List.Item></List>
       <List header="调试">
-        <List.Item description="开启后显示悬浮按钮，记录本次运行中的动作和连接过程。关闭后停止新增记录；退出 App 后清除。" extra={<Switch aria-label="调试日志开关" checked={debugState.enabled} onChange={(enabled) => debugLog.setEnabled(enabled)} />}>调试日志</List.Item>
+        <List.Item className="mobile-settings-debug" description="开启后显示悬浮按钮。日志始终在本次运行中记录，最多保留 200 条；退出 App 后清除。" extra={<Switch aria-label="调试日志开关" checked={debugState.enabled} onChange={(enabled) => { debugChanged.current = true; debugLog.setEnabled(enabled) }} />}>调试日志</List.Item>
       </List>
       <List header="本地保存说明">
         <List.Item description="原生 App 重启后恢复已配对会话、设备信息和自定义名称。未过期凭证保存在系统安全存储；移除 PC 或会话会删除对应本机配对。浏览器仅保存在内存。">配对与设备</List.Item>
         <List.Item description="iOS / Android 保存最近已收到的消息、标题与工作目录，重启先展示缓存，再连接 PC 更新状态。每会话最多 200 项/2 MiB，总计 20 MiB，保留 30 天；不缓存图片原件，不支持离线发送。浏览器仅保存在内存。">消息与状态</List.Item>
         {cache !== null && <List.Item arrow={false} description={cacheMessage !== null ? <span role="status">{cacheMessage}</span> : undefined} extra={<Button color="primary" fill="none" size="small" onClick={() => {
           void cacheWriter.current?.clear().then(() => setCacheMessage('离线缓存已清除；当前页面内容仍可继续使用')).catch(() => setCacheMessage('清除缓存失败，请重试'))
-        }}>清除</Button>}>清除离线缓存</List.Item>}
+        }}>清除</Button>}><SessionIcon name="clear" size={32} style={{ color: "#3478f6", marginRight: 8 }} />清除离线缓存</List.Item>}
       </List>
       {experience !== null && <NotificationSettings port={experience} />}
+      </div>
     </div>
   } else if (settingsPage === 'pcs') {
-    pageContent = <div style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>
-      <div className="mobile-safe-area-header"><NavBar back="" backIcon={<LeftOutline aria-label="返回" />} onBack={() => { setSettingsDirection('back'); setSettingsPage('settings') }}>PC 管理</NavBar></div>
+    pageContent = <div className="mobile-settings-page" style={{ background: PAGE_BACKGROUND }}>
+      <div className="mobile-safe-area-header"><NavBar back="" backIcon={<LeftOutline aria-label="返回" fontSize={24} />} onBack={() => { setSettingsDirection('back'); setSettingsPage('settings') }}>PC 管理</NavBar></div>
+      <div className="mobile-settings-content">
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <PCSettings sessions={sessions}
         onRemovePC={(sessionIds) => { void (async () => {
@@ -509,19 +623,46 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
           }
         })() }}
       />
+      </div>
     </div>
   } else {
     pageContent = (
     <div className="session-list-page">
       <div className="mobile-safe-area-header">
-        <NavBar back={null} right={<button className="mobile-settings-button" onClick={() => { setSettingsDirection('forward'); setSettingsPage('settings') }}>设置</button>}>{appDisplayName}</NavBar>
+        <NavBar back={null} right={<button className="mobile-settings-button" onClick={() => { setSettingsDirection('forward'); setSettingsPage('settings') }}><SessionIcon name="settings" size={16} style={{ marginRight: 5 }} />设置</button>}>{appDisplayName}</NavBar>
       </div>
       <div className="session-list-scroll" onScroll={(event) => { listScrollY.current = event.currentTarget.scrollTop }}>
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <ProjectSessionList
         sessions={sessions}
         recentlyViewedId={recentlyViewedId}
+        selectedPC={selectedPC ?? null}
+        onSelectPC={(pc) => { selectedChanged.current = true; setSelectedPC(pc) }}
+        managementBusy={managementBusy}
+        managementFeedback={managementFeedback}
+        onCreate={(sessionId) => {
+          if (runtime.createSession(sessionId)) {
+            setManagementBusy((current) => ({ ...current, [sessionId]: true }))
+            setManagementFeedback((current) => ({ ...current, [sessionId]: null }))
+          } else {
+            setManagementFeedback((current) => ({ ...current, [sessionId]: '暂时无法新建会话，请检查连接后重试' }))
+            showToast('暂时无法新建会话，请检查连接后重试')
+          }
+        }}
+        onError={showToast}
+        onPairProject={(pcId, cwd) => {
+          setPairingDirection('forward')
+          projectPairing.current = { pcId, cwd }
+          setProjectPairingCwd(cwd)
+          setPairingTarget(null)
+          appStore.getState().setPairingError(null)
+          appStore.getState().setAdding(true)
+        }}
         onAdd={() => {
+          setPairingDirection('forward')
+          projectPairing.current = null
+          setProjectPairingCwd(null)
+          setPairingTarget(null)
           appStore.getState().setAdding(true)
           appStore.getState().setPairingError(null)
         }}
@@ -543,10 +684,10 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
 
   if (demoOpen) return <DemoPage onExit={() => setDemoOpen(false)} />
 
-  return <><DebugPanel /><PageTransition
+  return <>{toast && <div role="alert" style={{ position: 'fixed', zIndex: 3000, left: '50%', top: '45%', transform: 'translate(-50%, -50%)', maxWidth: '85%', padding: '10px 16px', borderRadius: 8, background: 'rgba(0,0,0,.8)', color: '#fff', textAlign: 'center', pointerEvents: 'none' }}>{toast.message}</div>}<DebugPanel /><PageTransition
     pageKey={pageKey}
-    direction={pageKey === 'list' ? 'back' : pageKey === 'settings' || pageKey === 'pcs' ? settingsDirection : 'forward'}
-    onEdgeBack={pageKey.startsWith('detail:') ? backToList : pageKey === 'settings' ? () => setSettingsPage(null) : pageKey === 'pcs' ? () => { setSettingsDirection('back'); setSettingsPage('settings') } : undefined}
+    direction={pageKey === 'list' ? 'back' : pageKey === 'pairing' ? pairingDirection : pageKey === 'settings' || pageKey === 'pcs' ? settingsDirection : 'forward'}
+    onEdgeBack={pageKey.startsWith('detail:') ? backToList : pageKey === 'settings' ? () => { setPairingDirection('back'); setSettingsPage(null) } : pageKey === 'pcs' ? () => { setSettingsDirection('back'); setSettingsPage('settings') } : undefined}
   >
     {pageContent}
   </PageTransition></>

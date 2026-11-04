@@ -95,15 +95,16 @@ beforeEach(() => {
 
 afterEach(() => {
   window.location.hash = ''
+  vi.unstubAllGlobals()
 })
 
-function completeHandshake(socket: FakeWebSocket, snapshotMessage: unknown = SNAPSHOT) {
+function completeHandshake(socket: FakeWebSocket, snapshotMessage: unknown = SNAPSHOT, version = PROTOCOL_VERSION) {
   socket.serverOpen()
   socket.serverMessage({
-    version: PROTOCOL_VERSION, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
+    version, type: 'hello_ack', sessionId: '', commandId: '', requestId: '', seq: 0, payload: {},
   })
   socket.serverMessage({
-    version: PROTOCOL_VERSION, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {},
+    version, type: 'subscribed', sessionId: 'session-1', commandId: '', requestId: '', seq: 0, payload: {},
   })
   socket.serverMessage(snapshotMessage)
 }
@@ -358,38 +359,149 @@ describe('App：返回列表', () => {
 })
 
 describe('App：多 Session 生命周期', () => {
+  test('配对进入设置后返回原配对页并清除上次错误，使用返回动画', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }))
+    window.location.hash = fragmentOf(PAIRING)
+    const { container } = render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    act(() => completeHandshake(FakeWebSocket.instances[0]!))
+    await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'invalid' } })
+    fireEvent.click(screen.getByRole('button', { name: '连接' }))
+    expect(screen.getByText('配对信息无效')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    expect(screen.getByText('PC 管理')).toBeInTheDocument()
+    fireEvent.click(container.querySelector('[data-mobile-page="settings"] [aria-label="返回"]')!)
+    expect(screen.getByText('连接 Claude 会话')).toBeInTheDocument()
+    expect(screen.queryByText('配对信息无效')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-mobile-page="pairing"]')).toHaveClass('mobile-page--enter-back')
+  })
+
+  test.each([
+    ['错误电脑', 'abcdef0123456789abcdef0123456789', '/work/alpha'],
+    ['错误目录', '0123456789abcdef0123456789abcdef', '/work/beta'],
+    ['缺少电脑身份', undefined, '/work/alpha'],
+    ['缺少目录', '0123456789abcdef0123456789abcdef', undefined],
+  ])('目录定向配对拒绝%s，正确配对可重试', async (_label, pcId, cwd) => {
+    const firstPairing = { ...PAIRING, pcId: '0123456789abcdef0123456789abcdef' }
+    const snapshot = { ...SNAPSHOT, version: 3, payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, projectCwd: '/work/alpha' } } }
+    window.location.hash = fragmentOf(firstPairing)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    act(() => completeHandshake(FakeWebSocket.instances[0]!, snapshot, 3))
+    await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('返回'))
+    act(() => FakeWebSocket.instances[0]!.serverClose())
+    fireEvent.click(screen.getByRole('button', { name: '在 alpha 新建会话' }))
+    expect(screen.getByText(/请扫描目标电脑和目录/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(screen.getByLabelText('返回'))
+    expect(screen.getByText(/请扫描目标电脑和目录/)).toBeInTheDocument()
+    const submit = (payload: unknown) => {
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: JSON.stringify(payload) } })
+      fireEvent.click(screen.getByRole('button', { name: '连接' }))
+    }
+    submit({ ...firstPairing, pcId })
+    act(() => completeHandshake(FakeWebSocket.instances[1]!, { ...snapshot, payload: { ...snapshot.payload, snapshot: { ...snapshot.payload.snapshot, projectCwd: cwd } } }, 3))
+    expect(FakeWebSocket.instances[1]!.closed).toBe(true)
+    expect(screen.getByText(/请扫描目标电脑和目录/)).toBeInTheDocument()
+    submit(firstPairing)
+    act(() => completeHandshake(FakeWebSocket.instances[2]!, snapshot, 3))
+    await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
+    expect(screen.queryByText(/请扫描目标电脑和目录/)).not.toBeInTheDocument()
+  })
+
+  test('筛选 PC 后新增其他 PC 的配对，返回列表自动切换到新 PC', async () => {
+    const firstPairing = { ...PAIRING, pcId: '0123456789abcdef0123456789abcdef', pcName: 'Mac' }
+    window.location.hash = fragmentOf(firstPairing)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    act(() => completeHandshake(FakeWebSocket.instances[0]!))
+    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mac' }))
+    fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    const secondPairing = { ...PAIRING, sessionId: 'session-2', pcId: 'abcdef0123456789abcdef0123456789', pcName: 'Studio' }
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: JSON.stringify(secondPairing) } })
+    fireEvent.click(screen.getByRole('button', { name: '连接' }))
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    act(() => completeHandshake(FakeWebSocket.instances[1]!, { ...SNAPSHOT, sessionId: 'session-2', payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, sessionId: 'session-2' } } }))
+    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('返回'))
+    expect(screen.getByRole('button', { name: '筛选电脑，当前 Studio' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '筛选电脑，当前 Mac' })).not.toBeInTheDocument()
+  })
+
   test('从已配对 A 创建 B，不关闭 A，并可用同一 commandId 断线重试', async () => {
-    window.location.hash = fragmentOf({ ...PAIRING, capabilities: ['create_session', 'stop_session'] })
+    window.location.hash = fragmentOf({ ...PAIRING, wsUrl: 'ws://10.0.0.8:8765/ws', pcId: '0123456789abcdef0123456789abcdef', capabilities: ['create_session', 'stop_session'] })
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
     const first = FakeWebSocket.instances[0]!
-    completeHandshake(first)
-    await waitFor(() => expect(screen.getByRole('button', { name: '新建会话' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: '新建会话' }))
+    const projectSnapshot = { ...SNAPSHOT, version: 3, payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, projectCwd: '/work/alpha' } } }
+    completeHandshake(first, projectSnapshot, 3)
+    await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '在 alpha 新建会话' }))
     const create = JSON.parse(first.sent.at(-1)!)
     expect(create).toMatchObject({ type: 'create_session', sessionId: 'session-1', payload: {} })
-    first.serverClose()
-    await waitFor(() => expect(screen.getByText('重新连接')).toBeInTheDocument())
-    fireEvent.click(screen.getByText('重新连接'))
+    act(() => first.serverClose())
+    fireEvent.click(screen.getByTestId('session-list-item'))
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
     const retrySocket = FakeWebSocket.instances[1]!
-    act(() => completeHandshake(retrySocket))
+    act(() => completeHandshake(retrySocket, projectSnapshot, 3))
     await waitFor(() => {
       expect(JSON.parse(retrySocket.sent.at(-1)!)).toMatchObject({ type: 'create_session', commandId: create.commandId })
     })
     act(() => retrySocket.serverMessage({
-      version: 2, type: 'create_session_result', sessionId: 'session-1', commandId: create.commandId,
+      version: 3, type: 'create_session_result', sessionId: 'session-1', commandId: create.commandId,
       requestId: '', seq: 0,
       payload: {
         accepted: true, code: '', message: '',
-        pairing: { ...PAIRING, sessionId: 'session-2', pairToken: 'second-fixture-token', capabilities: ['create_session', 'stop_session'] },
+        pairing: { ...PAIRING, wsUrl: 'ws://192.168.1.8:8766/ws', pcId: '0123456789abcdef0123456789abcdef', sessionId: 'session-2', pairToken: 'second-fixture-token', capabilities: ['create_session', 'stop_session'] },
       },
     }))
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(3))
+    expect(FakeWebSocket.instances[2]!.url).toBe('ws://10.0.0.8:8766/ws')
+    expect(screen.queryByText('连接 Claude 会话')).not.toBeInTheDocument()
     expect(retrySocket.closed).toBe(false)
     act(() => completeHandshake(FakeWebSocket.instances[2]!, { ...SNAPSHOT, sessionId: 'session-2', payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, sessionId: 'session-2' } } }))
     await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
     expect(window.location.hash).toContain('#pair=')
     const paired = parsePairingFragment(window.location.hash, Date.now())
     expect(paired.ok && paired.value.sessionId).toBe('session-2')
+    expect(paired.ok && paired.value.wsUrl).toBe('ws://10.0.0.8:8766/ws')
+  })
+
+  test('创建成功但新连接失败时保留列表并提示电脑已创建', async () => {
+    window.location.hash = fragmentOf({ ...PAIRING, capabilities: ['create_session'] })
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const first = FakeWebSocket.instances[0]!
+    const snapshot = { ...SNAPSHOT, version: 3, payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, projectCwd: '/work/alpha' } } }
+    act(() => completeHandshake(first, snapshot, 3))
+    await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '在 alpha 新建会话' }))
+    const command = JSON.parse(first.sent.at(-1)!)
+    act(() => first.serverMessage({ version: 3, type: 'create_session_result', sessionId: 'session-1', commandId: command.commandId, requestId: '', seq: 0, payload: { accepted: true, code: '', message: '', pairing: { ...PAIRING, sessionId: 'session-2' } } }))
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    act(() => FakeWebSocket.instances[1]!.serverClose())
+    expect(screen.getByText(/电脑已创建会话，但手机连接失败/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '在 alpha 新建会话' })).toBeInTheDocument()
+    expect(screen.queryByText('连接 Claude 会话')).not.toBeInTheDocument()
+  })
+
+  test('创建返回不匹配的电脑身份时不连接', async () => {
+    window.location.hash = fragmentOf({ ...PAIRING, pcId: '0123456789abcdef0123456789abcdef', capabilities: ['create_session'] })
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const first = FakeWebSocket.instances[0]!
+    const snapshot = { ...SNAPSHOT, version: 3, payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, projectCwd: '/work/alpha' } } }
+    act(() => completeHandshake(first, snapshot, 3))
+    await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('返回'))
+    fireEvent.click(screen.getByRole('button', { name: '在 alpha 新建会话' }))
+    const command = JSON.parse(first.sent.at(-1)!)
+    act(() => first.serverMessage({ version: 3, type: 'create_session_result', sessionId: 'session-1', commandId: command.commandId, requestId: '', seq: 0, payload: { accepted: true, code: '', message: '', pairing: { ...PAIRING, pcId: 'abcdef0123456789abcdef0123456789', sessionId: 'session-2' } } }))
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    expect(screen.getByText(/电脑已创建会话，但无法验证连接地址/)).toBeInTheDocument()
   })
 
   test('切换到第二个 Session 时两个连接同时保持', async () => {

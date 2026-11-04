@@ -18,7 +18,9 @@
   -webkit-backface-visibility: hidden;
 }
 
-.mobile-page[data-mobile-page='list'] {
+.mobile-page[data-mobile-page='list'],
+.mobile-page[data-mobile-page='settings'],
+.mobile-page[data-mobile-page='pcs'] {
   overflow: hidden;
 }
 

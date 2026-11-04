@@ -118,3 +118,40 @@ body {
 .mobile-settings-list { margin: 18px 16px; }
 .mobile-settings-list .adm-list-body { overflow: hidden; border: 0; border-radius: 12px; background: #fff; }
 .mobile-settings-button { border: 0; background: none; color: #1677ff; font: inherit; padding: 6px; cursor: pointer; }
+
+/* UI-1: shared entry surfaces; the detail page retains its existing styling. */
+.session-list-page, .mobile-entry-page, .mobile-settings-page { background: #f4f6fa; color: #202938; }
+.session-list-page { position: relative; }
+.session-list-page > .mobile-safe-area-header .adm-nav-bar, .mobile-entry-page > .mobile-safe-area-header .adm-nav-bar, .mobile-settings-page > .mobile-safe-area-header .adm-nav-bar { min-height: 56px; font-weight: 600; }
+.mobile-settings-button { min-height: 40px; padding: 6px 14px; border: 1px solid #dfe6f1; border-radius: 22px; color: #202938; background: white; box-shadow: 0 5px 18px rgba(51, 76, 120, .06); }
+.mobile-entry-page { box-sizing: border-box; min-height: 100%; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+.mobile-settings-page { box-sizing: border-box; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.mobile-settings-page > .mobile-safe-area-header { flex-shrink: 0; }
+.mobile-settings-content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+.mobile-demo-entry { text-align: center; padding: 14px 24px 4px; }
+.mobile-demo-entry button { min-height: 32px; padding: 5px 14px; border: 1px solid #d6e4ff; border-radius: 20px; color: #4168ac; background: #edf3ff; font: inherit; font-size: 13px; }
+.pairing-form { box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 18px 24px 24px; }
+.pairing-form h2 { font-size: 30px; color: #202938; }
+.pairing-form > p { color: #748198 !important; line-height: 1.5; }
+.pairing-form__input { min-height: 160px; padding: 16px; border: 1px solid #dfe6f1; border-radius: 18px; background: #fff; box-shadow: 0 8px 24px rgba(51, 76, 120, .06); }
+.pairing-form__input .adm-text-area { --font-size: 15px; }
+.pairing-form__target { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 20px; }
+.pairing-form__target > div { padding: 16px; border: 1px solid #dfe6f1; border-radius: 14px; background: white; color: #394760; }
+.pairing-form__target small { color: #748198; line-height: 1.5; }
+.pairing-form__primary, .pairing-form__scan { min-height: 52px; border-radius: 16px; font-size: 16px; }
+.pairing-form__scan { background: white; }
+.mobile-settings-content > .adm-list { margin: 12px 24px; }
+.mobile-settings-content > .adm-list .adm-list-body { border: 1px solid #dfe6f1; border-radius: 18px; overflow: hidden; background: white; box-shadow: 0 8px 24px rgba(51, 76, 120, .05); }
+.mobile-settings-content > .adm-list .adm-list-item-content { min-height: 48px; }
+.mobile-settings-content > .adm-list .adm-list-item-description { line-height: 1.5; }
+.mobile-settings-content > .adm-list .adm-list-header { padding-left: 2px; color: #8997ac; }
+.mobile-settings-page .pc-settings { padding: 18px 24px; }
+@media (max-width: 340px) { .pairing-form { padding-left: 16px; padding-right: 16px; } .mobile-settings-content > .adm-list { margin-left: 16px; margin-right: 16px; } }
+.mobile-entry-page > .mobile-safe-area-header { position: sticky; top: 0; z-index: 5; background: #f4f6fa; }
+.mobile-settings-debug .adm-list-item-content-extra { align-self: flex-start; padding-top: 12px; }
+.mobile-settings-debug .adm-list-item-content-main { padding-top: 12px; }
+.pairing-form > p { white-space: nowrap; font-size: clamp(10px, 3.2vw, 13px); }
+
+.notification-settings { margin: 20px 24px; color: #748198; font-size: 13px; line-height: 1.5; }
+.notification-settings__toggle { width: 100%; min-height: 52px; border: 0; border-radius: 16px; background: #e7efff; color: #3478f6; font: inherit; font-size: 16px; font-weight: 600; }
+.notification-settings p { margin: 14px 0 0; }

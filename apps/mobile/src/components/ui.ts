@@ -28,10 +28,10 @@ export const BLOCK_BUTTON_STYLE: CSSProperties = {
 }
 
 // 页面底色采用 iOS 设置页常见的系统灰，让白色分组列表和内容面板形成层次。
-export const PAGE_BACKGROUND = '#f2f2f7'
+export const PAGE_BACKGROUND = '#f4f6fa'
 
 // 会话详情按人工反馈使用纯白底，蓝灰气泡区分问答。
-export const SESSION_BACKGROUND = '#ffffff'
+export const SESSION_BACKGROUND = '#f4f6fa'
 
 // 半透明玻璃表面：导航栏与固定输入栏共用。backdropFilter 是纯 CSS
 // 能力，不依赖 antd-mobile；不支持的老 WebView 会退化为半透明纯色，
@@ -63,13 +63,11 @@ export const DRAWER_MASK_STYLE: CSSProperties = {
 // 比 GLASS_SURFACE_STYLE 更透亮：白底压到 0.6 让背后内容透出来，靠
 // brightness 把采样到的暗部提亮，再用顶部高光边和外投影把玻璃“抬”起来。
 export const DRAWER_SHEET_STYLE: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.6)',
-  backdropFilter: 'blur(30px) saturate(200%) brightness(1.14)',
-  WebkitBackdropFilter: 'blur(30px) saturate(200%) brightness(1.14)',
+  background: '#ffffff',
   borderTop: '1px solid rgba(255, 255, 255, 0.75)',
   boxShadow: '0 -12px 40px rgba(15, 23, 42, 0.12)',
-  borderTopLeftRadius: 16,
-  borderTopRightRadius: 16,
+  borderTopLeftRadius: 28,
+  borderTopRightRadius: 28,
   maxHeight: 'min(86dvh, calc(100dvh - 48px))',
   minHeight: 'min(42dvh, 320px)',
   display: 'flex',
