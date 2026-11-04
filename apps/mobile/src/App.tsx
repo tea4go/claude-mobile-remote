@@ -1,6 +1,7 @@
 import SessionIcon from './components/SessionIcon'
 import DemoPage from './demo/DemoPage'
 import { Capacitor } from '@capacitor/core'
+import { App as CapacitorApp } from '@capacitor/app'
 import DebugPanel from './components/DebugPanel'
 import { debugLog, recordAction } from './debug/log'
 import { nativeSessionCache, decodeSessionCache, SessionCacheWriter, type SessionCachePort } from './native/sessionCache'
@@ -511,6 +512,29 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   const pageKey = view === 'detail' && currentRecord !== undefined && currentSessionId !== null
     ? `detail:${currentSessionId}`
     : restoring ? 'restoring' : settingsPage ?? (adding || sessions.length === 0 ? 'pairing' : 'list')
+
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== 'android') return
+    let disposed = false
+    const listener = CapacitorApp.addListener('backButton', () => {
+      if (disposed) return
+      // Do not navigate behind a modal or treat an approval dismissal as cancellation.
+      if (document.querySelector('.mobile-drawer--entered, .debug-overlay, .adm-popup, [role="dialog"]')) return
+      if (demoOpen) { setDemoOpen(false); return }
+      if (pageKey.startsWith('detail:')) { backToList(); return }
+      if (settingsPage === 'pcs') { setSettingsDirection('back'); setSettingsPage('settings'); return }
+      if (settingsPage === 'settings') { setPairingDirection('back'); setSettingsPage(null); return }
+      if (pageKey === 'pairing' && sessions.length > 0 && !pairingSavingRef.current) {
+        cancelPairing()
+        projectPairing.current = null
+        setProjectPairingCwd(null)
+        setPairingTarget(null)
+        appStore.getState().setAdding(false)
+        appStore.getState().setPairingError(null)
+      }
+    }).catch(() => null)
+    return () => { disposed = true; void listener.then((handle) => handle?.remove()) }
+  }, [pageKey, demoOpen, settingsPage, sessions.length, backToList, cancelPairing, appStore])
 
   useLayoutEffect(() => {
     if (pageKey !== 'list') return
