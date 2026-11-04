@@ -18,6 +18,9 @@ import type { PermissionMode } from '../protocol/types'
 import type { MobileState } from '../session/reducer'
 import type { SessionRecord } from '../session/store'
 
+// 队列交互完善前暂不展示入口；保留实现以便后续恢复。
+const SHOW_QUEUE_ENTRY = false
+
 interface SessionDetailProps {
   topSafeArea?: boolean
   textOnly?: boolean
@@ -167,12 +170,12 @@ export default function SessionDetail({
           flexShrink: 0,
         }}
       >
-        <Button size="mini" fill="none" aria-expanded={queueOpen} onClick={() => setQueueOpen(!queueOpen)}>
+        {SHOW_QUEUE_ENTRY && <><Button size="mini" fill="none" aria-expanded={queueOpen} onClick={() => setQueueOpen(!queueOpen)}>
           队列（{state.queuedRequests.length}）
         </Button>
         {queueOpen && (state.queuedRequests.length > 0 ? (
           <QueuedRequestList requests={state.queuedRequests} enabled={commandReady} onCancel={onCancelQueued} onSteer={state.canSteerQueue && cancelTarget !== null ? onSteerQueued : undefined} />
-        ) : <div role="status">暂无排队输入</div>)}
+        ) : <div role="status">暂无排队输入</div>)}</>}
         {/* 待处理事项以底部抽屉强呈现（D53）：事项出现即弹出，显式关闭即取消当前 Turn。 */}
         {state.pendingAction !== null && (
           <PendingActionCard

@@ -981,7 +981,7 @@ describe('App：B2 取消与排队', () => {
     })
   })
 
-  test('排队列表按 snapshot 渲染，逐项取消后本地移除', async () => {
+  test('收到排队 snapshot 时暂不展示队列入口', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
     const socket = FakeWebSocket.instances[0]!
@@ -1005,24 +1005,9 @@ describe('App：B2 取消与排队', () => {
       },
     })
 
-    fireEvent.click(await screen.findByRole('button', { name: '队列（1）' }))
-    await waitFor(() => {
-      expect(screen.getByText('排队中的输入')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: '取消' }))
-    expect(lastCommand(socket)).toMatchObject({
-      payload: { kind: 'cancel_queued', requestId: 'req-q1' },
-    })
-
-    socket.serverMessage({
-      version: PROTOCOL_VERSION, type: 'command_result', sessionId: 'session-1',
-      commandId: lastCommand(socket).commandId, requestId: 'req-q1', seq: 0,
-      payload: { accepted: true, code: '', message: '' },
-    })
-    await waitFor(() => {
-      expect(screen.queryByText('排队中的输入')).not.toBeInTheDocument()
-    })
+    await screen.findByTitle('已连接 · 就绪 · 运行中')
+    expect(screen.queryByRole('button', { name: /队列/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('排队中的输入')).not.toBeInTheDocument()
   })
 })
 
