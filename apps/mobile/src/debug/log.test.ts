@@ -1,16 +1,17 @@
 import { afterEach, expect, test } from 'vitest'
 import { debugLog, recordAction, observeDebugErrors } from './log'
 import { recordNetworkDiagnostic } from '../protocol/diagnostics'
-test('debug logging is enabled on a fresh app start', () => { expect(debugLog.getSnapshot().enabled).toBe(true) })
+test('debug entry is hidden on a fresh app start', () => { expect(debugLog.getSnapshot().enabled).toBe(false) })
 afterEach(() => { debugLog.setEnabled(false); debugLog.clear() })
-test('disabled logs stay empty, active log is bounded, clear and disable work', () => {
+test('logs continue while hidden, remain bounded and can be cleared', () => {
   debugLog.setEnabled(false)
-  recordAction('scan'); expect(debugLog.getSnapshot().entries).toHaveLength(0)
+  recordAction('scan'); expect(debugLog.getSnapshot().entries).toHaveLength(1)
   debugLog.setEnabled(true)
   for (let i = 0; i < 250; i++) recordAction('scan')
   expect(debugLog.getSnapshot().entries).toHaveLength(200)
   debugLog.setEnabled(false); recordAction('saved')
   expect(debugLog.getSnapshot().entries).toHaveLength(200)
+  expect(debugLog.getSnapshot().entries.at(-1)?.text).toBe('配对保存成功')
   debugLog.clear(); expect(JSON.parse(debugLog.exportText()).entries).toEqual([])
 })
 test('connection logs strip credentials, path, query, fragment and session ID', () => {

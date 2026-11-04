@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 20 20" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Claude Logo</title>
+    <g id="Claude-Mobile-Remote" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="04-会话详情" transform="translate(-24, -114)">
+            <g id="Claude-Logo" transform="translate(24, 114)">
+                <rect id="Logo-光芒-1" fill="currentColor" opacity="0.98" x="9.38" y="2.3" width="1.24" height="5.8" rx="0.62"></rect>
+                <rect id="Logo-光芒-2" fill="currentColor" opacity="0.98" transform="translate(12.8991, 7.1009) rotate(-45) translate(-12.8991, -7.1009)" x="12.2791378" y="4.9008622" width="1.24" height="4.4" rx="0.62"></rect>
+                <rect id="Logo-光芒-3" fill="currentColor" opacity="0.98" transform="translate(14.8, 10) rotate(-90) translate(-14.8, -10)" x="14.18" y="7.1" width="1.24" height="5.8" rx="0.62"></rect>
+                <rect id="Logo-光芒-4" fill="currentColor" opacity="0.98" transform="translate(12.8991, 12.8991) rotate(-135) translate(-12.8991, -12.8991)" x="12.2791378" y="10.6991378" width="1.24" height="4.4" rx="0.62"></rect>
+                <rect id="Logo-光芒-5" fill="currentColor" opacity="0.98" transform="translate(10, 14.8) rotate(-180) translate(-10, -14.8)" x="9.38" y="11.9" width="1.24" height="5.8" rx="0.62"></rect>
+                <rect id="Logo-光芒-6" fill="currentColor" opacity="0.98" transform="translate(7.1009, 12.8991) rotate(-225) translate(-7.1009, -12.8991)" x="6.4808622" y="10.6991378" width="1.24" height="4.4" rx="0.62"></rect>
+                <rect id="Logo-光芒-7" fill="currentColor" opacity="0.98" transform="translate(5.2, 10) rotate(-270) translate(-5.2, -10)" x="4.58" y="7.1" width="1.24" height="5.8" rx="0.62"></rect>
+                <rect id="Logo-光芒-8" fill="currentColor" opacity="0.98" transform="translate(7.1009, 7.1009) rotate(-315) translate(-7.1009, -7.1009)" x="6.4808622" y="4.9008622" width="1.24" height="4.4" rx="0.62"></rect>
+            </g>
+        </g>
+    </g>
+</svg>

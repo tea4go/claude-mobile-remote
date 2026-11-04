@@ -1,6 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, Checkbox, Radio, Space, TextArea } from 'antd-mobile'
 import BottomDrawer from './BottomDrawer'
+import './PendingActionCard.css'
 import {
   COMPACT_BUTTON_STYLE,
   DRAWER_HEADER_STYLE,
@@ -50,19 +51,21 @@ function Drawer({
   canClose,
   onClose,
   children,
+  footer,
 }: {
   title: string
   visible: boolean
   canClose: boolean
   onClose: () => void
   children: ReactNode
+  footer?: ReactNode
 }) {
   return (
     <div data-testid="pending-action" data-drawer={visible ? 'open' : 'closed'}>
       <BottomDrawer
         visible={visible}
       >
-        <div style={DRAWER_HEADER_STYLE}>
+        <div className="pending-header" style={DRAWER_HEADER_STYLE}>
           <span style={{ width: 32, flexShrink: 0 }} />
           <span
             style={{
@@ -91,6 +94,7 @@ function Drawer({
           <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>关闭此面板将取消当前 Turn</div>
           {children}
         </div>
+        {footer && <div className="pending-footer">{footer}</div>}
       </BottomDrawer>
     </div>
   )
@@ -238,13 +242,13 @@ export default function PendingActionCard({
   }
 
   return (
-    <Drawer title="需要你的回答" visible={!dismissed} canClose={cancelEnabled} onClose={close}>
+    <Drawer title="需要你的回答" visible={!dismissed} canClose={cancelEnabled} onClose={close} footer={<Button color="primary" block disabled={!active || !answered} onClick={submit}>提交</Button>}>
       {submitError && <SubmitError />}
       {action.questions.map((question) => (
-        <div key={question.questionId} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div key={question.questionId} className="pending-question" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div
             data-testid={`question-header-${question.questionId}`}
-            style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}
+            style={{ fontSize: FONT_SIZE_COMPACT, color: '#3478f6' }}
           >
             {question.header}
           </div>
@@ -265,7 +269,7 @@ export default function PendingActionCard({
             >
               <Space direction="vertical">
                 {question.options.map((option) => (
-                  <Checkbox key={option.label} value={option.label} disabled={!active}>
+                  <Checkbox className={valuesOf(question).includes(option.label) ? "pending-option pending-option--selected" : "pending-option"} key={option.label} value={option.label} disabled={!active}>
                     <span style={{ fontSize: FONT_SIZE_BODY }}>{option.label}</span>
                     {option.description !== '' && (
                       <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>{option.description}</div>
@@ -281,7 +285,7 @@ export default function PendingActionCard({
             >
               <Space direction="vertical">
                 {question.options.map((option) => (
-                  <Radio key={option.label} value={option.label} disabled={!active}>
+                  <Radio className={valuesOf(question).includes(option.label) ? "pending-option pending-option--selected" : "pending-option"} key={option.label} value={option.label} disabled={!active}>
                     <span style={{ fontSize: FONT_SIZE_BODY }}>{option.label}</span>
                     {option.description !== '' && (
                       <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>{option.description}</div>
@@ -293,15 +297,7 @@ export default function PendingActionCard({
           )}
         </div>
       ))}
-      <Button
-        color="primary"
-        size="small"
-        style={{ ...COMPACT_BUTTON_STYLE, minHeight: 44, paddingInline: 16 }}
-        disabled={!active || !answered}
-        onClick={submit}
-      >
-        提交
-      </Button>
+
     </Drawer>
   )
 }

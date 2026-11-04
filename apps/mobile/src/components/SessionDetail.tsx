@@ -37,7 +37,6 @@ interface SessionDetailProps {
   onCancelTurn: (requestId: string) => boolean | void
   onCancelQueued: (requestId: string) => boolean | void
   onSteerQueued?: (requestId: string) => boolean | void
-  onCreateSession?: () => void
   managementBusy?: boolean
   managementFeedback?: string | null
 }
@@ -62,7 +61,6 @@ export default function SessionDetail({
   onCancelTurn,
   onCancelQueued,
   onSteerQueued,
-  onCreateSession,
   managementBusy = false,
   managementFeedback = null,
 }: SessionDetailProps) {
@@ -105,7 +103,7 @@ export default function SessionDetail({
     >
       {/* 导航、状态与输入栏固定，中间的详情和消息共用滚动区。 */}
       <div className={`${topSafeArea ? 'mobile-safe-area-header' : ''} session-detail-header`} style={GLASS_SURFACE_STYLE}>
-        <NavBar back="" backIcon={<LeftOutline aria-label="返回" />} onBack={onBack} right={<div className="session-detail-header-actions">
+        <NavBar back="" backIcon={<LeftOutline aria-label="返回" fontSize={24} />} onBack={onBack} right={<div className="session-detail-header-actions">
           {showReconnect && <Button size="mini" color="primary" onClick={onReconnect}>重新连接</Button>}
         </div>}>
           <div className="session-detail-heading">
@@ -201,8 +199,6 @@ export default function SessionDetail({
           cancelEnabled={sessionUsable && commandReady && !cancelRequested}
           onCancelTurn={onCancelTurn}
           permissionPending={state.pendingAction?.kind === 'tool_approval'}
-          onCreateSession={record.capabilities?.includes('create_session') ? onCreateSession : undefined}
-          createSessionEnabled={commandReady}
         />
       </div>
     </div>

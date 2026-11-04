@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import DebugPanel from './DebugPanel'
+import ActivityGroup from './ActivityGroup'
 import { debugLog, recordAction } from '../debug/log'
 afterEach(() => { act(() => { debugLog.setEnabled(false); debugLog.clear() }); vi.restoreAllMocks() })
 test('floating panel displays actions, copies sanitized export, clears and closes', async () => {
@@ -33,4 +34,18 @@ test('new records appear first while panel is open without mutating store order'
   expect(articles[0]).toHaveTextContent('配对保存成功')
   expect(articles[1]).toHaveTextContent('打开扫码')
   expect(debugLog.getSnapshot().entries.at(-1)?.text).toBe('配对保存成功')
+})
+
+
+test('步骤抽屉打开调试并在关闭日志后保留抽屉', () => {
+  debugLog.setEnabled(true)
+  render(<><DebugPanel /><ActivityGroup activities={[{ kind: 'thinking', id: 'step', text: '思考' }]} /></>)
+  fireEvent.click(screen.getByTestId('activity-group-summary'))
+  const buttons = screen.getAllByRole('button', { name: '打开调试日志' })
+  fireEvent.click(buttons[1]!)
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  fireEvent.click(screen.getByText('关闭'))
+  expect(screen.getByTestId('activity-group')).toHaveAttribute('data-drawer', 'list')
+  act(() => debugLog.setEnabled(false))
+  expect(screen.queryByRole('button', { name: '打开调试日志' })).toBeNull()
 })

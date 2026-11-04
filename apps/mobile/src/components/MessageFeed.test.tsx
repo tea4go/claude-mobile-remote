@@ -145,7 +145,7 @@ describe('MessageFeed', () => {
     render(<MessageFeed messages={messages} />)
     expect(screen.getByTestId('answer-echo')).toBeInTheDocument()
     expect(screen.getByText('你的回答')).toBeInTheDocument()
-    expect(screen.getByText('框架 · 选哪个框架？')).toBeInTheDocument()
+    expect(screen.getByText('框架')).toBeInTheDocument()
     expect(screen.getByText('选哪些端？')).toBeInTheDocument()
     expect(screen.getByText('React')).toBeInTheDocument()
     expect(screen.getByText('iOS')).toBeInTheDocument()
@@ -211,6 +211,25 @@ describe('MessageFeed：Markdown 渲染边界（B1）', () => {
 })
 
 describe('MessageFeed：结构化活动分组（B2 §6）', () => {
+  test('只依据工具所属轮次判定未收到结果，并隔离相同工具 ID', () => {
+    const use = { id: 'tool-1', kind: 'tool_use' as const, toolUseId: 'shared', toolClass: 'builtin' as const, toolName: 'Bash', mcpServer: '' }
+    render(<MessageFeed messages={[
+      claude({ requestId: 'old', status: 'done' }),
+      { kind: 'block', requestId: 'old', block: use },
+      claude({ requestId: 'new', status: 'streaming' }),
+      { kind: 'block', requestId: 'new', block: { ...use, id: 'tool-2' } },
+      { kind: 'block', requestId: 'new', block: { id: 'result', kind: 'tool_result', toolUseId: 'shared', isError: false } },
+    ]} />)
+    const groups = screen.getAllByTestId('activity-group-summary')
+    expect(groups).toHaveLength(2)
+    fireEvent.click(groups[0]!)
+    expect(screen.getByText('结果未收到')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('关闭'))
+    fireEvent.click(groups[1]!)
+    expect(screen.getByText('成功')).toBeInTheDocument()
+  })
+
+
   test('结构化块只在正文里留一行摘要，不渲染活动内容', () => {
     const { container } = render(
       <MessageFeed

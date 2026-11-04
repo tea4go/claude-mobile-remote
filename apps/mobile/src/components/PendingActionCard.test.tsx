@@ -124,19 +124,12 @@ describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
     expect(drawerState()).toBe('open')
   })
 
-  // 抽屉自身开了 backdropFilter，而遮罩就在它背后，会被一起采样进模糊结果：
-  // 用 antd-mobile 默认档（0.55 黑）会把整个抽屉染成灰面，玻璃质感就没了。
-  // 这里锁住「遮罩显著淡」和「靠 brightness 提亮暗部」两条，不锁具体色值。
-  test('抽屉遮罩显著淡于默认档，玻璃靠 brightness 提亮', () => {
+  test('抽屉使用白色表面和浅色遮罩', () => {
     render(<Card action={approval()} />)
-    const mask = document.querySelector('.mobile-drawer-mask')
-    expect(mask).not.toBeNull()
-    const alpha = /rgba\([^)]*,\s*([\d.]+)\s*\)/.exec(mask!.getAttribute('style') ?? '')?.[1]
-    expect(alpha).toBeDefined()
-    expect(Number(alpha)).toBeLessThan(0.3)
-    const sheet = document.querySelector('.mobile-drawer-sheet')
-    expect(sheet).not.toBeNull()
-    expect(sheet!.getAttribute('style')).toContain('brightness')
+    const mask = document.querySelector('.mobile-drawer-mask') as HTMLElement
+    const sheet = document.querySelector('.mobile-drawer-sheet') as HTMLElement
+    expect(mask.style.background).toContain('0.16')
+    expect(sheet.style.background).toBe('rgb(255, 255, 255)')
   })
 
   test('取消命令不可发时关闭按钮禁用', () => {

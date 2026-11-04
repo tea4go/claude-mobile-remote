@@ -80,3 +80,15 @@ test('扫码与前台事件通过插件端口转发，注销后停止回调', as
   dispose()
   await vi.waitFor(() => expect(fake.onState).toBeNull())
 })
+
+test('原生设置跨实例恢复，默认全部电脑且调试关闭', async () => {
+  const settings = createCapacitorPairingPorts().preferences!
+  expect(await settings.read()).toEqual({ selectedPC: null, selectedPCConfigured: false, debugEnabled: false })
+  await settings.writeSelectedPC('pc:0123456789abcdef0123456789abcdef')
+  await settings.writeDebugEnabled(true)
+  const restarted = createCapacitorPairingPorts().preferences!
+  expect(await restarted.read()).toEqual({ selectedPC: 'pc:0123456789abcdef0123456789abcdef', selectedPCConfigured: true, debugEnabled: true })
+  await restarted.writeSelectedPC(null)
+  await restarted.writeDebugEnabled(false)
+  expect(await settings.read()).toEqual({ selectedPC: null, selectedPCConfigured: true, debugEnabled: false })
+})

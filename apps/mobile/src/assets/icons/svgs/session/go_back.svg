@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 38 38" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>返回</title>
+    <g id="Claude-Mobile-Remote" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round">
+        <g id="04-会话详情" transform="translate(-19, -59)">
+            <g id="返回" transform="translate(20, 60)">
+                <g id="chevron-left" transform="translate(9, 9)" stroke="currentColor" stroke-width="1.7">
+                    <polyline id="chevron-left-1" points="11.2499993 13.499996 6.75000073 9 11.2499993 4.50000399"></polyline>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

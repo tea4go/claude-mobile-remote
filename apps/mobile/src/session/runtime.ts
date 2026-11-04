@@ -78,11 +78,11 @@ export class SessionRuntimeManager {
   private readonly socketFactory: SocketFactory
   private readonly now: () => number
   private readonly pendingManagement = new Map<string, PendingManagement>()
-  private onSessionCreated: ((payload: PairingPayload) => void) | null = null
+  private onSessionCreated: ((payload: PairingPayload, sourceSessionId: string) => void) | null = null
   private onManagementResult: ((sessionId: string, operation: PendingManagement['operation'], accepted: boolean, code: string) => void) | null = null
 
   setManagementCallbacks(
-    onSessionCreated: ((payload: PairingPayload) => void) | null,
+    onSessionCreated: ((payload: PairingPayload, sourceSessionId: string) => void) | null,
     onManagementResult: ((sessionId: string, operation: PendingManagement['operation'], accepted: boolean, code: string) => void) | null,
   ): void {
     this.onSessionCreated = onSessionCreated
@@ -291,7 +291,7 @@ export class SessionRuntimeManager {
         if (pending === undefined || pending.commandId !== event.commandId || pending.operation !== event.operation) return
         this.pendingManagement.delete(sessionId)
         if (event.accepted && event.operation === 'create_session' && event.pairing !== undefined) {
-          this.onSessionCreated?.(event.pairing)
+          this.onSessionCreated?.(event.pairing, sessionId)
         }
         this.onManagementResult?.(sessionId, event.operation, event.accepted, event.code)
         return

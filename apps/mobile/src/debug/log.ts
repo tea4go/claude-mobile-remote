@@ -5,7 +5,7 @@ import { safeNetworkTarget } from '../protocol/safeTarget'
 export const actionText = {
   online: '系统网络状态 online（不代表 PC 可达）', offline: '系统网络状态 offline，现有 WebSocket 断开事件可能延迟',
   foreground: '页面进入前台，检查连接状态', background: '页面进入后台，系统可能暂停 JavaScript 和网络事件',
-  enabled: '已开启调试记录', scan: '打开扫码', scan_failed: '扫码失败',
+  enabled: '已显示调试入口', scan: '打开扫码', scan_failed: '扫码失败',
   pairing: '开始配对验证', cancelled: '取消配对', saved: '配对保存成功', save_failed: '配对保存失败',
   send_text: '发送文本', send_attachments: '发送附件', resolve_action: '处理待办',
   approve_action: '处理审批', answer_action: '回答问题', cancel_turn: '停止当前任务',
@@ -21,12 +21,11 @@ export interface ConnectionDetails {
   phaseElapsedMs?: number; timeoutMs?: number; readyState?: number; closeCode?: number; wasClean?: boolean
 }
 export interface DebugEntry extends Partial<ConnectionDetails> { id: number; time: number; category: 'action' | 'network' | 'error' | 'host'; level?: 'info' | 'warn' | 'error'; text: string; target?: string; elapsedMs?: number }
-let snapshot: { enabled: boolean; entries: DebugEntry[] } = { enabled: true, entries: [] }
+let snapshot: { enabled: boolean; entries: DebugEntry[] } = { enabled: false, entries: [] }
 let sequence = 0
 const listeners = new Set<() => void>()
 function publish() { listeners.forEach((listener) => listener()) }
 function append(entry: Omit<DebugEntry, 'id' | 'time'>) {
-  if (!snapshot.enabled) return
   snapshot = { ...snapshot, entries: [...snapshot.entries.slice(-199), { ...entry, id: ++sequence, time: Date.now() }] }
   publish()
 }

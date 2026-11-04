@@ -1,5 +1,6 @@
+import SessionIcon from './SessionIcon'
 import { useEffect, useState } from 'react'
-import { Button, List, Switch } from 'antd-mobile'
+import { Button } from 'antd-mobile'
 import type { ExperiencePort } from '../native/experience'
 
 type Status = Awaited<ReturnType<ExperiencePort['notificationStatus']>>
@@ -22,14 +23,17 @@ export default function NotificationSettings({ port }: { port: ExperiencePort })
   if (status.available === false) return <div style={{ padding: 16 }}>
     <p role="status">当前测试版本暂未开放系统通知。请打开应用查看会话进展和待处理事项。</p>
   </div>
-  return <List header="通知"><List.Item description="提醒待审批、待回答、任务完成和失败。通知隐藏会话内容；应用在前台时不显示系统提醒。" extra={<Switch aria-label="会话通知开关" checked={enabled} disabled={busy} onChange={(checked) => {
+  return <div className="notification-settings">
+    <button className="notification-settings__toggle" role="switch" aria-label="会话通知开关" aria-checked={enabled} disabled={busy} onClick={() => {
+      const checked = !enabled
       setBusy(true)
       void port.setNotifications({ enabled: checked }).then(async (value) => {
         setStatus((previous) => ({ ...previous, enabled: value.enabled }))
         setNotice(checked && !value.enabled ? '通知未获授权，请在系统设置中允许通知' : '')
         setStatus(await port.notificationStatus())
       }).catch(() => setNotice('无法更新通知设置')).finally(() => setBusy(false))
-    }} />}>会话通知</List.Item><List.Item>
+    }}><SessionIcon name="notify" size={20} /> {enabled ? '关闭会话通知' : '启用会话通知'}</button>
+    <p>提醒待审批、待回答、任务完成和失败。通知隐藏会话内容；应用在前台时不显示系统提醒。</p>
     {remoteConfigured === undefined
       ? <p>App 在线并收到会话事件时可显示本地提醒。</p>
       : <>
@@ -47,5 +51,5 @@ export default function NotificationSettings({ port }: { port: ExperiencePort })
           : remoteReady ? '本机远程通知已就绪。' : '正在注册远程通知…'}</p>
       </>}
     {notice && <div role="alert">{notice}</div>}
-  </List.Item></List>
+  </div>
 }

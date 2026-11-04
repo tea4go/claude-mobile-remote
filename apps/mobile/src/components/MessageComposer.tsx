@@ -1,21 +1,16 @@
+import SessionIcon from './SessionIcon'
 import TurnLoading from './TurnLoading'
 import type { TurnProgress } from '../protocol/types'
 import { encodeFile, needsPhotoPreparation, preparePickedFile, validateFiles } from '../native/attachments'
 import type { Attachment, AttachmentSendResult } from '../protocol/types'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Button, ImageViewer, Popover, Space, TextArea, type TextAreaRef } from 'antd-mobile'
-import { AddOutline, CheckOutline } from 'antd-mobile-icons'
+import { CheckOutline } from 'antd-mobile-icons'
 import { MAX_TEXT_BYTES, type PermissionMode } from '../protocol/types'
 import { FONT_SIZE_COMPACT, FONT_SIZE_BODY } from './ui'
 import './MessageComposer.css'
-import cameraIcon from '../assets/icons/svgs/camara.svg'
-import documentIcon from '../assets/icons/svgs/document.svg'
-import permissionIcon from '../assets/icons/svgs/permission.svg'
-import uploadImageIcon from '../assets/icons/svgs/uploadImage.svg'
-import voiceIcon from '../assets/icons/svgs/voice.svg'
 import { nativeExperience, type ExperiencePort } from '../native/experience'
 import { useSpeechDraft } from '../native/useSpeechDraft'
-import sendIcon from '../assets/icons/svgs/send.svg'
 
 interface MessageComposerProps {
   enabled: boolean
@@ -33,8 +28,6 @@ interface MessageComposerProps {
   permissionPending?: boolean
   permissionMode?: PermissionMode
   onPermissionModeChange?: (mode: PermissionMode) => void
-  onCreateSession?: () => void
-  createSessionEnabled?: boolean
   disabledReason?: string
 }
 
@@ -67,7 +60,6 @@ const ICON_BUTTON_STYLE: CSSProperties = {
   fontSize: 22,
   lineHeight: 1,
 }
-const TOOL_ICON_STYLE: CSSProperties = { width: 20, height: 20, display: 'block' }
 const PERMISSION_OPTIONS = [
   { label: '默认', value: 'default' },
   { label: '自动接受编辑', value: 'acceptEdits' },
@@ -109,8 +101,6 @@ export default function MessageComposer({
   textOnly = false,
   permissionMode = 'default',
   onPermissionModeChange = () => undefined,
-  onCreateSession,
-  createSessionEnabled = false,
   disabledReason = '当前会话暂不可输入',
 }: MessageComposerProps) {
   const [text, setText] = useState('')
@@ -214,19 +204,19 @@ export default function MessageComposer({
   const attachmentActions = [
     {
       key: 'camera',
-      icon: <img src={cameraIcon} alt="" style={TOOL_ICON_STYLE} />,
+      icon: <SessionIcon name="camera" size={20} style={{ color: "#3478f6" }} />,
       text: <span data-testid="open-camera">相机</span>,
       onClick: () => cameraInputRef.current?.click(),
     },
     {
       key: 'photo',
-      icon: <img src={uploadImageIcon} alt="" style={TOOL_ICON_STYLE} />,
+      icon: <SessionIcon name="image" size={20} style={{ color: "#3478f6" }} />,
       text: <span data-testid="choose-photo">照片</span>,
       onClick: () => photoInputRef.current?.click(),
     },
     {
       key: 'file',
-      icon: <img src={documentIcon} alt="" style={TOOL_ICON_STYLE} />,
+      icon: <SessionIcon name="file" size={20} style={{ color: "#3478f6" }} />,
       text: <span data-testid="choose-file">文件</span>,
       onClick: () => fileInputRef.current?.click(),
     },
@@ -298,19 +288,6 @@ export default function MessageComposer({
           </div>
           <div style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 32 }}>
             <Space align="center" style={{ '--gap': '2px' }}>
-              {onCreateSession !== undefined && (
-                <Button
-                  aria-label="新建会话"
-                  className="composer-icon-button"
-                  data-testid="create-session"
-                  fill="none"
-                  style={ICON_BUTTON_STYLE}
-                  disabled={!createSessionEnabled}
-                  onClick={onCreateSession}
-                >
-                  <AddOutline aria-hidden style={{ fontSize: 21 }} />
-                </Button>
-              )}
               <Popover.Menu
                 className="composer-popover-menu"
                 placement="top-start"
@@ -327,7 +304,7 @@ export default function MessageComposer({
                   style={ICON_BUTTON_STYLE}
                   disabled={textOnly || !enabled || sendingAttachments || preparingAttachments}
                 >
-                  <img src={documentIcon} alt="" style={TOOL_ICON_STYLE} />
+                  <SessionIcon name="paperclip" size={20} />
                 </Button>
               </Popover.Menu>
               <Popover.Menu
@@ -346,12 +323,12 @@ export default function MessageComposer({
                   disabled={textOnly || !enabled || permissionPending}
                   style={ICON_BUTTON_STYLE}
                 >
-                  <img src={permissionIcon} alt="" style={{ ...TOOL_ICON_STYLE, width: 19, height: 19 }} />
+                  <SessionIcon name="permission" size={19} />
                 </Button>
               </Popover.Menu>
             </Space>
             <div style={{ flex: 1 }} />
-            <Space align="center" style={{ '--gap': '4px' }}>
+            <Space align="center" style={{ '--gap': '12px' }}>
               <Button
                 aria-label={experience === null ? '语音输入（原生能力预留）' : speech.finishing ? '正在识别语音' : speech.recording ? '结束语音输入' : '语音输入'}
                 aria-pressed={speech.recording}
@@ -359,29 +336,29 @@ export default function MessageComposer({
                 className={`composer-icon-button${speech.recording && !speech.finishing ? ' composer-voice-recording' : ''}`}
                 data-testid="voice-input"
                 fill="none"
-                style={{ ...ICON_BUTTON_STYLE, ...(speech.recording ? { background: '#198FF9' } : {}) }}
+                style={ICON_BUTTON_STYLE}
                 disabled={textOnly || !enabled || sendingAttachments || preparingAttachments || speech.finishing}
                 onClick={() => {
                   if (experience === null) setNativeNotice('语音输入需要原生麦克风能力，当前 Web 版本暂未启用。')
                   else void speech.toggle()
                 }}
               >
-                <img src={voiceIcon} alt="" style={TOOL_ICON_STYLE} />
+                <SessionIcon name="microphone" size={20} />
               </Button>
               {turnRunning && cancelTarget !== null && onCancelTurn !== undefined && (
-                <Button aria-label="取消当前 Turn" data-testid="floating-cancel-turn" className="composer-icon-button" fill="none" style={ICON_BUTTON_STYLE} disabled={!cancelEnabled} onClick={() => onCancelTurn(cancelTarget)}>
+                <Button aria-label="取消当前 Turn" data-testid="floating-cancel-turn" className="composer-icon-button composer-stop-button" fill="none" style={ICON_BUTTON_STYLE} disabled={!cancelEnabled} onClick={() => onCancelTurn(cancelTarget)}>
                   <span className="composer-stop" aria-hidden="true">■</span>
                 </Button>
               )}
               {(!turnRunning || trimmed !== '' || selectedFiles.length > 0) && <Button
                 aria-label="发送"
-                className="composer-icon-button"
+                className="composer-icon-button composer-send-button"
                 fill="none"
                 style={ICON_BUTTON_STYLE}
                 disabled={!enabled || sendingAttachments || preparingAttachments || speech.recording || (trimmed === '' && selectedFiles.length === 0) || oversizeNow}
                 onClick={submit}
               >
-                <img src={sendIcon} alt="" style={{ width: 28, height: 28, display: 'block', opacity: !enabled || sendingAttachments || (trimmed === '' && selectedFiles.length === 0) || oversizeNow ? 0.28 : 0.9 }} />
+                <SessionIcon name="send" size={20} />
               </Button>}
             </Space>
           </div>

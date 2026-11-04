@@ -117,20 +117,18 @@
 
 .composer-speech-status { color: #526174; font-size: 12px; line-height: 1.5; }
 .composer-icon-button[aria-pressed='true'] img { filter: brightness(0) invert(1); }
-.composer-voice-recording { position: relative; isolation: isolate; }
+.composer-voice-recording { position: relative; isolation: isolate; color: #3478f6 !important; background: #e7efff !important; }
 .composer-voice-recording::after {
   content: '';
   position: absolute;
-  inset: -3px;
-  border: 2px solid #198ff9;
+  inset: -4px;
+  border: 2px solid #d4e3ff;
+  border-top-color: #3478f6;
   border-radius: 50%;
   pointer-events: none;
-  animation: composer-recording-pulse 1.3s ease-in-out infinite;
+  animation: composer-recording-rotate 1.3s linear infinite;
 }
-@keyframes composer-recording-pulse {
-  0%, 100% { opacity: .65; transform: scale(1); }
-  60% { opacity: .12; transform: scale(1.3); }
-}
+@keyframes composer-recording-rotate { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .composer-voice-recording::after { animation: none; opacity: .4; }
 }
@@ -143,3 +141,9 @@
 .composer-attachment-remove { position: absolute; top: -7px; right: -7px; width: 25px; height: 25px; border: 2px solid white; border-radius: 50%; background: #60656d; color: white; font-size: 20px; line-height: 18px; }
 .composer-attachment-remove:disabled { opacity: .5; }
 .composer-attachment-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6e6e73; font-size: 11px; margin-top: 3px; }
+
+.composer-send-button.adm-button { background: #3478f6 !important; color: #fff !important; border-radius: 50%; }
+.composer-send-button.adm-button:disabled { opacity: .45; }
+.composer-stop-button.adm-button { background: #192437 !important; color: #fff !important; border-radius: 50%; }
+.composer-popover-menu.adm-popover-menu .adm-popover-inner { border-radius: 16px; box-shadow: 0 10px 28px #14233b25; }
+.composer-popover-menu .adm-popover-menu-item { min-height: 48px; }

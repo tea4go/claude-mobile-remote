@@ -9,7 +9,7 @@ describe('PairingForm', () => {
   test('渲染标题、说明、输入框与连接按钮', () => {
     render(<PairingForm initialError={null} onSubmit={() => {}} />)
     expect(screen.getByText('连接 Claude 会话')).toBeInTheDocument()
-    expect(screen.getByText('粘贴 Service 输出的配对 JSON 或完整 #pair Fragment')).toBeInTheDocument()
+    expect(screen.getByText('粘贴配对 JSON 或完整 #pair Fragment')).toBeInTheDocument()
     expect(screen.getByRole('textbox')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '连接' })).toBeInTheDocument()
   })
