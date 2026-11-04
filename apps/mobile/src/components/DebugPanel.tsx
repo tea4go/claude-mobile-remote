@@ -76,14 +76,14 @@ function EnabledDebugPanel() {
     return () => { document.removeEventListener('keydown', onKey); previous?.focus() }
   }, [open])
   async function copy() {
-    try { if (Capacitor.getPlatform() === 'ios' && nativeExperience?.copyDebugLog) await nativeExperience.copyDebugLog({ text: debugLog.exportText() }); else await navigator.clipboard.writeText(debugLog.exportText()); setFeedback('日志已复制') }
+    try { if (['ios', 'android'].includes(Capacitor.getPlatform()) && nativeExperience?.copyDebugLog) await nativeExperience.copyDebugLog({ text: debugLog.exportText() }); else await navigator.clipboard.writeText(debugLog.exportText()); setFeedback('日志已复制') }
     catch { setFeedback('复制失败，请使用导出或在日志区域选择文字') }
   }
   async function download() {
-    if (Capacitor.getPlatform() === 'ios' && nativeExperience?.exportDebugLog) {
+    if (['ios', 'android'].includes(Capacitor.getPlatform()) && nativeExperience?.exportDebugLog) {
       try {
         const result = await nativeExperience.exportDebugLog({ text: debugLog.exportText() })
-        setFeedback(result.completed ? '日志已分享或保存' : '已取消导出')
+        setFeedback(result.opened ? '已打开分享面板' : result.completed ? '日志已分享或保存' : '已取消导出')
       } catch { setFeedback('导出失败，请使用复制日志') }
       return
     }

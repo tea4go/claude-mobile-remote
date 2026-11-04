@@ -45,7 +45,9 @@ public class SessionExperiencePlugin extends Plugin {
     private PluginCall speechCall;
     private String transcript = "";
     private boolean stopped;
+    private boolean finishingSpeech;
     private final Runnable speechTimeout = () -> finishSpeech(false);
+    private final Runnable speechFinishTimeout = () -> finishSpeech(false);
 
     @Override public void load() {
         cache = new SessionDisplayCache(new File(getContext().getNoBackupFilesDir(), "session-display-cache"));
@@ -80,6 +82,27 @@ public class SessionExperiencePlugin extends Plugin {
             } catch (RuntimeException error) {
                 call.reject("Clipboard unavailable");
             }
+        });
+    }
+    @PluginMethod public void copyDebugLog(PluginCall call) {
+        String text = call.getString("text");
+        if (text == null || text.getBytes(StandardCharsets.UTF_8).length > 256 * 1024) { call.reject("Invalid debug log"); return; }
+        main.post(() -> {
+            ClipboardManager clipboard = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null) { call.reject("Clipboard unavailable"); return; }
+            try { clipboard.setPrimaryClip(ClipData.newPlainText("", text)); call.resolve(); }
+            catch (RuntimeException error) { call.reject("Clipboard unavailable"); }
+        });
+    }
+    @PluginMethod public void exportDebugLog(PluginCall call) {
+        String text = call.getString("text");
+        if (text == null || text.getBytes(StandardCharsets.UTF_8).length > 256 * 1024) { call.reject("Invalid debug log"); return; }
+        main.post(() -> {
+            try {
+                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text);
+                getActivity().startActivity(Intent.createChooser(share, "分享调试日志"));
+                JSObject result = new JSObject(); result.put("opened", true); call.resolve(result);
+            } catch (RuntimeException error) { call.reject("Share unavailable"); }
         });
     }
     @PluginMethod public void notificationStatus(PluginCall call) { call.resolve(notificationState()); }
@@ -132,7 +155,7 @@ public class SessionExperiencePlugin extends Plugin {
         main.post(() -> {
             if (speechCall != null) { call.reject("speech_busy"); return; }
             if (stopped) { call.reject("speech_unavailable"); return; }
-            speechCall = call; transcript = "";
+            speechCall = call; transcript = ""; finishingSpeech = false;
             if (getPermissionState("microphone") != PermissionState.GRANTED) requestPermissionForAlias("microphone", call, "microphonePermission");
             else startSpeech(call);
         });
@@ -177,16 +200,34 @@ public class SessionExperiencePlugin extends Plugin {
     private PluginCall cleanupSpeech() {
         PluginCall call = speechCall; speechCall = null;
         main.removeCallbacks(speechTimeout);
+        main.removeCallbacks(speechFinishTimeout);
+        finishingSpeech = false;
         if (recognizer != null) { recognizer.cancel(); recognizer.destroy(); recognizer = null; }
         return call;
     }
     private void finishSpeech(boolean cancelled) {
         String text = cancelled ? "" : transcript;
         PluginCall call = cleanupSpeech(); transcript = "";
-        if (call != null) { JSObject result = new JSObject(); result.put("text", text); call.resolve(result); }
+        if (call != null) { JSObject result = new JSObject(); result.put("text", text); result.put("cancelled", cancelled); call.resolve(result); }
     }
     private void failSpeech() { PluginCall call = cleanupSpeech(); transcript = ""; if (call != null) call.reject("speech_unavailable"); }
-    @PluginMethod public void stopSpeech(PluginCall call) { main.post(() -> { finishSpeech(false); call.resolve(); }); }
+    @PluginMethod public void stopSpeech(PluginCall call) { main.post(() -> {
+        if (speechCall != null && !finishingSpeech) {
+            if (recognizer == null) {
+                finishSpeech(true);
+            } else {
+                finishingSpeech = true;
+                main.removeCallbacks(speechTimeout);
+                try {
+                    recognizer.stopListening();
+                    main.postDelayed(speechFinishTimeout, 3000);
+                } catch (RuntimeException error) {
+                    finishSpeech(false);
+                }
+            }
+        }
+        call.resolve();
+    }); }
     @PluginMethod public void cancelSpeech(PluginCall call) { main.post(() -> { finishSpeech(true); call.resolve(); }); }
     @Override protected void handleOnResume() { stopped = false; SessionPushManager.get(getContext()).refresh(); SessionPushManager.get(getContext()).resumed(); }
     @Override protected void handleOnPause() { SessionPushManager.get(getContext()).paused(); if (recognizer != null) finishSpeech(true); }
