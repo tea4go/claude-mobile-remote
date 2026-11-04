@@ -4,6 +4,11 @@
 
 ## 当前状态
 
+- 当前执行（2026-11-04，Android 1.0.1 打包）：用户要求生成未签名及正式签名 APK，版本确认 1.0.1（versionCode 2），分别供蒲公英和华为后台使用；仅构建与验证、不上传或 Git 写操作。沿用既有发布密钥和无推送配置，核验版本、签名、资源及产物摘要；未签名 APK 无法直接安装，华为后台现有最高版本号尚未核实。
+  - 已完成：Web 40 文件 587 项测试、lint 和构建通过（既有 warning）；Android Release 构建成功，正式包 v2/v3 验签、16 KiB 对齐及证书指纹与既有华为记录一致。两包 versionName 1.0.1/versionCode 2、包名一致；未签名包全部 579 个文件与签名包对应内容一致，Web index 与 dist 一致。
+  - 未签名 `apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk` SHA-256 `cd8853a294692224e789785f62c21e7ce3bccc4b40964932ef2ef1c9374bb57b`；签名 `.local-tools/android-release/WhaleRemoteControl-1.0.1-android-signed.apk` SHA-256 `911806385fc2939e5be5e9fb0e3814eb8685de632709cbb470d3f71010675f50`。未签名包不能直接安装；实际蒲公英上传及华为后台当前版本、接收和审核状态未验证，Android 真机验收仍待完成。
+  - 用户要求记录并提交本轮版本及构建配置；构建证据见 `docs/testing/2026-11-04-android-1.0.1-build-result.md`。未反馈平台上传或真机验收结果。
+
 - 当前执行（2026-11-04，Android 同步 iOS）：用户确认将已验收 iOS 的优化、修复和新增同步 Android。范围包括共享 Web 资源、Android 原生桥接及系统返回、键盘、安全区、扫码、附件、语音和缓存适配；沿用通知暂停及现有共享协议。通过条件为核对平台差异、完成必要修复，运行共享前端检查和 Android 可执行构建及测试，记录真机未验证项。
   - 已完成：共享新版 UI 和后续修复构建并同步 Android；语音停止改为等待 SpeechRecognizer 最终结果、3 秒超时回退，取消显式返回取消状态。通知按用户要求暂不处理；无共享协议变更。
   - 验证：Web 39 文件 585 项、lint、生产构建通过（既有 warning）；Android 离线 Gradle 单测 9 项及 Debug APK 构建通过，包内 index 与 dist SHA-256 一致；Android 36 模拟器安装启动，配对页和离线演示可显示，键盘可唤起且系统返回可收起键盘。diff 空白检查通过。详见 docs/testing/2026-11-04-android-ios-sync-result.md。
