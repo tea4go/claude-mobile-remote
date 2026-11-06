@@ -82,7 +82,7 @@ function AttachmentPreview({ file }: { file: File }) {
     <button type="button" className="composer-attachment-image" aria-label={`预览 ${file.name}`} onClick={() => setVisible(true)}>
       <img src={preview.source} alt="" />
     </button>
-    <ImageViewer image={preview.source} visible={visible} onClose={() => setVisible(false)} />
+    <ImageViewer image={preview.source} visible={visible} getContainer={() => document.body} onClose={() => setVisible(false)} />
   </>
 }
 
@@ -243,7 +243,7 @@ export default function MessageComposer({
           <span>已选 {selectedFiles.length} 个附件（每个最多 4 MiB，合计 8 MiB）</span>
           <div className="composer-attachment-grid">{selectedFiles.map((file, index) => <div key={`${index}-${file.name}`} className="composer-attachment-item">
             <AttachmentPreview file={file} />
-            <button type="button" className="composer-attachment-remove" disabled={sendingAttachments || preparingAttachments} aria-label={`移除 ${file.name}`} onClick={() => setSelectedFiles((items) => items.filter((_, i) => i !== index))}>×</button>
+            <button type="button" className="composer-attachment-remove" disabled={sendingAttachments || preparingAttachments} aria-label={`移除 ${file.name}`} onClick={() => setSelectedFiles((items) => items.filter((_, i) => i !== index))}><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2L2 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg></button>
             <span className="composer-attachment-name" title={file.name}>{file.name}</span>
           </div>)}</div>
         </div>
@@ -326,6 +326,7 @@ export default function MessageComposer({
                   <SessionIcon name="permission" size={19} />
                 </Button>
               </Popover.Menu>
+              {selectedFiles.length > 0 && <Button aria-label="清除所有待发送的图片和附件" className="composer-icon-button" fill="none" style={ICON_BUTTON_STYLE} disabled={sendingAttachments || preparingAttachments} onClick={() => setSelectedFiles([])}><svg aria-hidden="true" width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4h12M5.33 4V2.67c0-.74.6-1.34 1.34-1.34h2.66c.74 0 1.34.6 1.34 1.34V4M3.33 4v9.33c0 .74.6 1.34 1.34 1.34h6.66c.74 0 1.34-.6 1.34-1.34V4M6.67 7.33v4M9.33 7.33v4" /></svg></Button>}
             </Space>
             <div style={{ flex: 1 }} />
             <Space align="center" style={{ '--gap': '12px' }}>

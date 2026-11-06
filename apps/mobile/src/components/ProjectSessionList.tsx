@@ -7,6 +7,7 @@ import { defaultSessionName, type SessionRecord } from '../session/store'
 import type { MobileState } from '../session/reducer'
 import { projectGroups } from './projectGroups'
 import { groupPCs } from './pcGroups'
+import { formatActivityTime } from './activityTime'
 import './ProjectSessionList.css'
 
 export interface SessionListItem extends SessionRecord {
@@ -34,7 +35,7 @@ function displayTitle(session: SessionListItem): string {
   if (session.customName ?? session.name !== defaultSessionName(session.sessionId)) return session.name
   const state = session.runtimeState
   if (state?.sessionTitle) return state.sessionTitle
-  if (state?.createdAt) return `新会话 · ${new Date(state.createdAt).toLocaleString()}`
+  if (state?.createdAt) return '新会话'
   return session.name
 }
 
@@ -67,11 +68,7 @@ function statusLabel(session: SessionListItem): string {
 function activityTime(session: SessionListItem): string {
   const value = session.runtimeState?.lastActivityAt ?? session.runtimeState?.createdAt
   if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toDateString() === new Date().toDateString()
-    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : date.toLocaleDateString()
+  return formatActivityTime(value)
 }
 
 export default function ProjectSessionList({ sessions, recentlyViewedId, selectedPC = null, onSelectPC, managementBusy = {}, managementFeedback = {}, onCreate, onPairProject, onError, onAdd, onOpen, onRemove, onRename }: Props) {
@@ -85,7 +82,6 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [menuId, setMenuId] = useState<string | null>(null)
-  const [choosing, setChoosing] = useState<string | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
@@ -120,13 +116,9 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
                   return
                 }
                 if (!canCreate) { onError?.('当前连接暂不支持新建会话'); return }
-                if (sources.length === 1) onCreate(sources[0]!.sessionId)
-                else setChoosing(choosing === key ? null : key)
+                onCreate(sources[0]!.sessionId)
               }}><SessionIcon name="add" size={14} /></button>
             </div>
-            {choosing === key && <div className="project-session-list__sources" role="group" aria-label={`选择 ${group.title} 的来源会话`}>
-              {canCreate ? <><span>选择来源会话</span>{sources.map((session) => <button key={session.sessionId} onClick={() => { setChoosing(null); onCreate?.(session.sessionId) }}>{displayTitle(session)}</button>)}</> : <span>{busy ? '正在新建会话，请稍候。' : '需要已连接且支持新建的已配对会话和已知工作目录。'}</span>}
-            </div>}
             {members.map((session) => managementFeedback[session.sessionId] && <p role="status" key={`feedback-${session.sessionId}`}>{managementFeedback[session.sessionId]}</p>)}
             {!collapsed[key] && <List className="project-session-list__group">
             {members.map((session) => {

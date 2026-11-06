@@ -4,7 +4,7 @@ import { useEffect, useRef, type RefObject } from 'react'
 import { Tag } from 'antd-mobile'
 import MessageMarkdown from './MessageMarkdown'
 import ActivityGroup, { type Activity } from './ActivityGroup'
-import CopyTextButton from './CopyTextButton'
+import SelectableMessage from './SelectableMessage'
 import { FONT_SIZE_COMPACT } from './ui'
 import type { Message } from '../session/reducer'
 
@@ -173,17 +173,16 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
                 : ''
           return (
             <div key={index} style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
-              <div style={{ background: '#3478f6', color: '#fff', borderRadius: 20, padding: '12px 16px' }}>
+              <SelectableMessage selectionTone="inverse" style={{ background: '#3478f6', color: '#fff', borderRadius: 20, padding: '12px 16px' }}>
                 <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.text}</div>
                 {message.attachments?.map((attachment, i) => <div key={i} style={{ marginTop: 6 }}>
                   {/^image\/(jpeg|png|gif|webp)$/.test(attachment.mediaType) && <img alt={attachment.name} src={`data:${attachment.mediaType};base64,${attachment.data}`} style={{ display: 'block', maxWidth: '100%', maxHeight: 240, borderRadius: 8, objectFit: 'contain' }} />}
                   <span style={{ fontSize: FONT_SIZE_COMPACT }}>{attachment.name}</span>
                 </div>)}
-              </div>
+              </SelectableMessage>
               <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888', textAlign: 'right' }}>
                 {sourceLabel}
                 {statusLabel}
-                {message.text !== '' && <CopyTextButton label="复制用户输入" text={message.text} />}
               </div>
             </div>
           )
@@ -207,11 +206,11 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
         // Claude正文使用浅灰气泡，保留全宽Markdown和横向滚动空间。
         return (
           <div key={`message-${index}`} style={{ alignSelf: 'stretch' }}>
-            <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}><span className="claude-avatar"><SessionIcon name="logo" size={20} /></span>Claude {message.text !== '' && <CopyTextButton label="复制 Claude 回复" text={message.text} />}</div>
+            <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}><span className="claude-avatar"><SessionIcon name="logo" size={20} /></span>Claude</div>
             {message.text !== '' && (
-              <div style={{ marginTop: 4, background: '#fff', border: '1px solid #e0e7f1', color: '#34435b', borderRadius: 20, padding: '14px 16px', wordBreak: 'break-word' }}>
+              <SelectableMessage style={{ marginTop: 4, background: '#fff', border: '1px solid #e0e7f1', color: '#34435b', borderRadius: 20, padding: '14px 16px', wordBreak: 'break-word' }}>
                 <MessageMarkdown text={message.text} />
-              </div>
+              </SelectableMessage>
             )}
             {/* 取消生效与“已请求取消”必须可区分（B2 §7）：此标记只在终态出现。 */}
             {message.status === 'cancelled' && <Tag color="warning">已取消</Tag>}

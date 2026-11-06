@@ -19,13 +19,18 @@
   justify-content: center;
 }
 
-.composer-icon-button .adm-button-content {
+.composer-icon-button.adm-button > span {
   display: flex;
   width: 100%;
   height: 100%;
   align-items: center;
   justify-content: center;
   line-height: 1;
+}
+
+.composer-icon-button.adm-button > span > svg {
+  display: block;
+  flex: none;
 }
 
 .composer-popover-menu.adm-popover-menu .adm-popover-inner {
@@ -36,45 +41,58 @@
   min-width: 132px;
 }
 
+.composer-popover-menu .adm-popover-menu-list-inner {
+  margin-top: 0;
+}
+
 .composer-popover-menu .adm-popover-menu-item {
-  min-height: 36px;
-  padding-left: 12px;
+  min-height: 48px;
+  padding: 0 12px;
+  justify-content: center;
 }
 
 .composer-popover-menu .adm-popover-menu-item-icon {
   display: flex;
+  position: absolute;
+  left: 12px;
   width: 18px;
-  padding-right: 7px;
+  padding: 0;
   align-items: center;
   justify-content: center;
   font-size: 17px;
 }
 
 .composer-popover-menu .adm-popover-menu-item-text {
-  padding: 8px 12px 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 48px;
+  padding: 8px 0;
+  text-align: center;
   font-size: 14px;
   line-height: 18px;
 }
 
 .composer-permission-menu .adm-popover-menu-list {
-  min-width: 140px;
-}
-
-.composer-permission-menu .adm-popover-menu-item {
-  padding-left: 12px;
+  min-width: 168px;
 }
 
 .composer-permission-menu .adm-popover-menu-item-text {
   width: 100%;
-  padding-right: 10px;
 }
+
+.composer-popover-menu .adm-popover-menu-item-text { border-top: 0 !important; }
+.composer-popover-menu .adm-popover-menu-item:not(:first-child) .adm-popover-menu-item-text { border-top: 1px solid #e8edf3 !important; }
 
 .composer-permission-menu .adm-popover-menu-item-text > span {
   display: flex;
+  position: relative;
+  box-sizing: border-box;
   width: 100%;
+  padding: 0 24px;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: center;
 }
 
 .composer-permission-active {
@@ -82,6 +100,8 @@
 }
 
 .composer-permission-check {
+  position: absolute;
+  right: 0;
   flex: none;
   font-size: 15px;
   color: var(--adm-color-primary);
@@ -138,7 +158,7 @@
 .composer-attachment-image, .composer-attachment-file { box-sizing: border-box; display: grid; place-items: center; width: 76px; height: 76px; overflow: hidden; border: 0; border-radius: 8px; background: #eef1f5; padding: 0; }
 .composer-attachment-image img { width: 100%; height: 100%; object-fit: cover; }
 .composer-attachment-file { overflow-wrap: anywhere; padding: 6px; font-size: 11px; }
-.composer-attachment-remove { position: absolute; top: -7px; right: -7px; width: 25px; height: 25px; border: 2px solid white; border-radius: 50%; background: #60656d; color: white; font-size: 20px; line-height: 18px; }
+.composer-attachment-remove { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; box-sizing: border-box; width: 25px; height: 25px; padding: 0; border: 2px solid white; border-radius: 50%; background: #60656d; color: white; font-size: 20px; line-height: 1; }
 .composer-attachment-remove:disabled { opacity: .5; }
 .composer-attachment-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6e6e73; font-size: 11px; margin-top: 3px; }
 
@@ -146,4 +166,3 @@
 .composer-send-button.adm-button:disabled { opacity: .45; }
 .composer-stop-button.adm-button { background: #192437 !important; color: #fff !important; border-radius: 50%; }
 .composer-popover-menu.adm-popover-menu .adm-popover-inner { border-radius: 16px; box-shadow: 0 10px 28px #14233b25; }
-.composer-popover-menu .adm-popover-menu-item { min-height: 48px; }

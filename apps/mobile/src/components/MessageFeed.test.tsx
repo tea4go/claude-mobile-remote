@@ -369,12 +369,22 @@ test('发送后的图片保留预览，任意 HTML 附件不按图片加载', ()
 })
 
 
-test('复制用户输入及 Claude 回复的原始正文', async () => {
+test('消息菜单复制各自正文，外部系统选区不改变应用选区', async () => {
   const writeText = vi.fn().mockResolvedValue(undefined)
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
   render(<MessageFeed messages={[input({ text: '用户输入' }), claude({ text: '**回复**\n内容' })]} />)
-  fireEvent.click(screen.getByRole('button', { name: '复制用户输入' }))
+  // This integration checks copy ownership; JSDOM has no layout for menu placement.
+  fireEvent.contextMenu(screen.getByText('用户输入'), { button: 2 })
+  fireEvent.click(document.querySelector('.selectable-message-menu button')!)
   await waitFor(() => expect(writeText).toHaveBeenCalledWith('用户输入'))
-  fireEvent.click(screen.getByRole('button', { name: '复制 Claude 回复' }))
-  await waitFor(() => expect(writeText).toHaveBeenCalledWith('**回复**\n内容'))
+  const reply = screen.getByText('回复')
+  fireEvent.contextMenu(reply, { button: 2 })
+  const range = document.createRange()
+  range.selectNodeContents(reply)
+  const selection = window.getSelection()!
+  selection.removeAllRanges()
+  selection.addRange(range)
+  fireEvent.click(document.querySelector('.selectable-message-menu button')!)
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith('回复\n内容'))
+  selection.removeAllRanges()
 })

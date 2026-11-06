@@ -3,6 +3,18 @@ import { describe, expect, test, vi } from 'vitest'
 import MessageComposer from './MessageComposer'
 
 describe('MessageComposer', () => {
+  test('可以清除所有待发送附件并保留文本草稿', () => {
+    render(<MessageComposer enabled onSend={vi.fn()} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '保留草稿' } })
+    fireEvent.change(screen.getByTestId('file-picker'), { target: { files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')] } })
+    expect(screen.getByTestId('composer-attachments')).toHaveTextContent('a.txt')
+    const permission = screen.getByRole('button', { name: '权限模式' })
+    const clear = screen.getByRole('button', { name: '清除所有待发送的图片和附件' })
+    expect(permission.compareDocumentPosition(clear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '清除所有待发送的图片和附件' }))
+    expect(screen.queryByTestId('composer-attachments')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue('保留草稿')
+  })
   test('enabled 时可输入并发送', () => {
     const onSend = vi.fn()
     render(<MessageComposer enabled onSend={onSend} />)
@@ -218,6 +230,7 @@ describe('attachment sending', () => {
     const preview = await screen.findByRole('button', { name: '预览 photo.png' })
     fireEvent.click(preview)
     await waitFor(() => expect(document.querySelector('.adm-image-viewer-content img')).not.toBeNull())
+    expect(document.querySelector('.adm-image-viewer-content')?.closest('.adm-mask')?.parentElement).toBe(document.body)
     fireEvent.click(screen.getByRole('button', { name: '移除 photo.png' }))
     expect(screen.queryByTestId('composer-attachments')).not.toBeInTheDocument()
   })
