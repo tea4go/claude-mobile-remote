@@ -3,6 +3,7 @@ import type { DomainEvent } from '../protocol/types'
 
 export interface ExperiencePort {
   copyText?(options: { text: string }): Promise<void>
+  selectionFeedback?(): Promise<void>
   copyDebugLog?(options: { text: string }): Promise<void>
   exportDebugLog?(options: { text: string }): Promise<{ completed?: boolean; opened?: boolean }>
   syncPushSessions?(options: { sessions: { sessionId: string; pairToken: string; expiresAt: string }[]; viewedSession: string }): Promise<void>

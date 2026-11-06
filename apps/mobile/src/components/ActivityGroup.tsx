@@ -52,7 +52,7 @@ const STATUS_COLOR: Record<ActivityStatus, 'default' | 'success' | 'danger'> = {
 }
 
 const STATUS_DOT_COLOR: Record<ActivityStatus, string> = {
-  running: '#bfbfbf',
+  running: '#b88020',
   success: '#00b578',
   failed: '#ff3141',
   missing: '#b88020',
@@ -178,8 +178,7 @@ function StatusDot({ status }: { status: ActivityStatus | null }) {
         height: 8,
         flexShrink: 0,
         borderRadius: 4,
-        background: status === null ? 'transparent' : STATUS_DOT_COLOR[status],
-        border: status === null ? '1px solid #bfbfbf' : 'none',
+        background: status === null ? '#3478f6' : STATUS_DOT_COLOR[status],
       }}
     />
   )
@@ -228,8 +227,8 @@ function DrawerHeader({
           </Tag>
         )}
       </span>
-      {showDebug && <button type="button" aria-label="打开调试日志" style={ICON_BUTTON_STYLE} onClick={() => window.dispatchEvent(new Event('mobile-open-debug'))}><SessionIcon name="debug" size={20} /></button>}
-      <button type="button" aria-label="关闭" style={ICON_BUTTON_STYLE} onClick={onClose}>
+      {showDebug && <button type="button" aria-label="打开调试日志" className="activity-drawer-action" style={ICON_BUTTON_STYLE} onClick={() => window.dispatchEvent(new Event('mobile-open-debug'))}><SessionIcon name="debug" size={20} /></button>}
+      <button type="button" aria-label="关闭" className="activity-drawer-action" style={ICON_BUTTON_STYLE} onClick={onClose}>
         ✕
       </button>
     </div>
@@ -260,7 +259,7 @@ function ActivityRow({ activity, onOpen }: { activity: Activity; onOpen: () => v
         )}
       </span>
       {status !== null && (
-        <Tag style={{ fontSize: FONT_SIZE_COMPACT, padding: '0 5px' }} color={STATUS_COLOR[status]}>
+        <Tag style={{ fontSize: FONT_SIZE_COMPACT, padding: '2px 10px', borderRadius: 999 }} color={STATUS_COLOR[status]}>
           {STATUS_LABEL[status]}
         </Tag>
       )}
@@ -363,17 +362,6 @@ export default function ActivityGroup({ activities, variant = 'inline' }: { acti
                 overflowY: 'auto',
               }}
             >
-              {/* 时间轴虚线：连接各活动的状态点，纯装饰。 */}
-              <span
-                aria-hidden="true"
-                style={{
-                  position: 'absolute',
-                  left: 15,
-                  top: 18,
-                  bottom: 32,
-                  borderLeft: '1px dashed rgba(15, 23, 42, 0.14)',
-                }}
-              />
               {activities.map((activity) => (
                 <ActivityRow
                   key={activity.id}

@@ -126,7 +126,7 @@ export default function SessionDetail({
       <div
         ref={contentScrollRef}
         data-testid="detail-scroll"
-        style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain' }}
+        style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', position: 'relative', isolation: 'isolate' }}
       >
       {showDetailNotices && <div style={{ flexShrink: 0, padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <SessionStatus
@@ -162,6 +162,9 @@ export default function SessionDetail({
       <div
         style={{
           ...GLASS_SURFACE_STYLE,
+          position: 'relative',
+          zIndex: 1,
+          background: '#f9fafc',
           padding: '8px 16px calc(8px + env(safe-area-inset-bottom, 0px))',
           borderTop: '1px solid rgba(15, 23, 42, 0.06)',
           display: 'flex',

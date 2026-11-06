@@ -1,6 +1,11 @@
-.activity-drawer-header { position: relative; padding-top: 26px !important; }
+.activity-drawer-header { position: relative; padding: 26px 20px 16px !important; }
 .activity-drawer-header::before { content: ''; position: absolute; top: 10px; left: calc(50% - 18px); width: 36px; height: 5px; border-radius: 4px; background: #d5deeb; }
-.activity-row { min-height: 54px; border-bottom: 1px solid #edf1f6 !important; }
+.activity-drawer-header > span:nth-child(2) { font-weight: 600; }
+.activity-drawer-action { border: 1px solid #e9eef5 !important; border-radius: 50%; color: #758399 !important; background: #f8fafc !important; }
+.activity-row { position: relative; align-items: flex-start !important; min-height: 100px; padding: 18px 12px !important; }
+.activity-row:last-child { min-height: 74px; }
+.activity-row:not(:last-child)::after { content: ''; position: absolute; left: 15px; top: 34px; bottom: -18px; width: 1px; background: #dce5f0; }
+.activity-row > span:first-child { margin-top: 6px; }
 .activity-row > span:nth-child(2) > span:nth-child(2) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .activity-summary--card { background: white !important; border: 1px solid #e0e7f1 !important; border-radius: 16px; padding: 14px !important; color: #34435b !important; }

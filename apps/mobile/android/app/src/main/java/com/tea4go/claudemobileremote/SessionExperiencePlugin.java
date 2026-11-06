@@ -16,6 +16,8 @@ import android.os.Looper;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
+import android.view.HapticFeedbackConstants;
+import android.view.View;
 import androidx.core.app.NotificationManagerCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -82,6 +84,16 @@ public class SessionExperiencePlugin extends Plugin {
             } catch (RuntimeException error) {
                 call.reject("Clipboard unavailable");
             }
+        });
+    }
+    @PluginMethod public void selectionFeedback(PluginCall call) {
+        main.post(() -> {
+            View view = getBridge() == null ? null : getBridge().getWebView();
+            if (view != null && view.hasWindowFocus()) {
+                try { view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); }
+                catch (RuntimeException ignored) { /* Optional feedback must not block selection. */ }
+            }
+            call.resolve();
         });
     }
     @PluginMethod public void copyDebugLog(PluginCall call) {

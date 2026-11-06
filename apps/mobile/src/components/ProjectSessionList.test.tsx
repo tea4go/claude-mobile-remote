@@ -1,6 +1,8 @@
 import { describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import ProjectSessionList from './ProjectSessionList'
+import { formatActivityTime } from './activityTime'
+import { defaultSessionName } from '../session/store'
 import { projectGroups } from './projectGroups'
 import type { SessionListItem } from './ProjectSessionList'
 import { createInitialState } from '../session/reducer'
@@ -12,6 +14,39 @@ function item(id: string, cwd: string | null, time: string | null): SessionListI
     runtimeState: { ...createInitialState(), projectCwd: cwd, lastActivityAt: time },
   }
 }
+
+describe('列表活动时间', () => {
+  const local = (year: number, month: number, day: number, hour = 20, minute = 18) => new Date(year, month - 1, day, hour, minute).toISOString()
+
+  test('按本地日期展示今天、昨天、本周、本年和跨年', () => {
+    const now = new Date(2026, 10, 6, 23, 59)
+    expect(formatActivityTime(local(2026, 11, 6), now)).toBe('20:18')
+    expect(formatActivityTime(local(2026, 11, 5), now)).toBe('昨天20:18')
+    expect(formatActivityTime(local(2026, 11, 2), now)).toBe('星期一')
+    expect(formatActivityTime(local(2026, 11, 1), now)).toBe('11月1日')
+    expect(formatActivityTime(local(2025, 10, 20), now)).toBe('2025年10月20日')
+    expect(formatActivityTime('invalid', now)).toBe('')
+  })
+
+  test('跨年优先显示完整日期，周日和周一各自属于不同周', () => {
+    expect(formatActivityTime(local(2025, 12, 31), new Date(2026, 0, 1))).toBe('2025年12月31日')
+    expect(formatActivityTime(local(2026, 11, 1), new Date(2026, 10, 3))).toBe('11月1日')
+    expect(formatActivityTime(local(2026, 11, 8), new Date(2026, 10, 8))).toBe('20:18')
+  })
+
+  test('默认标题不重复时间，保留自定义标题', () => {
+    const noop = () => {}
+    const createdAt = local(2025, 10, 20)
+    const base = item('a', '/work/alpha', createdAt)
+    const record = { ...base, name: defaultSessionName('a'), runtimeState: { ...base.runtimeState!, createdAt } }
+    const props = { onAdd: noop, onOpen: noop, onRemove: noop, onRename: noop }
+    const view = render(<ProjectSessionList sessions={[record]} {...props} />)
+    expect(screen.getByTestId('session-list-item')).toHaveTextContent('新会话')
+    expect(screen.getByTestId('session-list-item').textContent).not.toContain('新会话 ·')
+    view.rerender(<ProjectSessionList sessions={[{ ...record, name: '用户自定义', customName: true }]} {...props} />)
+    expect(screen.getByText('用户自定义')).toBeInTheDocument()
+  })
+})
 
 describe('项目分组', () => {
   test('按活动时间排序组与组内会话，连接时间不参与', () => {
@@ -50,7 +85,7 @@ describe('项目分组', () => {
     expect(screen.getAllByText('/work/shared')).toHaveLength(2)
   })
 
-  test('项目新建只使用本项目已连接并声明能力的来源，多来源要求选择', () => {
+  test('项目新建只使用本项目已连接并声明能力的来源，多来源直接创建', () => {
     const noop = () => {}
     const onCreate = vi.fn()
     const connected = (id: string, cwd: string): SessionListItem => ({ ...item(id, cwd, null), capabilities: ['create_session'], runtimeState: { ...createInitialState(), projectCwd: cwd, connection: 'connected' } })
@@ -59,10 +94,8 @@ describe('项目分组', () => {
     const other = connected('c', '/work/beta')
     render(<ProjectSessionList sessions={[a, b, other]} onCreate={onCreate} onAdd={noop} onOpen={noop} onRemove={noop} onRename={noop} />)
     fireEvent.click(screen.getByRole('button', { name: '在 alpha 新建会话' }))
-    expect(onCreate).not.toHaveBeenCalled()
-    expect(screen.getByRole('group', { name: '选择 alpha 的来源会话' })).toHaveTextContent('会话 a')
-    fireEvent.click(screen.getByRole('button', { name: '会话 b' }))
-    expect(onCreate).toHaveBeenCalledExactlyOnceWith('b')
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith('a')
+    expect(screen.queryByRole('group', { name: '选择 alpha 的来源会话' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '在 beta 新建会话' }))
     expect(onCreate).toHaveBeenLastCalledWith('c')
   })

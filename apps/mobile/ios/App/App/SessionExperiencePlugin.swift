@@ -11,6 +11,7 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "SessionExperience"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "copyText", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "selectionFeedback", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "copyDebugLog", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "exportDebugLog", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "readSessionCache", returnType: CAPPluginReturnPromise),
@@ -30,6 +31,18 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
         guard let text = call.getString("text"), !text.isEmpty, text.utf8.count <= 1024 * 1024 else { call.reject("Invalid text"); return }
         DispatchQueue.main.async {
             UIPasteboard.general.string = text
+            call.resolve()
+        }
+    }
+
+    @objc func selectionFeedback(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard UIApplication.shared.applicationState == .active,
+                  self?.bridge?.viewController?.viewIfLoaded?.window != nil else {
+                call.resolve()
+                return
+            }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             call.resolve()
         }
     }
