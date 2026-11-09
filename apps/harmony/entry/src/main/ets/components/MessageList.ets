@@ -1,38 +1,20 @@
+import { copyVisibleText } from '../native/clipboard'
+import { nativeLifecycle } from '../native/lifecycle'
 import { MarkdownText } from './MarkdownText'
-import { FeedDataSource, feedRenderKey } from '../ui/feedDataSource'
+import { FeedDataSource, feedRenderKey, projectFeed, type FeedRow, type ActivityFeedGroup } from '../ui/feedDataSource'
+import { toolNamesByTurn, toolNameForResult, toolStatusesByTurn } from '../session/stepIndex'
 import type {
   Attachment,
   ContentBlock,
   ResolvedAnswer,
 } from '../protocol/types'
-import type { FeedMessage } from '../session/model'
+import type { FeedMessage, BlockFeedMessage } from '../session/model'
 
-function summarizeToolResult(messages: Array<FeedMessage>, index: number, toolUseId: string): string {
-  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-    const candidate = messages[cursor]
-    if (candidate.kind !== 'block') {
-      continue
-    }
-    const block = candidate.block
-    if (block.kind === 'tool_use' && block.toolUseId === toolUseId) {
-      return block.toolName
-    }
-  }
-  return ''
-}
-
-function blockTitle(block: ContentBlock, messages: Array<FeedMessage>, index: number): string {
-  if (block.kind === 'thinking') {
-    return '思考'
-  }
-  if (block.kind === 'tool_use') {
-    return '工具调用'
-  }
-  const toolName = summarizeToolResult(messages, index, block.toolUseId)
-  if (toolName.length > 0) {
-    return `工具结果 · ${toolName}`
-  }
-  return '工具结果'
+function blockTitle(block: ContentBlock, requestId: string, tools: Map<string, string>): string {
+  if (block.kind === 'thinking') return '思考'
+  if (block.kind === 'tool_use') return '工具调用'
+  const toolName = toolNameForResult(tools, requestId, block.toolUseId)
+  return toolName.length > 0 ? `工具结果 · ${toolName}` : '工具结果'
 }
 
 function blockBody(block: ContentBlock): string {
@@ -70,13 +52,40 @@ export struct MessageList {
   @Prop @Watch('messagesChanged') messages: Array<FeedMessage> = []
   scroller: Scroller = new Scroller()
   onAtBottom: (value: boolean) => void = () => {}
+  @Prop debugEnabled: boolean = false
+  onDebugOpen: () => void = () => {}
   private readonly source: FeedDataSource = new FeedDataSource()
   @State private preview: string = ''
+  @State private selectedActivity: ActivityFeedGroup | null = null
+  @State private selectedStep: number = -1
+  private toolNames: Map<string, string> = new Map()
+  private toolStatuses: Map<string, string> = new Map()
 
-  aboutToAppear(): void { this.messagesChanged() }
-  private messagesChanged(): void { this.source.replace(this.messages) }
+  aboutToAppear(): void { this.messagesChanged(); nativeLifecycle.messageBack = this.backHandler }
+  aboutToDisappear(): void { if (nativeLifecycle.messageBack === this.backHandler) nativeLifecycle.messageBack = null }
+  private readonly backHandler: () => boolean = () => {
+    if (this.selectedActivity !== null) {
+      if (this.selectedStep >= 0) this.selectedStep = -1
+      else this.selectedActivity = null
+      return true
+    }
+    if (this.preview.length > 0) { this.preview = ''; return true }
+    return false
+  }
+  private messagesChanged(): void {
+    this.toolNames = toolNamesByTurn(this.messages)
+    this.toolStatuses = toolStatusesByTurn(this.messages)
+    if (this.selectedActivity !== null) {
+      const selected = this.selectedActivity
+      const firstId = selected.blocks[0]?.block.id ?? ''
+      const current = projectFeed(this.messages).find((row: FeedRow) => row.kind === 'activity' && row.requestId === selected.requestId && row.blocks[0]?.block.id === firstId)
+      if (current !== undefined && current.kind === 'activity') this.selectedActivity = current
+    }
+    this.source.replace(this.messages)
+  }
 
   build() {
+    Stack({ alignContent: Alignment.Bottom }) {
     List({ space: 10, scroller: this.scroller }) {
       if (this.preview.length > 0) {
         ListItem() {
@@ -89,7 +98,7 @@ export struct MessageList {
       if (this.messages.length === 0) {
         ListItem() { Text('还没有消息。').fontSize(14).opacity(0.7) }
       } else {
-        LazyForEach(this.source, (message: FeedMessage, index: number) => {
+        LazyForEach(this.source, (message: FeedRow, index: number) => {
           ListItem() {
           if (message.kind === 'input') {
             Row() {
@@ -105,8 +114,9 @@ export struct MessageList {
                       Text(attachment.name).fontSize(12)
                     }, (attachment: Attachment, itemIndex: number) => `${itemIndex}-${attachment.name}`)
                   }
-                  Text(message.text).fontSize(14).width('100%').textAlign(TextAlign.Start)
-                }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor('#e6f4ff').borderRadius(8)
+                  Text(message.text).fontSize(14).fontColor('#ffffff').copyOption(CopyOptions.LocalDevice).width('100%').textAlign(TextAlign.Start)
+                }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor('#3478f6').borderRadius(16)
+                Button('复制', { type: ButtonType.Normal }).height(36).fontSize(12).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => { void copyVisibleText(message.text).catch(() => {}) })
                 Text(`${message.source === 'terminal' ? '电脑端' : '手机端'}${inputStatusLabel(message.status)}`)
                   .fontSize(12).fontColor('#8e8e93').width('100%').textAlign(TextAlign.End)
               }.width('80%').alignItems(HorizontalAlign.End)
@@ -118,6 +128,7 @@ export struct MessageList {
                 .opacity(0.7)
                 .width('100%')
 
+              Button('复制回答', { type: ButtonType.Normal }).height(36).fontSize(12).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => { void copyVisibleText(message.answers.map((answer: ResolvedAnswer) => `${answerTitle(answer)}\n${answer.values.join('、')}`).join('\n\n')).catch(() => {}) })
               ForEach(message.answers, (answer: ResolvedAnswer) => {
                 Column({ space: 4 }) {
                   Text(answerTitle(answer))
@@ -142,22 +153,16 @@ export struct MessageList {
             .alignItems(HorizontalAlign.Start)
             .backgroundColor('#ffffff')
             .borderRadius(12)
+          } else if (message.kind === 'activity') {
+            Button({ type: ButtonType.Normal }) {
+              Row() {
+                Text(`执行步骤 · ${message.blocks.length} 项`).fontSize(13).fontColor('#3478f6').layoutWeight(1).textAlign(TextAlign.Start)
+                Text('›').fontSize(20).fontColor('#748198')
+              }.width('100%')
+            }.width('100%').height(48).padding({ left: 14, right: 14 }).backgroundColor('#ffffff').borderRadius(14)
+              .onClick(() => { this.selectedActivity = message; this.selectedStep = -1 })
           } else if (message.kind === 'block') {
-            Column({ space: 6 }) {
-              Text(blockTitle(message.block, this.messages, index))
-                .fontSize(12)
-                .opacity(0.7)
-                .width('100%')
-
-              Scroll() {
-                Text(blockBody(message.block)).fontSize(14).width('100%').textAlign(TextAlign.Start).copyOption(CopyOptions.LocalDevice)
-              }.constraintSize({ maxHeight: 280 }).width('100%')
-            }
-            .padding(12)
-            .width('100%')
-            .alignItems(HorizontalAlign.Start)
-            .backgroundColor('#ffffff')
-            .borderRadius(12)
+            Text('步骤').fontSize(13)
           } else {
             Column({ space: 8 }) {
               Text('Claude')
@@ -165,7 +170,8 @@ export struct MessageList {
                 .opacity(0.7)
                 .width('100%')
 
-              MarkdownText({ text: message.text })
+              Column() { MarkdownText({ text: message.text }) }.padding(14).width('100%').backgroundColor('#ffffff').borderRadius(16)
+              Button('复制', { type: ButtonType.Normal }).height(36).fontSize(12).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => { void copyVisibleText(message.text).catch(() => {}) })
 
               if (message.status === 'streaming') { LoadingProgress().width(20).height(20) }
               if (message.status === 'done') { Text('已完成').fontSize(12).opacity(0.6) }
@@ -191,7 +197,7 @@ export struct MessageList {
             .borderRadius(12)
           }
           }
-        }, (message: FeedMessage, index: number) => feedRenderKey(message, index))
+        }, (message: FeedRow, index: number) => feedRenderKey(message, index))
       }
     }
     .id('message-list')
@@ -200,5 +206,30 @@ export struct MessageList {
     .cachedCount(2)
     .onScroll(() => this.onAtBottom(this.scroller.isAtEnd()))
     .onReachEnd(() => this.onAtBottom(true))
+    if (this.selectedActivity !== null) {
+      Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })
+      Column({ space: 8 }) {
+        Row() {
+          if (this.selectedStep >= 0) { Button('‹', { type: ButtonType.Normal }).width(44).height(44).fontSize(26).backgroundColor(Color.Transparent).onClick(() => { this.selectedStep = -1 }) }
+          Text(this.selectedStep >= 0 ? '步骤详情' : '执行步骤').fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1)
+          if (this.debugEnabled) { Button('调试', { type: ButtonType.Normal }).height(44).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => this.onDebugOpen()) }
+          Button('关闭', { type: ButtonType.Normal }).height(44).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })
+        }.width('100%')
+        Scroll() {
+          Column({ space: 10 }) {
+            ForEach((this.selectedActivity as ActivityFeedGroup).blocks, (item: BlockFeedMessage, itemIndex: number) => {
+              if (this.selectedStep < 0 || this.selectedStep === itemIndex) {
+                Column({ space: 6 }) {
+                  Text(blockTitle(item.block, item.requestId, this.toolNames)).fontSize(14).fontWeight(FontWeight.Medium).width('100%')
+                  if (item.block.kind === 'tool_use') { Text(this.toolStatuses.get(JSON.stringify([item.requestId, item.block.toolUseId])) ?? '进行中').fontSize(12).fontColor('#748198').width('100%') }
+                  Text(blockBody(item.block)).fontSize(13).fontColor('#748198').maxLines(this.selectedStep < 0 ? 2 : 10000).textOverflow({ overflow: TextOverflow.Ellipsis }).copyOption(CopyOptions.LocalDevice).width('100%')
+                }.padding(12).width('100%').backgroundColor('#f4f6fa').borderRadius(12).onClick(() => { if (this.selectedStep < 0) this.selectedStep = itemIndex })
+              }
+            }, (item: BlockFeedMessage, itemIndex: number) => `${itemIndex}-${item.block.id}`)
+          }.width('100%').alignItems(HorizontalAlign.Start)
+        }.width('100%').constraintSize({ maxHeight: 440 }).align(Alignment.TopStart)
+      }.padding(16).width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 24, topRight: 24 })
+    }
+    }.width('100%').height('100%')
   }
 }

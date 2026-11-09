@@ -191,20 +191,16 @@ export function updateDisplayRecord(
   createdAt: string | undefined, lastActivityAt: string | undefined, preview: string,
   runtimeStatus: string, unread: boolean,
 ): Array<SessionRecord> {
-  const next: Array<SessionRecord> = []
-  for (let index = 0; index < records.length; index += 1) {
-    const record = cloneRecord(records[index])
-    if (record.sessionId === sessionId) {
-      record.projectCwd = projectCwd
-      record.sessionTitle = sessionTitle
-      record.createdAt = createdAt
-      record.lastActivityAt = lastActivityAt
-      record.preview = preview
-      record.runtimeStatus = runtimeStatus
-      record.unread = unread
-    }
-    next.push(record)
-  }
+  const index = records.findIndex((record: SessionRecord) => record.sessionId === sessionId)
+  if (index < 0) return records
+  const current = records[index]
+  if (current.projectCwd === projectCwd && current.sessionTitle === sessionTitle && current.createdAt === createdAt &&
+      current.lastActivityAt === lastActivityAt && current.preview === preview && current.runtimeStatus === runtimeStatus && current.unread === unread) return records
+  const next = records.slice()
+  const record = cloneRecord(current)
+  record.projectCwd = projectCwd; record.sessionTitle = sessionTitle; record.createdAt = createdAt
+  record.lastActivityAt = lastActivityAt; record.preview = preview; record.runtimeStatus = runtimeStatus; record.unread = unread
+  next[index] = record
   return next
 }
 

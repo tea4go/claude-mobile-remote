@@ -1,4 +1,4 @@
 // Shared visual values in logical units.
-export const PAGE_BACKGROUND: string = '#f2f2f7'
-export const PRIMARY: string = '#1677ff'
-export const SECONDARY: string = '#6e6e73'
+export const PAGE_BACKGROUND: string = '#f4f6fa'
+export const PRIMARY: string = '#3478f6'
+export const SECONDARY: string = '#748198'

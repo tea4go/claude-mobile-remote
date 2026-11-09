@@ -1,3 +1,4 @@
+import { copyVisibleText } from '../native/clipboard'
 import type {
   AskUserQuestionPendingAction,
   Question,
@@ -154,6 +155,7 @@ export struct PendingSummary {
         .opacity(0.7)
         .width('100%')
 
+      Button('复制问题', { type: ButtonType.Normal }).height(36).fontSize(12).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => { void copyVisibleText(`${question.question}\n${question.options.map((option: QuestionOption) => option.label).join('\n')}`).catch(() => {}) })
       Text(question.question)
         .fontSize(14)
         .width('100%')
@@ -170,21 +172,16 @@ export struct PendingSummary {
           .width('100%')
       } else {
         ForEach(question.options, (option: QuestionOption) => {
-          Column({ space: 4 }) {
-            Text(option.label)
-              .fontSize(14)
-              .fontWeight(this.optionSelected(question.questionId, option.label) ? FontWeight.Medium : FontWeight.Regular)
-              .width('100%')
-            if (option.description.length > 0) {
-              Text(option.description)
-                .fontSize(12)
-                .opacity(0.7)
-                .width('100%')
-            }
+          Row({ space: 10 }) {
+            Text(question.multiSelect ? (this.optionSelected(question.questionId, option.label) ? '☑' : '□') : (this.optionSelected(question.questionId, option.label) ? '◉' : '○')).fontSize(20).fontColor('#3478f6')
+            Column({ space: 4 }) {
+              Text(option.label).fontSize(14).fontWeight(this.optionSelected(question.questionId, option.label) ? FontWeight.Medium : FontWeight.Regular).width('100%')
+              if (option.description.length > 0) { Text(option.description).fontSize(12).opacity(0.7).width('100%') }
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           }
           .padding(10)
           .width('100%')
-          .alignItems(HorizontalAlign.Start)
+          .alignItems(VerticalAlign.Center)
           .backgroundColor(optionBackground(this.optionSelected(question.questionId, option.label)))
           .borderRadius(8)
           .onClick(() => {

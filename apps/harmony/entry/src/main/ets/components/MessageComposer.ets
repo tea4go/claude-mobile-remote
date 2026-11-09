@@ -7,13 +7,14 @@ import { utf8Bytes, type ComposerDraft, emptyDraft } from '../session/attachment
 @Component
 export struct MessageComposer {
   @Prop textOnly: boolean = false
-  @Prop draft: ComposerDraft = emptyDraft()
+  @Prop @Watch('draftChanged') draft: ComposerDraft = emptyDraft()
   @Prop composerEnabled: boolean = false
   @Prop createSessionAvailable: boolean = false
   @Prop createSessionEnabled: boolean = false
   @Prop running: boolean = false
   @Prop cancelEnabled: boolean = false
   @Prop speechActive: boolean = false
+  @Prop speechFinishing: boolean = false
   @Prop selecting: boolean = false
   @Prop permissionMode: PermissionMode = 'default'
   @Prop permissionEnabled: boolean = false
@@ -28,6 +29,9 @@ export struct MessageComposer {
   onCancel: () => void = () => {}
   onCreateSession: () => void = () => {}
   @State private preview: string = ''
+  private previewAttachment: Attachment | null = null
+  @State private textBytes: number = 0
+  private countedText: string = ''
   private addController: CustomDialogController = new CustomDialogController({
     builder: ActionMenu({ title: '添加', items: this.addItems(),
       onClose: (): void => { this.addController.close() } }),
@@ -43,7 +47,17 @@ export struct MessageComposer {
     closeAnimation: { curve: curves.springMotion(0.25, 1) },
   })
 
+  aboutToAppear(): void { this.draftChanged() }
+  private draftChanged(): void {
+    if (this.countedText !== this.draft.text) {
+      this.countedText = this.draft.text
+      this.textBytes = utf8Bytes(this.draft.text)
+    }
+    if (this.previewAttachment !== null && this.draft.attachments.indexOf(this.previewAttachment) < 0) this.clearPreview()
+  }
+  private clearPreview(): void { this.previewAttachment = null; this.preview = '' }
   aboutToDisappear(): void {
+    this.clearPreview()
     this.addController.close()
     this.permissionController.close()
   }
@@ -84,7 +98,7 @@ export struct MessageComposer {
     Column({ space: 8 }) {
       if (this.draft.error.length > 0) { Text(this.draft.error).fontSize(12).fontColor('#a54b00').width('100%') }
       if (this.preview.length > 0) {
-        Image(this.preview).height(180).width('100%').objectFit(ImageFit.Contain).onClick(() => { this.preview = '' })
+        Image(this.preview).height(180).width('100%').objectFit(ImageFit.Contain).onClick(() => this.clearPreview())
         Text('点按图片收起预览').fontSize(12)
       }
       if (this.draft.attachments.length > 0) {
@@ -94,7 +108,7 @@ export struct MessageComposer {
               Column({ space: 4 }) {
                 if (item.mediaType.startsWith('image/')) {
                   Image(`data:${item.mediaType};base64,${item.data}`).width(64).height(64).objectFit(ImageFit.Cover)
-                    .onClick(() => { this.preview = `data:${item.mediaType};base64,${item.data}` })
+                    .onClick(() => { this.previewAttachment = item; this.preview = `data:${item.mediaType};base64,${item.data}` })
                 }
                 Text(item.name).fontSize(12).maxLines(1).width(100)
                 Button('移除', { type: ButtonType.Normal }).height(44).fontSize(12).fontColor('#d4380d').backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).enabled(this.editable()).onClick(() => this.onRemoveAttachment(index))
@@ -105,14 +119,14 @@ export struct MessageComposer {
       }
       TextArea({ text: this.draft.text, placeholder: '输入消息，或添加附件' })
         .id('send-input').height(64).fontSize(15).backgroundColor(Color.Transparent).padding({ left: 4, right: 4, top: 6, bottom: 4 }).enabled(this.editable()).onChange((text: string) => this.onDraft(text))
-      if (utf8Bytes(this.draft.text) > 1024 * 1024) { Text('文本超出 1 MiB 上限').fontColor('#b3261e').fontSize(12) }
+      if (this.textBytes > 1024 * 1024) { Text('文本超出 1 MiB 上限').fontColor('#b3261e').fontSize(12) }
       Row({ space: 0 }) {
         if (this.speechActive) {
-          Button('完成录音', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => this.onStopSpeech())
+          Button(this.speechFinishing ? '识别中…' : '完成录音', { type: ButtonType.Normal }).enabled(!this.speechFinishing).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => this.onStopSpeech())
           Button('取消', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(SECONDARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => this.onCancelSpeech())
         } else if (!this.textOnly) {
           Button('+', { type: ButtonType.Normal }).width(44).height(44).fontSize(26).fontColor(SECONDARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
-            .accessibilityText('添加附件或新建会话').enabled(this.editable() || (this.createSessionAvailable && this.createSessionEnabled)).onClick(() => {
+            .accessibilityText('添加附件').enabled(this.editable() || (this.createSessionAvailable && this.createSessionEnabled)).onClick(() => {
               this.addController.open()
             })
           Button('语音', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(13).fontColor(SECONDARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
@@ -127,9 +141,10 @@ export struct MessageComposer {
         if (this.running) {
           LoadingProgress().width(16).height(16)
           Button('■', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(18).fontColor('#252525').backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).accessibilityText('停止当前任务').enabled(this.cancelEnabled).onClick(() => this.onCancel())
-        } else {
+        }
+        if (!this.running || this.draft.text.trim().length > 0 || this.draft.attachments.length > 0) {
           Button(this.draft.sending ? '…' : '↑', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(27).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).accessibilityText(this.draft.sending ? '等待受理' : '发送消息')
-            .enabled(this.composerEnabled && this.editable() && utf8Bytes(this.draft.text) <= 1024 * 1024 && (this.draft.text.trim().length > 0 || this.draft.attachments.length > 0))
+            .enabled(this.composerEnabled && this.editable() && this.textBytes <= 1024 * 1024 && (this.draft.text.trim().length > 0 || this.draft.attachments.length > 0))
             .onClick(() => this.onSend())
         }
       }.width('100%')

@@ -275,3 +275,12 @@ test('concurrent speech starts keep only the latest listener', async () => {
   assert.equal(env.calls.filter(value => value === 'start').length, 1)
   await speech.cancel()
 })
+
+test('display preferences persist asynchronously in the private serial store', async () => storageTest(async (store) => {
+  assert.equal(await store.readDisplayPreferences(), null)
+  const one = JSON.stringify({ selectedPC: 'pc-one', debugEnabled: true })
+  const two = JSON.stringify({ selectedPC: null, debugEnabled: false })
+  await Promise.all([store.writeDisplayPreferences(one), store.writeDisplayPreferences(two)])
+  assert.equal(await store.readDisplayPreferences(), two)
+  await assert.rejects(store.writeDisplayPreferences('x'.repeat(16385)))
+}))

@@ -45,8 +45,13 @@ import { DemoPage } from './DemoPage'
 import { DebugPanel } from '../components/DebugPanel'
 import { debugLog } from '../debug/log'
 import { SessionPage } from './SessionPage'
+import { groupSessions, sessionPCKey, sessionPreview } from '../session/projectGroups'
+import { projectMatches, createdPairingAddress } from '../session/projectPairing'
+import { commitPairingRecords } from '../session/pairingCommit'
 
 type AppView = 'list' | 'pairing' | 'detail'
+interface DisplayPreferences { selectedPC: string | null; debugEnabled: boolean }
+interface ProjectTarget { pcId: string; cwd: string }
 
 function defaultView(records: Array<SessionRecord>): AppView {
   return records.length > 0 ? 'list' : 'pairing'
@@ -136,15 +141,22 @@ export struct AppShell {
   @State private demoOpening: boolean = false
   private demoGeneration: number = 0
   @State private debugOpen: boolean = false
-  @State private debugEnabled: boolean = true
+  @State private debugEnabled: boolean = false
+  @State private selectedPC: string = 'all'
+  private preferencesReady: boolean = false
+  private selectedPCConfigured: boolean = false
   @State private pairingTarget: string = ''
   private pendingPairing: PairingPayload | null = null
+  @State private pairingSaving: boolean = false
+  private projectTarget: ProjectTarget | null = null
+  private createdSource: string = ''
   private debugUnsubscribe: (() => void) | null = null
   @State private nativeReady: boolean = false
   @State private nativeError: string = ''
   @State private notificationsEnabled: boolean = false
   @State private draft: ComposerDraft = emptyDraft()
   @State private speechActive: boolean = false
+  @State private speechFinishing: boolean = false
   @State private selecting: boolean = false
   @State private scanning: boolean = false
   @State private clearingCache: boolean = false
@@ -157,11 +169,13 @@ export struct AppShell {
   private listOffset: number = 0
   private listOrder: Array<string> = []
   @State private pairingInput: string = ''
+  private pairingPreviewTimer: number = -1
   @State private questionAnswers: Array<QuestionAnswer> = []
   @State private trackedPendingActionId: string = ''
   @State private selfChecks: string[] = ['self-check-pending']
   @State private selfCheckError: string = ''
   @State private managementBusy: boolean = false
+  @State private projectCreating: boolean = false
   @State private managementFeedback: string = ''
 
   aboutToAppear(): void {
@@ -172,7 +186,7 @@ export struct AppShell {
       else { this.entryStore.networkLost(); this.stores.forEach((store: HarmonySessionStore) => store.networkLost()) }
     })
     this.debugEnabled = debugLog.enabled
-    this.debugUnsubscribe = debugLog.subscribe(() => { this.debugEnabled = debugLog.enabled })
+    this.debugUnsubscribe = debugLog.subscribe(() => { if (this.debugEnabled !== debugLog.enabled) this.debugEnabled = debugLog.enabled })
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
     nativeLifecycle.onBack = () => {
       if (this.debugOpen) { this.debugOpen = false; return true }
@@ -204,25 +218,65 @@ export struct AppShell {
       this.unsubscribe = this.entryStore.subscribe((nextState: HarmonySessionState) => {
         if (this.view === 'pairing') this.sessionState = nextState
         const pairing = this.pendingPairing
+        if (pairing !== null && this.createdSource.length > 0 && nextState.lastError !== null &&
+          (nextState.connection === ConnectionStage.DISCONNECTED || nextState.connection === ConnectionStage.PAIRING_INVALID || nextState.connection === ConnectionStage.PROTOCOL_ERROR)) {
+          this.pendingPairing = null; this.createdSource = ''; this.projectTarget = null; this.projectCreating = false
+          AlertDialog.show({ message: '电脑可能已创建会话，但手机连接失败；请在电脑检查后重新配对', confirm: { value: '知道了', action: () => {} } })
+          return
+        }
         if (pairing !== null && nextState.connection === ConnectionStage.READY && this.foreground) {
-          this.pendingPairing = null
-          this.sessions = upsertSessionRecord(this.sessions, pairing)
-          this.currentSessionId = pairing.sessionId
-          this.managementPendingSessions.delete(pairing.sessionId); this.managementBusy = false; this.managementFeedback = ''
-          const verified = this.entryStore
-          this.unsubscribe?.(); this.unsubscribe = null
-          const previous = this.stores.get(pairing.sessionId)
-          this.storeSubscriptions.get(pairing.sessionId)?.()
-          previous?.setManagementListener(null); previous?.setEventListener(null); previous?.setSendListener(null); previous?.disconnect()
-          this.stores.delete(pairing.sessionId)
-          this.store = this.prepareStore(pairing.sessionId, verified)
-          this.entryStore = createSessionStore(); this.watchEntry()
-          this.handleStoreState(pairing.sessionId, nextState)
-          this.sessionState = this.store.getState()
-          this.view = 'detail'; this.pairingInput = ''; this.pairingTarget = ''; this.activateDraft(); this.saveRecords()
+          if (this.projectTarget !== null && !projectMatches(this.projectTarget.pcId, this.projectTarget.cwd, pairing, nextState.projectCwd)) {
+            this.pendingPairing = null; this.projectCreating = false; this.entryStore.disconnect()
+            this.managementFeedback = '无法验证目标电脑或工作目录，请检查后重新扫码'
+            AlertDialog.show({ message: this.managementFeedback, confirm: { value: '知道了', action: () => {} } })
+            return
+          }
+          if (!this.pairingSaving) { void this.completePairing(pairing) }
         }
       })
     }
+  }
+
+  private async completePairing(pairing: PairingPayload): Promise<void> {
+    if (this.storage === null || this.pairingSaving) return
+    this.pairingSaving = true
+    const verified = this.entryStore
+    const candidate = upsertSessionRecord(this.sessions, pairing)
+    try {
+      const result = await commitPairingRecords(this.storage, candidate, this.sessions, () =>
+        this.alive && this.foreground && this.pendingPairing === pairing && this.entryStore === verified && verified.getState().connection === ConnectionStage.READY)
+      if (result !== 'saved') {
+        if (this.pendingPairing === pairing) this.pendingPairing = null
+        verified.disconnect()
+        this.nativeError = result === 'rollback_failed' ? '配对保存失败且恢复未完成，请核对本机配对后重试' :
+          result === 'cancelled' ? '连接已中断，配对未保存，请重新扫码' : '配对保存失败，请重试；电脑可能已创建会话'
+        if (this.alive) AlertDialog.show({ message: this.nativeError, confirm: { value: '知道了', action: () => {} } })
+        return
+      }
+      this.projectTarget = null; this.createdSource = ''; this.pendingPairing = null
+      this.sessions = upsertSessionRecord(this.sessions, pairing)
+      if (!this.selectedPCConfigured) this.reconcileSelectedPC()
+      if (this.selectedPC !== 'all') {
+        const record = this.sessions.find((item: SessionRecord) => item.sessionId === pairing.sessionId)
+        if (record !== undefined) { this.selectedPC = sessionPCKey(record); this.saveDisplayPreferences() }
+      }
+      this.currentSessionId = pairing.sessionId
+      this.managementPendingSessions.delete(pairing.sessionId); this.managementBusy = false; this.managementFeedback = ''
+      this.unsubscribe?.(); this.unsubscribe = null
+      const previous = this.stores.get(pairing.sessionId)
+      this.storeSubscriptions.get(pairing.sessionId)?.()
+      previous?.setManagementListener(null); previous?.setEventListener(null); previous?.setSendListener(null); previous?.disconnect()
+      this.stores.delete(pairing.sessionId)
+      this.store = this.prepareStore(pairing.sessionId, verified)
+      this.entryStore = createSessionStore(); this.watchEntry()
+      this.handleStoreState(pairing.sessionId, verified.getState())
+      this.sessionState = this.store.getState()
+      this.view = 'detail'; this.pairingInput = ''; this.pairingTarget = ''; this.activateDraft()
+    } catch (_) {
+      if (this.pendingPairing === pairing) { this.pendingPairing = null; verified.disconnect() }
+      this.nativeError = '配对保存失败，请检查后重试；电脑可能已创建会话'
+      if (this.alive) AlertDialog.show({ message: this.nativeError, confirm: { value: '知道了', action: () => {} } })
+    } finally { this.pairingSaving = false; this.projectCreating = false }
   }
 
   aboutToDisappear(): void {
@@ -230,6 +284,8 @@ export struct AppShell {
     this.demoGeneration += 1
     this.demoOpening = false
     this.scanning = false
+    if (this.pairingPreviewTimer >= 0) clearTimeout(this.pairingPreviewTimer)
+    this.pairingPreviewTimer = -1
     this.network.stop()
     this.debugUnsubscribe?.(); this.debugUnsubscribe = null
     this.pendingPairing = null
@@ -275,6 +331,17 @@ export struct AppShell {
       const records = await this.storage.loadRecords()
       if (!this.alive || generation !== this.nativeGeneration) return
       this.sessions = records
+      try {
+        const raw = await this.storage.readDisplayPreferences()
+        if (raw !== null) {
+          const prefs = JSON.parse(raw) as DisplayPreferences
+          if ((prefs.selectedPC !== null && typeof prefs.selectedPC !== 'string') || typeof prefs.debugEnabled !== 'boolean') throw new Error('invalid preferences')
+          this.selectedPC = prefs.selectedPC ?? 'all'; this.selectedPCConfigured = true
+          debugLog.setEnabled(prefs.debugEnabled)
+        }
+        this.preferencesReady = true
+        this.reconcileSelectedPC()
+      } catch (_) { this.nativeError = '设置读取失败，本次使用默认设置' }
       // Team package ships before remote push is configured.
       this.pushStatus = '当前版本暂不支持后台推送'
       this.pushConsent = false
@@ -324,7 +391,7 @@ export struct AppShell {
         void this.speech.cancel(); this.speechActive = false
         this.flushCache()
         debugLog.record('background')
-        this.entryStore.disconnect(); this.pendingPairing = null
+        this.entryStore.disconnect(); this.pendingPairing = null; this.projectCreating = false
         this.stores.forEach((store: HarmonySessionStore) => store.disconnect())
         this.drafts.forEach((draft: ComposerDraft) => { draft.sending = false })
       } else {
@@ -430,6 +497,7 @@ export struct AppShell {
     void this.speech.start(context, (text: string, active: boolean, error: string) => {
       if (!this.alive || id !== this.currentSessionId || this.view !== 'detail') return
       this.speechActive = active
+      if (!active) this.speechFinishing = false
       this.updateDraft(base + (text.length > 0 ? (base.length > 0 ? ' ' : '') + text : ''), this.draft.attachments, error)
     })
   }
@@ -486,7 +554,7 @@ export struct AppShell {
     for (let index = nextState.messages.length - 1; index >= 0; index -= 1) {
       const message = nextState.messages[index]
       if (message.kind === 'input' || message.kind === 'claude') {
-        preview = message.text.trim().replace(/\s+/g, ' ').slice(0, 100)
+        preview = sessionPreview(message.text)
         if (preview.length > 0) break
       }
     }
@@ -542,16 +610,38 @@ export struct AppShell {
         ? (result.operation === 'stop_session' ? 'Claude 会话已终止；配对入口仍保留' : '')
         : (result.code === 'session_capacity' ? '活跃会话已达上限' : result.code === 'result_unknown' ? '操作结果未知，请核对电脑端状态' : '操作失败，请重试')
     }
+    if (result.accepted && result.operation === 'create_session' && result.pairing === undefined) {
+      this.projectCreating = false
+      AlertDialog.show({ message: '电脑可能已创建会话，但未返回有效配对信息；请在电脑检查后重新配对', confirm: { value: '知道了', action: () => {} } })
+    }
+    if (!result.accepted && result.operation === 'create_session') this.projectCreating = false
+    if (!result.accepted && result.operation === 'create_session' && this.view === 'list') {
+      const message = result.code === 'result_unknown' ? '操作结果未知，请在电脑检查后再试' : result.code === 'session_capacity' ? '活跃会话已达上限' : '新建失败，请检查连接后重试'
+      AlertDialog.show({ message, confirm: { value: '知道了', action: () => {} } })
+    }
     if (result.accepted && result.operation === 'create_session' && result.pairing !== undefined) {
-      this.sessions = upsertSessionRecord(this.sessions, result.pairing)
-      this.currentSessionId = result.pairing.sessionId
-      this.store = this.connectSession(result.pairing)
-      this.sessionState = this.store.getState()
-      this.managementBusy = this.managementPendingSessions.has(this.currentSessionId)
-      this.managementFeedback = ''
-      this.view = 'detail'
-      this.activateDraft()
-      this.saveRecords()
+      const source = this.sessions.find((record: SessionRecord) => record.sessionId === sourceSessionId)
+      const child = result.pairing
+      const address = source === undefined ? null : createdPairingAddress(source.wsUrl, child.wsUrl)
+      if (source === undefined || address === null || !source.pcId || !source.projectCwd || child.pcId !== source.pcId || this.pendingPairing !== null) {
+        this.projectCreating = false
+        this.managementFeedback = '电脑可能已创建会话，但无法验证连接；请在电脑检查后重新配对'
+        AlertDialog.show({ message: this.managementFeedback, confirm: { value: '知道了', action: () => {} } })
+        return
+      }
+      const candidate: PairingPayload = { version: child.version, wsUrl: address, sessionId: child.sessionId, pairToken: child.pairToken, expiresAt: child.expiresAt, capabilities: child.capabilities, pcId: child.pcId, pcName: child.pcName }
+      const parsed = decodePairingPayload(JSON.stringify(candidate))
+      if (!parsed.ok || parsed.payload === null) {
+        this.projectCreating = false
+        this.managementFeedback = '电脑可能已创建会话，但连接地址无效；请在电脑检查后重新配对'
+        AlertDialog.show({ message: this.managementFeedback, confirm: { value: '知道了', action: () => {} } })
+        return
+      }
+      this.entryStore.reset()
+      this.projectTarget = { pcId: source.pcId, cwd: source.projectCwd }
+      this.createdSource = sourceSessionId
+      this.pendingPairing = parsed.payload
+      this.entryStore.connectWithPairing(parsed.payload)
     }
   }
 
@@ -567,12 +657,27 @@ export struct AppShell {
     }
   }
 
+  private saveDisplayPreferences(): void {
+    if (!this.preferencesReady || this.storage === null) return
+    const prefs: DisplayPreferences = { selectedPC: this.selectedPC === 'all' ? null : this.selectedPC, debugEnabled: this.debugEnabled }
+    void this.storage.writeDisplayPreferences(JSON.stringify(prefs)).catch(() => { this.nativeError = '设置保存失败' })
+  }
+  private reconcileSelectedPC(): void {
+    const groups = groupSessions(this.sessions)
+    const missing = this.selectedPC !== 'all' && !groups.some((pc) => pc.key === this.selectedPC)
+    if (!this.selectedPCConfigured || missing) {
+      this.selectedPC = groups.length === 1 ? groups[0].key : 'all'
+      if (groups.length > 0) { this.selectedPCConfigured = true; this.saveDisplayPreferences() }
+    }
+  }
   private sortedSessions(): Array<SessionRecord> {
     const sorted = listSessionRecords(this.sessions)
     if (this.listOrder.length === 0) return sorted
+    const positions: Map<string, number> = new Map()
+    this.listOrder.forEach((id: string, index: number) => positions.set(id, index))
     sorted.sort((left, right) => {
-      const leftIndex = this.listOrder.indexOf(left.sessionId)
-      const rightIndex = this.listOrder.indexOf(right.sessionId)
+      const leftIndex = positions.get(left.sessionId) ?? -1
+      const rightIndex = positions.get(right.sessionId) ?? -1
       if (leftIndex < 0 && rightIndex < 0) return 0
       if (leftIndex < 0) return 1
       if (rightIndex < 0) return -1
@@ -594,6 +699,8 @@ export struct AppShell {
   }
 
   private openPairingPage(): void {
+    if (this.pairingSaving) return
+    this.projectTarget = null; this.createdSource = ''
     this.pendingPairing = null
     this.entryStore.reset()
     this.pairingTarget = ''
@@ -604,6 +711,8 @@ export struct AppShell {
   }
 
   private openListPage(): void {
+    if (this.pairingSaving) return
+    this.projectTarget = null; this.createdSource = ''
     this.pendingPairing = null; this.entryStore.disconnect()
     this.recentlyViewedId = this.currentSessionId
     this.listOrder = listSessionRecords(this.sessions).map((record: SessionRecord) => record.sessionId)
@@ -613,7 +722,7 @@ export struct AppShell {
   }
 
   private handleConnect(): void {
-    if (!this.nativeReady) return
+    if (!this.nativeReady || this.pairingSaving) return
     this.pendingPairing = null
     this.entryStore.reset()
     const result = decodePairingPayload(this.pairingInput)
@@ -652,6 +761,7 @@ export struct AppShell {
   }
 
   private handleRemoveSession(sessionId: string): void {
+    if (this.pairingSaving) return
     this.cacheGate.forget(sessionId)
     this.dirty.delete(sessionId); this.drafts.delete(sessionId)
     void this.notifications?.remove(sessionId).catch(() => {})
@@ -675,6 +785,7 @@ export struct AppShell {
       this.managementPendingSessions.delete(sessionId)
     }
     this.sessions = removeSessionRecord(this.sessions, sessionId)
+    this.reconcileSelectedPC()
     this.saveRecords()
     if (this.sessions.length === 0) {
       this.view = 'pairing'
@@ -682,6 +793,7 @@ export struct AppShell {
   }
 
   private handleRenameSession(sessionId: string, name: string): void {
+    if (this.pairingSaving) return
     this.sessions = renameSessionRecord(this.sessions, sessionId, name)
     this.saveRecords()
   }
@@ -811,13 +923,16 @@ export struct AppShell {
       state: this.sessionState,
       draft: this.draft,
       speechActive: this.speechActive,
+      speechFinishing: this.speechFinishing,
+      debugEnabled: this.debugEnabled,
+      onDebugOpen: () => { this.debugOpen = true },
       selecting: this.selecting,
       onDraft: (text: string) => this.updateDraft(text, this.draft.attachments),
       onSelect: (kind: string) => { void this.selectAttachment(kind) },
       onRemoveAttachment: (index: number) => this.updateDraft(this.draft.text, this.draft.attachments.filter((_item: Attachment, itemIndex: number) => itemIndex !== index)),
       onSpeech: () => this.startSpeech(),
-      onStopSpeech: () => { void this.speech.stop() },
-      onCancelSpeech: () => { void this.speech.cancel(); this.speechActive = false },
+      onStopSpeech: () => { if (!this.speechFinishing) { this.speechFinishing = true; void this.speech.stop() } },
+      onCancelSpeech: () => { void this.speech.cancel(); this.speechActive = false; this.speechFinishing = false },
       questionAnswers: this.questionAnswers,
       capabilities: this.activeRecord()?.capabilities ?? [],
       managementBusy: this.managementBusy,
@@ -863,9 +978,12 @@ export struct AppShell {
   private buildPairingView(): void {
     PairingPage({
       onDemo: () => this.openDemo(),
+      projectCwd: this.projectTarget?.cwd ?? '',
+      saving: this.pairingSaving,
+      onCancel: () => { if (!this.pairingSaving) { this.pendingPairing = null; this.entryStore.disconnect(); this.pairingTarget = '' } },
       target: this.pairingTarget,
       pairingInput: this.pairingInput,
-      nativeReady: this.nativeReady,
+      nativeReady: this.nativeReady && !this.pairingSaving,
       scanning: this.scanning,
       onScan: () => { void this.scan() },
       connection: this.sessionState.connection,
@@ -878,6 +996,13 @@ export struct AppShell {
       },
       onPairingInputChange: (value: string) => {
         this.pairingInput = value
+        if (this.pairingPreviewTimer >= 0) clearTimeout(this.pairingPreviewTimer)
+        this.pairingTarget = ''
+        if (value.length <= 16384) this.pairingPreviewTimer = setTimeout(() => {
+          if (!this.alive || this.view !== 'pairing' || this.pairingInput !== value) return
+          const parsed = decodePairingPayload(value)
+          this.pairingTarget = parsed.ok && parsed.payload !== null ? debugLog.target(parsed.payload.wsUrl) : ''
+        }, 200)
       },
       onConnect: () => {
         this.handleConnect()
@@ -890,7 +1015,26 @@ export struct AppShell {
     SessionListPage({
       onDemo: () => this.openDemo(),
       debugEnabled: this.debugEnabled,
-      onDebug: (value: boolean) => debugLog.setEnabled(value),
+      onDebug: (value: boolean) => { debugLog.setEnabled(value); this.saveDisplayPreferences() },
+      selectedPC: this.selectedPC,
+      projectCreating: this.projectCreating,
+      onSelectPC: (key: string) => { this.selectedPC = key; this.selectedPCConfigured = true; this.saveDisplayPreferences() },
+      onCreateProject: (pcKey: string, cwd: string, sourceId: string) => {
+        if (cwd.length === 0 || !/^[0-9a-f]{32}$/.test(pcKey)) {
+          AlertDialog.show({ message: '无法验证电脑或工作目录，请重新配对后重试', confirm: { value: '知道了', action: () => {} } }); return
+        }
+        if (sourceId.length === 0) {
+          const hasConnected = this.sessions.some((record: SessionRecord) => sessionPCKey(record) === pcKey && record.projectCwd === cwd && record.status === 'connected')
+          if (hasConnected) { AlertDialog.show({ message: '当前会话不支持新建', confirm: { value: '知道了', action: () => {} } }); return }
+          this.openPairingPage(); this.projectTarget = { pcId: pcKey, cwd }
+          AlertDialog.show({ message: '请扫描目标电脑和目录的新会话配对码', confirm: { value: '知道了', action: () => {} } }); return
+        }
+        const source = this.stores.get(sourceId)
+        if (source === undefined || this.projectCreating || this.pendingPairing !== null || this.managementPendingSessions.has(sourceId) || !source.createSession()) {
+          AlertDialog.show({ message: '暂时无法新建会话，请检查连接后重试', confirm: { value: '知道了', action: () => {} } }); return
+        }
+        this.managementPendingSessions.add(sourceId); this.projectCreating = true
+      },
       onDebugOpen: () => { this.debugOpen = true },
       sessions: this.sortedSessions(),
       scrollOffset: this.listOffset,
@@ -961,7 +1105,7 @@ export struct AppShell {
     }
     if (this.debugOpen) {
       Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.debugOpen = false }).transition(pageFade())
-      DebugPanel({ onClose: () => { this.debugOpen = false } }).transition(pageFade())
+      DebugPanel({ onClose: () => { this.debugOpen = false }, onEnabledChange: (value: boolean) => { debugLog.setEnabled(value); this.saveDisplayPreferences() } }).transition(pageFade())
     }
     }.width('100%').height('100%')
   }

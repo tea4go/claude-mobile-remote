@@ -100,7 +100,6 @@ export struct StatusBar {
     Column({ space: 1 }) {
       Text(connectionLabel(this.state.connection)).id('connection-state').fontSize(11).fontColor('#6e6e73').maxLines(1)
       Text(this.statusText()).id('turn-state').fontSize(11).fontColor('#6e6e73').maxLines(1).fontWeight(FontWeight.Medium)
-      if (this.state.queueDepthHint > 0) { Text(`排队 ${this.state.queueDepthHint}`).fontSize(12) }
     }.width(78).alignItems(HorizontalAlign.End)
   }
 }

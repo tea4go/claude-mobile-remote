@@ -20,7 +20,7 @@ function hold(node: Element) {
   fireEvent.touchStart(node, { touches: [finger()] })
   act(() => vi.advanceTimersByTime(500))
 }
-function pointer(node: EventTarget, type: string, x: number, y: number, id = 1) {
+function pointer(node: Element | Document, type: string, x: number, y: number, id = 1) {
   const event = new Event(type, { bubbles: true, cancelable: true })
   Object.defineProperties(event, { pointerId: { value: id }, button: { value: 0 }, clientX: { value: x }, clientY: { value: y } })
   fireEvent(node, event)

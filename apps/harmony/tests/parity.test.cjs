@@ -416,14 +416,14 @@ test('progress updates and clears with turn lifecycle without extra feed message
   socket.wire(eventWire(event('turn_completed', 4, { turnStatus: 'completed' }), 6))
   assert.equal(store.getState().progress, undefined)
 })
-test('logs bounded, disabled clears, and target strips secret paths and userinfo', () => {
+test('logs remain bounded when hidden and target strips secret paths and userinfo', () => {
   debugLog.setEnabled(true); debugLog.clear()
   for (let i = 0; i < 210; i++) debugLog.record('ping', i)
   assert.equal(debugLog.list().length, 200)
   assert.equal(debugLog.list()[0].detail, 'value=209')
   assert.equal(debugLog.target('wss://example.test:443/private?token=secret'), 'wss://example.test:443')
   assert.equal(debugLog.target('wss://user:secret@example.test/ws'), '目标地址不可显示')
-  debugLog.setEnabled(false); debugLog.record('ready'); assert.equal(debugLog.list().length, 0)
+  debugLog.setEnabled(false); debugLog.record('ready'); assert.equal(debugLog.list()[0].code, 'ready'); assert.equal(debugLog.list().length, 200)
   debugLog.setEnabled(true)
 })
 test('offline demo streams, cancels and resets without pairing or persistence', t => {
@@ -593,4 +593,97 @@ test('v7 snapshot racing same turn_started merges once and rejects a duplicate',
   assert.deepEqual(state.messages[0].attachments, images)
   state = reducer.reduceHarmonySessionState(state, reducer.eventReceived(event('turn_started', 2, { source: 'terminal', text: '安全问题', turnStatus: 'running' })))
   assert.equal(state.connection, ConnectionStage.PROTOCOL_ERROR)
+})
+
+test('project grouping isolates PCs and exact directories while preserving order', () => {
+  const { groupSessions } = load('session/projectGroups')
+  const record = (id, pcId, projectCwd, status = 'connected') => ({ sessionId: id, pcId, pcName: pcId, wsUrl: 'ws://example/ws', projectCwd, status })
+  const groups = groupSessions([record('a', 'pc1', '/a/demo'), record('b', 'pc1', '/b/demo'), record('c', 'pc2', '/a/demo'), record('d', 'pc1', '/a/demo', 'disconnected')])
+  assert.equal(groups.length, 2)
+  assert.equal(groups[0].projects.length, 2)
+  assert.deepEqual(groups[0].projects[0].sessions.map(x => x.sessionId), ['a', 'd'])
+  assert.equal(groups[0].connected, 2)
+  assert.notEqual(groups[0].projects[0].key, groups[1].projects[0].key)
+})
+
+test('project pairing checks exact PC and cwd and rewrites only a validated child host', () => {
+  const { projectMatches, createdPairingAddress } = load('session/projectPairing')
+  const item = { ...pairing, pcId: 'pc-a' }
+  assert.equal(projectMatches('pc-a', '/one/demo', item, '/one/demo'), true)
+  assert.equal(projectMatches('pc-b', '/one/demo', item, '/one/demo'), false)
+  assert.equal(projectMatches('pc-a', '/one/demo', item, '/two/demo'), false)
+  assert.equal(projectMatches('', '/one/demo', item, '/one/demo'), false)
+  assert.equal(createdPairingAddress('ws://10.0.0.4:100/ws', 'ws://10.0.0.1:200/child'), 'ws://10.0.0.4:200/child')
+  assert.equal(createdPairingAddress('ws://10.0.0.4/ws', 'wss://example.test/child'), null)
+  assert.equal(createdPairingAddress('ws://example/ws', 'ws://user@host/ws'), null)
+  assert.equal(createdPairingAddress('ws://[2001:db8::1]:10/a', 'ws://old:20?route=1'), 'ws://[2001:db8::1]:20/?route=1')
+})
+
+test('unchanged list projection preserves identity to avoid redundant regrouping', () => {
+  const { updateDisplayRecord } = load('session/records')
+  const record = { sessionId: 'a', wsUrl: 'ws://example/ws', preview: 'summary', runtimeStatus: '进行中', unread: false }
+  const list = [record]
+  assert.equal(updateDisplayRecord(list, 'a', undefined, undefined, undefined, undefined, 'summary', '进行中', false), list)
+  const next = updateDisplayRecord(list, 'a', undefined, undefined, undefined, undefined, 'new', '进行中', false)
+  assert.notEqual(next, list)
+  assert.equal(list[0].preview, 'summary')
+  assert.equal(next[0].preview, 'new')
+})
+
+test('tool results resolve names only within the same turn', () => {
+  const { toolNamesByTurn, toolNameForResult } = load('session/stepIndex')
+  const index = toolNamesByTurn([{ kind: 'block', requestId: 'first', block: { kind: 'tool_use', toolUseId: 'same', toolName: 'Read' } }, { kind: 'block', requestId: 'second', block: { kind: 'tool_use', toolUseId: 'same', toolName: 'Write' } }])
+  assert.equal(toolNameForResult(index, 'first', 'same'), 'Read')
+  assert.equal(toolNameForResult(index, 'second', 'same'), 'Write')
+  assert.equal(toolNameForResult(index, 'third', 'same'), '')
+})
+
+test('activity groups keep contiguous steps isolated by turn', () => {
+  const { projectFeed } = load('ui/feedDataSource')
+  const step = (id, requestId) => ({ kind: 'block', requestId, block: { kind: 'thinking', id, thinking: id } })
+  const input = { kind: 'input', requestId: 'a', text: 'hello', source: 'mobile', status: '' }
+  const rows = projectFeed([step('1', 'a'), step('2', 'a'), input, step('3', 'a'), step('4', 'b')])
+  assert.deepEqual(rows.map(row => row.kind), ['activity', 'input', 'activity', 'activity'])
+  assert.equal(rows[0].blocks.length, 2)
+})
+
+test('unfinished tool status is scoped to turn and never fakes completion', () => {
+  const { toolStatusesByTurn } = load('session/stepIndex')
+  const key = (requestId, toolUseId) => JSON.stringify([requestId, toolUseId])
+  const use = requestId => ({ kind: 'block', requestId, block: { kind: 'tool_use', toolUseId: 'same', toolName: 'Read' } })
+  const statuses = toolStatusesByTurn([use('running'), use('cancelled'), use('done'), { kind: 'claude', requestId: 'cancelled', status: 'cancelled' }, { kind: 'claude', requestId: 'done', status: 'done' }, { kind: 'block', requestId: 'done', block: { kind: 'tool_result', toolUseId: 'other', isError: false } }])
+  assert.equal(statuses.get(key('running', 'same')), '进行中')
+  assert.equal(statuses.get(key('cancelled', 'same')), '已中断')
+  assert.equal(statuses.get(key('done', 'same')), '结果未收到')
+})
+
+test('virtual list projection filters PCs and collapses only its exact project', () => {
+  const { groupSessions } = load('session/projectGroups')
+  const { projectListRows } = load('ui/projectListDataSource')
+  const record = (id, pcId, projectCwd) => ({ sessionId: id, pcId, pcName: pcId, wsUrl: 'ws://example/ws', projectCwd, status: 'connected' })
+  const groups = groupSessions([record('a', 'one', '/a'), record('b', 'one', '/b'), record('c', 'two', '/a')])
+  assert.deepEqual(projectListRows(groups, 'one', [groups[0].projects[0].key]).map(row => row.key), ['pc:one', 'project:' + groups[0].projects[0].key, 'project:' + groups[0].projects[1].key, 'session:b'])
+  assert.equal(projectListRows(groups, 'all', []).filter(row => row.kind === 'session').length, 3)
+})
+
+test('pairing commit restores previous records after failure or invalidation', async () => {
+  const { commitPairingRecords } = load('session/pairingCommit')
+  const old = [{ sessionId: 'old' }], next = [{ sessionId: 'new' }]
+  const writes = []
+  const store = { async saveRecords(records) { writes.push(records); if (writes.length === 1) throw Error('disk') } }
+  assert.equal(await commitPairingRecords(store, next, old, () => true), 'failed')
+  assert.equal(writes[1], old)
+  writes.length = 0
+  const good = { async saveRecords(records) { writes.push(records) } }
+  assert.equal(await commitPairingRecords(good, next, old, () => false), 'cancelled')
+  assert.equal(writes[1], old)
+  assert.equal(await commitPairingRecords({ async saveRecords() { throw Error('disk') } }, next, old, () => true), 'rollback_failed')
+  assert.equal(await commitPairingRecords(good, next, old, () => true), 'saved')
+})
+
+test('session previews normalize whitespace and bound displayed length', () => {
+  const { sessionPreview } = load('session/projectGroups')
+  assert.equal(sessionPreview('  hello\n  world  '), 'hello world')
+  assert.equal(sessionPreview('a'.repeat(100000)), 'a'.repeat(100))
+  assert.equal(sessionPreview('  \n'), '')
 })

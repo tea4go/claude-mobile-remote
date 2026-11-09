@@ -6,6 +6,7 @@ import { debugLog, logDescription, type LogEntry } from '../debug/log'
 @Component
 export struct DebugPanel {
   onClose: () => void = () => {}
+  onEnabledChange: (value: boolean) => void = () => {}
   @State private entries: Array<LogEntry> = []
   @State private logEnabled: boolean = true
   @State private feedback: string = ''
@@ -36,7 +37,7 @@ export struct DebugPanel {
     Column({ space: 4 }) {
       Row({ space: 4 }) {
         Text('调试日志').fontSize(16).layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.logEnabled }).onChange((value: boolean) => debugLog.setEnabled(value))
+        Toggle({ type: ToggleType.Switch, isOn: this.logEnabled }).onChange((value: boolean) => this.onEnabledChange(value))
         Button('关闭').fontSize(12).height(36).onClick(() => this.onClose())
       }
       Row({ space: 4 }) {

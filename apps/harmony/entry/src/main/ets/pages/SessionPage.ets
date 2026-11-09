@@ -75,6 +75,9 @@ export struct SessionPage {
   @Prop @Watch('stateChanged') state: HarmonySessionState
   @Prop draft: ComposerDraft = emptyDraft()
   @Prop speechActive: boolean = false
+  @Prop speechFinishing: boolean = false
+  @Prop debugEnabled: boolean = false
+  onDebugOpen: () => void = () => {}
   @Prop selecting: boolean = false
   onDraft: (text: string) => void = () => {}
   onSelect: (kind: string) => void = () => {}
@@ -166,6 +169,7 @@ export struct SessionPage {
     nativeLifecycle.detailBack = this.backHandler
   }
   private readonly backHandler: () => boolean = () => {
+      if (this.sheet.length === 0 && nativeLifecycle.messageBack?.()) return true
       if (this.sheet.length === 0) return false
       this.closeSheet(); return true
   }
@@ -236,9 +240,8 @@ export struct SessionPage {
         }
         Row({ space: 8 }) {
           if (this.state.pendingAction !== null) { Button('待处理事项', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => { this.sheet = 'action' }) }
-          if (this.state.queuedRequests.length > 0) { Button(`排队 ${this.state.queuedRequests.length}`, { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => { this.sheet = 'queue' }) }
         }
-        MessageList({ messages: this.state.messages, scroller: this.scroller,
+        MessageList({ messages: this.state.messages, scroller: this.scroller, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen,
           onAtBottom: (value: boolean) => { this.atBottom = value } })
           .layoutWeight(1).width('100%').padding(12)
         Row() {
@@ -251,9 +254,9 @@ export struct SessionPage {
             permissionMode: this.state.permissionMode,
             permissionEnabled: this.commandReady() && (this.state.sessionStatus === 'ready' || this.state.sessionStatus === 'starting'),
             onPermissionMode: this.onPermissionMode,
-            createSessionAvailable: this.capabilities.indexOf('create_session') >= 0,
-            createSessionEnabled: this.commandReady(), running: this.hasCancelTarget(), cancelEnabled: this.commandReady(),
-            speechActive: this.speechActive, selecting: this.selecting,
+            createSessionAvailable: false,
+            createSessionEnabled: false, running: this.hasCancelTarget(), cancelEnabled: this.commandReady(),
+            speechActive: this.speechActive, speechFinishing: this.speechFinishing, selecting: this.selecting,
             onDraft: this.onDraft, onSelect: this.onSelect, onRemoveAttachment: this.onRemoveAttachment,
             onSpeech: this.onSpeech, onStopSpeech: this.onStopSpeech, onCancelSpeech: this.onCancelSpeech,
             onSend: this.onSend, onCreateSession: this.onCreateSession, onCancel: () => this.onCancelTurn(this.cancelTarget()) })

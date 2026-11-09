@@ -4,6 +4,7 @@ class NativeLifecycle {
   context: common.UIAbilityContext | null = null
   onBack: (() => boolean) | null = null
   detailBack: (() => boolean) | null = null
+  messageBack: (() => boolean) | null = null
   foreground: boolean = true
   pendingSessionId: string = ''
   pendingTopic: string = ''

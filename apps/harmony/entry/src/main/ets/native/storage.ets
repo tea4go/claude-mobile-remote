@@ -8,6 +8,7 @@ import { type SessionRecord, createSessionRecord, pairingPayloadFromRecord } fro
 import { decodePairingPayload, type PairingDecodeResult } from '../protocol/pairing'
 import { CACHE_AGE, CACHE_BYTES, CACHE_TOTAL, decodeCache } from '../session/cache'
 import type { HarmonySessionState } from '../session/model'
+import type { PairingRecordStorage } from '../session/pairingCommit'
 
 const KEY_ALIAS = 'cmr.pairing.aes256.v1'
 const encoder = new util.TextEncoder()
@@ -16,7 +17,7 @@ const base64 = new util.Base64Helper()
 interface CipherEnvelope { version: number; nonce: string; data: string }
 interface CacheFile { name: string; size: number; time: number }
 
-export class NativeStorage {
+export class NativeStorage implements PairingRecordStorage {
   private queue: Promise<void> = Promise.resolve()
   private initialized: boolean = false
   private readonly root: string
@@ -205,6 +206,11 @@ export class NativeStorage {
   writePushState(value: string): Promise<void> { return this.serial(() => this.write(this.root + '/push-state', value)) }
   readPushConsent(): Promise<boolean> { return this.serial(async () => (await this.read(this.root + '/push-consent', 16)) === 'enabled') }
   setPushConsent(enabled: boolean): Promise<void> { return this.serial(() => this.write(this.root + '/push-consent', enabled ? 'enabled' : 'disabled')) }
+  readDisplayPreferences(): Promise<string | null> { return this.serial(async () => this.read(this.root + '/display-preferences.json', 16384)) }
+  writeDisplayPreferences(value: string): Promise<void> {
+    if (value.length > 16384) return Promise.reject(new Error('preferences exceed limit'))
+    return this.serial(async () => this.write(this.root + '/display-preferences.json', value))
+  }
   readNotificationsEnabled(): Promise<boolean> { return this.serial(async () => (await this.read(this.root + '/notifications', 16)) === 'enabled') }
   setNotificationsEnabled(enabled: boolean): Promise<void> { return this.serial(() => this.write(this.root + '/notifications', enabled ? 'enabled' : 'disabled')) }
 }

@@ -2,22 +2,20 @@ import type { SessionDiagnostic } from '../protocol/types'
 export type LogCode = 'network_lost' | 'network_monitor_failed' | 'target' | 'connect' | 'socket_open' | 'authenticated' | 'subscribed' | 'ready' | 'closed' | 'socket_error' | 'protocol_error' | 'pairing_invalid' | 'connect_timeout' | 'auth_timeout' | 'subscribe_timeout' | 'snapshot_timeout' | 'ping' | 'pong' | 'heartbeat_timeout' | 'legacy' | 'command' | 'command_accepted' | 'command_rejected' | 'command_unknown' | 'reconnect' | 'background' | 'host'
 export interface LogEntry { time: number; code: LogCode; detail: string }
 export class DebugLog {
-  enabled: boolean = true
+  enabled: boolean = false
   private entries: Array<LogEntry> = []
   private listeners: Array<() => void> = []
   subscribe(listener: () => void): () => void { this.listeners.push(listener); return () => { this.listeners = this.listeners.filter((item: () => void) => item !== listener) } }
   private emit(): void { this.listeners.forEach((item: () => void) => item()) }
-  setEnabled(value: boolean): void { this.enabled = value; if (!value) this.entries = []; this.emit() }
+  setEnabled(value: boolean): void { this.enabled = value; this.emit() }
   clear(): void { this.entries = []; this.emit() }
   list(): Array<LogEntry> { return this.entries.slice().reverse() }
   text(): string { return this.list().map((item: LogEntry) => `${new Date(item.time).toISOString()} ${item.code} ${item.detail}`).join('\n') }
   record(code: LogCode, value: number = 0): void {
-    if (!this.enabled) return
     const detail = Number.isFinite(value) && value >= 0 ? `value=${Math.floor(value)}` : ''
     this.entries.push({ time: Date.now(), code, detail }); if (this.entries.length > 200) this.entries.shift(); this.emit()
   }
   connectionTarget(raw: string): void {
-    if (!this.enabled) return
     this.entries.push({ time: Date.now(), code: 'target', detail: this.target(raw) })
     if (this.entries.length > 200) this.entries.shift(); this.emit()
   }
@@ -26,7 +24,6 @@ export class DebugLog {
     return match === null ? '目标地址不可显示' : `${match[1]}://${match[2]}:${match[3] ?? (match[1] === 'wss' ? '443' : '80')}`
   }
   host(diagnostic: SessionDiagnostic): void {
-    if (!this.enabled) return
     // Only the decoder's closed enum and bounded numeric fields are serialized.
     const detail = `${diagnostic.code} http=${diagnostic.httpStatus ?? 0} attempt=${diagnostic.attempt ?? 0}/${diagnostic.maxAttempts ?? 0} delayMs=${diagnostic.retryDelayMs ?? 0}`
     this.entries.push({ time: Date.now(), code: 'host', detail }); if (this.entries.length > 200) this.entries.shift(); this.emit()

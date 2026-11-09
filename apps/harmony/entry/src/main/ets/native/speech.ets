@@ -11,12 +11,13 @@ export class SpeechDraft {
   private timer: number = -1
   private listener: ((text: string, active: boolean, error: string) => void) | null = null
   private text: string = ''
+  private finishing: boolean = false
   async start(context: common.UIAbilityContext, listener: (text: string, active: boolean, error: string) => void): Promise<void> {
     const cancelling = this.cancel()
     const generation = this.generation
     await cancelling
     if (generation !== this.generation) return
-    this.listener = listener; this.text = ''
+    this.listener = listener; this.text = ''; this.finishing = false
     listener('', true, '')
     try {
       const permission = await abilityAccessCtrl.createAtManager().requestPermissionsFromUser(context, ['ohos.permission.MICROPHONE'])
@@ -68,6 +69,8 @@ export class SpeechDraft {
     }
   }
   async stop(): Promise<void> {
+    if (this.finishing) return
+    this.finishing = true
     if (this.engine === null) { await this.cancel(); return }
     const generation = this.generation
     if (this.timer >= 0) clearTimeout(this.timer)
@@ -94,6 +97,7 @@ export class SpeechDraft {
     this.generation += 1
     if (this.timer >= 0) clearTimeout(this.timer)
     this.timer = -1
+    this.finishing = false
     const engine = this.engine; this.engine = null
     const capturer = this.capturer; this.capturer = null
     try { engine?.cancel(this.sessionId) } catch (_) {}
