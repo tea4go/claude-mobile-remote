@@ -1,0 +1,5 @@
+.queued-request-list__hint { color: var(--adm-color-weak); font-size: 12px; margin-bottom: 4px; }
+.queued-request-list__item { display: flex; width: 100%; min-height: 64px; flex-direction: column; align-items: stretch; gap: 6px; padding: 12px 4px; border: 0; border-bottom: 1px solid var(--adm-color-border); background: transparent; color: var(--adm-color-text); text-align: left; font: inherit; }
+.queued-request-list__item:disabled { opacity: 1; }
+.queued-request-list__meta { color: var(--adm-color-weak); font-size: 12px; }
+.queued-request-list__preview { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }

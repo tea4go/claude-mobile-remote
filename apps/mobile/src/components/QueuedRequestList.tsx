@@ -1,53 +1,48 @@
-import { Button, Tag } from 'antd-mobile'
-import { COMPACT_BUTTON_STYLE, FONT_SIZE_COMPACT, FONT_SIZE_SECONDARY } from './ui'
+import { useEffect, useState } from 'react'
+import { ActionSheet } from 'antd-mobile'
 import type { QueuedRequest } from '../protocol/types'
+import './QueuedRequestList.css'
 
 interface QueuedRequestListProps {
   requests: QueuedRequest[]
-  // 连接就绪且无在途命令时才允许发取消命令。
   enabled: boolean
   onCancel: (requestId: string) => void
   onSteer?: (requestId: string) => void
 }
 
-// 排队输入列表（B2 §6）：按 snapshot 的 queuedRequests 顺序展示服务端截断后的
-// 预览，逐项取消只针对对应 request ID。不展示 request ID 本身。
-export default function QueuedRequestList({
-  requests,
-  enabled,
-  onCancel,
-  onSteer,
-}: QueuedRequestListProps) {
+export default function QueuedRequestList({ requests, enabled, onCancel, onSteer }: QueuedRequestListProps) {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selected = requests.find((request) => request.requestId === selectedId)
+  useEffect(() => {
+    if (!enabled || (selectedId !== null && !selected)) setSelectedId(null)
+  }, [enabled, selectedId, selected])
+
   if (requests.length === 0) return null
 
-  return (
-    <div
-      data-testid="queued-request-list"
-      style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+  return <div data-testid="queued-request-list" className="queued-request-list">
+    <div className="queued-request-list__hint">按顺序等待处理，点击查看操作</div>
+    {requests.map((request, index) => <button
+      key={request.requestId}
+      type="button"
+      data-testid="queued-request-item"
+      className="queued-request-list__item"
+      onClick={() => setSelectedId(request.requestId)}
+      disabled={!enabled}
     >
-      <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888' }}>等待处理的输入</div>
-      {requests.map((request) => (
-        <div
-          key={request.requestId}
-          data-testid="queued-request-item"
-          style={{ display: 'flex', gap: 8, alignItems: 'center' }}
-        >
-          <Tag color="default" style={{ fontSize: FONT_SIZE_COMPACT, padding: '0 5px' }}>
-            {request.source === 'terminal' ? '电脑端' : '手机端'}
-          </Tag>
-          <span style={{ flex: 1, fontSize: FONT_SIZE_SECONDARY, wordBreak: 'break-word' }}>{request.preview}</span>
-          {onSteer && <Button size="mini" fill="outline" style={COMPACT_BUTTON_STYLE} disabled={!enabled} onClick={() => onSteer(request.requestId)}>引导</Button>}
-          <Button
-            size="mini"
-            fill="outline"
-            style={COMPACT_BUTTON_STYLE}
-            disabled={!enabled}
-            onClick={() => onCancel(request.requestId)}
-          >
-            取消
-          </Button>
-        </div>
-      ))}
-    </div>
-  )
+      <span className="queued-request-list__meta">第 {index + 1} 项 · {request.source === 'terminal' ? '电脑端' : '手机端'}</span>
+      <span className="queued-request-list__preview">{request.preview || '（无文本预览）'}</span>
+    </button>)}
+    <ActionSheet
+      visible={!!selected && enabled}
+      extra="队列操作"
+      cancelText="关闭"
+      closeOnAction
+      closeOnMaskClick
+      onClose={() => setSelectedId(null)}
+      actions={[
+        ...(onSteer ? [{ key: 'steer', text: '引导', onClick: () => { if (selected) onSteer(selected.requestId) } }] : []),
+        { key: 'cancel', text: '取消排队', danger: true, onClick: () => { if (selected) onCancel(selected.requestId) } },
+      ]}
+    />
+  </div>
 }

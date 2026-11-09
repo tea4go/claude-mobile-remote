@@ -33,6 +33,10 @@
   flex: none;
 }
 
+.composer-queue-button.adm-button > span {
+  gap: 3px;
+}
+
 .composer-popover-menu.adm-popover-menu .adm-popover-inner {
   border-radius: 10px;
 }

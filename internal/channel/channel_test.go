@@ -43,6 +43,21 @@ type resolveCall struct {
 	answers  []projectsession.QuestionAnswer
 }
 
+type disabledSteeringController struct{ *steeringController }
+
+func (*disabledSteeringController) CanSteerQueue() bool { return false }
+
+func TestAdapterCanDeclineOptionalSteering(t *testing.T) {
+	host := &disabledSteeringController{&steeringController{fakeController: &fakeController{}}}
+	c := New("session", host)
+	if c.CanSteerQueue() {
+		t.Fatal("adapter incorrectly advertised unsupported steering")
+	}
+	if err := c.SteerQueued(context.Background(), "session", "request"); !errors.Is(err, protocol.ErrSessionUnavailable) || host.steered != "" {
+		t.Fatalf("unsupported host was called: %v", err)
+	}
+}
+
 type fakeController struct {
 	mu sync.Mutex
 

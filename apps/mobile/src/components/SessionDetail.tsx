@@ -1,7 +1,7 @@
 import type { Attachment, AttachmentSendResult } from '../protocol/types'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ExperiencePort } from '../native/experience'
-import { Button, NavBar } from 'antd-mobile'
+import { Button, NavBar, Popup, Toast } from 'antd-mobile'
 import { LeftOutline } from 'antd-mobile-icons'
 import MessageComposer from './MessageComposer'
 import MessageFeed from './MessageFeed'
@@ -17,9 +17,6 @@ import type { ActionResolution } from '../protocol/client'
 import type { PermissionMode } from '../protocol/types'
 import type { MobileState } from '../session/reducer'
 import type { SessionRecord } from '../session/store'
-
-// 队列交互完善前暂不展示入口；保留实现以便后续恢复。
-const SHOW_QUEUE_ENTRY = false
 
 interface SessionDetailProps {
   topSafeArea?: boolean
@@ -77,6 +74,39 @@ export default function SessionDetail({
   const cancelRequested = state.pendingCommand?.kind === 'cancel_turn'
   const contentScrollRef = useRef<HTMLDivElement>(null)
   const [queueOpen, setQueueOpen] = useState(false)
+  const showQueue = state.canSteerQueue && state.queuedRequests.length > 0
+  const queueOperation = useRef<{ kind: 'cancel' | 'steer'; previousError: MobileState['lastError'] } | null>(null)
+  useEffect(() => {
+    if (!showQueue || state.pendingAction !== null) setQueueOpen(false)
+  }, [showQueue, state.pendingAction])
+  useEffect(() => {
+    setQueueOpen(false)
+    queueOperation.current = null
+  }, [record.sessionId])
+  useEffect(() => {
+    const operation = queueOperation.current
+    if (!operation) return
+    if (state.lastError !== null && state.lastError !== operation.previousError) {
+      Toast.show({ content: operation.kind === 'steer' && state.lastError.code === 'turn_not_cancellable' ? '当前回复无法引导，请等待执行或刷新队列' : state.lastError.message })
+      queueOperation.current = null
+    } else if (state.phase !== 'connected') {
+      Toast.show({ content: '连接已断开，队列操作结果待重连后确认' })
+      queueOperation.current = null
+    } else if (state.pendingCommand === null) {
+      queueOperation.current = null
+    }
+  }, [state])
+  const operateQueue = (requestId: string, operation: typeof onSteerQueued, kind: 'cancel' | 'steer') => {
+    if (!sessionUsable || !commandReady || !operation) {
+      Toast.show({ content: '当前无法操作队列，请检查连接后重试' })
+      return
+    }
+    queueOperation.current = { kind, previousError: state.lastError }
+    if (operation(requestId) === false) {
+      queueOperation.current = null
+      Toast.show({ content: '队列已变化或操作未受理，请检查后重试' })
+    }
+  }
   const disabledReason = pairingInvalid
     ? '配对已失效，请返回列表重新配对'
     : state.sessionStatus === 'stopped'
@@ -173,12 +203,6 @@ export default function SessionDetail({
           flexShrink: 0,
         }}
       >
-        {SHOW_QUEUE_ENTRY && <><Button size="mini" fill="none" aria-expanded={queueOpen} onClick={() => setQueueOpen(!queueOpen)}>
-          队列（{state.queuedRequests.length}）
-        </Button>
-        {queueOpen && (state.queuedRequests.length > 0 ? (
-          <QueuedRequestList requests={state.queuedRequests} enabled={commandReady} onCancel={onCancelQueued} onSteer={state.canSteerQueue && cancelTarget !== null ? onSteerQueued : undefined} />
-        ) : <div role="status">暂无排队输入</div>)}</>}
         {/* 待处理事项以底部抽屉强呈现（D53）：事项出现即弹出，显式关闭即取消当前 Turn。 */}
         {state.pendingAction !== null && (
           <PendingActionCard
@@ -198,6 +222,9 @@ export default function SessionDetail({
           onSendAttachments={onSendAttachments}
           permissionMode={state.permissionMode}
           onPermissionModeChange={onPermissionModeChange}
+          queueCount={showQueue ? state.queuedRequests.length : 0}
+          queueOpen={queueOpen}
+          onOpenQueue={() => setQueueOpen(true)}
           progress={state.progress}
           turnWaiting={state.pendingAction !== null}
           turnRunning={sessionUsable && state.connection === 'connected' && cancelTarget !== null}
@@ -207,6 +234,13 @@ export default function SessionDetail({
           permissionPending={state.pendingAction?.kind === 'tool_approval'}
         />
       </div>
+      <Popup visible={queueOpen && showQueue} onMaskClick={() => setQueueOpen(false)} onClose={() => setQueueOpen(false)} showCloseButton bodyStyle={{ borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70dvh', display: 'flex', flexDirection: 'column', padding: '20px 16px calc(16px + env(safe-area-inset-bottom, 0px))' }}>
+        <div style={{ fontSize: 17, fontWeight: 600, paddingRight: 32, marginBottom: 16 }}>排队队列（{state.queuedRequests.length}）</div>
+        {state.phase !== 'connected' && <div role="status" style={{ marginBottom: 12, color: '#888' }}>连接已断开，显示上次队列；重新连接后更新</div>}
+        <div style={{ overflowY: 'auto', minHeight: 0 }}>
+          <QueuedRequestList requests={state.queuedRequests} enabled={sessionUsable && commandReady} onCancel={(id) => operateQueue(id, onCancelQueued, 'cancel')} onSteer={state.canSteerQueue && cancelTarget !== null && state.pendingAction === null && onSteerQueued ? (id) => operateQueue(id, onSteerQueued, 'steer') : undefined} />
+        </div>
+      </Popup>
     </div>
   )
 }

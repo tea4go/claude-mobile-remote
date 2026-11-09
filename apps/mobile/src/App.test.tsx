@@ -981,7 +981,7 @@ describe('App：B2 取消与排队', () => {
     })
   })
 
-  test('收到排队 snapshot 时暂不展示队列入口', async () => {
+  test('未声明 WhaleTerm 队列能力时不展示队列入口', async () => {
     window.location.hash = fragmentOf(PAIRING)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
     const socket = FakeWebSocket.instances[0]!

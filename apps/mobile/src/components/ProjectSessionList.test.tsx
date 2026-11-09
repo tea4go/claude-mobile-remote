@@ -119,9 +119,10 @@ describe('项目分组', () => {
     const second = { ...item('b', '/work/shared', null), pcId: 'abcdef0123456789abcdef0123456789', pcName: 'Studio' }
     render(<ProjectSessionList sessions={[first, second]} onSelectPC={onSelectPC} onAdd={noop} onOpen={noop} onRemove={noop} onRename={noop} />)
     fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac mini' }))
-    expect(screen.getByRole('button', { name: '全部电脑' })).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(screen.getByRole('button', { name: 'Studio' }))
-    expect(onSelectPC).toHaveBeenCalledExactlyOnceWith('pc:abcdef0123456789abcdef0123456789')
+    expect(screen.getByText('选择电脑')).toBeInTheDocument()
+    expect(onSelectPC).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(onSelectPC).not.toHaveBeenCalled()
     expect(screen.getAllByTestId('session-list-item')).toHaveLength(2)
   })
   test('指定电脑时抽屉标记选中项，列表不显示额外的全部电脑入口', () => {
@@ -130,8 +131,9 @@ describe('项目分组', () => {
     render(<ProjectSessionList sessions={[first]} selectedPC={`pc:${first.pcId}`} onSelectPC={noop} onAdd={noop} onOpen={noop} onRemove={noop} onRename={noop} />)
     expect(screen.queryByText('显示全部电脑')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac mini' }))
-    expect(screen.getByRole('button', { name: 'Mac mini' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: '全部电脑' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText('选择电脑')).toBeInTheDocument()
+    expect(screen.getByText('全部电脑')).toBeInTheDocument()
+
   })
   test('目录行可折叠和展开，且不触发新建', () => {
     const noop = () => {}

@@ -29,6 +29,9 @@ interface MessageComposerProps {
   permissionMode?: PermissionMode
   onPermissionModeChange?: (mode: PermissionMode) => void
   disabledReason?: string
+  queueCount?: number
+  queueOpen?: boolean
+  onOpenQueue?: () => void
 }
 
 const SHELL_STYLE: CSSProperties = {
@@ -102,6 +105,9 @@ export default function MessageComposer({
   permissionMode = 'default',
   onPermissionModeChange = () => undefined,
   disabledReason = '当前会话暂不可输入',
+  queueCount = 0,
+  queueOpen = false,
+  onOpenQueue,
 }: MessageComposerProps) {
   const [text, setText] = useState('')
   const speech = useSpeechDraft(experience, enabled, (value) => setText((draft) => draft + (draft.trim() ? '\n' : '') + value))
@@ -326,6 +332,15 @@ export default function MessageComposer({
                   <SessionIcon name="permission" size={19} />
                 </Button>
               </Popover.Menu>
+              {queueCount > 0 && onOpenQueue && <Button
+                aria-label={`查看排队队列（${queueCount}）`}
+                aria-expanded={queueOpen}
+                className="composer-icon-button composer-queue-button"
+                data-testid="queue-toggle"
+                fill="none"
+                style={{ ...ICON_BUTTON_STYLE, width: 'auto', minWidth: 40, gap: 3, color: 'var(--adm-color-primary)' }}
+                onClick={onOpenQueue}
+              ><SessionIcon name="steps" size={19} /><span style={{ fontSize: 12 }}>{queueCount}</span></Button>}
               {selectedFiles.length > 0 && <Button aria-label="清除所有待发送的图片和附件" className="composer-icon-button" fill="none" style={ICON_BUTTON_STYLE} disabled={sendingAttachments || preparingAttachments} onClick={() => setSelectedFiles([])}><svg aria-hidden="true" width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4h12M5.33 4V2.67c0-.74.6-1.34 1.34-1.34h2.66c.74 0 1.34.6 1.34 1.34V4M3.33 4v9.33c0 .74.6 1.34 1.34 1.34h6.66c.74 0 1.34-.6 1.34-1.34V4M6.67 7.33v4M9.33 7.33v4" /></svg></Button>}
             </Space>
             <div style={{ flex: 1 }} />

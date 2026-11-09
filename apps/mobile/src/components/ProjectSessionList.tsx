@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { Button, Input, List, Popover } from 'antd-mobile'
+import { Button, Input, List, Picker, Popover } from 'antd-mobile'
 import SessionIcon from './SessionIcon'
-import BottomDrawer from './BottomDrawer'
 import { MoreOutline } from 'antd-mobile-icons'
 import { defaultSessionName, type SessionRecord } from '../session/store'
 import type { MobileState } from '../session/reducer'
@@ -145,13 +144,15 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
         })}
       </section>
     })}
-    <BottomDrawer compact visible={filterOpen} onMaskClick={() => setFilterOpen(false)}>
-      <div className="project-session-list__filter" role="group" aria-label="选择电脑">
-        <div className="project-session-list__filter-title"><strong>选择电脑</strong><button aria-label="关闭电脑筛选" onClick={() => setFilterOpen(false)}>✕</button></div>
-        <button aria-pressed={selectedPC === null} onClick={() => { onSelectPC?.(null); setFilterOpen(false) }}>全部电脑</button>
-        {pcs.map((entry) => <button key={entry.key} aria-pressed={selectedPC === entry.key} onClick={() => { onSelectPC?.(entry.key); setFilterOpen(false) }}>{entry.label}</button>)}
-      </div>
-    </BottomDrawer>
+    <Picker
+      visible={filterOpen}
+      title="选择电脑"
+      columns={[[{ label: '全部电脑', value: '' }, ...pcs.map((pc) => ({ label: pc.label, value: pc.key }))]]}
+      value={[selectedPC ?? '']}
+      onConfirm={(value) => { const selected = value[0]; if (typeof selected === 'string' && (selected === '' || pcs.some((pc) => pc.key === selected))) onSelectPC?.(selected || null); setFilterOpen(false) }}
+      onClose={() => setFilterOpen(false)}
+      closeOnMaskClick
+    />
     <div className="project-session-list__add"><Button color="primary" block aria-label="新增配对" onClick={onAdd}>＋ 新会话</Button></div>
   </div>
 }

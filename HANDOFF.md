@@ -4,6 +4,35 @@
 
 ## 当前状态
 
+- 2026-11-09：用户反馈 WhaleTerm 与移动端 queue 功能验收通过，未逐项报告设备和场景；验收结果见 `docs/testing/2026-11-09-whaleterm-queue-sync-result.md`。本次按用户授权提交 Claude Mobile Remote 相关改动；WhaleTerm 单独处理。此前报告的旧会话缓存问题仍按用户要求暂缓，Android/Harmony 设备验证与 Harmony 独立队列入口仍待后续安排。遵照用户要求未运行 npm lint/build/test。
+
+- 当前执行（2026-11-09，WhaleTerm PC 队列复验失败）：用户确认继续排查和修复运行中连续排队后 PC 列表不显示、输入框内容异常；对照改造前前端队列及现有宿主 FIFO 的提交、事件、状态与草稿生命周期，保留双端单一队列，不处理暂缓的移动端缓存。通过条件为修复可确认问题、必要的针对性验证及差异检查，实际 PC/手机体验由用户复验；不运行 npm lint/build/test，不执行 Git 写操作。
+  - 排查：用户确认手机端能看到队列，PC 滚动时 Vue 更新报 `Cannot set properties of null (setting '__vnode')`；随后提供更早异常 `[vueuc/follower]: slot[default] should have exactly one child`，栈由队列事件处理触发。确认并修复队列项没有 PC 草稿时编辑按钮 tooltip 的空触发节点：改为整体条件渲染 tooltip。此前的滚动异常发生在随后更新过程中。两仓 git diff --check 通过；未运行 npm lint/build/test，用户随后反馈 queue 整体验收通过，未逐项报告具体场景。
+
+- 当前执行（2026-11-09，WhaleTerm 队列验收问题）：用户确认修复 PC 入队列表缺失及手机终止后 PC 状态异常。排查队列事件、快照与本地草稿的时序，以及终止后保留 FIFO 并续发的状态衔接；保持 v8 契约和单一宿主队列。通过条件为根因修复、针对性回归覆盖及差异检查，双端实机由用户验收；不运行 npm lint/build/test，不执行 Git 写操作。
+  - 已修复终止竞态：宿主可能在 PC 收到终止事件前取出下一条，PC 不能把瞬时空队列当作处理完毕；保留监听和运行提示，等待实际 queue-empty，防止丢失后续 turn-start，并忽略旧轮次迟到的终止事件。普通 FIFO 继续保留。
+  - 队列显示加固：已受理 PC 草稿在首次被宿主队列视图观察到之前，不能被较早的空快照移除；观察后继续以宿主视图为准。该竞态可导致列表消失，但尚未证明就是用户现场的唯一原因，待实际复验。
+  - 验证：两仓 `git diff --check` 通过；已补充但未运行 PC 前端竞态用例，遵守不运行 npm lint/build/test 的要求。未进行真实 PC/手机联调；请重点复验运行中连续入队展示、手机终止后自动续发及最终状态收敛。
+
+- 当前执行（2026-11-09，移动端队列与电脑选择交互）：用户确认队列采用底部抽屉及操作菜单，电脑选择使用 Picker 确认切换；保留同步与筛选缓存，不修改协议。通过条件为交互实现和差异检查，iOS/Android 真机及前端验证由用户完成；不运行 npm lint/build/test。
+  - 已完成：队列项纵向显示序号、来源及三行预览，点击打开 ActionSheet 执行引导或取消；断线禁用操作，队列变化和清空沿用现有同步逻辑。电脑筛选使用 antd-mobile Picker，确认后生效，保留缓存与删除回退。更新相关测试断言。
+  - 验证：git diff --check 通过；按用户要求未运行 npm lint/build/test。iOS、Android 实机及队列双端联调待用户验收，Harmony 独立界面后续同步；无 Git 写操作。
+
+- 当前执行（2026-11-09，WhaleTerm 双向队列）：用户确认统一 PC 与手机队列。范围为 WhaleTerm 宿主 FIFO、PC 前端待发项及编辑/排序/取消/引导、v8 权威队列广播与远程引导、React 输入卡 permission 右侧非空队列入口；Standalone CLI 保持现状。先更新已确认设计及实施计划，不执行 Git 写操作，不运行 npm lint/build/test。通过条件为单一宿主队列、双端变更与重连一致、操作竞争不重复执行、会话隔离及 Go 定向验证；前端和真机由用户验证。
+  - 排查结论：PC 待发项保存在 Vue 本地，仅执行或引导时提交 Go，手机读取 Manager FIFO，两份队列不能直接通过广播合并。需要将 PC 待发项及时提交宿主，PC 保留展示/草稿元数据，取消/编辑取回/排序改由宿主校验。公共 v8 已具备 queue_changed、steer_queued、PublishQueue 及三端解析，不另建第二条手机执行队列。
+  - 已完成：直接修改用户指定的 /Users/zhangym/code/work/whale-term。Manager 锁内捕获完整队列与递增修订号，锁外有序广播至 PC 和 Remote；订阅/生命周期快照抢先刷新时也发布最新队列，避免漏更新及旧快照回退。PC 待发项及时提交既有宿主 FIFO，取消/编辑取回/排序经过宿主校验；保留原始附件草稿，明确拒收可取回编辑，结果未知不重发。取消与引导共用活动 Turn 锁并复核归属；普通等待项最多 32 条、预览 200 字符，保护传输预算。
+  - 移动端：React 输入卡 permission 右侧按宿主能力及非空队列显示数量入口，限高抽屉展示顺序/来源/预览及取消/引导；断线保留视图但禁用操作，异常 Toast，队列清空或审批出现时收起。v8 WhaleTerm 使用权威事件，不再推测本机入队/成功移除；旧宿主保留原有状态兼容，Standalone 不开放入口。iOS/Android 共用源码，Harmony 独立入口未同步。
+  - 验证：公共 channel/remote/transport Go race 回归通过；WhaleTerm 队列、Remote Host、取消/引导/Turn 定向 race 及 service 编译通过，分别验证本地 Remote 源码与正式 v0.0.9 依赖。已有 DeepWiki/Gemini vet 错误阻断默认 go test，后续定向使用 -vet=off，保留 macOS 语音弃用及链接警告。补充但未执行两端前端用例；按用户要求未运行 npm lint/build/test、未复制资源或构建原生包，无 Git 写操作。
+  - 收尾检查：两仓 git diff --check 无诊断；新增 Go/测试/PC 桥接及验证记录的 no-index 检查无空白诊断（返回 1 表示新文件存在差异），全部本轮 Go 文件 gofmt -l 无输出。无待运行进程，源码交付待人工验收，不自动提交。
+  - 下一步：用户同时更新 WhaleTerm 与移动端，按 docs/testing/2026-11-09-whaleterm-queue-sync-result.md 验证交替入队、PC 编辑/排序、双端取消/引导、自动出队、断线重连和操作竞争。真实 SDK/双端 UI 与 iPhone 手动验收尚未完成；本轮不宣称真机通过。
+
+- 当前执行（2026-11-06，iOS TestFlight 1.0(8)）：用户要求编译并发布到 TestFlight，浏览器已登录。已在 App Store Connect 看到 1.0(7) 为 Public Beta 正在测试；本次沿用 Bundle ID/Team/版本 1.0，构建号递增为 8，独立目录生成 Release 归档与 App Store IPA。范围为已提交的移动端修复、必要 Web 构建与 cap copy ios、签名/资源校验、上传及既有测试组发布；不改共享协议、不执行 Git 写操作。通过条件为核验导出包、Apple 接收/处理以及 TestFlight 测试或审核的实际状态；按用户既有要求不运行 npm lint/test，此次明确打包请求授权必需的 npm build。
+  - 进行中：复用现有发布脚本的归档/导出/验证/上传流程；其 build 子命令默认执行 lint/test，本轮拆开执行必要构建步骤以遵守用户要求。Xcode 26.2、Team 与现有应用身份已核对；浏览器控制连接不可用，使用 Chrome 原生界面核对后台。发布不等于 App Store 正式上架，Apple 处理与外测审核须分别记录。
+  - 构建修复：首次必要 Web 构建发现 SelectableMessage 测试辅助函数把 fireEvent 的目标声明为过宽的 EventTarget，已收窄为实际使用的 Element | Document；仅修正 TypeScript 编译，不改运行时交互，未执行测试或 lint。该修正本轮不自动提交 Git。
+  - 本地构建完成：Web 生产构建、cap copy ios、Xcode Release 归档、App Store 导出、分发签名及内置资源逐字节核验通过。IPA 位于 apps/mobile/ios/DerivedData/testflight-20261106-b8/export/App.ipa，SHA-256 为 10781419b3ed1cebf896ab5c40a81c159260839c53109f7ea51366b1fcdd2de2；已启动 Apple 上传，处理/外测状态待核实，见 docs/testing/2026-11-06-ios-testflight-b8-result.md。
+  - 上传完成：17:41:07 Apple 返回 Upload succeeded / Uploaded App，上传命令返回 0，构建已进入 Apple 处理；尚需核实后台处理结果并关联 Public Beta。既有公开链接为 https://testflight.apple.com/join/uCHWhPEK，不改变测试组或人数上限。
+  - Apple 处理完成：用户协助恢复后台空白后，列表已显示构建 8“准备提交”，尚无群组；继续填写测试说明并关联既有 Public Beta。
+
 - 当前执行（2026-11-06，iOS 验收归档与提交）：用户回复“OK”并要求记录、提交，记录本轮长按复制人工验收通过。提交范围为 11-06 iOS 测试反馈的累计修复、消息统一选区、原生触觉桥接及对应设计/决策/用例/验收记录；保留 Harmony、推广、其他发布记录和本地截图等独立改动。通过条件为验收归档、暂存内容与空白检查、完成本地提交；本次不推送，不运行 npm lint/build/test。
   - 人工验收：统一选区及长按复制按用户反馈标记通过；未补充设备型号、系统版本或逐项运行数据，不扩展为 Android/Harmony 验收结论。前期自动化历史结果与后期未执行用例分别保留。
   - 交付内容：步骤抽屉与状态标签、列表标题/时间、附件删除与清空/预览、工具栏与弹出菜单、目录多来源自动新建，以及统一高亮/手柄/复制菜单、一次原生轻震和生命周期清理。下一步为 Android 平台复验及 Harmony 独立同步，不重复运行用户自行负责的 npm 检查。
@@ -39,6 +68,23 @@
   - 已完成：步骤时间轴、操作按钮及调试悬浮入口层级调整；默认标题移除创建时间，活动时间按本地日期展示，本周自周一开始，跨年优先展示年月日。自定义及宿主标题不变；设计与实施计划同步。
   - 验证：移动端 40 文件 590 项测试、生产构建、lint、iOS Web 资源复制和 diff 空白检查通过；lint 存在既有警告，构建提示包体积。尚未重新编译或安装 iOS，步骤视觉及日期格式待真机验收；Android 需同步资源验收，Harmony 需独立同步及验收。详见 `docs/testing/2026-11-06-ios-test-result.md`。
 
+- 当前执行（Harmony 命令行模拟器调试）：用户要求启动模拟器并调试 1.0.5。此前称本机只有预览器不准确：已找到官方命令行工具包内的 Emulator，本机为 arm64；`Emulator -list -details` 无实例，`-imageList -downloaded true` 无镜像，官方列表有与项目匹配的 Phone HarmonyOS 6.1.1(24) 镜像。尝试下载时工具要求确认 HarmonyOS SDK License Agreement，未代用户接受，因此未下载、创建或启动模拟器，也未安装或调试应用。下一步由用户阅读并确认协议后继续下载镜像、启动并验证交互及日志；设备性能门禁仍需另验。无 Git 写操作。
+
+- 当前执行（2026-11-04，Harmony 1.0.5 签名包）：用户要求编译 1.0.5 签名包；沿用 1.0.4 的 team-1028 发布身份，版本号设为 1.0.5（1000005），执行现有功能测试、官方 Release 构建及签名、包信息和摘要核验。通过条件为签名验证和版本核对通过，设备与平台验收单独记录；不上传、不执行 Git 写操作。
+  - 完成：Harmony 81 项测试及 21 文件逻辑检查、官方 SDK 6.1.1/API24 Release 构建和 verify-profile/verify-app 通过。APP 与内嵌 HAP ZIP 完整，版本、包名、Release 标志和最低 API 一致；发布证书与内嵌 Profile 按脚本核对通过。签名 APP `.local-tools/harmony-apptest/signed/WhaleRemoteControl-1.0.5-signed.app`，282139 字节，SHA-256 `ae66b2c15d745de8c0fc14ca033226db776cfaf50a557a5857a16edc1334271e`。独立版本文件与脚本原产物逐字节一致；diff 空白检查通过。平台接收、模拟器/设备安装、新 UI 交互与性能未验证。详见 `docs/testing/2026-11-04-harmony-1.0.5-build-result.md`。
+
+- 当前执行（2026-11-04，Harmony 独立同步新版移动端）：用户确认按已验收 iOS/Android 功能与 UI 独立更新 ArkTS/ArkUI，包括列表、配对、设置、详情、问答、附件和相关修复；队列入口隐藏，系统通知后置。保留单 Session Host、凭证隔离、异步 I/O 与消息懒加载，不改共享协议；通过条件为功能回归、官方 SDK 构建及可执行设备性能验收，不能用构建代替真机点击时延。
+  - 检查点：独立实现分组/折叠/筛选偏好、目录创建及候选配对验证与保存门控、配对和设置、消息/问答/步骤展示、复制及语音结束状态；隐藏队列与详情新建入口。列表和消息采用懒加载，分组线性化、异步存储与有界日志保留。未改共享协议。
+  - 验证：Harmony 79 项测试、20 文件逻辑检查、官方 6.1.1/API24 Debug HAP、预览编译及 diff 空白检查通过。HAP SHA-256 c2ff36752d27694674ad6c8e1869ccfdcd86ee8d39d8c8d356799f4e75180d87；未签名不可安装。无连接设备，预览截图自动审批因额度限制未执行，实际视觉、性能与端到端流程未验证。
+  - 继续核对：配对保存失败或验证连接中断时尝试恢复既有记录，恢复失败明确提示；补子会话 IPv6/查询参数兼容、长文本摘要限量扫描及对应回归。异常断电与原生存储故障仍需设备验证。最新 Harmony 81 项测试、21 文件逻辑检查和官方 Debug HAP 构建通过，HAP SHA-256 3e799bd6f21f47969fec77110aa564a2a971f3bfbad5a29e3a3406dad8aca851；此前预览编译不含本次后续变动。
+  - 输入区继续修复：仅在草稿文本变化时计算 UTF-8 大小，附件从草稿移除或组件退出时清理预览。现有 81 项测试、21 文件逻辑检查及官方 SDK Debug HAP 构建通过；最新未签名 HAP SHA-256 `11fd2626e7a17cdd0a85e65109a7ad090a99542bcb30cb3cb98a914bcc6662f7`。输入区预览生命周期和长文本实际性能未在设备验证。
+  - 模拟器测试（待环境）：用户要求在 Harmony 模拟器测试。检查 `/Applications` 及用户应用目录未发现 DevEco Studio，官方 `hdc list targets` 返回 `[Empty]`，本机现有工具为命令行 SDK 与 ArkUI 预览器；最新 Debug HAP 未签名。未能启动完整模拟器、安装应用或执行模拟器交互测试。下一步需用户启动可用的 Harmony 模拟器并确保 hdc 可见，或接入可调试设备，再处理相应签名并测试；预览不视为模拟器或真机性能门禁。
+  - 未完成：按 docs/testing/2026-11-04-harmony-ui-sync-result.md 完成视觉与 iOS 逐项对照，重点核验目录创建、配对失败/后台竞态、附件、问答、键盘、安全区及长列表；真机或云测触摸首帧目标 250ms。系统通知后置；当前不能宣称 Harmony 全部同步或验收完成。
+
+- 当前执行（2026-11-04，内部推广文档大纲）：用户确认采用正式内部推广口径，编写产品定位、痛点、功能、WhaleTerm 组合、独立使用及当前不足的大纲；通过条件为覆盖确认内容并与已有进度和能力边界一致，不涉及 Git 写操作。
+  - 已完成：新增 `docs/claude-mobile-remote-promotion-outline.md`，按确认的大纲记录现阶段限制，并为获取入口和反馈渠道预留位置。
+  - 验证：对照当前进度、需求及 README 核对平台验收和通知状态；文档变更无需代码测试。推广入口和渠道尚未确定，待用户审阅大纲后补充；未执行 Git 写操作。
+
 - 当前执行（2026-11-04，Android 1.0.1 打包）：用户要求生成未签名及正式签名 APK，版本确认 1.0.1（versionCode 2），分别供蒲公英和华为后台使用；仅构建与验证、不上传或 Git 写操作。沿用既有发布密钥和无推送配置，核验版本、签名、资源及产物摘要；未签名 APK 无法直接安装，华为后台现有最高版本号尚未核实。
   - 已完成：Web 40 文件 587 项测试、lint 和构建通过（既有 warning）；Android Release 构建成功，正式包 v2/v3 验签、16 KiB 对齐及证书指纹与既有华为记录一致。两包 versionName 1.0.1/versionCode 2、包名一致；未签名包全部 579 个文件与签名包对应内容一致，Web index 与 dist 一致。
   - 未签名 `apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk` SHA-256 `cd8853a294692224e789785f62c21e7ce3bccc4b40964932ef2ef1c9374bb57b`；签名 `.local-tools/android-release/WhaleRemoteControl-1.0.1-android-signed.apk` SHA-256 `911806385fc2939e5be5e9fb0e3814eb8685de632709cbb470d3f71010675f50`。未签名包不能直接安装；实际蒲公英上传及华为后台当前版本、接收和审核状态未验证，Android 真机验收仍待完成。
@@ -51,6 +97,10 @@
   - 用户要求进一步逐条复核 iOS 进度：已在 Android 验证记录建立新版 UI、目录/筛选、图片和复制、语音、日志、键盘及系统能力对照。发现并补齐 Android 调试日志原生复制/系统分享；修复系统返回导致 WebView 空白，以当前页面导航且弹层存在时防止误操作。弹层内返回暂保守不执行关闭，需设备体验验收。
   - 增量验证：Web 40 文件 587 项、lint、构建和 Android 资源同步通过；Android 离线 9 项单测及 Debug APK 构建通过。Android 36 模拟器确认演示页系统返回到配对页、调试日志复制成功及系统分享面板打开；不推断分享完成。iOS 反馈涉及真实 PC、设备语音/相机/扫码、网络和视觉仍待 Android 真机逐项验收，不能宣称全部门禁通过；系统通知继续暂缓。
   - 交接：用户要求记录并提交本轮 Android 同步；保留其他独立工作及生成产物。用户未反馈 Android 真机逐项验收结果，仍按待验记录。
+
+- 当前执行（2026-11-04，iOS TestFlight 1.0(7)）：用户要求构建并上传 iOS 测试包，已提供本轮更新清单用于广播。App Store Connect 显示最新 1.0(6) 正在 Public Beta 测试，本轮沿用应用与既有签名、构建号 7；运行 Web 门禁、Release 归档导出及签名和资源校验，再上传并核实 Apple 处理状态。上传不等于测试分发完成；不执行 Git 写操作。
+  - 已完成：Web 39 文件 585 项测试、lint 和构建通过（既有 lint/chunk 提示）；iOS Release 归档、App Store 导出、签名及 Web 资源校验通过。IPA 为 `apps/mobile/ios/DerivedData/testflight-20261104-b7/export/App.ipa`，SHA-256 `b94c4e72f452df8b37783eb27cc30a796b0469de0aa3532f24d6ec9386e6d0dd`。Apple 上传于 15:57 显示成功，后台已显示 1.0(7)“正在处理”；尚未出现可测试构建，未添加测试组、未提交外测审核。
+  - 下一步：Apple 处理完成后检查构建和加密合规状态，按既有 Public Beta 流程处理测试组和审核；当前不可宣称已可安装。用户请求的更新清单已在对话中提供供广播，未代发消息。
 
 - 当前执行（2026-11-04，暂时隐藏移动端队列入口）：用户要求队列功能完善前隐藏会话详情入口；保留已有队列状态与协议能力，React 共用入口暂时关闭，Harmony 后续同步时保持隐藏。通过条件为入口隐藏的回归、相关测试和构建通过，记录设备验收缺口。
   - 已完成：以关闭的临时开关隐藏队列入口及其展开内容，保留队列组件、状态与命令；收到排队快照时入口不显示。

@@ -290,6 +290,8 @@ const NOTICE_MESSAGES: Record<UnsupportedCode, string> = {
 // 业务拒绝码文案（internal/transport/protocol.go）：需要引导用户下一步的
 // 类别在客户端统一文案；其余类别直接用服务端描述。
 const REJECTION_MESSAGES: Record<string, string> = {
+  queue_full: '等待队列已满，请稍后再发送',
+  session_unavailable: '会话不可用，请检查电脑端状态',
   action_not_pending: '该待处理事项已由其他客户端处理',
   action_timeout: '待处理事项已超时取消，请等待新的请求',
   invalid_answer: '回答不符合要求，请重新选择后提交',
@@ -323,7 +325,7 @@ function applyCanSend(state: MobileState): MobileState {
   }
 }
 
-// 队列只在本地维护（B2 §4.3）：queueDepthHint 始终跟随列表长度。
+// 旧宿主按命令和 Turn 事件校正；v8 完整视图来自 queue_changed。
 function withoutQueued(state: MobileState, requestId: string): MobileState {
   const queuedRequests = state.queuedRequests.filter((q) => q.requestId !== requestId)
   if (queuedRequests.length === state.queuedRequests.length) return state
@@ -717,7 +719,7 @@ export function reducer(state: MobileState, action: Action): MobileState {
           // The command result precedes buffered turn events. While another
           // turn is active, expose this accepted request for cancellation;
           // turn_started or a later snapshot reconciles the queue.
-          if (state.messages.some((message) => message.kind === 'claude' && message.status === 'streaming') && !state.queuedRequests.some((request) => request.requestId === action.requestId)) {
+          if (!state.canSteerQueue && state.messages.some((message) => message.kind === 'claude' && message.status === 'streaming') && !state.queuedRequests.some((request) => request.requestId === action.requestId)) {
             const preview = (pending.text.trim() || pending.attachments?.map((item) => item.name).join('、') || '附件').slice(0, 200)
             next.queuedRequests = [...state.queuedRequests, { requestId: action.requestId, source: 'mobile', preview }]
             next.queueDepthHint = next.queuedRequests.length
@@ -730,7 +732,8 @@ export function reducer(state: MobileState, action: Action): MobileState {
           break
         case 'cancel_queued':
         case 'steer_queued':
-          // 取消排队不发领域事件，只能按 command_result 本地移除。
+          // 旧宿主按结果本地移除；v8 WhaleTerm 等待随后到达的权威 queue_changed。
+          if (state.canSteerQueue) break
           return applyCanSend(withoutQueued(next, pending.targetId))
         case 'cancel_turn':
           // 取消 Turn 的可见变化由 turn_completed(cancelled) 带来。

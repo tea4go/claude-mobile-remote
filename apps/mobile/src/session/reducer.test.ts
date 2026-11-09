@@ -943,6 +943,25 @@ describe('B2 pending action', () => {
 // ---- B2：取消与排队（§4.3 / §5）----
 
 describe('B2 取消与排队', () => {
+  test('WhaleTerm 受理输入后不推测队列，随后使用宿主完整视图', () => {
+    let state = stateWithSnapshot({ canSteerQueue: true, turn: { status: 'running', requestId: 'active', source: 'terminal', message: '', error: null, pendingAction: null } })
+    state = reducer(state, commandSent({ commandId: 'send', text: '稍后处理' }))
+    state = reducer(state, commandAccepted({ commandId: 'send', requestId: 'queued' }))
+    expect(state.queuedRequests).toEqual([])
+    state = reducer(state, eventReceived(event('queue_changed', 11, { requestId: '', source: '', turnStatus: '', queue: [{ requestId: 'queued', source: 'mobile', preview: '稍后处理' }] })))
+    expect(state.queuedRequests.map((item) => item.requestId)).toEqual(['queued'])
+  })
+  test('v8 宿主受理取消后等待权威视图，PC 排序和清空实时覆盖队列', () => {
+    let state = stateWithSnapshot({ canSteerQueue: true, queueDepth: 2 })
+    state = reducer(state, queuedCancelSent({ commandId: 'cancel', requestId: 'req-q1' }))
+    state = reducer(state, commandAccepted({ commandId: 'cancel', requestId: 'req-q1' }))
+    expect(state.queuedRequests).toHaveLength(2)
+    state = reducer(state, eventReceived(event('queue_changed', 11, { requestId: '', source: '', turnStatus: '', queue: [{ requestId: 'pc-new', source: 'terminal', preview: 'PC 新输入' }, { requestId: 'req-q2', source: 'mobile', preview: '原输入' }] })))
+    expect(state.queuedRequests.map((item) => item.requestId)).toEqual(['pc-new', 'req-q2'])
+    state = reducer(state, eventReceived(event('queue_changed', 12, { requestId: '', source: '', turnStatus: '', queue: [] })))
+    expect(state.queueDepthHint).toBe(0)
+    expect(state.queuedRequests).toEqual([])
+  })
   test('snapshot 恢复排队列表与深度', () => {
     const state = stateWithSnapshot({ queueDepth: 2 })
     expect(state.queuedRequests).toHaveLength(2)

@@ -870,3 +870,9 @@ D103范围调整：用户明确Harmony因签名变更先暂停，本轮先实现
 用户确认替换 DOM Selection 与自定义菜单混合方案：消息卡片保持原 Markdown 渲染，组件统一管理独立 Range、选区高亮、两个拖动手柄及复制菜单；不把 Range 注册到系统 Selection，消息正文局部关闭系统选择与呼出菜单，其他页面及输入框不受影响。长按约 500ms 即全选并轻震一次，松手不重选；支持调整边界后复制，滚动、失焦、后台和内容变更具有明确生命周期。此决策替代此前依赖 WebKit 原生选区手柄的实现安排，D118 的一次触觉与降级规则保留。
 
 仅本地 UI 技术选择，不变更 WebSocket、配对、消息内容或 Session/Turn 状态契约；iOS/Android 共用 React，Harmony 后续以独立 ArkUI 实现等价选区交互，不引入 DOM 到三端共用契约。代码、表格、长文本、流式更新及真实设备行为须独立验收，不以源码核对代替通过。
+
+## D120 · WhaleTerm 统一双端队列及非空入口（2026-11-09）
+
+用户确认继续 D110：WhaleTerm Manager FIFO 作为 PC 与手机唯一队列，PC 本地待发项及时入宿主，PC 编辑取回、排序、取消和引导的结果同步到手机；手机提供查看、取消和引导。React 入口置于输入卡 permission 右侧，仅支持宿主且非空时显示，替代此前隐藏入口和空队列入口安排。异常 Toast 提示，断线禁用操作、重连快照收敛。
+
+本轮只为 WhaleTerm 开放，不扩展 Standalone。共用契约沿用已实现 v8 的 queue_changed、steer_queued 与 canSteerQueue；PC 编辑所需完整草稿保留在 PC，不进入跨端载荷。Go、React/Capacitor iOS/Android 和 Harmony 均已有纯 JSON 队列解析与状态，新增宿主接线和本地 UI 不引入端特有协议；Harmony 独立入口后续同步。继续保持单 Host/单 Client/串行输入和会话隔离。

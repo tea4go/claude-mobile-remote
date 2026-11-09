@@ -29,16 +29,15 @@ describe('QueuedRequestList（B2 §6）', () => {
   test('逐项取消只回传对应 request ID', () => {
     const onCancel = vi.fn()
     render(<QueuedRequestList requests={requests} enabled onCancel={onCancel} />)
-    const buttons = screen.getAllByRole('button', { name: '取消' })
-    expect(buttons).toHaveLength(2)
-    fireEvent.click(buttons[1]!)
+    fireEvent.click(screen.getAllByTestId('queued-request-item')[1]!)
+    fireEvent.click(screen.getByRole('option', { name: '取消排队' }))
     expect(onCancel).toHaveBeenCalledTimes(1)
     expect(onCancel).toHaveBeenCalledWith('req-3')
   })
 
   test('不可发送命令时取消按钮禁用', () => {
     render(<QueuedRequestList requests={requests} enabled={false} onCancel={vi.fn()} />)
-    for (const button of screen.getAllByRole('button', { name: '取消' })) {
+    for (const button of screen.getAllByTestId('queued-request-item')) {
       expect(button).toBeDisabled()
     }
   })

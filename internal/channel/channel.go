@@ -39,6 +39,10 @@ type Channel struct {
 }
 
 func (c *Channel) CanSteerQueue() bool {
+	// Adapters may forward optional host methods without guaranteeing support.
+	if capability, ok := c.controller.(interface{ CanSteerQueue() bool }); ok && !capability.CanSteerQueue() {
+		return false
+	}
 	_, ok := c.controller.(QueueSteeringController)
 	return ok
 }
@@ -131,7 +135,7 @@ func (c *Channel) SteerQueued(ctx context.Context, sessionID, requestID string) 
 		return err
 	}
 	host, ok := c.controller.(QueueSteeringController)
-	if !ok {
+	if !ok || !c.CanSteerQueue() {
 		return protocol.ErrSessionUnavailable
 	}
 	return host.SteerQueued(ctx, requestID)

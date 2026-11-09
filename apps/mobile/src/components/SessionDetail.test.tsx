@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { createInitialState, type MobileState } from '../session/reducer'
 import { listSessions, upsertSession, createInitialSessionStore, type SessionRecord } from '../session/store'
@@ -28,6 +28,50 @@ function connectedState(overrides: Partial<MobileState> = {}): MobileState {
 }
 
 function noop() {}
+
+describe('WhaleTerm 双向队列入口', () => {
+  const requests = [
+    { requestId: 'pc-queued', source: 'terminal' as const, preview: 'PC 排队输入' },
+    { requestId: 'phone-queued', source: 'mobile' as const, preview: '手机排队输入' },
+  ]
+  const props = { record: record(), turnStatus: 'running', pairingInvalid: false, cancelTarget: 'active', onResolveAction: noop, onCancelTurn: noop, onBack: noop, onReconnect: noop, onSend: noop }
+
+  test('仅非空且支持的队列显示在 permission 右侧，展开后可取消及引导', async () => {
+    const onCancelQueued = vi.fn()
+    const onSteerQueued = vi.fn()
+    render(<SessionDetail {...props} state={connectedState({ canSteerQueue: true, queuedRequests: requests, queueDepthHint: 2 })} onCancelQueued={onCancelQueued} onSteerQueued={onSteerQueued} />)
+    const toggle = screen.getByRole('button', { name: '查看排队队列（2）' })
+    expect(screen.getByTestId('permission-mode').compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByTestId('queued-request-list')).not.toBeInTheDocument()
+    fireEvent.click(toggle)
+    await screen.findByTestId('queued-request-list')
+    expect(screen.getAllByTestId('queued-request-item')[0]).toHaveTextContent('PC 排队输入')
+    fireEvent.click(screen.getAllByTestId('queued-request-item')[1]!)
+    fireEvent.click(screen.getByRole('option', { name: '取消排队' }))
+    expect(onCancelQueued).toHaveBeenCalledWith('phone-queued')
+    fireEvent.click(screen.getAllByTestId('queued-request-item')[0]!)
+    fireEvent.click(screen.getByRole('option', { name: '引导' }))
+    expect(onSteerQueued).toHaveBeenCalledWith('pc-queued')
+  })
+
+  test('断线保留上次队列且禁用操作；权威队列清空后收起', async () => {
+    const state = connectedState({ canSteerQueue: true, queuedRequests: requests, queueDepthHint: 2 })
+    const view = render(<SessionDetail {...props} state={state} onCancelQueued={noop} onSteerQueued={noop} />)
+    fireEvent.click(screen.getByTestId('queue-toggle'))
+    await screen.findByTestId('queued-request-list')
+    view.rerender(<SessionDetail {...props} state={{ ...state, phase: 'disconnected', connection: 'disconnected' }} onCancelQueued={noop} onSteerQueued={noop} />)
+    expect(screen.getByText(/显示上次队列/)).toBeInTheDocument()
+    expect(screen.getAllByTestId('queued-request-item')[0]).toBeDisabled()
+    view.rerender(<SessionDetail {...props} state={connectedState({ canSteerQueue: true })} onCancelQueued={noop} />)
+    expect(screen.queryByTestId('queue-toggle')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('queued-request-list')).not.toBeInTheDocument())
+  })
+
+  test('Standalone 或旧宿主即使有快照队列也隐藏入口', () => {
+    render(<SessionDetail {...props} state={connectedState({ queuedRequests: requests, queueDepthHint: 2 })} onCancelQueued={noop} />)
+    expect(screen.queryByTestId('queue-toggle')).not.toBeInTheDocument()
+  })
+})
 
 describe('SessionDetail：基本渲染', () => {
   test('状态和重连固定在标题栏，消息使用全宽滚动区，输入栏固定在滚动区外', () => {
