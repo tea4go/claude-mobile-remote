@@ -1,5 +1,6 @@
 import type {
   ActionDecision,
+  Attachment,
   AskUserQuestionPendingAction,
   CommandKind,
   ContentBlock,
@@ -67,6 +68,7 @@ export interface CommandAcceptedAction {
   type: 'commandAccepted'
   commandId: string
   requestId: string
+  attachments?: Array<Attachment>
 }
 
 export interface CommandRejectedAction {
@@ -354,7 +356,7 @@ function cloneNoticeInfo(notice: NoticeInfo | null): NoticeInfo | null {
   }
 }
 
-function cloneState(state: HarmonySessionState): HarmonySessionState {
+function cloneState(state: HarmonySessionState, cloneFeed: boolean = true): HarmonySessionState {
   return {
     progress: state.progress,
     progressRequestId: state.progressRequestId,
@@ -370,11 +372,12 @@ function cloneState(state: HarmonySessionState): HarmonySessionState {
     sessionError: cloneErrorInfo(state.sessionError),
     seqBase: state.seqBase,
     snapshotStartPending: state.snapshotStartPending,
+    canSteerQueue: state.canSteerQueue,
     queueDepthHint: state.queueDepthHint,
     queuedRequests: cloneQueuedRequests(state.queuedRequests),
     pendingAction: clonePendingAction(state.pendingAction),
     pendingCommand: clonePendingCommand(state.pendingCommand),
-    messages: cloneMessages(state.messages),
+    messages: cloneFeed ? cloneMessages(state.messages) : state.messages,
     lastError: cloneErrorInfo(state.lastError),
     lastNotice: cloneNoticeInfo(state.lastNotice),
     canSend: state.canSend,
@@ -397,10 +400,10 @@ function canResolveActionNow(state: HarmonySessionState): boolean {
 }
 
 function applyCapabilityFlags(state: HarmonySessionState): HarmonySessionState {
-  const next = cloneState(state)
-  next.canSend = canSendNow(next)
-  next.canResolveAction = canResolveActionNow(next)
-  return next
+  // All callers pass a newly created state, so updating derived flags needs no second deep copy.
+  state.canSend = canSendNow(state)
+  state.canResolveAction = canResolveActionNow(state)
+  return state
 }
 
 function createResetState(pairing: PairingPayload): HarmonySessionState {
@@ -566,7 +569,7 @@ function hasClaudeForRequest(messages: Array<FeedMessage>, requestId: string): b
 }
 
 function replaceMessage(messages: Array<FeedMessage>, index: number, replacement: FeedMessage): Array<FeedMessage> {
-  const next = cloneMessages(messages)
+  const next = messages.slice()
   next[index] = replacement
   return next
 }
@@ -620,6 +623,7 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   next.sessionError = cloneErrorInfo(snapshot.sessionError)
   next.seqBase = snapshot.seq
   next.snapshotStartPending = (snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting') && snapshot.turn.inputText !== undefined ? snapshot.turn.requestId : ''
+  next.canSteerQueue = snapshot.canSteerQueue === true
   next.queueDepthHint = snapshot.queueDepth
   next.queuedRequests = cloneQueuedRequests(snapshot.queuedRequests)
   next.pendingAction = clonePendingAction(snapshot.turn.pendingAction)
@@ -678,7 +682,12 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
   }
 
   const snapshotStart = state.snapshotStartPending === event.requestId && event.requestId !== ''
-  let next = cloneState(state)
+  // These events change metadata only; retain the feed identity to avoid list reloads and cache writes.
+  const changesFeed = ['queue_changed', 'turn_progress', 'session_diagnostic', 'permission_mode_changed',
+    'session_started', 'action_required'].indexOf(event.kind) < 0
+  // Text deltas replace a single immutable message; copying the full transcript for
+  // every chunk needlessly duplicates all prior messages and attachment metadata.
+  let next = cloneState(state, changesFeed && event.kind !== 'text_delta')
   next.seqBase = event.seq
   if (snapshotStart) next.snapshotStartPending = ''
   if (event.sessionTitle !== undefined && next.sessionTitle === undefined) next.sessionTitle = event.sessionTitle
@@ -751,6 +760,7 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
           createClaudeMessage(last.requestId, last.source, `${last.text}${event.text}`, last.status, last.error),
         )
       } else if (hasClaudeForRequest(next.messages, event.requestId) && event.source !== '') {
+        next.messages = next.messages.slice()
         next.messages.push(createClaudeMessage(event.requestId, event.source, event.text, 'streaming', null))
       }
       break
@@ -828,8 +838,8 @@ export function commandStarted(
   return { type: 'commandStarted', commandId, kind, text, targetId }
 }
 
-export function commandAccepted(commandId: string, requestId: string): SessionAction {
-  return { type: 'commandAccepted', commandId, requestId }
+export function commandAccepted(commandId: string, requestId: string, attachments?: Array<Attachment>): SessionAction {
+  return { type: 'commandAccepted', commandId, requestId, attachments }
 }
 
 export function commandRejected(commandId: string, code: string, message: string): SessionAction {
@@ -923,9 +933,13 @@ export function reduceHarmonySessionState(
           existing.status = 'accepted'
           if (pending.kind === 'send_attachments') existing.text = pending.text
         } else next.messages.push(createAcceptedInputMessage(action.requestId, pending.text))
+        if (pending.kind === 'send_attachments' && action.attachments !== undefined) {
+          const input = next.messages.find((message: FeedMessage) => message.kind === 'input' && message.requestId === action.requestId)
+          if (input !== undefined && input.kind === 'input') input.attachments = action.attachments.slice()
+        }
       } else if (pending.kind === 'resolve_action') {
         next.pendingAction = null
-      } else if (pending.kind === 'cancel_queued') {
+      } else if (pending.kind === 'cancel_queued' && !next.canSteerQueue) {
         next = withoutQueued(next, pending.targetId)
       }
       return applyCapabilityFlags(next)
@@ -940,7 +954,7 @@ export function reduceHarmonySessionState(
       next.lastError = makeError(action.code, createRejectedMessage(action.code, action.message))
       if (action.code === REJECTION_ACTION_NOT_PENDING || action.code === REJECTION_ACTION_TIMEOUT) {
         next.pendingAction = null
-      } else if (action.code === REJECTION_REQUEST_NOT_QUEUED) {
+      } else if (action.code === REJECTION_REQUEST_NOT_QUEUED && !next.canSteerQueue) {
         next = withoutQueued(next, pending.targetId)
       }
       return applyCapabilityFlags(next)

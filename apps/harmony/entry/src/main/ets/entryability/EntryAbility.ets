@@ -18,6 +18,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 
 import { nativeLifecycle } from '../native/lifecycle';
+import { messageSelection } from '../ui/messageSelection';
 
 const DOMAIN = 0x0000;
 
@@ -42,6 +43,9 @@ export default class EntryAbility extends UIAbility {
   onWindowStageCreate(windowStage: window.WindowStage): void {
     // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
+    windowStage.on('windowStageEvent', (event: window.WindowStageEventType) => {
+      if (event === window.WindowStageEventType.INACTIVE || event === window.WindowStageEventType.HIDDEN) messageSelection.close();
+    });
 
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
@@ -54,6 +58,7 @@ export default class EntryAbility extends UIAbility {
 
   onWindowStageDestroy(): void {
     // Main window is destroyed, release UI related resources
+    messageSelection.close();
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageDestroy');
   }
 

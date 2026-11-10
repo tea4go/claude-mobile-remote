@@ -7,6 +7,6 @@ export async function copyVisibleText(text: string): Promise<void> {
     await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text))
     promptAction.showToast({ message: '已复制' })
   } catch (_) {
-    promptAction.showToast({ message: '复制失败，请长按文字复制' })
+    promptAction.showToast({ message: '复制失败，请重试' })
   }
 }

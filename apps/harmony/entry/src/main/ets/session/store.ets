@@ -63,6 +63,7 @@ export interface HarmonySessionStore {
   resolveAction(resolution: ActionResolution): boolean
   cancelTurn(requestId: string): boolean
   cancelQueued(requestId: string): boolean
+  steerQueued(requestId: string): boolean
   createSession(): boolean
   stopSession(): boolean
   setManagementListener(listener: ((result: ManagementResultInfo) => void) | null): void
@@ -259,6 +260,12 @@ class SessionStore implements HarmonySessionStore {
     })
   }
 
+  steerQueued(requestId: string): boolean {
+    if (!this.state.canSteerQueue) return false
+    return this.sendCommand('steer_queued', '', requestId, (commandId: string) =>
+      this.client !== null && this.client.steerQueued(requestId, commandId).ok)
+  }
+
   createSession(): boolean {
     return this.sendManagement('create_session')
   }
@@ -347,13 +354,8 @@ class SessionStore implements HarmonySessionStore {
     const isSend = this.state.pendingCommand?.kind === 'send_text' || this.state.pendingCommand?.kind === 'send_attachments'
     debugLog.record(result.accepted ? 'command_accepted' : 'command_rejected')
     if (result.accepted) {
-      this.dispatch(commandAccepted(result.commandId, result.requestId))
-      if (isSend && this.pendingAttachments.length > 0) {
-        this.state.messages.forEach((message) => {
-          if (message.kind === 'input' && message.requestId === result.requestId) message.attachments = this.pendingAttachments.slice()
-        })
-        this.emit()
-      }
+      this.dispatch(commandAccepted(result.commandId, result.requestId,
+        isSend && this.pendingAttachments.length > 0 ? this.pendingAttachments : undefined))
     } else this.dispatch(commandRejected(result.commandId, result.code, result.message))
     this.pendingAttachments = []
     if (isSend) this.sendListener?.(result.accepted)

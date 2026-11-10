@@ -46,6 +46,11 @@ export interface CancelQueuedCommandPayload {
   requestId: string
 }
 
+export interface SteerQueuedCommandPayload {
+  kind: 'steer_queued'
+  requestId: string
+}
+
 export interface SendAttachmentsPayload {
   kind: 'send_attachments'
   text: string
@@ -65,6 +70,7 @@ export type CommandPayload =
   | ResolveActionAnswersPayload
   | CancelTurnCommandPayload
   | CancelQueuedCommandPayload
+  | SteerQueuedCommandPayload
 
 export interface ResolveActionDecision {
   mode: 'decision'
@@ -440,6 +446,12 @@ export class ProtocolClient {
 
   cancelQueued(requestId: string, commandId: string): SendResult {
     const payload: CancelQueuedCommandPayload = { kind: 'cancel_queued', requestId }
+    return this.sendCommand(commandId, payload)
+  }
+
+  steerQueued(requestId: string, commandId: string): SendResult {
+    if (this.wireVersion < 8) return { ok: false, reason: 'notReady' }
+    const payload: SteerQueuedCommandPayload = { kind: 'steer_queued', requestId }
     return this.sendCommand(commandId, payload)
   }
 

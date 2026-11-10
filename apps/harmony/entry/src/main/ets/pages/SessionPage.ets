@@ -3,6 +3,7 @@ import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
 import { curves } from '@kit.ArkUI'
 import { pageFade } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
+import { messageSelection } from '../ui/messageSelection'
 import { type ComposerDraft, emptyDraft } from '../session/attachments'
 import type {
   Question,
@@ -69,6 +70,7 @@ function hasAnswer(questionAnswers: Array<QuestionAnswer>, question: Question): 
 @Component
 export struct SessionPage {
   @Prop textOnly: boolean = false
+  @State private previewImage: string = ''
   @State private now: number = Date.now()
   private clock: number = -1
   @Prop title: string = 'Whale Remote Control'
@@ -82,6 +84,7 @@ export struct SessionPage {
   onDraft: (text: string) => void = () => {}
   onSelect: (kind: string) => void = () => {}
   onRemoveAttachment: (index: number) => void = () => {}
+  onClearAttachments: () => void = () => {}
   onSpeech: () => void = () => {}
   onStopSpeech: () => void = () => {}
   onCancelSpeech: () => void = () => {}
@@ -112,6 +115,7 @@ export struct SessionPage {
   onSubmitAnswers: () => void = () => {}
   onCancelTurn: (requestId: string) => void = () => {}
   onCancelQueued: (requestId: string) => void = () => {}
+  onSteerQueued: (requestId: string) => void = () => {}
   onCreateSession: () => void = () => {}
   onStopSession: () => void = () => {}
 
@@ -164,11 +168,11 @@ export struct SessionPage {
   }
 
   aboutToAppear(): void {
-    this.clock = setInterval(() => { this.now = Date.now() }, 1000)
     this.stateChanged()
     nativeLifecycle.detailBack = this.backHandler
   }
   private readonly backHandler: () => boolean = () => {
+      if (this.previewImage.length > 0) { this.previewImage = ''; return true }
       if (this.sheet.length === 0 && nativeLifecycle.messageBack?.()) return true
       if (this.sheet.length === 0) return false
       this.closeSheet(); return true
@@ -176,12 +180,21 @@ export struct SessionPage {
   aboutToDisappear(): void {
     this.menuController.close()
     if (this.clock >= 0) clearInterval(this.clock)
+    this.clock = -1
     if (nativeLifecycle.detailBack === this.backHandler) nativeLifecycle.detailBack = null
   }
   private stateChanged(): void {
+    if (this.state.progress !== undefined && this.clock < 0) {
+      this.now = Date.now()
+      this.clock = setInterval(() => { this.now = Date.now() }, 1000)
+    } else if (this.state.progress === undefined && this.clock >= 0) {
+      clearInterval(this.clock)
+      this.clock = -1
+    }
     const id = this.state.pendingAction?.actionId ?? ''
     if (id.length > 0 && id !== this.trackedAction) this.sheet = 'action'
     if (id.length === 0 && this.sheet === 'action') this.sheet = ''
+    if (this.sheet === 'queue' && this.state.queuedRequests.length === 0) this.sheet = ''
     this.trackedAction = id
   }
   private closeSheet(): void {
@@ -195,7 +208,7 @@ export struct SessionPage {
   private drawer() {
     Column() {
       Row() {
-        Text(this.sheet === 'action' ? '待处理事项' : '排队消息').fontSize(18).layoutWeight(1)
+          Text(this.sheet === 'action' ? '待处理事项' : `排队队列（${this.state.queuedRequests.length}）`).fontSize(18).layoutWeight(1)
         Button(this.sheet === 'action' ? '取消本轮' : '关闭', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
           .enabled(this.sheet !== 'action' || this.commandReady()).onClick(() => this.closeSheet())
       }.padding(12)
@@ -206,12 +219,19 @@ export struct SessionPage {
               actionEnabled: this.state.canResolveAction, cancelAllowed: this.commandReady(), answersReady: this.answersReady(),
               onAllowOnce: this.onAllowOnce, onAllowSession: this.onAllowSession, onDeny: this.onDeny,
               onQuestionAnswerChange: this.onQuestionAnswerChange, onSubmitAnswers: this.onSubmitAnswers,
-              onCancelTurn: this.onCancelTurn })
+              onCancelTurn: this.onCancelTurn, showSubmit: false })
           } else {
-            QueuedSummary({ queuedRequests: this.state.queuedRequests, cancelAllowed: this.commandReady(), onCancelQueued: this.onCancelQueued })
+            QueuedSummary({ queuedRequests: this.state.queuedRequests, cancelAllowed: this.commandReady(),
+              steerAllowed: this.state.canSteerQueue === true && this.hasCancelTarget() && this.state.pendingAction === null,
+              onCancelQueued: this.onCancelQueued, onSteerQueued: this.onSteerQueued })
           }
         }.padding(16).width('100%')
-      }.constraintSize({ maxHeight: Math.max(80, this.pageHeight * 0.75 - 68) }).width('100%').align(Alignment.TopStart)
+      }.constraintSize({ maxHeight: Math.max(80, this.pageHeight * 0.75 -
+        (this.sheet === 'action' && this.state.pendingAction?.kind === 'ask_user_question' ? 136 : 68)) }).width('100%').align(Alignment.TopStart)
+      if (this.sheet === 'action' && this.state.pendingAction?.kind === 'ask_user_question') {
+        Button('提交', { type: ButtonType.Normal }).height(44).width('100%').fontSize(15).fontColor('#ffffff').backgroundColor(PRIMARY).borderRadius(10)
+          .enabled(this.state.canResolveAction && this.answersReady()).onClick(() => this.onSubmitAnswers()).margin({ top: 8, bottom: 12 })
+      }
     }.width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 20, topRight: 20 }).transition(pageFade())
   }
   build() {
@@ -235,29 +255,36 @@ export struct SessionPage {
         if (this.state.lastError !== null) { Text(this.state.lastError.message).fontSize(12).fontColor('#b3261e').padding(6) }
         if (this.state.lastNotice !== null) { Text(this.state.lastNotice.message).fontSize(12).padding(6) }
         if (this.state.connection === ConnectionStage.PAIRING_INVALID) { Text('配对已失效，请重新扫码').fontColor('#b3261e') }
-        if (this.state.progress !== undefined) {
-          Text(`${progressLabel(this.state.progress.phase)}${this.state.progress.toolName ? " · " + this.state.progress.toolName : ""} · ${Math.max(0, Math.floor((this.now - this.state.progress.startedAt) / 1000))}秒${this.state.progress.tokensKnown ? ' · ' + (this.state.progress.tokensEstimated ? '约' : '') + this.state.progress.outputTokens + ' tokens' : ''}`).fontSize(12).fontColor(SECONDARY).padding(6)
-        }
         Row({ space: 8 }) {
           if (this.state.pendingAction !== null) { Button('待处理事项', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => { this.sheet = 'action' }) }
         }
         MessageList({ messages: this.state.messages, scroller: this.scroller, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen,
-          onAtBottom: (value: boolean) => { this.atBottom = value } })
+          onAtBottom: (value: boolean) => { this.atBottom = value }, onPreviewImage: (value: string) => { this.previewImage = value } })
           .layoutWeight(1).width('100%').padding(12)
         Row() {
           Blank()
           Button(this.atBottom ? '已到最新消息' : '最新消息 ↓', { type: ButtonType.Normal }).height(32).fontSize(12).fontColor(PRIMARY)
             .backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).enabled(!this.atBottom).onClick(() => this.scroller.scrollEdge(Edge.Bottom))
         }.padding({ right: 12 })
-        Column() {
+        Column({ space: 4 }) {
+          if (this.state.progress !== undefined) {
+            Row({ space: 6 }) {
+              LoadingProgress().width(14).height(14).color(PRIMARY)
+              Text(`${progressLabel(this.state.progress.phase)}${this.state.progress.toolName ? ' · ' + this.state.progress.toolName : ''} · ${Math.max(0, Math.floor((this.now - this.state.progress.startedAt) / 1000))}秒${this.state.progress.tokensKnown ? ' · ' + (this.state.progress.tokensEstimated ? '约' : '') + this.state.progress.outputTokens + ' tokens' : ''}`)
+                .fontSize(12).fontColor(SECONDARY).layoutWeight(1)
+            }.width('100%').padding({ left: 8, right: 8 })
+          }
           MessageComposer({ textOnly: this.textOnly, draft: this.draft, composerEnabled: this.state.canSend,
+            queueCount: this.state.canSteerQueue ? this.state.queuedRequests.length : 0,
+            onQueue: () => { this.sheet = 'queue' },
+            onPreviewImage: (value: string) => { this.previewImage = value },
             permissionMode: this.state.permissionMode,
             permissionEnabled: this.commandReady() && (this.state.sessionStatus === 'ready' || this.state.sessionStatus === 'starting'),
             onPermissionMode: this.onPermissionMode,
             createSessionAvailable: false,
             createSessionEnabled: false, running: this.hasCancelTarget(), cancelEnabled: this.commandReady(),
             speechActive: this.speechActive, speechFinishing: this.speechFinishing, selecting: this.selecting,
-            onDraft: this.onDraft, onSelect: this.onSelect, onRemoveAttachment: this.onRemoveAttachment,
+            onDraft: this.onDraft, onSelect: this.onSelect, onRemoveAttachment: this.onRemoveAttachment, onClearAttachments: this.onClearAttachments,
             onSpeech: this.onSpeech, onStopSpeech: this.onStopSpeech, onCancelSpeech: this.onCancelSpeech,
             onSend: this.onSend, onCreateSession: this.onCreateSession, onCancel: () => this.onCancelTurn(this.cancelTarget()) })
         }.padding({ left: 12, right: 12, top: 6, bottom: 12 }).width('100%')
@@ -266,7 +293,22 @@ export struct SessionPage {
         Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { if (this.sheet !== 'action') this.closeSheet() }).transition(pageFade())
         this.drawer()
       }
+      if (this.previewImage.length > 0) {
+        Column() {
+          Row() {
+            Blank()
+            Button('关闭', { type: ButtonType.Normal }).height(48).fontColor('#ffffff').backgroundColor(Color.Transparent)
+              .onClick(() => { this.previewImage = '' })
+          }.width('100%')
+          Image(this.previewImage).width('100%').layoutWeight(1).objectFit(ImageFit.Contain)
+        }.width('100%').height('100%').padding(12).backgroundColor('#ee000000')
+      }
     }.width('100%').height('100%')
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down && event.touches.length > 0) {
+          messageSelection.outside(event.touches[0].windowX, event.touches[0].windowY)
+        }
+      })
       .onAreaChange((_old: Area, area: Area) => { this.pageHeight = Number(area.height) })
   }
 }

@@ -56,6 +56,7 @@ export struct PendingSummary {
   @Prop actionEnabled: boolean = false
   @Prop cancelAllowed: boolean = false
   @Prop answersReady: boolean = false
+  @Prop showSubmit: boolean = true
   onAllowOnce: () => void = () => {}
   onAllowSession: () => void = () => {}
   onDeny: () => void = () => {}
@@ -219,11 +220,13 @@ export struct PendingSummary {
             this.buildQuestion(question)
           }, (question: Question) => question.questionId)
 
+          if (this.showSubmit) {
           Button('提交回答', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor('#1677ff').backgroundColor('#eef5ff').borderRadius(8)
             .enabled(this.actionEnabled && this.answersReady)
             .onClick(() => {
               this.onSubmitAnswers()
             })
+          }
         }
       }
     }

@@ -831,6 +831,7 @@ function decodeSessionSnapshot(value: Object | null, version: number): SessionSn
     queueDepth,
     queuedRequests,
   }
+  snapshot.canSteerQueue = candidate.canSteerQueue
   snapshot.projectCwd = displayField(candidate.projectCwd, 'projectCwd', version)
   snapshot.sessionTitle = displayField(candidate.sessionTitle, 'sessionTitle', version)
   snapshot.createdAt = displayField(candidate.createdAt, 'createdAt', version)

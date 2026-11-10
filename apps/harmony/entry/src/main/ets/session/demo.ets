@@ -32,8 +32,10 @@ export class DemoController {
     if (!this.state.canSend || text.trim().length === 0) return false
     const id = `demo-${++this.counter}`; this.active = id; this.startedAt = Date.now()
     this.state.canSend = false
-    this.state.messages.push({ kind: 'input', source: 'mobile', requestId: id, text, status: 'accepted' })
-    this.state.messages.push({ kind: 'claude', source: 'mobile', requestId: id, text: '', status: 'streaming', error: null })
+    this.state.messages = this.state.messages.concat([
+      { kind: 'input', source: 'mobile', requestId: id, text, status: 'accepted' },
+      { kind: 'claude', source: 'mobile', requestId: id, text: '', status: 'streaming', error: null },
+    ])
     this.state.progress = { phase: 'thinking', startedAt: this.startedAt, updatedAt: this.startedAt, outputTokens: 0, tokensKnown: false, tokensEstimated: false }
     this.emit()
     this.timer = setTimeout(() => {
@@ -65,7 +67,10 @@ export class DemoController {
       if (id.length === 0 || this.active !== id) return
       offset += 4; const done = offset >= text.length
       this.state.messages = this.state.messages.map((message) => {
-        if (message.kind === 'claude' && message.requestId === id) { message.text = text.slice(0, offset); message.status = done ? 'done' : 'streaming' }
+        if (message.kind === 'claude' && message.requestId === id) return {
+          kind: message.kind, source: message.source, requestId: message.requestId,
+          text: text.slice(0, offset), status: done ? 'done' : 'streaming', error: message.error,
+        }
         return message
       })
       this.state.progress = done ? undefined : { phase: 'writing', startedAt: this.startedAt, updatedAt: Date.now(), outputTokens: 0, tokensKnown: false, tokensEstimated: false }
@@ -77,6 +82,12 @@ export class DemoController {
   cancel(id: string): boolean {
     if (this.active.length === 0 || this.active !== id) return false
     this.dispose(); this.state.pendingAction = null; this.state.canResolveAction = false; this.state.canSend = true; this.state.progress = undefined
-    this.state.messages.forEach((message) => { if (message.kind === 'claude' && message.requestId === id) message.status = 'cancelled' }); this.emit(); return true
+    this.state.messages = this.state.messages.map((message) => {
+      if (message.kind === 'claude' && message.requestId === id) return {
+        kind: message.kind, source: message.source, requestId: message.requestId,
+        text: message.text, status: 'cancelled', error: message.error,
+      }
+      return message
+    }); this.emit(); return true
   }
 }

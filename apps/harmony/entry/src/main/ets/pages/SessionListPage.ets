@@ -32,6 +32,8 @@ function rowKey(record: SessionRecord): string {
 }
 @Component
 export struct SessionListPage {
+  @Prop initialSettings: boolean = false
+  onExitSettings: () => void = () => {}
   @Prop scrollOffset: number = 0
   onScrollOffset: (value: number) => void = () => {}
   @Prop @Watch('updateGroups') sessions: Array<SessionRecord> = []
@@ -42,10 +44,11 @@ export struct SessionListPage {
   @State private groups: Array<PCGroup> = []
   @State private collapsed: Array<string> = []
   @State private filterOpen: boolean = false
+  @State private filterIndex: number = 0
   private readonly listSource: ProjectListDataSource = new ProjectListDataSource()
   private updateGroups(): void { this.groups = groupSessions(this.sessions); this.updateRows() }
   private updateRows(): void { this.listSource.replace(projectListRows(this.groups, this.selectedPC, this.collapsed)) }
-  aboutToAppear(): void { this.updateGroups(); nativeLifecycle.detailBack = this.backHandler }
+  aboutToAppear(): void { this.settings = this.initialSettings; this.updateGroups(); nativeLifecycle.detailBack = this.backHandler }
   private readonly backHandler: () => boolean = () => {
     if (this.filterOpen) { this.filterOpen = false; return true }
     if (this.settings) { this.changePage(); return true }
@@ -71,20 +74,14 @@ export struct SessionListPage {
   onClearCache: () => void = () => {}
   @State private settings: boolean = false
   @State private computers: boolean = false
-  private projectPC: string = ''
-  private projectCwd: string = ''
-  private projectSources: Array<SessionRecord> = []
-  private projectController: CustomDialogController = new CustomDialogController({
-    builder: ActionMenu({ title: '选择来源会话', items: this.projectItems(), onClose: (): void => { this.projectController.close() } }),
-    customStyle: true, alignment: DialogAlignment.Bottom, autoCancel: true,
-  })
-  private projectItems(): Array<ActionMenuItem> {
-    return this.projectSources.map((source: SessionRecord): ActionMenuItem => ({ title: titleOf(source), action: () => this.onCreateProject(this.projectPC, this.projectCwd, source.sessionId) }))
-  }
   private createProject(pcKey: string, project: ProjectGroup): void {
     const available = project.sessions.filter((record: SessionRecord) => record.status === 'connected' && (record.capabilities ?? []).indexOf('create_session') >= 0)
-    if (available.length <= 1) { this.onCreateProject(pcKey, project.cwd, available.length === 1 ? available[0].sessionId : ''); return }
-    this.projectPC = pcKey; this.projectCwd = project.cwd; this.projectSources = available; this.projectController.open()
+    this.onCreateProject(pcKey, project.cwd, available.length > 0 ? available[0].sessionId : '')
+  }
+  private openFilter(): void {
+    const index = this.groups.findIndex((pc: PCGroup) => pc.key === this.selectedPC)
+    this.filterIndex = index < 0 ? 0 : index + 1
+    this.filterOpen = true
   }
   private menuSession: SessionRecord | null = null
   private menuController: CustomDialogController = new CustomDialogController({
@@ -108,7 +105,7 @@ export struct SessionListPage {
       { title: '移除配对', danger: true, action: () => this.remove(session) },
     ]
   }
-  aboutToDisappear(): void { this.menuController.close(); this.projectController.close(); if (nativeLifecycle.detailBack === this.backHandler) nativeLifecycle.detailBack = null }
+  aboutToDisappear(): void { this.menuController.close(); if (nativeLifecycle.detailBack === this.backHandler) nativeLifecycle.detailBack = null }
 
   private remove(record: SessionRecord): void {
     AlertDialog.show({ title: '移除此配对？', message: '同时清除本机凭证、缓存与提醒，电脑端会话继续运行。',
@@ -121,6 +118,8 @@ export struct SessionListPage {
       this.settings = true
     } else if (this.computers) {
       this.computers = false
+    } else if (this.initialSettings) {
+      this.onExitSettings()
     } else {
       this.settings = false
     }
@@ -251,7 +250,7 @@ export struct SessionListPage {
                     Text(`${row.pc.connected}/${row.pc.sessions.length} 个会话已连接`).fontSize(12).fontColor(SECONDARY).width('100%')
                   }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                   Text('›').fontSize(24).fontColor(SECONDARY)
-                }.padding(16).width('100%').backgroundColor('#ffffff').borderRadius(16).onClick(() => { this.filterOpen = true })
+                }.padding(16).width('100%').backgroundColor('#ffffff').borderRadius(16).onClick(() => this.openFilter())
               } else if (row.kind === 'project' && row.pc !== undefined && row.project !== undefined) {
                 Row({ space: 8 }) {
                   Column({ space: 4 }) {
@@ -281,15 +280,19 @@ export struct SessionListPage {
     if (this.filterOpen) {
       Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.filterOpen = false })
       Column({ space: 8 }) {
-        Row() { Text('选择电脑').fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1); Button('关闭', { type: ButtonType.Normal }).height(44).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.filterOpen = false }) }.width('100%')
-        Scroll() {
-          Column({ space: 4 }) {
-            Button(this.selectedPC === 'all' ? '✓  全部电脑' : '全部电脑', { type: ButtonType.Normal }).width('100%').height(48).onClick(() => { this.onSelectPC('all'); this.filterOpen = false })
-            ForEach(this.groups, (pc: PCGroup) => {
-              Button(this.selectedPC === pc.key ? `✓  ${pc.label}` : pc.label, { type: ButtonType.Normal }).width('100%').height(48).onClick(() => { this.onSelectPC(pc.key); this.filterOpen = false })
-            }, (pc: PCGroup) => pc.key)
-          }.width('100%')
-        }.constraintSize({ maxHeight: 440 }).width('100%')
+        Row() {
+          Button('取消', { type: ButtonType.Normal }).height(44).fontColor(SECONDARY).backgroundColor(Color.Transparent).onClick(() => { this.filterOpen = false })
+          Text('选择电脑').fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
+          Button('确定', { type: ButtonType.Normal }).height(44).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => {
+            const pc = this.groups[this.filterIndex - 1]
+            this.onSelectPC(this.filterIndex === 0 || pc === undefined ? 'all' : pc.key)
+            this.filterOpen = false
+          })
+        }.width('100%')
+        TextPicker({ range: ['全部电脑'].concat(this.groups.map((pc: PCGroup) => pc.label)), selected: this.filterIndex })
+          .width('100%').height(200).onChange((_value: string | string[], index: number | number[]) => {
+            this.filterIndex = typeof index === 'number' ? index : index[0]
+          })
       }.padding(16).width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 24, topRight: 24 })
     }
     }.width('100%').height('100%')

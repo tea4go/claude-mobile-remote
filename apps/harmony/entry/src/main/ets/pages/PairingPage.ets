@@ -46,6 +46,7 @@ export struct PairingPage {
   @Prop selfCheckError: string = ''
   @Prop canBack: boolean = false
   onBack: () => void = () => {}
+  onSettings: () => void = () => {}
   onPairingInputChange: (value: string) => void = () => {}
   onConnect: () => void = () => {}
   onCancel: () => void = () => {}
@@ -61,7 +62,7 @@ export struct PairingPage {
       Row() {
         if (this.canBack) { Button('‹', { type: ButtonType.Normal }).width(44).height(44).fontSize(30).fontColor(PRIMARY).backgroundColor(Color.Transparent).accessibilityText('返回').onClick(() => this.onBack()) }
         Text('Whale Remote Control').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
-        Blank().width(44)
+        Button('设置', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onSettings())
       }.width('100%').height(56).padding({ left: 8, right: 8 })
       Scroll() {
         Column({ space: 16 }) {

@@ -1,5 +1,5 @@
 import { NetworkMonitor } from '../native/network'
-import { KeyboardAvoidMode } from '@kit.ArkUI'
+import { KeyboardAvoidMode, promptAction } from '@kit.ArkUI'
 import { FeedbackFrame } from '../ui/feedbackFrame'
 import { pageFade } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
@@ -49,7 +49,7 @@ import { groupSessions, sessionPCKey, sessionPreview } from '../session/projectG
 import { projectMatches, createdPairingAddress } from '../session/projectPairing'
 import { commitPairingRecords } from '../session/pairingCommit'
 
-type AppView = 'list' | 'pairing' | 'detail'
+type AppView = 'list' | 'pairing' | 'pairingSettings' | 'detail'
 interface DisplayPreferences { selectedPC: string | null; debugEnabled: boolean }
 interface ProjectTarget { pcId: string; cwd: string }
 
@@ -221,14 +221,14 @@ export struct AppShell {
         if (pairing !== null && this.createdSource.length > 0 && nextState.lastError !== null &&
           (nextState.connection === ConnectionStage.DISCONNECTED || nextState.connection === ConnectionStage.PAIRING_INVALID || nextState.connection === ConnectionStage.PROTOCOL_ERROR)) {
           this.pendingPairing = null; this.createdSource = ''; this.projectTarget = null; this.projectCreating = false
-          AlertDialog.show({ message: '电脑可能已创建会话，但手机连接失败；请在电脑检查后重新配对', confirm: { value: '知道了', action: () => {} } })
+          promptAction.showToast({ message: '电脑可能已创建会话，但手机连接失败；请在电脑检查后重新配对' })
           return
         }
         if (pairing !== null && nextState.connection === ConnectionStage.READY && this.foreground) {
           if (this.projectTarget !== null && !projectMatches(this.projectTarget.pcId, this.projectTarget.cwd, pairing, nextState.projectCwd)) {
             this.pendingPairing = null; this.projectCreating = false; this.entryStore.disconnect()
             this.managementFeedback = '无法验证目标电脑或工作目录，请检查后重新扫码'
-            AlertDialog.show({ message: this.managementFeedback, confirm: { value: '知道了', action: () => {} } })
+            promptAction.showToast({ message: this.managementFeedback })
             return
           }
           if (!this.pairingSaving) { void this.completePairing(pairing) }
@@ -250,7 +250,7 @@ export struct AppShell {
         verified.disconnect()
         this.nativeError = result === 'rollback_failed' ? '配对保存失败且恢复未完成，请核对本机配对后重试' :
           result === 'cancelled' ? '连接已中断，配对未保存，请重新扫码' : '配对保存失败，请重试；电脑可能已创建会话'
-        if (this.alive) AlertDialog.show({ message: this.nativeError, confirm: { value: '知道了', action: () => {} } })
+        if (this.alive) promptAction.showToast({ message: this.nativeError })
         return
       }
       this.projectTarget = null; this.createdSource = ''; this.pendingPairing = null
@@ -275,7 +275,7 @@ export struct AppShell {
     } catch (_) {
       if (this.pendingPairing === pairing) { this.pendingPairing = null; verified.disconnect() }
       this.nativeError = '配对保存失败，请检查后重试；电脑可能已创建会话'
-      if (this.alive) AlertDialog.show({ message: this.nativeError, confirm: { value: '知道了', action: () => {} } })
+      if (this.alive) promptAction.showToast({ message: this.nativeError })
     } finally { this.pairingSaving = false; this.projectCreating = false }
   }
 
@@ -391,7 +391,8 @@ export struct AppShell {
         void this.speech.cancel(); this.speechActive = false
         this.flushCache()
         debugLog.record('background')
-        this.entryStore.disconnect(); this.pendingPairing = null; this.projectCreating = false
+        this.pendingPairing = null; this.projectCreating = false
+        this.entryStore.disconnect(); this.entryStore.reset()
         this.stores.forEach((store: HarmonySessionStore) => store.disconnect())
         this.drafts.forEach((draft: ComposerDraft) => { draft.sending = false })
       } else {
@@ -532,6 +533,10 @@ export struct AppShell {
   private handleStoreState(sessionId: string, nextState: HarmonySessionState): void {
     const previousState = this.states.get(sessionId) ?? createInitialHarmonySessionState()
     this.states.set(sessionId, nextState)
+    const queueCommand = previousState.pendingCommand?.kind === 'cancel_queued' || previousState.pendingCommand?.kind === 'steer_queued'
+    if (sessionId === this.currentSessionId && this.view === 'detail' && queueCommand && nextState.pendingCommand === null && nextState.lastError !== null) {
+      promptAction.showToast({ message: nextState.lastError.message })
+    }
     if (nextState.messages !== previousState.messages || nextState.projectCwd !== previousState.projectCwd || nextState.sessionTitle !== previousState.sessionTitle) this.scheduleCache(sessionId)
     if (nextState.connection === ConnectionStage.READY && previousState.connection !== ConnectionStage.READY) this.notifications?.seed(sessionId, nextState.seqBase)
     const previousRecord = this.sessions.find((record: SessionRecord) => record.sessionId === sessionId)
@@ -612,12 +617,12 @@ export struct AppShell {
     }
     if (result.accepted && result.operation === 'create_session' && result.pairing === undefined) {
       this.projectCreating = false
-      AlertDialog.show({ message: '电脑可能已创建会话，但未返回有效配对信息；请在电脑检查后重新配对', confirm: { value: '知道了', action: () => {} } })
+      promptAction.showToast({ message: '电脑可能已创建会话，但未返回有效配对信息；请在电脑检查后重新配对' })
     }
     if (!result.accepted && result.operation === 'create_session') this.projectCreating = false
     if (!result.accepted && result.operation === 'create_session' && this.view === 'list') {
       const message = result.code === 'result_unknown' ? '操作结果未知，请在电脑检查后再试' : result.code === 'session_capacity' ? '活跃会话已达上限' : '新建失败，请检查连接后重试'
-      AlertDialog.show({ message, confirm: { value: '知道了', action: () => {} } })
+      promptAction.showToast({ message })
     }
     if (result.accepted && result.operation === 'create_session' && result.pairing !== undefined) {
       const source = this.sessions.find((record: SessionRecord) => record.sessionId === sourceSessionId)
@@ -626,7 +631,7 @@ export struct AppShell {
       if (source === undefined || address === null || !source.pcId || !source.projectCwd || child.pcId !== source.pcId || this.pendingPairing !== null) {
         this.projectCreating = false
         this.managementFeedback = '电脑可能已创建会话，但无法验证连接；请在电脑检查后重新配对'
-        AlertDialog.show({ message: this.managementFeedback, confirm: { value: '知道了', action: () => {} } })
+        promptAction.showToast({ message: this.managementFeedback })
         return
       }
       const candidate: PairingPayload = { version: child.version, wsUrl: address, sessionId: child.sessionId, pairToken: child.pairToken, expiresAt: child.expiresAt, capabilities: child.capabilities, pcId: child.pcId, pcName: child.pcName }
@@ -634,7 +639,7 @@ export struct AppShell {
       if (!parsed.ok || parsed.payload === null) {
         this.projectCreating = false
         this.managementFeedback = '电脑可能已创建会话，但连接地址无效；请在电脑检查后重新配对'
-        AlertDialog.show({ message: this.managementFeedback, confirm: { value: '知道了', action: () => {} } })
+        promptAction.showToast({ message: this.managementFeedback })
         return
       }
       this.entryStore.reset()
@@ -876,7 +881,12 @@ export struct AppShell {
     }
     if (!this.store.cancelQueued(requestId)) {
       this.sessionState = this.store.getState()
+      promptAction.showToast({ message: '无法取消排队，请检查连接后重试' })
     }
+  }
+
+  private handleSteerQueued(requestId: string): void {
+    if (!this.store.steerQueued(requestId)) promptAction.showToast({ message: '无法引导队列，请检查连接后重试' })
   }
 
   private handleResolveToolApproval(decision: ActionDecision): void {
@@ -930,6 +940,7 @@ export struct AppShell {
       onDraft: (text: string) => this.updateDraft(text, this.draft.attachments),
       onSelect: (kind: string) => { void this.selectAttachment(kind) },
       onRemoveAttachment: (index: number) => this.updateDraft(this.draft.text, this.draft.attachments.filter((_item: Attachment, itemIndex: number) => itemIndex !== index)),
+      onClearAttachments: () => this.updateDraft(this.draft.text, []),
       onSpeech: () => this.startSpeech(),
       onStopSpeech: () => { if (!this.speechFinishing) { this.speechFinishing = true; void this.speech.stop() } },
       onCancelSpeech: () => { void this.speech.cancel(); this.speechActive = false; this.speechFinishing = false },
@@ -971,6 +982,7 @@ export struct AppShell {
       onCancelQueued: (requestId: string) => {
         this.handleCancelQueued(requestId)
       },
+      onSteerQueued: (requestId: string) => this.handleSteerQueued(requestId),
     })
   }
 
@@ -978,6 +990,7 @@ export struct AppShell {
   private buildPairingView(): void {
     PairingPage({
       onDemo: () => this.openDemo(),
+      onSettings: () => { this.view = 'pairingSettings' },
       projectCwd: this.projectTarget?.cwd ?? '',
       saving: this.pairingSaving,
       onCancel: () => { if (!this.pairingSaving) { this.pendingPairing = null; this.entryStore.disconnect(); this.pairingTarget = '' } },
@@ -1013,6 +1026,8 @@ export struct AppShell {
   @Builder
   private buildListView(): void {
     SessionListPage({
+      initialSettings: this.view === 'pairingSettings',
+      onExitSettings: () => { this.view = 'pairing' },
       onDemo: () => this.openDemo(),
       debugEnabled: this.debugEnabled,
       onDebug: (value: boolean) => { debugLog.setEnabled(value); this.saveDisplayPreferences() },
@@ -1021,17 +1036,17 @@ export struct AppShell {
       onSelectPC: (key: string) => { this.selectedPC = key; this.selectedPCConfigured = true; this.saveDisplayPreferences() },
       onCreateProject: (pcKey: string, cwd: string, sourceId: string) => {
         if (cwd.length === 0 || !/^[0-9a-f]{32}$/.test(pcKey)) {
-          AlertDialog.show({ message: '无法验证电脑或工作目录，请重新配对后重试', confirm: { value: '知道了', action: () => {} } }); return
+          promptAction.showToast({ message: '无法验证电脑或工作目录，请重新配对后重试' }); return
         }
         if (sourceId.length === 0) {
           const hasConnected = this.sessions.some((record: SessionRecord) => sessionPCKey(record) === pcKey && record.projectCwd === cwd && record.status === 'connected')
-          if (hasConnected) { AlertDialog.show({ message: '当前会话不支持新建', confirm: { value: '知道了', action: () => {} } }); return }
+          if (hasConnected) { promptAction.showToast({ message: '当前会话不支持新建' }); return }
           this.openPairingPage(); this.projectTarget = { pcId: pcKey, cwd }
-          AlertDialog.show({ message: '请扫描目标电脑和目录的新会话配对码', confirm: { value: '知道了', action: () => {} } }); return
+          promptAction.showToast({ message: '请扫描目标电脑和目录的新会话配对码' }); return
         }
         const source = this.stores.get(sourceId)
         if (source === undefined || this.projectCreating || this.pendingPairing !== null || this.managementPendingSessions.has(sourceId) || !source.createSession()) {
-          AlertDialog.show({ message: '暂时无法新建会话，请检查连接后重试', confirm: { value: '知道了', action: () => {} } }); return
+          promptAction.showToast({ message: '暂时无法新建会话，请检查连接后重试' }); return
         }
         this.managementPendingSessions.add(sourceId); this.projectCreating = true
       },
@@ -1101,7 +1116,7 @@ export struct AppShell {
     .width('100%')
     .height('100%')
     if (this.debugEnabled && !this.debugOpen && !this.demoOpen && !this.demoOpening) {
-      Row() { Blank(); Button('调试').fontSize(12).height(38).onClick(() => { this.debugOpen = true }) }.width('100%').position({ x: 0, y: '60%' })
+      Row() { Blank(); Button('⌘', { type: ButtonType.Normal }).width(36).height(36).padding(0).fontSize(18).accessibilityText('查看调试日志').onClick(() => { this.debugOpen = true }) }.width('100%').position({ x: 0, y: '60%' })
     }
     if (this.debugOpen) {
       Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.debugOpen = false }).transition(pageFade())

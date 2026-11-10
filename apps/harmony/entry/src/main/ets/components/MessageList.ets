@@ -3,6 +3,8 @@ import { nativeLifecycle } from '../native/lifecycle'
 import { MarkdownText } from './MarkdownText'
 import { FeedDataSource, feedRenderKey, projectFeed, type FeedRow, type ActivityFeedGroup } from '../ui/feedDataSource'
 import { toolNamesByTurn, toolNameForResult, toolStatusesByTurn } from '../session/stepIndex'
+import { markdownVisibleText } from '../session/markdown'
+import { messageSelection } from '../ui/messageSelection'
 import type {
   Attachment,
   ContentBlock,
@@ -52,27 +54,43 @@ export struct MessageList {
   @Prop @Watch('messagesChanged') messages: Array<FeedMessage> = []
   scroller: Scroller = new Scroller()
   onAtBottom: (value: boolean) => void = () => {}
+  onPreviewImage: (value: string) => void = () => {}
   @Prop debugEnabled: boolean = false
   onDebugOpen: () => void = () => {}
   private readonly source: FeedDataSource = new FeedDataSource()
-  @State private preview: string = ''
   @State private selectedActivity: ActivityFeedGroup | null = null
   @State private selectedStep: number = -1
   private toolNames: Map<string, string> = new Map()
   private toolStatuses: Map<string, string> = new Map()
+  private previousMessages: Array<FeedMessage> = []
 
   aboutToAppear(): void { this.messagesChanged(); nativeLifecycle.messageBack = this.backHandler }
-  aboutToDisappear(): void { if (nativeLifecycle.messageBack === this.backHandler) nativeLifecycle.messageBack = null }
+  aboutToDisappear(): void { messageSelection.close(); if (nativeLifecycle.messageBack === this.backHandler) nativeLifecycle.messageBack = null }
   private readonly backHandler: () => boolean = () => {
+    if (messageSelection.close()) return true
     if (this.selectedActivity !== null) {
       if (this.selectedStep >= 0) this.selectedStep = -1
       else this.selectedActivity = null
       return true
     }
-    if (this.preview.length > 0) { this.preview = ''; return true }
     return false
   }
   private messagesChanged(): void {
+    const previous = this.previousMessages
+    this.previousMessages = this.messages
+    // A text delta cannot change the tool index or an open activity group.
+    if (previous.length > 0 && previous.length === this.messages.length) {
+      const oldLast = previous[previous.length - 1]
+      const newLast = this.messages[this.messages.length - 1]
+      if (oldLast.kind === 'claude' && newLast.kind === 'claude' && oldLast.requestId === newLast.requestId &&
+        oldLast.status === newLast.status) {
+        let samePrefix = true
+        for (let index = 0; index < previous.length - 1; index += 1) {
+          if (previous[index] !== this.messages[index]) { samePrefix = false; break }
+        }
+        if (samePrefix) { this.source.replace(this.messages); return }
+      }
+    }
     this.toolNames = toolNamesByTurn(this.messages)
     this.toolStatuses = toolStatusesByTurn(this.messages)
     if (this.selectedActivity !== null) {
@@ -87,14 +105,6 @@ export struct MessageList {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
     List({ space: 10, scroller: this.scroller }) {
-      if (this.preview.length > 0) {
-        ListItem() {
-          Column() {
-            Image(this.preview).height(320).width('100%').objectFit(ImageFit.Contain).onClick(() => { this.preview = '' })
-            Text('点按图片收起预览').fontSize(12)
-          }
-        }
-      }
       if (this.messages.length === 0) {
         ListItem() { Text('还没有消息。').fontSize(14).opacity(0.7) }
       } else {
@@ -109,12 +119,12 @@ export struct MessageList {
                     ForEach(message.attachments, (attachment: Attachment) => {
                       if (attachment.mediaType.startsWith('image/')) {
                         Image(`data:${attachment.mediaType};base64,${attachment.data}`).height(140).width('100%').objectFit(ImageFit.Contain)
-                          .onClick(() => { this.preview = `data:${attachment.mediaType};base64,${attachment.data}` })
+                          .onClick(() => this.onPreviewImage(`data:${attachment.mediaType};base64,${attachment.data}`))
                       }
                       Text(attachment.name).fontSize(12)
                     }, (attachment: Attachment, itemIndex: number) => `${itemIndex}-${attachment.name}`)
                   }
-                  Text(message.text).fontSize(14).fontColor('#ffffff').copyOption(CopyOptions.LocalDevice).width('100%').textAlign(TextAlign.Start)
+                  MarkdownText({ text: message.text, plain: true, scrollController: this.scroller })
                 }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor('#3478f6').borderRadius(16)
                 Button('复制', { type: ButtonType.Normal }).height(36).fontSize(12).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => { void copyVisibleText(message.text).catch(() => {}) })
                 Text(`${message.source === 'terminal' ? '电脑端' : '手机端'}${inputStatusLabel(message.status)}`)
@@ -170,8 +180,8 @@ export struct MessageList {
                 .opacity(0.7)
                 .width('100%')
 
-              Column() { MarkdownText({ text: message.text }) }.padding(14).width('100%').backgroundColor('#ffffff').borderRadius(16)
-              Button('复制', { type: ButtonType.Normal }).height(36).fontSize(12).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => { void copyVisibleText(message.text).catch(() => {}) })
+              Column() { MarkdownText({ text: message.text, scrollController: this.scroller }) }.padding(14).width('100%').backgroundColor('#ffffff').borderRadius(16)
+              Button('复制', { type: ButtonType.Normal }).height(36).fontSize(12).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => { void copyVisibleText(markdownVisibleText(message.text)).catch(() => {}) })
 
               if (message.status === 'streaming') { LoadingProgress().width(20).height(20) }
               if (message.status === 'done') { Text('已完成').fontSize(12).opacity(0.6) }
@@ -204,7 +214,8 @@ export struct MessageList {
     .width('100%')
     .height('100%')
     .cachedCount(2)
-    .onScroll(() => this.onAtBottom(this.scroller.isAtEnd()))
+    .clip(true)
+    .onScroll(() => { messageSelection.refresh(); this.onAtBottom(this.scroller.isAtEnd()) })
     .onReachEnd(() => this.onAtBottom(true))
     if (this.selectedActivity !== null) {
       Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })

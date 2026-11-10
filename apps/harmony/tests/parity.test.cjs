@@ -58,23 +58,100 @@ function readyStore() {
   return { store, socket }
 }
 test('existing self checks remain valid', () => assert.equal(load('debug/selfCheck').runSelfChecks().length, 8))
+test('whole Markdown copy uses visible text and keeps code and table content', () => {
+  const { markdownVisibleText } = load('session/markdown')
+  assert.equal(markdownVisibleText('# **标题**\n\n[链接](https://example.test) &amp; 文本\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n```ts\nconst x = 1\n```'),
+    '标题\n\n链接 & 文本\n\nA\tB\n1\t2\n\nconst x = 1')
+})
+test('Markdown selection projection maps rendered cells and code to one text buffer', () => {
+  const { markdownBlocks, markdownSelectionProjection } = load('session/markdown')
+  const projection = markdownSelectionProjection(markdownBlocks('**前**\n\n| A | B |\n| --- | --- |\n| 中 | 🐳 |\n\n```\nx\ny\n```'))
+  assert.equal(projection.text, '前\n\nA\tB\n中\t🐳\n\nx\ny')
+  assert.deepEqual(projection.segments.map(item => item.text), ['前', 'A', 'B', '中', '🐳', 'x\ny'])
+  for (const item of projection.segments) assert.equal(projection.text.slice(item.start, item.end), item.text)
+  assert.deepEqual(projection.segments.slice(1, 5).map(item => [item.row, item.column]), [[0, 0], [0, 1], [1, 0], [1, 1]])
+})
+test('selection boundary adjustments preserve emoji, combining characters and a nonempty range', () => {
+  const { selectionBoundaries, moveSelectionBoundary } = load('ui/textSelectionLayout')
+  const value = 'A👨‍👩‍👧‍👦e\u0301🇨🇳B'
+  const boundaries = selectionBoundaries(value)
+  assert.deepEqual(boundaries.map((offset, index) => value.slice(offset, boundaries[index + 1])).slice(0, -1),
+    ['A', '👨‍👩‍👧‍👦', 'e\u0301', '🇨🇳', 'B'])
+  for (let offset = -2; offset <= value.length + 2; offset++) {
+    for (const edge of ['start', 'end']) {
+      const [start, end] = moveSelectionBoundary(value, 1, value.length - 1, edge, offset)
+      assert.ok(boundaries.includes(start) && boundaries.includes(end))
+      assert.ok(start < end)
+    }
+  }
+})
+test('one active message owns selection and background teardown removes its callback', () => {
+  const { messageSelection } = load('ui/messageSelection')
+  const { nativeLifecycle } = load('native/lifecycle')
+  const closed = []
+  const first = { close: () => closed.push('first'), refresh() {}, contains: () => false }
+  const second = { close: () => closed.push('second'), refresh() {}, contains: () => true }
+  try {
+    messageSelection.open(first)
+    messageSelection.open(second)
+    assert.deepEqual(closed, ['first'])
+    messageSelection.release(first)
+    messageSelection.outside(0, 0)
+    assert.deepEqual(closed, ['first'])
+    nativeLifecycle.active(false)
+    assert.deepEqual(closed, ['first', 'second'])
+    assert.equal(messageSelection.close(), false)
+  } finally { messageSelection.close(); nativeLifecycle.active(true) }
+})
 test('lazy feed publishes streamed text/status changes and keeps attachment bytes out of render keys', () => {
   const { FeedDataSource, feedRenderKey } = load('ui/feedDataSource')
   const source = new FeedDataSource()
-  let notifications = 0
-  const listener = { onDataReloaded: () => { notifications++ } }
+  let notifications = 0; const changed = []
+  const listener = { onDataReloaded: () => { notifications++ }, onDataChange: (index) => { changed.push(index) } }
   source.registerDataChangeListener(listener); source.registerDataChangeListener(listener)
   const first = { kind: 'claude', requestId: 'r', source: 'mobile', text: '一', status: 'streaming', error: null }
   source.replace([first])
   const key = feedRenderKey(source.getData(0), 0)
   source.replace([{ ...first, text: '一二', status: 'done' }])
-  assert.equal(notifications, 2); assert.equal(source.totalCount(), 1)
+  assert.equal(notifications, 1); assert.deepEqual(changed, [0]); assert.equal(source.totalCount(), 1)
   assert.equal(source.getData(0).text, '一二')
   assert.notEqual(feedRenderKey(source.getData(0), 0), key)
   const input = { kind: 'input', source: 'mobile', requestId: 'r', text: '', status: 'accepted', attachments: [{ ...attachment, data: 'synthetic-base64-must-not-enter-key' }] }
   assert.equal(feedRenderKey(input, 0).includes(input.attachments[0].data), false)
   source.unregisterDataChangeListener(listener); source.replace([])
-  assert.equal(notifications, 2); assert.equal(source.totalCount(), 0)
+  assert.equal(notifications, 1); assert.equal(source.totalCount(), 0)
+})
+test('streaming feed updates only the last projected row and preserves activity groups', () => {
+  const { FeedDataSource } = load('ui/feedDataSource')
+  const source = new FeedDataSource(); const changes = []; let reloads = 0
+  source.registerDataChangeListener({ onDataReloaded: () => { reloads++ }, onDataChange: index => changes.push(index) })
+  const block = { kind: 'block', requestId: 'r', block: { id: 'tool', kind: 'thinking', thinking: '处理中' } }
+  const first = { kind: 'claude', requestId: 'r', source: 'mobile', text: 'A', status: 'streaming', error: null }
+  source.replace([block, first]); const activity = source.getData(0)
+  source.replace([block, { ...first, text: 'AB' }])
+  assert.equal(source.getData(0), activity)
+  assert.equal(source.getData(1).text, 'AB')
+  assert.deepEqual(changes, [1]); assert.equal(reloads, 1)
+})
+test('streaming delta leaves the prior session state and message unchanged', () => {
+  const state = createInitialHarmonySessionState()
+  state.connection = ConnectionStage.READY; state.sessionId = 'session-1'; state.seqBase = 0
+  const input = { kind: 'input', requestId: 'r1', source: 'mobile', text: 'hello', status: 'accepted' }
+  const reply = { kind: 'claude', requestId: 'r1', source: 'mobile', text: 'a', status: 'streaming', error: null }
+  state.messages = [input, reply]
+  const next = reducer.reduceHarmonySessionState(state, reducer.eventReceived(event('text_delta', 1, { text: 'b', turnStatus: 'running' })))
+  assert.equal(state.messages[1].text, 'a'); assert.equal(next.messages[1].text, 'ab')
+  assert.notEqual(next.messages, state.messages); assert.equal(next.messages[0], input)
+})
+test('accepted attachments enter the feed in the same immutable state update', () => {
+  let state = createInitialHarmonySessionState()
+  state.connection = ConnectionStage.READY; state.sessionId = 'session-1'; state.sessionStatus = 'ready'
+  state = reducer.reduceHarmonySessionState(state, reducer.commandStarted('send', 'send_attachments', '图片', ''))
+  const next = reducer.reduceHarmonySessionState(state, reducer.commandAccepted('send', 'request', [attachment]))
+  assert.equal(state.messages.length, 0)
+  assert.equal(next.messages.length, 1)
+  assert.equal(next.messages[0].status, 'accepted')
+  assert.deepEqual(next.messages[0].attachments, [attachment])
 })
 test('cache pruning matches the latest UTF-8 suffix without repeatedly serializing discarded messages', () => {
   const state = createInitialHarmonySessionState()

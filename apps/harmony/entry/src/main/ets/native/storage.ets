@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit'
+import { BusinessError } from '@kit.BasicServicesKit'
 import legacyFileIo from '@ohos.fileio'
 import { fileIo as fs } from '@kit.CoreFileKit'
 import { util } from '@kit.ArkTS'
@@ -73,7 +74,12 @@ export class NativeStorage implements PairingRecordStorage {
   }
   private async remove(path: string): Promise<void> { if (await fs.access(path)) await fs.unlink(path) }
   private async ensureKey(): Promise<void> {
-    if (await huks.isKeyItemExist(KEY_ALIAS, { properties: [] })) return
+    try {
+      if (await huks.isKeyItemExist(KEY_ALIAS, { properties: [] })) return
+    } catch (error) {
+      // HUKS may reject a missing alias instead of returning false.
+      if ((error as BusinessError).code !== 12000011) throw new Error('secure key lookup failed')
+    }
     await huks.generateKeyItem(KEY_ALIAS, { properties: [
       { tag: huks.HuksTag.HUKS_TAG_ALGORITHM, value: huks.HuksKeyAlg.HUKS_ALG_AES },
       { tag: huks.HuksTag.HUKS_TAG_KEY_SIZE, value: huks.HuksKeySize.HUKS_AES_KEY_SIZE_256 },

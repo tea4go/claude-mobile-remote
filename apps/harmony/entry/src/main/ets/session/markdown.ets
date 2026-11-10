@@ -247,3 +247,42 @@ function parseBlocks(lines: Array<string>, indent: number, quote: number, depth:
 export function markdownBlocks(text: string): Array<MarkdownBlock> {
   return parseBlocks(text.replace(/\r\n?/g, '\n').split('\n'), 0, 0, 0)
 }
+
+export interface MarkdownSelectionSegment {
+  block: number; row: number; column: number; start: number; end: number; text: string
+}
+export interface MarkdownSelectionProjection { text: string; segments: Array<MarkdownSelectionSegment> }
+
+// Each segment addresses one rendered Text node, with offsets in the shared copy buffer.
+export function markdownSelectionProjection(blocks: Array<MarkdownBlock>): MarkdownSelectionProjection {
+  const visible = (value: string): string => inlineMarkdown(value).map((part: InlineText): string => part.text).join('')
+  let text = ''
+  const segments: Array<MarkdownSelectionSegment> = []
+  const append = (value: string, block: number, row: number, column: number): void => {
+    const start = text.length
+    text += value
+    segments.push({ block, row, column, start, end: text.length, text: value })
+  }
+  blocks.forEach((item: MarkdownBlock, block: number): void => {
+    if (item.kind === 'rule') return
+    const hasContent = item.kind === 'table' ? item.rows.length > 0 : item.text.length > 0 || item.marker.length > 0
+    if (!hasContent) return
+    if (text.length > 0) text += '\n\n'
+    if (item.marker.length > 0) { append(item.marker, block, -2, -2); text += ' ' }
+    if (item.kind === 'table') {
+      item.rows.forEach((row: Array<string>, rowIndex: number): void => {
+        if (rowIndex > 0) text += '\n'
+        row.forEach((cell: string, column: number): void => {
+          if (column > 0) text += '\t'
+          append(visible(cell), block, rowIndex, column)
+        })
+      })
+    } else append(item.kind === 'code' ? item.text : visible(item.text), block, -1, -1)
+  })
+  return { text, segments }
+}
+
+// Match the text shown by MarkdownText rather than copying Markdown syntax.
+export function markdownVisibleText(text: string): string {
+  return markdownSelectionProjection(markdownBlocks(text)).text
+}

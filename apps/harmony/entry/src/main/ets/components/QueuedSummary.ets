@@ -1,47 +1,31 @@
 import type { QueuedRequest } from '../protocol/types'
+import { PRIMARY } from '../ui/styles'
 
 @Component
 export struct QueuedSummary {
   @Prop queuedRequests: QueuedRequest[] = []
   @Prop cancelAllowed: boolean = false
+  @Prop steerAllowed: boolean = false
   onCancelQueued: (requestId: string) => void = () => {}
+  onSteerQueued: (requestId: string) => void = () => {}
 
   build() {
     Column({ space: 8 }) {
-      if (this.queuedRequests.length > 0) {
-        Text(`等待处理的输入 (${this.queuedRequests.length})`)
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-
-        ForEach(this.queuedRequests, (item: QueuedRequest) => {
-          Row({ space: 8 }) {
-            Text(item.source === 'terminal' ? '电脑端' : '手机端')
-              .fontSize(12)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .backgroundColor('#ffffff')
-              .borderRadius(999)
-
-            Text(item.preview)
-              .fontSize(14)
-              .layoutWeight(1)
-              .textAlign(TextAlign.Start)
-
-            Button('取消', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor('#1677ff').backgroundColor('#eef5ff').borderRadius(8)
-              .enabled(this.cancelAllowed)
-              .onClick(() => {
-                this.onCancelQueued(item.requestId)
-              })
-          }
-          .width('100%')
-          .alignItems(VerticalAlign.Center)
-        }, (item: QueuedRequest) => item.requestId)
-      }
-    }
-    .id('queue-summary')
-    .padding(16)
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .backgroundColor('#f4f8ff')
-    .borderRadius(12)
+      ForEach(this.queuedRequests, (item: QueuedRequest, index: number) => {
+        Column({ space: 6 }) {
+          Text(`${index + 1} · ${item.source === 'terminal' ? '电脑端' : '手机端'}`).fontSize(12).fontColor('#777777').width('100%')
+          Text(item.preview).fontSize(14).maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+          Row() {
+            Blank()
+            if (this.steerAllowed) {
+              Button('引导', { type: ButtonType.Normal }).height(44).fontColor(PRIMARY).backgroundColor(Color.Transparent)
+                .enabled(this.cancelAllowed).onClick(() => this.onSteerQueued(item.requestId))
+            }
+            Button('取消排队', { type: ButtonType.Normal }).height(44).fontColor('#b3261e').backgroundColor(Color.Transparent)
+              .enabled(this.cancelAllowed).onClick(() => this.onCancelQueued(item.requestId))
+          }.width('100%')
+        }.padding(12).width('100%').backgroundColor('#f4f8ff').borderRadius(12)
+      }, (item: QueuedRequest) => item.requestId)
+    }.id('queue-summary').width('100%').alignItems(HorizontalAlign.Start)
   }
 }

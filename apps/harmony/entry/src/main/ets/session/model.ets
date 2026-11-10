@@ -91,6 +91,7 @@ export interface HarmonySessionState {
   sessionError: ErrorInfo | null
   seqBase: number
   snapshotStartPending?: string
+  canSteerQueue?: boolean
   queueDepthHint: number
   queuedRequests: Array<QueuedRequest>
   pendingAction: PendingAction | null

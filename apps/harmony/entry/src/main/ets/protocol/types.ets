@@ -131,7 +131,7 @@ export type UnsupportedCode =
   | 'concurrent_action'
   | 'text_input_disabled'
 export type ActionDecision = 'allow_once' | 'allow_session' | 'deny'
-export type CommandKind = 'send_attachments' | 'send_text' | 'resolve_action' | 'cancel_turn' | 'cancel_queued' | 'set_permission_mode'
+export type CommandKind = 'send_attachments' | 'send_text' | 'resolve_action' | 'cancel_turn' | 'cancel_queued' | 'steer_queued' | 'set_permission_mode'
 
 export interface PairingPayload {
   version: number
@@ -255,6 +255,7 @@ export interface TurnSnapshot {
 }
 
 export interface SessionSnapshot {
+  canSteerQueue?: boolean
   permissionMode?: PermissionMode
   sessionId: string
   sessionStatus: SessionStatus
