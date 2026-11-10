@@ -4,6 +4,13 @@
 
 ## 当前状态
 
+- 当前执行（2026-11-10，Android 同步 iOS）：用户确认核对并同步 iOS 已验收的近期功能与修复。共享 React 和协议复用现有实现，重点审查 Android 原生桥接、系统返回、键盘、安全区、触觉、扫码与附件；旧会话缓存问题继续暂缓，通知推送维持既有范围。通过条件为完成可确认的平台差异修复及适用的原生验证，明确资源同步与真机验收缺口；遵照用户要求不运行 npm lint/build/test，不执行 Git 写操作。
+  - 已完成：核对共享 UI/队列和 Android 现有语音、复制、长按触觉、缓存、系统返回、扫码/附件配置，未发现需要单独修改的原生桥接；复用 iOS 1.0(9) 的 Web 构建执行 cap copy android。dist 的 11 个文件与 Debug APK 内 Web 资源逐项一致，iOS 归档与 dist 的 index 摘要一致；生成资源为构建产物，后续打包仍需同步。
+  - 验证：离线 Gradle assembleDebug 成功（沙箱受用户缓存限制，授权后成功）；Debug APK SHA-256 `aadaf9c917c7c98f3107fdce59a05b3102f421afb9a96629d4ff2c1111955e7a`。未运行 npm lint/build/test；ADB 在沙箱内无法启动，未做模拟器或真机验证。用户需检查队列双向同步、电脑选择与偏好、长按复制/触觉、扫码附件、键盘安全区及系统返回；推送和旧缓存问题维持原状态。详见 `docs/testing/2026-11-10-android-ios-sync-result.md`。
+
+- 当前执行（2026-11-09，iOS TestFlight 1.0(9)）：用户要求构建并上传 TestFlight；后台确认 1.0(8) 正在 Public Beta 测试，本轮递增构建号 9，沿用现有应用身份和测试组。范围为必要 Web 生产构建、iOS 资源同步、签名归档、导出校验及上传，核实 Apple 处理和测试组状态；不运行 npm lint/test，不执行 Git 写操作。沙箱内 Xcode 已遇到系统缓存权限限制，构建时需处理。
+  - 已完成 Web 生产构建、cap copy ios、Release 归档和 App Store 导出；签名、描述文件、身份及内置资源核验通过，IPA SHA-256 `e1ace73712b3c33d3e86092a6bfdec37a2c1402e51254611a1cc494d9ee47947`。Apple 16:37 返回 Upload succeeded；用户随后反馈后台显示构建正在处理，尚未核实处理完成或关联 Public Beta。未运行 npm lint/test；详见 `docs/testing/2026-11-09-ios-testflight-b9-result.md`。
+
 - 2026-11-09：用户另授权提交工作区既有 Harmony 同步源码、计划、发布记录、推广提纲及移动端测试类型修正；本次仅整理提交，未重新运行测试或构建。测试截图仍保留在工作区。
 
 - 2026-11-09：用户反馈 WhaleTerm 与移动端 queue 功能验收通过，未逐项报告设备和场景；验收结果见 `docs/testing/2026-11-09-whaleterm-queue-sync-result.md`。本次按用户授权提交 Claude Mobile Remote 相关改动；WhaleTerm 单独处理。此前报告的旧会话缓存问题仍按用户要求暂缓，Android/Harmony 设备验证与 Harmony 独立队列入口仍待后续安排。遵照用户要求未运行 npm lint/build/test。
