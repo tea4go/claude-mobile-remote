@@ -4,6 +4,13 @@
 
 ## 当前状态
 
+- 当前执行（2026-11-10，HarmonyOS 系统推送，待用户真机验收）：用户要求记录并提交本轮 Harmony 推送改动，未反馈真机结果。已授权项目级服务账号并上传极光；正确项目 JSON 已核对，极光 Harmony 包名、标题、Client ID、文件均已保存，厂商通道已开启。华为推送服务开启，服务类自分类权益未申请。
+  - 初步接入极光 Harmony SDK 1.4.2、通知同意开关、异步登记/撤销及本地点击映射；edo 增加 hmos 平台隔离、凭据入口和最小通知载荷。当前采用 MARKETING 分类，未获服务类权益时存在每日配额及提醒方式限制。Go push race 和 Harmony 登记/超时重试/撤销定向测试通过；Harmony API24 Debug HAP 编译通过、未签名，SHA256 c047e431a551dbbfd5a3fcfa0bc044d47d85b57d22be4326581c79ef8c1952c0。
+  - 用户反馈已删除误建的其他项目凭证；正确项目 `101653523865476343` 的新密钥已核对并上传。edo 已部署 SHA256 `692059e102e8fdeb95c9ef24afe87b7c1f5fd125283205dbe6cfa225577133be`，服务 active、health 通过；虚构 Harmony 设备登记 204、发送 502（极光 400/1003 无效目标）、撤销 204，未真实送达。首次部署因运行中文件不能覆盖及随后健康检查过早发生而回滚，改原子替换并等待启动后成功，旧程序与环境备份保留。
+  - 当前源码已生成并验签 Release APP `.local-tools/harmony-apptest/signed/WhaleRemoteControl-1.0.5-harmony-push-signed.app`，SHA256 `3f9881356af8b62e0000a834208afbcc6512678b5e29d8bfd178a5b036c72128`；版本仍为 1.0.5，尚未上架。华为添加公钥指纹弹窗确认已登记 `ClaudeRemoteControl-Mac-Release-1028` 发布证书；该证书此前已核实匹配本机 team-1028 私钥及 Profile，本次 APP 签名及 Profile 校验通过。后台公钥指纹与本机证书摘要使用不同对象，不以数值不同认定不匹配；没有修改现有指纹。真机登记、送达与点击未验证；用户后续按 `docs/testing/2026-11-10-harmony-push-result.md` 验收。本次提交不包括 Android 1.0.2 版本改动、密钥与构建产物。
+
+- 当前执行（2026-11-10，Android 1.0.2 华为推送包）：版本递增至 1.0.2（3），沿用既有正式证书和华为推送配置，复用现有 Web dist 并同步 Android Release 资源；离线 Gradle assembleRelease 成功，包身份、通知权限、禁用调试、v2/v3 签名及 16 KiB 对齐核验通过。产物 `.local-tools/android-release/WhaleRemoteControl-1.0.2-huawei-push-signed.apk`，SHA256 `689e46676ddff197cab15b7847be729114d0faea7eaa5fe1521967883b2a6f79`。未运行 npm 测试或重新构建 Web，未安装或验证真机推送；用户后续验收。未执行 Git 写操作。
+
 - 当前执行（2026-11-10，Android 华为系统推送，待用户真机验收）：用户要求仅华为厂商，其他厂商及 Harmony 不处理；用户确认暂无真机，由其后续测试。Android 应用登记带平台、edo 隔离新 Android 与原 iOS 的极光凭据并兼容旧登记；平台并发投递、失败仅重试未成功平台，Android 点击地址使用现有包名。华为后台发布证书指纹已保存并回显，用户授权的新 Android 极光凭据已写入 edo root 私有环境文件，原 iOS 凭据保留。
   - 验证：Go push 回归及 race 通过；Android 推送原生单测、Release 构建、正式证书 v2/v3 签名与对齐通过。edo 最终二进制部署后 active/health 204，公网 GET 405；虚构无效设备登记 204、事件 502（极光 HTTP 400/1003 无效目标）、撤销 204，证明请求到达平台，未真实送达。
   - 待验收：用户安装 `.local-tools/android-release/WhaleRemoteControl-1.0.1-huawei-push-signed.apk`，在华为手机启用通知、配对后验证后台审批/完成提醒、点击定位、划走和关闭/删除；不得将鉴权/构建当作真机送达。完整结果见 `docs/testing/2026-11-10-android-huawei-push-result.md`；用户要求记录并提交本次推送改动，未上架。

@@ -56,6 +56,7 @@ function loader(overrides = {}) {
     const kits = { '@kit.CoreFileKit': { fileIo }, '@kit.ArkTS': { util }, '@kit.ArkUI': { FrameCallback: class {} }, '@kit.CryptoArchitectureKit': { cryptoFramework }, '@kit.UniversalKeystoreKit': { huks }, ...overrides }
     vm.runInThisContext(`(function(require,module,exports){${output.outputText}\n})`, { filename: file })(id => {
       if (id === '@ohos.fileio') return overrides[id] ?? { chmod: fs.promises.chmod }
+      if (id === '@jg/push') return overrides[id]
       if (id.startsWith('@kit.')) return kits[id] ?? {}
       return load(path.relative(root, path.resolve(path.dirname(file), id)))
     }, module, module.exports)
@@ -284,3 +285,19 @@ test('display preferences persist asynchronously in the private serial store', a
   assert.equal(await store.readDisplayPreferences(), two)
   await assert.rejects(store.writeDisplayPreferences('x'.repeat(16385)))
 }))
+
+test('Harmony push registers scoped routes, retries uncertain PUT and removes them', async () => {
+  const calls = []; let state = ''; let consent = false; let notifications = true; let failPut = true; let initialized = 0
+  const storage = { readPushState: async () => state, writePushState: async v => { state = v }, readPushConsent: async () => consent, setPushConsent: async v => { consent = v }, readNotificationsEnabled: async () => notifications }
+  const sdk = { setDebug() {}, setAppKey() {}, setChannel() {}, setCallBackMsg() {}, init: async () => { initialized++ }, turnOnPush() {}, turnOffPush: async () => {}, getRegistrationId: async () => '0123456789ab', setClickWant: async () => {} }
+  const http = { RequestMethod: { PUT: 'PUT', DELETE: 'DELETE' }, createHttp: () => ({ request: async (_url, options) => { const body = JSON.parse(options.extraData); calls.push({ method: options.method, body }); if (options.method === 'PUT' && failPut) { failPut = false; throw Error('timeout') } return { responseCode: 204 } }, destroy() {} }) }
+  const load = loader({ '@jg/push': { JPushInterface: sdk, CallBackMsg: class {} }, '@kit.NotificationKit': { notificationManager: { isNotificationEnabled: async () => true } }, '@kit.NetworkKit': { http } })
+  const { SessionPush } = load('native/push'); const push = new SessionPush({}, storage)
+  await push.initialize(); await push.syncSessions([{ sessionId: 'fixture-session', pairToken: 'fixture-pairing', expiresAt: new Date(Date.now() + 60000).toISOString() }])
+  assert.equal(initialized, 0); await push.setEnabled(true)
+  assert.equal(calls[0].body.platform, 'hmos'); assert.equal(calls[0].body.topic, 'cmr_c0ffbb23aa5fec6594bfcf4b6b452eb0')
+  assert.equal(JSON.parse(state).applied.length, 1); assert.equal(push.ready, false)
+  await push.refresh(); assert.equal(push.ready, true); assert.equal(push.session(calls[0].body.topic), 'fixture-session')
+  await push.setEnabled(false); assert.equal(calls.at(-1).method, 'DELETE'); assert.equal(push.session(calls[0].body.topic), '')
+  push.dispose()
+})

@@ -99,3 +99,26 @@ func TestJPushDoesNotReturnProviderBody(t *testing.T) {
 		t.Fatal("unsafe or missing error")
 	}
 }
+
+func TestHarmonyPayloadScoped(t *testing.T) {
+	sender, _ := newJPush("fixture-key", "fixture-secret", true)
+	topic := Topic("session", "token")
+	sender.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var body struct {
+			Platform     []string `json:"platform"`
+			Notification map[string]struct {
+				Category string `json:"category"`
+				Intent   struct {
+					URL string `json:"url"`
+				} `json:"intent"`
+			} `json:"notification"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil || strings.Join(body.Platform, ",") != "hmos" || len(body.Notification) != 1 || body.Notification["hmos"].Intent.URL != "cmr-push://notification/"+topic || body.Notification["hmos"].Category != "MARKETING" {
+			t.Error("invalid Harmony notification")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+	})}
+	if err := sender.Send(context.Background(), Notification{Platform: "hmos", Topic: topic, Kind: "completed", RegistrationIDs: []string{"0307870f1b8"}, EventID: strings.Repeat("a", 32), ExpiresAt: time.Now().Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+}

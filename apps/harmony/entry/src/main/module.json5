@@ -39,6 +39,15 @@
     ],
     "abilities": [
       {
+        "name": "PushMessageAbility",
+        "srcEntry": "./ets/entryability/PushMessageAbility.ets",
+        "launchType": "singleton",
+        "startWindowIcon": "$media:startIcon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": false,
+        "skills": [{ "actions": ["action.ohos.push.listener"] }]
+      },
+      {
         "name": "EntryAbility",
         "srcEntry": "./ets/entryability/EntryAbility.ets",
         "description": "$string:EntryAbility_desc",

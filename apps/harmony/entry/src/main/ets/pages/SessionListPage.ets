@@ -230,7 +230,12 @@ export struct SessionListPage {
                 Text('在线会话提醒').fontSize(16).layoutWeight(1)
                 Toggle({ type: ToggleType.Switch, isOn: this.notificationsEnabled }).selectedColor(PRIMARY).onChange((enabled: boolean) => { if (enabled !== this.notificationsEnabled) this.onNotifications() })
               }.width('100%')
-              Text('仅提醒在线收到的事件；后台推送当前未开放。').fontSize(12).fontColor(SECONDARY).width('100%')
+              Text('接收在线会话提醒。').fontSize(12).fontColor(SECONDARY).width('100%')
+              Row() {
+                Text('后台推送').fontSize(16).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.pushConsent }).selectedColor(PRIMARY).onChange((enabled: boolean) => { if (enabled !== this.pushConsent) this.onEnablePush() })
+              }.width('100%')
+              Text(this.pushStatus).fontSize(12).fontColor(SECONDARY).width('100%')
             }.padding(16).width('100%').backgroundColor('#ffffff').borderRadius(16).alignItems(HorizontalAlign.Start)
 
           }

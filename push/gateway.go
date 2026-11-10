@@ -137,12 +137,15 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Gateway) deliver(w http.ResponseWriter, r *http.Request, e Event, ids []string, record *receipt) {
-	groups := map[string][]string{"ios": {}, "android": {}}
+	groups := map[string][]string{"ios": {}, "android": {}, "hmos": {}}
 	for _, id := range ids {
 		platform := "ios"
 		if strings.HasPrefix(id, "android_") {
 			platform = "android"
 			id = strings.TrimPrefix(id, "android_")
+		} else if strings.HasPrefix(id, "hmos_") {
+			platform = "hmos"
+			id = strings.TrimPrefix(id, "hmos_")
 		}
 		groups[platform] = append(groups[platform], id)
 	}
@@ -154,9 +157,9 @@ func (g *Gateway) deliver(w http.ResponseWriter, r *http.Request, e Event, ids [
 		platform string
 		err      error
 	}
-	results := make(chan result, 2)
+	results := make(chan result, 3)
 	pending := 0
-	for _, platform := range []string{"ios", "android"} {
+	for _, platform := range []string{"ios", "android", "hmos"} {
 		targets := groups[platform]
 		if len(targets) == 0 || record.delivered[platform] {
 			continue
@@ -208,7 +211,7 @@ func (g *Gateway) serveDevice(w http.ResponseWriter, r *http.Request) {
 	var request deviceRequest
 	if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF ||
 		!topicPattern.MatchString(request.Topic) || !registrationIDPattern.MatchString(request.RegistrationID) ||
-		(request.Platform != "" && request.Platform != "ios" && request.Platform != "android") ||
+		(request.Platform != "" && request.Platform != "ios" && request.Platform != "android" && request.Platform != "hmos") ||
 		(r.Method == http.MethodPut && !validDeviceRoute(request.Topic, request.RegistrationID, request.ExpiresAt, time.Now())) {
 		gatewayError(w, 400)
 		return
@@ -230,6 +233,8 @@ func (g *Gateway) serveDevice(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if request.Platform == "android" {
 		request.RegistrationID = "android_" + request.RegistrationID
+	} else if request.Platform == "hmos" {
+		request.RegistrationID = "hmos_" + request.RegistrationID
 	}
 	if r.Method == http.MethodPut {
 		err = g.devices.Register(request.Topic, request.RegistrationID, request.ExpiresAt)

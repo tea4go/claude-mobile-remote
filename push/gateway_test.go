@@ -279,7 +279,7 @@ func TestGatewaySeparatesPlatformsAndRetriesOnlyFailedDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	event := fixtureEvent()
-	for _, id := range []string{"010b81b3582", "android_0207870f1b8"} {
+	for _, id := range []string{"010b81b3582", "android_0207870f1b8", "hmos_0307870f1b8"} {
 		if err := devices.Register(event.Topic, id, time.Now().Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
@@ -296,6 +296,9 @@ func TestGatewaySeparatesPlatformsAndRetriesOnlyFailedDelivery(t *testing.T) {
 		if n.Platform == "android" && (len(n.RegistrationIDs) != 1 || n.RegistrationIDs[0] != "0207870f1b8") {
 			t.Fatal("Android route mixed")
 		}
+		if n.Platform == "hmos" && (len(n.RegistrationIDs) != 1 || n.RegistrationIDs[0] != "0307870f1b8") {
+			t.Error("Harmony route mixed")
+		}
 		if n.Platform == "android" && calls[n.Platform] == 1 {
 			return errors.New("temporary")
 		}
@@ -308,11 +311,11 @@ func TestGatewaySeparatesPlatformsAndRetriesOnlyFailedDelivery(t *testing.T) {
 	if got := intake(g, data, fixtureToken).Code; got != 204 {
 		t.Fatalf("retry status %d", got)
 	}
-	if calls["ios"] != 1 || calls["android"] != 2 {
+	if calls["ios"] != 1 || calls["android"] != 2 || calls["hmos"] != 1 {
 		t.Fatalf("unexpected deliveries: %v", calls)
 	}
 	reloaded, err := LoadDeviceRegistry(devices.path)
-	if err != nil || len(reloaded.Targets(event.Topic)) != 2 {
+	if err != nil || len(reloaded.Targets(event.Topic)) != 3 {
 		t.Fatal("platform routes did not persist")
 	}
 }
@@ -329,10 +332,10 @@ func TestAndroidDeviceRegistrationAndRemovalAreIsolated(t *testing.T) {
 		g.ServeHTTP(response, req)
 		return response.Code
 	}
-	if call("PUT", "") != 204 || call("PUT", "android") != 204 || call("PUT", "unknown") != 400 {
+	if call("PUT", "") != 204 || call("PUT", "android") != 204 || call("PUT", "hmos") != 204 || call("PUT", "unknown") != 400 {
 		t.Fatal("bad registration status")
 	}
-	if call("DELETE", "android") != 204 {
+	if call("DELETE", "android") != 204 || call("DELETE", "hmos") != 204 {
 		t.Fatal("removal failed")
 	}
 	ids := devices.Targets(event.Topic)

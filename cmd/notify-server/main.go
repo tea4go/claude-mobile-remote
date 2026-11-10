@@ -31,7 +31,14 @@ func main() {
 	if err != nil {
 		log.Fatal("invalid Android JPush configuration")
 	}
+	harmony, err := push.LoadHarmony()
+	if err != nil {
+		log.Fatal("invalid Harmony JPush configuration")
+	}
 	platformSender := push.PlatformSender{IOS: sender}
+	if harmony != nil {
+		platformSender.Harmony = harmony
+	}
 	if android != nil {
 		platformSender.Android = android
 	}

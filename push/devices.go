@@ -61,7 +61,7 @@ func LoadDeviceRegistry(path string) (*DeviceRegistry, error) {
 }
 
 func validStoredID(id string) bool {
-	return registrationIDPattern.MatchString(id) || (len(id) > 8 && id[:8] == "android_" && registrationIDPattern.MatchString(id[8:]))
+	return registrationIDPattern.MatchString(id) || (len(id) > 8 && id[:8] == "android_" && registrationIDPattern.MatchString(id[8:])) || (len(id) > 5 && id[:5] == "hmos_" && registrationIDPattern.MatchString(id[5:]))
 }
 
 func validDeviceRoute(topic, rid string, expiry time.Time, now time.Time) bool {

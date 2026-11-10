@@ -6,6 +6,7 @@ import { nativeLifecycle } from '../native/lifecycle'
 import { NativeStorage } from '../native/storage'
 import { SpeechDraft } from '../native/speech'
 import { LocalNotifications } from '../native/notifications'
+import { SessionPush } from '../native/push'
 import { scanPairing, selectAttachments } from '../native/selection'
 import { encodeCache, CacheWriteGate } from '../session/cache'
 import { emptyDraft, validateAttachments, utf8Bytes, type ComposerDraft } from '../session/attachments'
@@ -126,6 +127,7 @@ export struct AppShell {
   @State private pushStatus: string = '远程通知已关闭'
   @State private pushConsent: boolean = false
   private notifications: LocalNotifications | null = null
+  private push: SessionPush | null = null
   private readonly speech: SpeechDraft = new SpeechDraft()
   private readonly drafts: Map<string, ComposerDraft> = new Map()
   private readonly dirty: Set<string> = new Set()
@@ -255,6 +257,7 @@ export struct AppShell {
       }
       this.projectTarget = null; this.createdSource = ''; this.pendingPairing = null
       this.sessions = upsertSessionRecord(this.sessions, pairing)
+      void this.push?.syncSessions(this.sessions).catch(() => { this.pushStatus = '后台推送登记失败，稍后重试' })
       if (!this.selectedPCConfigured) this.reconcileSelectedPC()
       if (this.selectedPC !== 'all') {
         const record = this.sessions.find((item: SessionRecord) => item.sessionId === pairing.sessionId)
@@ -291,6 +294,7 @@ export struct AppShell {
     this.pendingPairing = null
     this.entryStore.disconnect()
     this.nativeGeneration += 1
+    this.push?.dispose(); this.push = null
     this.initialized = false
     this.nativeReady = false
     nativeLifecycle.onBack = null
@@ -342,9 +346,13 @@ export struct AppShell {
         this.preferencesReady = true
         this.reconcileSelectedPC()
       } catch (_) { this.nativeError = '设置读取失败，本次使用默认设置' }
-      // Team package ships before remote push is configured.
-      this.pushStatus = '当前版本暂不支持后台推送'
-      this.pushConsent = false
+      try {
+        this.push = new SessionPush(context, this.storage)
+        await this.push.initialize()
+        this.pushConsent = await this.storage.readPushConsent()
+        this.push.onStatus = () => { this.pushStatus = this.push?.error ? '后台推送登记失败，稍后重试' : (this.push?.ready ? '后台推送已就绪' : '后台推送未就绪') }
+        await this.push.syncSessions(this.sessions)
+      } catch (_) { this.pushStatus = '后台推送初始化失败，稍后重试' }
       for (const record of this.sessions) {
         const cached = await this.storage.readCache(record.sessionId)
         if (!this.alive || generation !== this.nativeGeneration) return
@@ -402,10 +410,11 @@ export struct AppShell {
         }
       }
     }
+    if (foreground) void this.push?.refresh().catch(() => { this.pushStatus = '后台推送登记失败，稍后重试' })
     if (foreground) this.stores.forEach((store: HarmonySessionStore) => store.checkConnection())
     if (foreground && nativeLifecycle.pendingTopic.length > 0) {
       const topic = nativeLifecycle.pendingTopic; nativeLifecycle.pendingTopic = ''
-      const target = ''
+      const target = this.push?.session(topic) ?? ''
       if (target.length > 0) nativeLifecycle.pendingSessionId = target
       else this.nativeError = '通知对应的会话已移除或过期，请重新扫码'
     }
@@ -457,10 +466,20 @@ export struct AppShell {
     try {
       if (this.notificationsEnabled) { this.notifications.enabled = false; await this.notifications.clear() }
       else { await this.notifications.enable() }
-      this.pushConsent = await this.storage.readPushConsent()
       this.notificationsEnabled = this.notifications.enabled
       await this.storage.setNotificationsEnabled(this.notificationsEnabled)
+      await this.push?.refresh()
     } catch (_) { this.nativeError = '通知未开启，请在系统设置中允许通知' }
+  }
+  private async setRemotePush(enabled: boolean): Promise<void> {
+    if (this.push === null || this.notifications === null || this.storage === null) return
+    try {
+      if (enabled && !this.notificationsEnabled) {
+        await this.notifications.enable(); this.notificationsEnabled = true
+        await this.storage.setNotificationsEnabled(true)
+      }
+      await this.push.setEnabled(enabled); this.pushConsent = enabled
+    } catch (_) { this.nativeError = '后台通知设置失败，请检查系统通知权限' }
   }
   private activateDraft(): void {
     void this.speech.cancel(); this.speechActive = false
@@ -790,6 +809,7 @@ export struct AppShell {
       this.managementPendingSessions.delete(sessionId)
     }
     this.sessions = removeSessionRecord(this.sessions, sessionId)
+    void this.push?.syncSessions(this.sessions).catch(() => { this.pushStatus = '后台推送登记失败，稍后重试' })
     this.reconcileSelectedPC()
     this.saveRecords()
     if (this.sessions.length === 0) {
@@ -1058,7 +1078,8 @@ export struct AppShell {
       pushStatus: this.pushStatus,
       pushConsent: this.pushConsent,
       onEnablePush: () => {
-        AlertDialog.show({ title: '后台通知', message: '当前版本暂不支持后台推送。', confirm: { value: '知道了', action: () => {} } })
+        if (this.pushConsent) { void this.setRemotePush(false) }
+        else AlertDialog.show({ title: '开启后台通知？', message: '将使用极光和华为推送服务登记此设备，以接收会话状态提醒。', primaryButton: { value: '开启', action: () => { void this.setRemotePush(true) } }, secondaryButton: { value: '取消', action: () => {} } })
       },
       onNotifications: () => { void this.toggleNotifications() },
       onClearCache: () => { void this.clearCache() },

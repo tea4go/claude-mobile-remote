@@ -142,7 +142,11 @@ func (j *JPush) Send(ctx context.Context, n Notification) error {
 				"extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}},
 		"options": map[string]any{"time_to_live": ttl, "apns_production": j.Production, "apns_collapse_id": n.Topic[4:]},
 	}
-	if n.Platform == "android" || n.Platform == "ios" {
+	if n.Platform == "hmos" {
+		payload["platform"] = []string{"hmos"}
+		payload["notification"] = map[string]any{"hmos": map[string]any{"alert": body, "title": "Claude Mobile Remote", "category": "MARKETING", "display_foreground": "0", "intent": map[string]string{"url": "cmr-push://notification/" + n.Topic}, "extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}}
+		payload["options"] = map[string]any{"time_to_live": ttl}
+	} else if n.Platform == "android" || n.Platform == "ios" {
 		payload["platform"] = []string{n.Platform}
 		notifications := payload["notification"].(map[string]any)
 		if n.Platform == "android" {
@@ -184,9 +188,15 @@ func (j *JPush) Send(ctx context.Context, n Notification) error {
 }
 
 // PlatformSender keeps credentials isolated across JPush applications.
-type PlatformSender struct{ IOS, Android Sender }
+type PlatformSender struct{ IOS, Android, Harmony Sender }
 
 func (s PlatformSender) Send(ctx context.Context, n Notification) error {
+	if n.Platform == "hmos" {
+		if s.Harmony == nil {
+			return errors.New("Harmony push not configured")
+		}
+		return s.Harmony.Send(ctx, n)
+	}
 	if n.Platform == "android" {
 		if s.Android == nil {
 			return errors.New("Android push not configured")
@@ -200,6 +210,14 @@ func (s PlatformSender) Send(ctx context.Context, n Notification) error {
 }
 func LoadAndroid() (*JPush, error) {
 	key, secret := os.Getenv("CMR_ANDROID_JPUSH_APP_KEY"), os.Getenv("CMR_ANDROID_JPUSH_MASTER_SECRET")
+	if key == "" && secret == "" {
+		return nil, nil
+	}
+	return newJPush(key, secret, true)
+}
+
+func LoadHarmony() (*JPush, error) {
+	key, secret := os.Getenv("CMR_HARMONY_JPUSH_APP_KEY"), os.Getenv("CMR_HARMONY_JPUSH_MASTER_SECRET")
 	if key == "" && secret == "" {
 		return nil, nil
 	}

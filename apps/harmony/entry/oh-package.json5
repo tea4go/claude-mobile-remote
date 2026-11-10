@@ -5,5 +5,5 @@
   "main": "",
   "author": "",
   "license": "",
-  "dependencies": {}
+  "dependencies": { "@jg/push": "1.4.2" }
 }
