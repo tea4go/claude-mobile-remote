@@ -23,3 +23,7 @@ HarmonyOS NEXT独立接入极光鸿蒙SDK及华为Push Kit所需配置；同样�
 Android 使用 `com.tea4go.claudemobileremote.android`、华为 APP ID `119552119` 和新极光应用 ClaudeRemoteControlNew；Java namespace/入口仍为 `com.tea4go.claudemobileremote.MainActivity`。AppKey 从忽略入库的本机 properties 注入，不复用旧 iOS AppKey；推送仍为显式构建开关及用户端内同意，未配置时拒绝生成推送包，普通发布包保留无 SDK 的构建路径。
 
 AGC 文件必须校验包名和 APP ID，华为登记证书应与实际安装签名一致。服务端 Secret 不进入客户端。新极光 RID 不能直接发送给旧 AppKey，edo 需支持新旧应用目标隔离后才能联调；在此之前不得宣称端到端就绪，不能通过覆盖旧凭据迁移现有 iOS。后台华为通道填写已获用户明确授权，服务类权益、消息分类及真实后台/退出送达按平台和真机结果另行记录。
+
+## 2026-11-10 华为单厂商续做
+
+本轮仅验收华为 Android。登记接口增加可选平台标识：缺省解释为原 iOS，Android 明确标识；服务端持久化隔离并按各自极光应用凭据投递，旧登记文件兼容。Android 点击使用当前包名和完整 Activity。PC 事件、三端 WebSocket、配对及状态不变。分别投递成功的目标在同一事件重试时不重复发送；服务重启后沿用既有去重边界。

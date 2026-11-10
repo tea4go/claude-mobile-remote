@@ -71,3 +71,7 @@ APNs不是必达通道。事件TTL至多5分钟且不晚于配对到期；相同
 更新：替换二进制后 `sudo systemctl restart cmr-notify`；停用：`sudo systemctl disable --now cmr-notify`，移除精确代理location并reload。轮换Master Secret只需更新edo环境文件并重启，无需分发到PC或App。
 
 参考： https://docs.jiguang.cn/jpush/client/iOS/ios_guide_new ，https://docs.jiguang.cn/jpush/server/push/rest_api_v3_push 。
+
+## Android 华为应用隔离（2026-11-10）
+
+在同一个 root 私有环境文件追加 `CMR_ANDROID_JPUSH_APP_KEY` 和 `CMR_ANDROID_JPUSH_MASTER_SECRET`，来自 Android 的新极光应用；保留原 `CMR_JPUSH_*` iOS 值。两项必须同时填写。Android 客户端登记显式 `platform: android`，旧版无平台字段保留 iOS 语义；数据文件兼容现有格式。重启服务后分别使用对应应用凭据发送，不输出凭据和设备 ID。部署升级前备份服务二进制及私有设备文件，失败恢复原程序；升级期间不要使用旧服务接收新的 Android 登记。

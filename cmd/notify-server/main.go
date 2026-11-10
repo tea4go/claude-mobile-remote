@@ -27,6 +27,14 @@ func main() {
 	if err != nil || sender == nil {
 		log.Fatal("missing or invalid JPush service configuration")
 	}
+	android, err := push.LoadAndroid()
+	if err != nil {
+		log.Fatal("invalid Android JPush configuration")
+	}
+	platformSender := push.PlatformSender{IOS: sender}
+	if android != nil {
+		platformSender.Android = android
+	}
 	deviceFile := os.Getenv("CMR_NOTIFY_DEVICES_FILE")
 	if deviceFile == "" {
 		deviceFile = "/var/lib/cmr-notify/devices.json"
@@ -35,18 +43,18 @@ func main() {
 	if err != nil {
 		log.Fatal("missing or invalid notification device store")
 	}
-	handler, err := push.NewGatewayWithDevices(os.Getenv("CMR_NOTIFY_TOKEN"), sender, devices)
+	handler, err := push.NewGatewayWithDevices(os.Getenv("CMR_NOTIFY_TOKEN"), platformSender, devices)
 	if err != nil {
 		log.Fatal("missing or invalid notification service token")
 	}
-	server := &http.Server{Addr: *address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
+	server := &http.Server{Addr: *address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 25 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
 		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		shutdown, cancel := context.WithTimeout(context.Background(), 22*time.Second)
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()

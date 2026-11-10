@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -269,5 +270,73 @@ func TestHTTPSRequiresSafeEndpointAndStopsOnCancellation(t *testing.T) {
 	}
 	if s2, _ := NewHTTPS("https://edo.invalid/v1/events", fixtureToken); s2.client.CheckRedirect(nil, nil) != http.ErrUseLastResponse {
 		t.Fatal("redirects enabled")
+	}
+}
+
+func TestGatewaySeparatesPlatformsAndRetriesOnlyFailedDelivery(t *testing.T) {
+	devices, err := LoadDeviceRegistry(filepath.Join(t.TempDir(), "devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := fixtureEvent()
+	for _, id := range []string{"010b81b3582", "android_0207870f1b8"} {
+		if err := devices.Register(event.Topic, id, time.Now().Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := map[string]int{}
+	var mu sync.Mutex
+	g, _ := NewGatewayWithDevices(fixtureToken, senderFunc(func(_ context.Context, n Notification) error {
+		mu.Lock()
+		defer mu.Unlock()
+		calls[n.Platform]++
+		if n.Platform == "ios" && (len(n.RegistrationIDs) != 1 || n.RegistrationIDs[0] != "010b81b3582") {
+			t.Fatal("iOS route mixed")
+		}
+		if n.Platform == "android" && (len(n.RegistrationIDs) != 1 || n.RegistrationIDs[0] != "0207870f1b8") {
+			t.Fatal("Android route mixed")
+		}
+		if n.Platform == "android" && calls[n.Platform] == 1 {
+			return errors.New("temporary")
+		}
+		return nil
+	}), devices)
+	data, _ := json.Marshal(event)
+	if got := intake(g, data, fixtureToken).Code; got != 502 {
+		t.Fatalf("first status %d", got)
+	}
+	if got := intake(g, data, fixtureToken).Code; got != 204 {
+		t.Fatalf("retry status %d", got)
+	}
+	if calls["ios"] != 1 || calls["android"] != 2 {
+		t.Fatalf("unexpected deliveries: %v", calls)
+	}
+	reloaded, err := LoadDeviceRegistry(devices.path)
+	if err != nil || len(reloaded.Targets(event.Topic)) != 2 {
+		t.Fatal("platform routes did not persist")
+	}
+}
+
+func TestAndroidDeviceRegistrationAndRemovalAreIsolated(t *testing.T) {
+	devices, _ := LoadDeviceRegistry(filepath.Join(t.TempDir(), "devices.json"))
+	g, _ := NewGatewayWithDevices(fixtureToken, senderFunc(func(context.Context, Notification) error { return nil }), devices)
+	event := fixtureEvent()
+	call := func(method, platform string) int {
+		body, _ := json.Marshal(deviceRequest{Platform: platform, Topic: event.Topic, RegistrationID: "010b81b3582", ExpiresAt: time.Now().Add(time.Hour)})
+		req := httptest.NewRequest(method, "/v1/events", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		g.ServeHTTP(response, req)
+		return response.Code
+	}
+	if call("PUT", "") != 204 || call("PUT", "android") != 204 || call("PUT", "unknown") != 400 {
+		t.Fatal("bad registration status")
+	}
+	if call("DELETE", "android") != 204 {
+		t.Fatal("removal failed")
+	}
+	ids := devices.Targets(event.Topic)
+	if len(ids) != 1 || ids[0] != "010b81b3582" {
+		t.Fatal("removal crossed platforms")
 	}
 }

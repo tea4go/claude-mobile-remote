@@ -73,7 +73,7 @@ func TestJPushSendsOnlyScopedPrivateReminder(t *testing.T) {
 		if payload.Notification.Android.DisplayForeground != "0" || payload.Notification.Android.Extras.Topic != topic {
 			t.Fatal("foreground or route policy violated")
 		}
-		if !strings.HasPrefix(payload.Notification.Android.Intent.URL, "intent://notification/"+topic+"#Intent;") || !strings.Contains(payload.Notification.Android.Intent.URL, "component=com.tea4go.claudemobileremote/.MainActivity;") {
+		if !strings.HasPrefix(payload.Notification.Android.Intent.URL, "intent://notification/"+topic+"#Intent;") || !strings.Contains(payload.Notification.Android.Intent.URL, "component=com.tea4go.claudemobileremote.android/com.tea4go.claudemobileremote.MainActivity;") {
 			t.Fatal("notification click cannot reach scoped app route")
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"msg_id":1}`))}, nil

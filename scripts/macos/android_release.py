@@ -68,7 +68,7 @@ def initialize(config_path):
     print('Keep an additional backup on a separate trusted device.')
 
 
-def sign(config_path, apk_path):
+def sign(config_path, apk_path, push_enabled=False):
     config_path = outside_repo(config_path)
     if config_path.stat().st_mode & 0o077:
         raise SystemExit('Signing config must have mode 0600.')
@@ -90,11 +90,11 @@ def sign(config_path, apk_path):
             raise SystemExit('APK contains a development server or WebView debugging.')
     badging = subprocess.check_output([str(tools / 'aapt'), 'dump', 'badging', str(apk_path)], text=True)
     expected = f"package: name='{APP_ID}' versionCode='2' versionName='1.0.1'"
-    if expected not in badging or 'application-debuggable' in badging or 'POST_NOTIFICATIONS' in badging:
+    if expected not in badging or 'application-debuggable' in badging or (('POST_NOTIFICATIONS' in badging) != push_enabled):
         raise SystemExit('APK identity/version/debug/notification validation failed.')
     output_dir = REPO / '.local-tools/android-release'
     output_dir.mkdir(parents=True, exist_ok=True)
-    output = output_dir / 'WhaleRemoteControl-1.0.1-android-signed.apk'
+    output = output_dir / ('WhaleRemoteControl-1.0.1-huawei-push-signed.apk' if push_enabled else 'WhaleRemoteControl-1.0.1-android-signed.apk')
     env = dict(os.environ, CMR_STORE_PASSWORD=config['storePassword'], CMR_KEY_PASSWORD=config['keyPassword'],
                JAVA_HOME=str(java_tool('java').parent.parent))
     with tempfile.TemporaryDirectory(prefix='cmr-android-sign-') as temporary:
@@ -170,13 +170,14 @@ def main():
     parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
     parser.add_argument('--init-signing', action='store_true')
     parser.add_argument('--apk', type=Path)
+    parser.add_argument('--push-enabled', action='store_true')
     parser.add_argument('--pepk', type=Path)
     parser.add_argument('--encryption-key')
     args = parser.parse_args()
     if args.init_signing:
         initialize(outside_repo(args.config))
     elif args.apk:
-        sign(args.config, args.apk.resolve())
+        sign(args.config, args.apk.resolve(), args.push_enabled)
     elif args.pepk and args.encryption_key:
         export_agc(args.config, args.pepk, args.encryption_key)
     else:

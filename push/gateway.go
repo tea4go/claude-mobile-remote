@@ -14,8 +14,10 @@ import (
 )
 
 type receipt struct {
-	event Event
-	done  bool
+	event     Event
+	done      bool
+	running   bool
+	delivered map[string]bool
 }
 
 // Gateway is an authenticated, bounded notification intake, not a Session relay.
@@ -91,20 +93,27 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	g.mu.Lock()
 	for id, old := range g.receipts {
-		if !old.event.ExpiresAt.After(now) && old.done {
+		if !old.event.ExpiresAt.After(now) && !old.running {
 			delete(g.receipts, id)
 		}
 	}
 	if old := g.receipts[e.EventID]; old != nil {
 		same := old.event.Topic == e.Topic && old.event.Kind == e.Kind && old.event.ExpiresAt.Equal(e.ExpiresAt)
 		done := old.done
+		running := old.running || g.active >= 8
+		if same && !done && !running {
+			old.running = true
+			g.active++
+		}
 		g.mu.Unlock()
 		if !same {
 			gatewayError(w, 409)
 		} else if done {
 			w.WriteHeader(http.StatusNoContent)
-		} else {
+		} else if running {
 			gatewayError(w, 503)
+		} else {
+			g.deliver(w, r, e, registrationIDs, old)
 		}
 		return
 	}
@@ -121,19 +130,59 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	g.tokens--
 	g.active++
-	record := &receipt{event: e}
+	record := &receipt{event: e, running: true, delivered: make(map[string]bool)}
 	g.receipts[e.EventID] = record
 	g.mu.Unlock()
-	err := g.sender.Send(r.Context(), Notification{Topic: e.Topic, Kind: e.Kind, EventID: e.EventID, ExpiresAt: e.ExpiresAt, RegistrationIDs: registrationIDs})
+	g.deliver(w, r, e, registrationIDs, record)
+}
+
+func (g *Gateway) deliver(w http.ResponseWriter, r *http.Request, e Event, ids []string, record *receipt) {
+	groups := map[string][]string{"ios": {}, "android": {}}
+	for _, id := range ids {
+		platform := "ios"
+		if strings.HasPrefix(id, "android_") {
+			platform = "android"
+			id = strings.TrimPrefix(id, "android_")
+		}
+		groups[platform] = append(groups[platform], id)
+	}
+	var sendErr error
+	if g.devices == nil {
+		sendErr = g.sender.Send(r.Context(), Notification{Topic: e.Topic, Kind: e.Kind, EventID: e.EventID, ExpiresAt: e.ExpiresAt, RegistrationIDs: ids})
+	}
+	type result struct {
+		platform string
+		err      error
+	}
+	results := make(chan result, 2)
+	pending := 0
+	for _, platform := range []string{"ios", "android"} {
+		targets := groups[platform]
+		if len(targets) == 0 || record.delivered[platform] {
+			continue
+		}
+		pending++
+		go func(platform string, targets []string) {
+			err := g.sender.Send(r.Context(), Notification{Topic: e.Topic, Kind: e.Kind, EventID: e.EventID, ExpiresAt: e.ExpiresAt, RegistrationIDs: targets, Platform: platform})
+			results <- result{platform, err}
+		}(platform, targets)
+	}
+	for i := 0; i < pending; i++ {
+		result := <-results
+		if result.err != nil {
+			sendErr = result.err
+		} else {
+			record.delivered[result.platform] = true
+		}
+	}
 	g.mu.Lock()
 	g.active--
-	if err != nil {
-		delete(g.receipts, e.EventID)
-	} else {
+	record.running = false
+	if sendErr == nil {
 		record.done = true
 	}
 	g.mu.Unlock()
-	if err != nil {
+	if sendErr != nil {
 		gatewayError(w, 502)
 		return
 	}
@@ -141,6 +190,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type deviceRequest struct {
+	Platform       string    `json:"platform,omitempty"`
 	Topic          string    `json:"topic"`
 	RegistrationID string    `json:"registrationId"`
 	ExpiresAt      time.Time `json:"expiresAt"`
@@ -158,6 +208,7 @@ func (g *Gateway) serveDevice(w http.ResponseWriter, r *http.Request) {
 	var request deviceRequest
 	if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF ||
 		!topicPattern.MatchString(request.Topic) || !registrationIDPattern.MatchString(request.RegistrationID) ||
+		(request.Platform != "" && request.Platform != "ios" && request.Platform != "android") ||
 		(r.Method == http.MethodPut && !validDeviceRoute(request.Topic, request.RegistrationID, request.ExpiresAt, time.Now())) {
 		gatewayError(w, 400)
 		return
@@ -177,6 +228,9 @@ func (g *Gateway) serveDevice(w http.ResponseWriter, r *http.Request) {
 	g.deviceTokens--
 	g.mu.Unlock()
 	var err error
+	if request.Platform == "android" {
+		request.RegistrationID = "android_" + request.RegistrationID
+	}
 	if r.Method == http.MethodPut {
 		err = g.devices.Register(request.Topic, request.RegistrationID, request.ExpiresAt)
 	} else {

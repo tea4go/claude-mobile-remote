@@ -183,7 +183,7 @@ final class SessionPushManager {
     private boolean send(String method, JSONObject entry) {
         HttpsURLConnection connection = null;
         try {
-            JSONObject body = new JSONObject().put("topic", entry.getString("topic")).put("registrationId", entry.getString("rid"));
+            JSONObject body = new JSONObject().put("platform", "android").put("topic", entry.getString("topic")).put("registrationId", entry.getString("rid"));
             if (method.equals("PUT")) body.put("expiresAt", entry.getJSONObject("route").getString("expires"));
             connection = (HttpsURLConnection) new URL("https://edo.iwhalecloud.com/verfiles/notify/v1/events").openConnection();
             connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(10000); connection.setReadTimeout(10000);

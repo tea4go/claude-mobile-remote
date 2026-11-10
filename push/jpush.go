@@ -30,6 +30,7 @@ func Topic(sessionID, token string) string {
 
 type Notification struct {
 	Topic, SessionID, Kind string
+	Platform               string
 	EventID                string
 	RegistrationIDs        []string
 	ExpiresAt              time.Time
@@ -135,11 +136,20 @@ func (j *JPush) Send(ctx context.Context, n Notification) error {
 		"platform": []string{"ios", "android"}, "audience": map[string]any{"registration_id": n.RegistrationIDs},
 		"notification": map[string]any{
 			"android": map[string]any{"alert": body, "title": "Claude Mobile Remote", "display_foreground": "0", "channel_id": "cmr.session.events",
-				"intent": map[string]string{"url": "intent://notification/" + n.Topic + "#Intent;scheme=cmr-push;action=android.intent.action.VIEW;package=com.tea4go.claudemobileremote;component=com.tea4go.claudemobileremote/.MainActivity;end"},
+				"intent": map[string]string{"url": "intent://notification/" + n.Topic + "#Intent;scheme=cmr-push;action=android.intent.action.VIEW;package=com.tea4go.claudemobileremote.android;component=com.tea4go.claudemobileremote.android/com.tea4go.claudemobileremote.MainActivity;end"},
 				"extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}},
 			"ios": map[string]any{"alert": map[string]string{"title": "Claude Mobile Remote", "body": body}, "sound": "default", "thread-id": n.Topic,
 				"extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}},
 		"options": map[string]any{"time_to_live": ttl, "apns_production": j.Production, "apns_collapse_id": n.Topic[4:]},
+	}
+	if n.Platform == "android" || n.Platform == "ios" {
+		payload["platform"] = []string{n.Platform}
+		notifications := payload["notification"].(map[string]any)
+		if n.Platform == "android" {
+			delete(notifications, "ios")
+		} else {
+			delete(notifications, "android")
+		}
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -171,4 +181,27 @@ func (j *JPush) Send(ctx context.Context, n Notification) error {
 		return fmt.Errorf("JPush returned HTTP %d", response.StatusCode)
 	}
 	return nil
+}
+
+// PlatformSender keeps credentials isolated across JPush applications.
+type PlatformSender struct{ IOS, Android Sender }
+
+func (s PlatformSender) Send(ctx context.Context, n Notification) error {
+	if n.Platform == "android" {
+		if s.Android == nil {
+			return errors.New("Android push not configured")
+		}
+		return s.Android.Send(ctx, n)
+	}
+	if s.IOS == nil {
+		return errors.New("iOS push not configured")
+	}
+	return s.IOS.Send(ctx, n)
+}
+func LoadAndroid() (*JPush, error) {
+	key, secret := os.Getenv("CMR_ANDROID_JPUSH_APP_KEY"), os.Getenv("CMR_ANDROID_JPUSH_MASTER_SECRET")
+	if key == "" && secret == "" {
+		return nil, nil
+	}
+	return newJPush(key, secret, true)
 }

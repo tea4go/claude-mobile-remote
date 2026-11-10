@@ -52,7 +52,7 @@ func LoadDeviceRegistry(path string) (*DeviceRegistry, error) {
 			return nil, errors.New("invalid notification device file")
 		}
 		for rid, expiry := range devices {
-			if !registrationIDPattern.MatchString(rid) || expiry.After(now.Add(30*24*time.Hour+time.Minute)) {
+			if !validStoredID(rid) || expiry.After(now.Add(30*24*time.Hour+time.Minute)) {
 				return nil, errors.New("invalid notification device file")
 			}
 		}
@@ -60,8 +60,12 @@ func LoadDeviceRegistry(path string) (*DeviceRegistry, error) {
 	return r, nil
 }
 
+func validStoredID(id string) bool {
+	return registrationIDPattern.MatchString(id) || (len(id) > 8 && id[:8] == "android_" && registrationIDPattern.MatchString(id[8:]))
+}
+
 func validDeviceRoute(topic, rid string, expiry time.Time, now time.Time) bool {
-	return topicPattern.MatchString(topic) && registrationIDPattern.MatchString(rid) &&
+	return topicPattern.MatchString(topic) && validStoredID(rid) &&
 		expiry.After(now) && !expiry.After(now.Add(30*24*time.Hour+time.Minute))
 }
 
@@ -91,7 +95,7 @@ func (r *DeviceRegistry) Register(topic, rid string, expiry time.Time) error {
 }
 
 func (r *DeviceRegistry) Remove(topic, rid string) error {
-	if !topicPattern.MatchString(topic) || !registrationIDPattern.MatchString(rid) {
+	if !topicPattern.MatchString(topic) || !validStoredID(rid) {
 		return errors.New("invalid notification device registration")
 	}
 	r.mu.Lock()

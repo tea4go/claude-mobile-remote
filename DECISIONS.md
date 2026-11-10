@@ -876,3 +876,7 @@ D103范围调整：用户明确Harmony因签名变更先暂停，本轮先实现
 用户确认继续 D110：WhaleTerm Manager FIFO 作为 PC 与手机唯一队列，PC 本地待发项及时入宿主，PC 编辑取回、排序、取消和引导的结果同步到手机；手机提供查看、取消和引导。React 入口置于输入卡 permission 右侧，仅支持宿主且非空时显示，替代此前隐藏入口和空队列入口安排。异常 Toast 提示，断线禁用操作、重连快照收敛。
 
 本轮只为 WhaleTerm 开放，不扩展 Standalone。共用契约沿用已实现 v8 的 queue_changed、steer_queued 与 canSteerQueue；PC 编辑所需完整草稿保留在 PC，不进入跨端载荷。Go、React/Capacitor iOS/Android 和 Harmony 均已有纯 JSON 队列解析与状态，新增宿主接线和本地 UI 不引入端特有协议；Harmony 独立入口后续同步。继续保持单 Host/单 Client/串行输入和会话隔离。
+
+## D121 · Android 华为推送续做（2026-11-10）
+
+用户确认本阶段只完成 Android 华为厂商系统推送，其他厂商与 Harmony 暂不处理。沿用 D107 新 Android 极光应用与旧 iOS 应用；通知登记按平台隔离、旧无平台登记兼容 iOS，服务端分别投递。三端共用 WebSocket、配对和 Session/Turn 契约不变；平台字段仅属于通知登记接口，三端可使用各自原生标识实现，不引入单端依赖。
