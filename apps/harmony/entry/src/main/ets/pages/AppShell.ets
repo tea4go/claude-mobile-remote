@@ -943,7 +943,7 @@ export struct AppShell {
 
   private activeRecordTitle(): string {
     const record = this.activeRecord()
-    return record !== null ? record.name : 'Whale Remote Control'
+    return record !== null ? record.name : 'CodeBuddy'
   }
 
   @Builder

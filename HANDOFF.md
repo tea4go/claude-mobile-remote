@@ -4,6 +4,14 @@
 
 ## 当前状态
 
+- 当前执行（2026-11-10，三端应用内名称统一）：用户反馈 iOS 1.0(10) 验证通过。iOS/Android 共享首页和配对页名称，以及 Harmony 首页、配对页、会话默认标题、本地通知标题和模块描述均改为 CodeBuddy；未改包标识或协议。源码旧名称搜索和 git diff --check 通过；遵照此前要求未运行 npm lint、build、test，未重新打包或进行本轮设备验收。下一步需重新打包并在三端核验首页、配对页及 Harmony 本地通知；Android 服务端远程推送仍显式使用旧标题，尚未修改或部署。
+
+- 当前执行（2026-11-10，iOS TestFlight CodeBuddy 1.0(10)，用户验证通过）：后台确认 1.0(9) 正在 Public Beta 测试；沿用 Bundle ID、Team、签名，构建号 10，包含 CodeBuddy 桌面名称及 iOS 本地通知标题。Web 生产构建、iOS 资源同步、Release 归档及 App Store 导出通过；IPA 核实名称、版本、描述文件、严格签名和内置资源，SHA256 `334f9f58ca422e854027ec74039dec51c6e4bfa4c1cfd4d0fd8569c0f8661205`。Apple 返回上传成功；用户随后反馈 iOS 验证通过，并发现应用内标题仍为旧名称，已在后续源码中修正，尚需重新打包验证。未运行 npm lint/test。
+
+- 当前执行（2026-11-10，推送标题调整，待真机验收）：iOS、Harmony 远程推送载荷标题及 iOS 本地通知标题改为 CodeBuddy；Android 服务端载荷标题未改。Go push 与 notify-server 测试通过，edo 新服务 SHA256 `0c070bfac4a0289d0e79b57107b2f3a996f15cd660747acc3dc3169907fb9376` 已部署，active 且 /healthz 通过；首次因误用 /health 检查而自动回滚，使用正确地址重新部署成功，旧版备份保留。用户反馈已修改极光 Harmony 和 Android 推送标题；实际远程载荷明确指定标题。iOS 本地标题须重新打包安装；所有真机推送待验收，无 Git 写操作。
+
+- 当前执行（2026-11-10，三端桌面显示名称）：iOS 的 CFBundleDisplayName、Android 的应用及启动 Activity 标签、Harmony 的应用及入口 Ability 标签已改为 CodeBuddy；未改包名、签名或推送凭据。iOS plist、Android XML、Harmony JSON 格式检查及 git diff --check 通过；iOS 1.0(10) 已由用户验证，Android 和 Harmony 仍需重新打包并验收。极光 Harmony 默认标题及应用内标题的后续进展见上方记录。
+
 - 当前执行（2026-11-10，HarmonyOS 系统推送，待用户真机验收）：用户要求记录并提交本轮 Harmony 推送改动，未反馈真机结果。已授权项目级服务账号并上传极光；正确项目 JSON 已核对，极光 Harmony 包名、标题、Client ID、文件均已保存，厂商通道已开启。华为推送服务开启，服务类自分类权益未申请。
   - 初步接入极光 Harmony SDK 1.4.2、通知同意开关、异步登记/撤销及本地点击映射；edo 增加 hmos 平台隔离、凭据入口和最小通知载荷。当前采用 MARKETING 分类，未获服务类权益时存在每日配额及提醒方式限制。Go push race 和 Harmony 登记/超时重试/撤销定向测试通过；Harmony API24 Debug HAP 编译通过、未签名，SHA256 c047e431a551dbbfd5a3fcfa0bc044d47d85b57d22be4326581c79ef8c1952c0。
   - 用户反馈已删除误建的其他项目凭证；正确项目 `101653523865476343` 的新密钥已核对并上传。edo 已部署 SHA256 `692059e102e8fdeb95c9ef24afe87b7c1f5fd125283205dbe6cfa225577133be`，服务 active、health 通过；虚构 Harmony 设备登记 204、发送 502（极光 400/1003 无效目标）、撤销 204，未真实送达。首次部署因运行中文件不能覆盖及随后健康检查过早发生而回滚，改原子替换并等待启动后成功，旧程序与环境备份保留。

@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "Whale Remote Control Harmony entry module"
+      "value": "CodeBuddy Harmony entry module"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "Entry ability for Whale Remote Control Harmony"
+      "value": "Entry ability for CodeBuddy Harmony"
     },
     {
       "name": "EntryAbility_label",
-      "value": "Whale Remote Control"
+      "value": "CodeBuddy"
     },
     {
       "name": "microphone_reason",

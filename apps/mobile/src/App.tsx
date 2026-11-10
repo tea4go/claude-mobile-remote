@@ -47,7 +47,7 @@ const defaultSocketFactory: SocketFactory = (url) =>
   new WebSocket(url) as unknown as ReturnType<SocketFactory>
 const defaultNow = () => Date.now()
 const EMPTY_STATE = createInitialState()
-const appDisplayName = Capacitor.getPlatform() === 'android' ? 'Whale Remote Control' : 'Claude Mobile Remote'
+const appDisplayName = 'CodeBuddy'
 
 function turnStatusOf(state: MobileState) {
   if (state.cachedAt != null) return 'unknown' as const

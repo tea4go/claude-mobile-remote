@@ -73,7 +73,7 @@ export struct SessionPage {
   @State private previewImage: string = ''
   @State private now: number = Date.now()
   private clock: number = -1
-  @Prop title: string = 'Whale Remote Control'
+  @Prop title: string = 'CodeBuddy'
   @Prop @Watch('stateChanged') state: HarmonySessionState
   @Prop draft: ComposerDraft = emptyDraft()
   @Prop speechActive: boolean = false

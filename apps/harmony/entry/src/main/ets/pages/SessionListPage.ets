@@ -177,7 +177,7 @@ export struct SessionListPage {
     Stack({ alignContent: Alignment.Bottom }) {
     Column() {
       Row() {
-        Text(this.settings ? (this.computers ? 'PC 管理' : '设置') : 'Whale Remote Control').fontSize(22).fontWeight(FontWeight.Bold).layoutWeight(1)
+        Text(this.settings ? (this.computers ? 'PC 管理' : '设置') : 'CodeBuddy').fontSize(22).fontWeight(FontWeight.Bold).layoutWeight(1)
         Button(this.settings ? '返回' : '设置', { type: ButtonType.Normal }).height(44).fontSize(16).fontColor(PRIMARY)
           .backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).constraintSize({ minWidth: 44 }).padding({ left: 10, right: 10 }).onClick(() => this.changePage())
       }.padding({ left: 16, right: 16, top: 8, bottom: 4 }).width('100%')

@@ -61,7 +61,7 @@ export struct PairingPage {
     Column() {
       Row() {
         if (this.canBack) { Button('‹', { type: ButtonType.Normal }).width(44).height(44).fontSize(30).fontColor(PRIMARY).backgroundColor(Color.Transparent).accessibilityText('返回').onClick(() => this.onBack()) }
-        Text('Whale Remote Control').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
+        Text('CodeBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
         Button('设置', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onSettings())
       }.width('100%').height(56).padding({ left: 8, right: 8 })
       Scroll() {
