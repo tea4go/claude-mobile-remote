@@ -13,22 +13,22 @@ function summarizeSessionId(sessionId: string): string {
 
 function connectionLabel(connection: ConnectionStage): string {
   if (connection === ConnectionStage.AUTHENTICATING) {
-    return '鉴权中'
+    return '认证中'
   }
   if (connection === ConnectionStage.SUBSCRIBING) {
     return '订阅中'
   }
   if (connection === ConnectionStage.SUBSCRIBED) {
-    return '等待快照'
+    return '订阅中'
   }
   if (connection === ConnectionStage.READY) {
     return '已连接'
   }
   if (connection === ConnectionStage.PAIRING_INVALID) {
-    return '配对失效'
+    return '已断开'
   }
   if (connection === ConnectionStage.PROTOCOL_ERROR) {
-    return '协议异常'
+    return '已断开'
   }
   if (connection === ConnectionStage.CONNECTING) {
     return '连接中'
@@ -89,17 +89,17 @@ export struct StatusBar {
     if (this.state.sessionStatus === 'failed') return '会话失败'
     if (this.state.sessionStatus === 'stopped') return '会话已停止'
     const status = this.turnStatusText()
-    if (status === 'waiting') return '等待处理'
-    if (status === 'running') return '进行中'
+    if (status === 'waiting') return '等待中'
+    if (status === 'running') return '运行中'
     if (status === 'done') return '已完成'
     if (status === 'failed') return '本轮失败'
     if (status === 'cancelled') return '已取消'
     return '空闲'
   }
   build() {
-    Column({ space: 1 }) {
-      Text(connectionLabel(this.state.connection)).id('connection-state').fontSize(11).fontColor('#6e6e73').maxLines(1)
-      Text(this.statusText()).id('turn-state').fontSize(11).fontColor('#6e6e73').maxLines(1).fontWeight(FontWeight.Medium)
-    }.width(78).alignItems(HorizontalAlign.End)
+    Row({ space: 4 }) {
+      Text(`● ${connectionLabel(this.state.connection)} · ${this.statusText()}`).id('connection-state').fontSize(11)
+        .fontColor(this.state.connection === ConnectionStage.READY ? '#36a574' : '#748198').maxLines(1)
+    }.justifyContent(FlexAlign.Center)
   }
 }

@@ -14,9 +14,10 @@ import type {
 import type { HarmonySessionState } from '../session/model'
 import { ConnectionStage } from '../session/model'
 import { MessageComposer } from '../components/MessageComposer'
-import { MessageList } from '../components/MessageList'
+import { MessageList, ActivityOverlay } from '../components/MessageList'
 import { PendingSummary } from '../components/PendingSummary'
 import { QueuedSummary } from '../components/QueuedSummary'
+import { type ActivityFeedGroup } from '../ui/feedDataSource'
 import { StatusBar } from '../components/StatusBar'
 
 function progressLabel(phase: ProgressPhase): string {
@@ -88,6 +89,8 @@ export struct SessionPage {
   onSpeech: () => void = () => {}
   onStopSpeech: () => void = () => {}
   onCancelSpeech: () => void = () => {}
+  @State private selectedActivity: ActivityFeedGroup | null = null
+  @State private selectedStep: number = -1
   @State private sheet: string = ''
   @State private pageHeight: number = 720
   private menuController: CustomDialogController = new CustomDialogController({
@@ -169,6 +172,7 @@ export struct SessionPage {
 
   aboutToAppear(): void {
     this.stateChanged()
+    setTimeout(() => { this.scroller.scrollEdge(Edge.Bottom); this.atBottom = true }, 150)
     nativeLifecycle.detailBack = this.backHandler
   }
   private readonly backHandler: () => boolean = () => {
@@ -207,8 +211,9 @@ export struct SessionPage {
   @Builder
   private drawer() {
     Column() {
+      Blank().width(36).height(5).backgroundColor('#d5deea').borderRadius(3).margin({ top: 10, bottom: 4 })
       Row() {
-          Text(this.sheet === 'action' ? '待处理事项' : `排队队列（${this.state.queuedRequests.length}）`).fontSize(18).layoutWeight(1)
+          Text(this.sheet === 'action' ? (this.state.pendingAction?.kind === 'ask_user_question' ? '需要你的回答' : '待处理事项') : `排队队列（${this.state.queuedRequests.length}）`).fontSize(18).layoutWeight(1)
         Button(this.sheet === 'action' ? '取消本轮' : '关闭', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
           .enabled(this.sheet !== 'action' || this.commandReady()).onClick(() => this.closeSheet())
       }.padding(12)
@@ -229,8 +234,8 @@ export struct SessionPage {
       }.constraintSize({ maxHeight: Math.max(80, this.pageHeight * 0.75 -
         (this.sheet === 'action' && this.state.pendingAction?.kind === 'ask_user_question' ? 136 : 68)) }).width('100%').align(Alignment.TopStart)
       if (this.sheet === 'action' && this.state.pendingAction?.kind === 'ask_user_question') {
-        Button('提交', { type: ButtonType.Normal }).height(44).width('100%').fontSize(15).fontColor('#ffffff').backgroundColor(PRIMARY).borderRadius(10)
-          .enabled(this.state.canResolveAction && this.answersReady()).onClick(() => this.onSubmitAnswers()).margin({ top: 8, bottom: 12 })
+        Row() { Button('提交', { type: ButtonType.Normal }).height(52).width('100%').fontSize(16).fontColor('#ffffff').backgroundColor(PRIMARY).borderRadius(16)
+          .enabled(this.state.canResolveAction && this.answersReady()).onClick(() => this.onSubmitAnswers()) }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
       }
     }.width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 20, topRight: 20 }).transition(pageFade())
   }
@@ -238,29 +243,28 @@ export struct SessionPage {
     Stack({ alignContent: Alignment.Bottom }) {
       Column() {
         Row({ space: 8 }) {
-          Button('‹', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(32).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).accessibilityText('返回会话列表').onClick(() => this.onBack())
-          Text(this.title).fontSize(17).fontWeight(FontWeight.Medium).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-          StatusBar({ state: this.state })
+          Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).padding(0).fontSize(30).fontColor(SECONDARY).backgroundColor('#ffffff').borderRadius(22).hoverEffect(HoverEffect.Highlight).clip(true).accessibilityText('返回会话列表').onClick(() => this.onBack())
+          Column({ space: 3 }) {
+            Text(this.title).fontSize(17).fontWeight(FontWeight.Medium).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').textAlign(TextAlign.Center)
+            StatusBar({ state: this.state })
+          }.layoutWeight(1)
           if (this.showReconnect()) { Button('重连', { type: ButtonType.Normal }).height(44).padding(4).fontSize(12).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => this.onReconnect()) }
           if (!this.textOnly) {
           Button('⋯', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(24).fontColor(SECONDARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).accessibilityText('更多会话操作').onClick(() => {
             this.menuController.open()
           })
           }
-        }.padding({ left: 4, right: 4, top: 4, bottom: 4 }).width('100%').backgroundColor('#ffffff')
+        }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor(PAGE_BACKGROUND)
         if (this.state.connection !== ConnectionStage.READY && this.state.messages.length > 0) {
           Text('本机已收到的消息 · 当前状态待同步').fontSize(12).padding(6)
         }
         if (this.managementFeedback.length > 0) { Text(this.managementFeedback).fontSize(12).padding(6) }
-        if (this.state.lastError !== null) { Text(this.state.lastError.message).fontSize(12).fontColor('#b3261e').padding(6) }
-        if (this.state.lastNotice !== null) { Text(this.state.lastNotice.message).fontSize(12).padding(6) }
-        if (this.state.connection === ConnectionStage.PAIRING_INVALID) { Text('配对已失效，请重新扫码').fontColor('#b3261e') }
         Row({ space: 8 }) {
           if (this.state.pendingAction !== null) { Button('待处理事项', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => { this.sheet = 'action' }) }
         }
-        MessageList({ messages: this.state.messages, scroller: this.scroller, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen,
+        MessageList({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: this.state.messages, scroller: this.scroller, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen,
           onAtBottom: (value: boolean) => { this.atBottom = value }, onPreviewImage: (value: string) => { this.previewImage = value } })
-          .layoutWeight(1).width('100%').padding(12)
+          .layoutWeight(1).width('100%')
         Row() {
           Blank()
           Button(this.atBottom ? '已到最新消息' : '最新消息 ↓', { type: ButtonType.Normal }).height(32).fontSize(12).fontColor(PRIMARY)
@@ -289,6 +293,9 @@ export struct SessionPage {
             onSend: this.onSend, onCreateSession: this.onCreateSession, onCancel: () => this.onCancelTurn(this.cancelTarget()) })
         }.padding({ left: 12, right: 12, top: 6, bottom: 12 }).width('100%')
       }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
+      if (this.selectedActivity !== null) {
+        ActivityOverlay({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: this.state.messages, pageHeight: this.pageHeight, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen })
+      }
       if (this.sheet.length > 0) {
         Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { if (this.sheet !== 'action') this.closeSheet() }).transition(pageFade())
         this.drawer()

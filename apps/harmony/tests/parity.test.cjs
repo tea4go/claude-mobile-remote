@@ -764,3 +764,10 @@ test('session previews normalize whitespace and bound displayed length', () => {
   assert.equal(sessionPreview('a'.repeat(100000)), 'a'.repeat(100))
   assert.equal(sessionPreview('  \n'), '')
 })
+
+test('escaped multiline input is displayed without changing code or isolated escapes', () => {
+  const { inputDisplayText } = load('session/inputDisplay')
+  assert.equal(inputDisplayText('first\\n\\nsecond\\nthird `x\\ny`'), 'first\n\nsecond\nthird `x\\ny`')
+  assert.equal(inputDisplayText('example \\n'), 'example \\n')
+  assert.equal(inputDisplayText('real\nline\\nexample'), 'real\nline\\nexample')
+})

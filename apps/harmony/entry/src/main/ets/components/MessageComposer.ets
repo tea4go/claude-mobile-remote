@@ -101,7 +101,7 @@ export struct MessageComposer {
               }
             }, (item: Attachment, index: number) => `${index}-${item.name}-${item.mediaType}`)
           }.padding({ top: 4, right: 4 })
-        }.scrollable(ScrollDirection.Horizontal).width('100%')
+        }.scrollable(ScrollDirection.Horizontal).width('100%').align(Alignment.Start)
       }
       if (this.speechActive) {
         Text(this.speechFinishing ? '正在识别，请稍候…' : '正在聆听，点击语音按钮结束').fontSize(12).fontColor(SECONDARY)

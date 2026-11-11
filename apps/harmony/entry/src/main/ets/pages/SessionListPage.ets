@@ -1,7 +1,7 @@
 import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
 import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
 import { curves } from '@kit.ArkUI'
-import { pageFade } from '../ui/transitions'
+import { pageSlide } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
 import { defaultSessionName, type SessionRecord } from '../session/records'
 import { groupSessions, type PCGroup, type ProjectGroup } from '../session/projectGroups'
@@ -137,30 +137,20 @@ export struct SessionListPage {
   @Builder
   private sessionRow(session: SessionRecord) {
     Column() {
-      Row({ space: 4 }) {
-        Column({ space: 4 }) {
-          Row({ space: 5 }) {
-            Text(titleOf(session)).fontSize(16).fontWeight(FontWeight.Medium).maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-            if (session.unread) { Circle().width(7).height(7).fill(PRIMARY).accessibilityText('未读') }
-            if (this.recentlyViewedId === session.sessionId) { Text('刚刚查看').fontSize(11).fontColor(PRIMARY) }
-          }.width('100%')
-          Text(session.preview ?? '暂无会话内容').fontSize(13).fontColor(SECONDARY).maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-          Text(session.projectCwd ?? '工作目录未知').fontSize(12).fontColor('#8e8e93').maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-        }.layoutWeight(1).alignItems(HorizontalAlign.Start).onClick(() => this.onOpen(session.sessionId))
-        Column({ space: 4 }) {
-          Text(statusLabel(session)).fontSize(11).fontColor(session.status === 'needsPairing' || session.runtimeStatus === '等待处理' ? '#b7791f' : SECONDARY)
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').textAlign(TextAlign.End)
-          Text(this.timeOf(session)).fontSize(11).fontColor(SECONDARY)
-        }.width(72).alignItems(HorizontalAlign.End).onClick(() => this.onOpen(session.sessionId))
-        Button('⋯', { type: ButtonType.Normal }).width(44).height(44).fontSize(22).fontColor(SECONDARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
-          .accessibilityText('会话操作').onClick(() => {
-            this.menuSession = session
-            this.menuController.open()
-          })
-      }.width('100%').constraintSize({ minHeight: 100 }).padding({ left: 12, right: 4, top: 12, bottom: 12 })
+      Row() {
+        Text(titleOf(session)).fontSize(16).fontWeight(FontWeight.Medium).maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).onClick(() => this.onOpen(session.sessionId))
+        if (session.unread) { Circle().width(7).height(7).fill(PRIMARY).accessibilityText('未读') }
+        Button('⋯', { type: ButtonType.Normal }).width(44).height(44).fontSize(22).fontColor(SECONDARY).backgroundColor(Color.Transparent)
+          .accessibilityText('会话操作').onClick(() => { this.menuSession = session; this.menuController.open() })
+      }.width('100%')
+      Text(session.preview ?? '暂无会话内容').fontSize(13).fontColor(SECONDARY).maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').onClick(() => this.onOpen(session.sessionId))
+      Row({ space: 5 }) {
+        Circle().width(7).height(7).fill(session.status === 'connected' ? '#36a574' : '#d34a4a')
+        Text(session.status === 'connected' ? '已连接' : statusLabel(session)).fontSize(12).fontColor(SECONDARY).layoutWeight(1)
+        Text(this.timeOf(session)).fontSize(12).fontColor(SECONDARY)
+      }.width('100%').padding({ top: 12 }).onClick(() => this.onOpen(session.sessionId))
       if (this.renamingId === session.sessionId) {
         Row({ space: 4 }) {
           TextInput({ text: this.draftName, placeholder: '本地名称' }).maxLength(255).layoutWeight(1).onChange((text: string) => { this.draftName = text })
@@ -170,17 +160,25 @@ export struct SessionListPage {
             .onClick(() => { this.renamingId = '' })
         }.padding(8)
       }
-    }.id(`session-item-${session.sessionId}`).width('100%')
-      .backgroundColor(this.recentlyViewedId === session.sessionId ? '#f2f7ff' : '#ffffff').border({ width: 1, color: this.recentlyViewedId === session.sessionId ? '#b9d2ff' : '#dfe6f1' }).borderRadius(16)
+    }.id(`session-item-${session.sessionId}`).width('100%').padding({ left: 16, right: 12, top: 6, bottom: 14 }).alignItems(HorizontalAlign.Start)
+      .backgroundColor(this.recentlyViewedId === session.sessionId ? '#f3f7ff' : '#ffffff').border({ width: 1, color: '#dfe6f1' }).borderRadius(16)
   }
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
     Column() {
       Row() {
-        Text(this.settings ? (this.computers ? 'PC 管理' : '设置') : 'CodeBuddy').fontSize(22).fontWeight(FontWeight.Bold).layoutWeight(1)
-        Button(this.settings ? '返回' : '设置', { type: ButtonType.Normal }).height(44).fontSize(16).fontColor(PRIMARY)
-          .backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).constraintSize({ minWidth: 44 }).padding({ left: 10, right: 10 }).onClick(() => this.changePage())
-      }.padding({ left: 16, right: 16, top: 8, bottom: 4 }).width('100%')
+        if (this.settings) {
+          Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).padding(0).fontSize(30).fontColor(SECONDARY)
+            .backgroundColor('#ffffff').borderRadius(22).accessibilityText('返回').onClick(() => this.changePage())
+          Text(this.computers ? 'PC 管理' : '设置').fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
+          Blank().width(44)
+        } else {
+          Blank().width(44)
+          Text('CodeBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
+          Button('设置', { type: ButtonType.Normal }).height(40).fontSize(14).fontColor('#1b2739')
+            .backgroundColor('#ffffff').borderRadius(20).onClick(() => this.changePage())
+        }
+      }.padding({ left: 16, right: 16, top: 8, bottom: 8 }).width('100%')
       if (this.settings) {
         Scroll() {
           Column({ space: 18 }) {
@@ -199,11 +197,13 @@ export struct SessionListPage {
             }, (record: SessionRecord) => JSON.stringify([pcKey(record), pcName(record), this.pcStatus(record)]))
             if (this.sessions.length === 0) { Text('暂无已配对电脑').fontSize(14).fontColor(SECONDARY).padding(24) }
           } else {
-            Row() {
+            Row({ space: 12 }) {
+              Text('▣').fontSize(20).fontColor(PRIMARY).width(36).height(36).textAlign(TextAlign.Center).backgroundColor('#e9f1ff').borderRadius(10)
               Text('PC 管理').fontSize(16).layoutWeight(1)
               Text('›').fontSize(24).fontColor(SECONDARY)
             }.width('100%').height(60).padding({ left: 16, right: 16 }).backgroundColor('#ffffff').borderRadius(16).onClick(() => { this.computers = true })
-            Row() {
+            Row({ space: 12 }) {
+              Text('✧').fontSize(20).fontColor(PRIMARY).width(36).height(36).textAlign(TextAlign.Center).backgroundColor('#e9f1ff').borderRadius(10)
               Text('体验演示（无需连接电脑）').fontSize(16).layoutWeight(1)
               Text('›').fontSize(24).fontColor(SECONDARY)
             }.width('100%').height(60).padding({ left: 16, right: 16 }).backgroundColor('#ffffff').borderRadius(16).onClick(() => this.onDemo())
@@ -240,16 +240,16 @@ export struct SessionListPage {
 
           }
           }.padding({ left: 16, right: 16, top: 12, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
-        }.layoutWeight(1).width('100%').align(Alignment.TopStart)
+        }.layoutWeight(1).width('100%').align(Alignment.TopStart).transition(pageSlide())
       } else {
         List({ space: 8, scroller: this.scroller }) {
-          ListItem() { Text('会话列表').fontSize(28).fontWeight(FontWeight.Bold).width('100%').padding({ top: 12, bottom: 12 }) }
+          ListItem() { Row({ space: 10 }) { Text('会话列表').fontSize(28).fontWeight(FontWeight.Bold); Text(`${this.sessions.length} 个会话`).fontSize(12).fontColor(SECONDARY).padding({ left: 10, right: 10, top: 6, bottom: 6 }).backgroundColor('#e8effd').borderRadius(16) }.width('100%').padding({ top: 18, bottom: 12 }) }
           if (this.groups.length === 0) { ListItem() { Text('扫码连接电脑上的 Claude 会话').fontSize(14).fontColor(SECONDARY).padding(24) } }
           LazyForEach(this.listSource, (row: ProjectListRow) => {
             ListItem() {
               if (row.kind === 'pc' && row.pc !== undefined) {
                 Row({ space: 12 }) {
-                  Text('电脑').fontSize(14).fontColor(PRIMARY)
+                  Text('▣').fontSize(23).fontColor('#ffffff').width(44).height(44).textAlign(TextAlign.Center).backgroundColor(PRIMARY).borderRadius(11)
                   Column({ space: 4 }) {
                     Text(row.pc.label).fontSize(16).fontWeight(FontWeight.Medium).width('100%')
                     Text(`${row.pc.connected}/${row.pc.sessions.length} 个会话已连接`).fontSize(12).fontColor(SECONDARY).width('100%')
@@ -259,7 +259,7 @@ export struct SessionListPage {
               } else if (row.kind === 'project' && row.pc !== undefined && row.project !== undefined) {
                 Row({ space: 8 }) {
                   Column({ space: 4 }) {
-                    Text(`${this.collapsed.indexOf(row.project.key) >= 0 ? '▸' : '▾'}  ${row.project.title}`).fontSize(15).fontWeight(FontWeight.Medium).width('100%')
+                    Row({ space: 6 }) { Image(this.collapsed.indexOf((row.project as ProjectGroup).key) >= 0 ? $r('app.media.folder_closed') : $r('app.media.folder_open')).width(16).height(16); Text((row.project as ProjectGroup).title).fontSize(15).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1) }.width('100%')
                     Text(row.project.cwd.length > 0 ? row.project.cwd : '工作目录未知').fontSize(12).fontColor(SECONDARY).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                   }.layoutWeight(1).alignItems(HorizontalAlign.Start).onClick(() => {
                     const project = row.project as ProjectGroup
@@ -273,13 +273,13 @@ export struct SessionListPage {
               }
             }
           }, (row: ProjectListRow) => row.key)
-        }.layoutWeight(1).width('100%').padding({ left: 16, right: 16 }).cachedCount(3)
+        }.layoutWeight(1).width('100%').padding({ left: 16, right: 16 }).cachedCount(3).transition(pageSlide(true))
           .onAppear(() => { this.listOffset = this.scrollOffset; this.scroller.scrollTo({ xOffset: 0, yOffset: this.scrollOffset }) })
           .onScroll(() => this.onScrollOffset(this.scroller.currentOffset().yOffset))
       }
       if (!this.settings) {
-        Button('＋ 新会话', { type: ButtonType.Normal }).height(48).width('100%').fontSize(16).fontColor('#ffffff')
-          .backgroundColor(PRIMARY).borderRadius(16).onClick(() => this.onAdd()).margin({ bottom: 12, left: 16, right: 16 })
+        Row() { Button('＋ 新会话', { type: ButtonType.Normal }).height(52).width('100%').fontSize(16).fontColor('#ffffff')
+          .backgroundColor(PRIMARY).borderRadius(16).onClick(() => this.onAdd()) }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
       }
     }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
     if (this.filterOpen) {

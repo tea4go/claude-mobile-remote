@@ -1,4 +1,3 @@
-import { copyVisibleText } from '../native/clipboard'
 import type {
   AskUserQuestionPendingAction,
   Question,
@@ -46,7 +45,7 @@ function toggleMultiSelect(values: Array<string>, label: string): Array<string> 
 }
 
 function optionBackground(selected: boolean): string {
-  return selected ? '#e6f4ff' : '#ffffff'
+  return selected ? '#f0f5ff' : '#ffffff'
 }
 
 @Component
@@ -151,14 +150,13 @@ export struct PendingSummary {
   @Builder
   private buildQuestion(question: Question): void {
     Column({ space: 8 }) {
-      Text(question.header)
+      Text(question.header).copyOption(CopyOptions.LocalDevice)
         .fontSize(12)
-        .opacity(0.7)
+        .fontColor('#3478f6')
         .width('100%')
 
-      Button('复制问题', { type: ButtonType.Normal }).height(36).fontSize(12).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => { void copyVisibleText(`${question.question}\n${question.options.map((option: QuestionOption) => option.label).join('\n')}`).catch(() => {}) })
-      Text(question.question)
-        .fontSize(14)
+      Text(question.question).copyOption(CopyOptions.LocalDevice)
+        .fontSize(16).fontWeight(FontWeight.Medium)
         .width('100%')
 
       if (question.inputType === 'text') {
@@ -174,7 +172,7 @@ export struct PendingSummary {
       } else {
         ForEach(question.options, (option: QuestionOption) => {
           Row({ space: 10 }) {
-            Text(question.multiSelect ? (this.optionSelected(question.questionId, option.label) ? '☑' : '□') : (this.optionSelected(question.questionId, option.label) ? '◉' : '○')).fontSize(20).fontColor('#3478f6')
+            Stack() { if (this.optionSelected(question.questionId, option.label)) { Text(question.multiSelect ? '✓' : '●').fontSize(question.multiSelect ? 15 : 12).fontColor(question.multiSelect ? '#ffffff' : '#3478f6') } }.width(22).height(22).backgroundColor(question.multiSelect && this.optionSelected(question.questionId, option.label) ? '#3478f6' : '#ffffff').border({ width: 1, color: this.optionSelected(question.questionId, option.label) ? '#3478f6' : '#b9c4d2' }).borderRadius(question.multiSelect ? 5 : 11)
             Column({ space: 4 }) {
               Text(option.label).fontSize(14).fontWeight(this.optionSelected(question.questionId, option.label) ? FontWeight.Medium : FontWeight.Regular).width('100%')
               if (option.description.length > 0) { Text(option.description).fontSize(12).opacity(0.7).width('100%') }
@@ -184,7 +182,8 @@ export struct PendingSummary {
           .width('100%')
           .alignItems(VerticalAlign.Center)
           .backgroundColor(optionBackground(this.optionSelected(question.questionId, option.label)))
-          .borderRadius(8)
+          .borderRadius(10)
+          .border({ width: 1, color: this.optionSelected(question.questionId, option.label) ? '#d0dfff' : '#ffffff' })
           .onClick(() => {
             if (!this.actionEnabled) {
               return

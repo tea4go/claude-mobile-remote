@@ -4,6 +4,7 @@ import { useEffect, useRef, type RefObject } from 'react'
 import { Tag } from 'antd-mobile'
 import MessageMarkdown from './MessageMarkdown'
 import ActivityGroup, { type Activity } from './ActivityGroup'
+import { inputDisplayText } from '../session/inputDisplay'
 import SelectableMessage from './SelectableMessage'
 import { FONT_SIZE_COMPACT } from './ui'
 import type { Message } from '../session/reducer'
@@ -174,7 +175,7 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
           return (
             <div key={index} style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
               <SelectableMessage selectionTone="inverse" style={{ background: '#3478f6', color: '#fff', borderRadius: 20, padding: '12px 16px' }}>
-                <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.text}</div>
+                <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{inputDisplayText(message.text)}</div>
                 {message.attachments?.map((attachment, i) => <div key={i} style={{ marginTop: 6 }}>
                   {/^image\/(jpeg|png|gif|webp)$/.test(attachment.mediaType) && <img alt={attachment.name} src={`data:${attachment.mediaType};base64,${attachment.data}`} style={{ display: 'block', maxWidth: '100%', maxHeight: 240, borderRadius: 8, objectFit: 'contain' }} />}
                   <span style={{ fontSize: FONT_SIZE_COMPACT }}>{attachment.name}</span>

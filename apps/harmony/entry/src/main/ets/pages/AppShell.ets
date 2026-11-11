@@ -1,7 +1,7 @@
 import { NetworkMonitor } from '../native/network'
 import { KeyboardAvoidMode, promptAction } from '@kit.ArkUI'
 import { FeedbackFrame } from '../ui/feedbackFrame'
-import { pageFade } from '../ui/transitions'
+import { pageFade, pageSlide } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
 import { NativeStorage } from '../native/storage'
 import { SpeechDraft } from '../native/speech'
@@ -1108,11 +1108,11 @@ export struct AppShell {
   @Builder
   private buildCurrentView(): void {
     if (this.view === 'detail' && this.hasActiveRecord()) {
-      Column() { this.buildDetailPage() }.width('100%').height('100%').transition(pageFade())
+      Column() { this.buildDetailPage() }.width('100%').height('100%').transition(pageSlide())
     } else if (this.view === 'pairing') {
-      Column() { this.buildPairingView() }.width('100%').height('100%').transition(pageFade())
+      Column() { this.buildPairingView() }.width('100%').height('100%').transition(pageSlide())
     } else {
-      Column() { this.buildListView() }.width('100%').height('100%').transition(pageFade())
+      Column() { this.buildListView() }.width('100%').height('100%').transition(pageSlide(this.view !== 'pairingSettings'))
     }
   }
 

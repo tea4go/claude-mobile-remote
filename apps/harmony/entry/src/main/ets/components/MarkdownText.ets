@@ -284,6 +284,7 @@ export struct MarkdownText {
       }
     }
     }.id(this.selection.id).width('100%')
+      .onClick(() => { if (this.selectionOpen && !this.dragging) this.closeSelection() })
       .gesture(LongPressGesture({ duration: 500, repeat: false }).onAction((event: GestureEvent) => this.selectAll(event)))
       .onVisibleAreaChange([0], (visible: boolean) => { if (!visible) this.closeSelection() })
       .onAreaChange((oldArea: Area, area: Area) => {
