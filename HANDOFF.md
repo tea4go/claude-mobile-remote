@@ -374,11 +374,11 @@
 
 - 团队Release上传包完成（2026-10-28）：用户签发ClaudeRemoteControl-Mac-Release-1028并更新ClaudeMobileRemote1028-Release Profile。已核实证书与team-1028私钥/CSR匹配，Profile为release/app_gallery、新包名且证书匹配；1.0.3（1000003）Release APP隔离构建成功，嵌入HAP包名、release/debug标记、ZIP完整性、内嵌Profile及华为verify-profile/verify-app验签通过，签名叶证书与新团队Release证书一致。产物.local-tools/harmony-apptest/signed/ClaudeMobileRemote-signed.app，SHA256 602791aae3faaed8e95297342f40c6862a8b179416ca33ff2425be53346f9290。53测试、16文件逻辑检查及git diff --check通过；推送暂未启用。用户自行上传邀请测试，平台接收/审核和真机尚未验证，无Git写操作。
 
-- Release续办阻塞（2026-10-28）：team-1028仓库外Release私钥及CSR已备妥，团队现有MyPhoneCSR私钥未找到且不匹配本机两套旧密钥；签发新发布证书和匹配app_gallery Profile后方可签名。浏览器已切换刘启铨团队，但证书页和刷新后的标签页持续空白未完成载入，未申请/签发新Release证书，未构建签名Release APP。下一步恢复证书管理页，使用team-1028/release.csr申请发布证书并下载，更新新包Release Profile，核对匹配后运行5_harmony_apptest.sh --config team-1028/signing.json；用户自行上传。Debug HAP已完成但不能代替发布包。
+- Release续办阻塞（2026-10-28）：team-1028仓库外Release私钥及CSR已备妥，团队现有MyPhoneCSR私钥未找到且不匹配本机两套旧密钥；签发新发布证书和匹配app_gallery Profile后方可签名。浏览器已切换唐林小宝团队，但证书页和刷新后的标签页持续空白未完成载入，未申请/签发新Release证书，未构建签名Release APP。下一步恢复证书管理页，使用team-1028/release.csr申请发布证书并下载，更新新包Release Profile，核对匹配后运行5_harmony_apptest.sh --config team-1028/signing.json；用户自行上传。Debug HAP已完成但不能代替发布包。
 
 - 当前执行（2026-10-28，团队Release上传包）：用户要求编译签名版本供其自行上传邀请调试并等待审核真机验收。使用已准备于仓库外team-1028的独立Release私钥/CSR，申请匹配团队发布证书并创建或更新新包名的app_gallery发布Profile，隔离构建1.0.3 Release APP并核验签名/标识；用户自行上传。现有MyPhoneCSR原私钥不在本机，不撤销旧证书；推送暂不启用，无Git写操作。通过条件为签名产物及证书/Profile一致、华为工具验签与ZIP完整性检查通过。
 
-- 团队Debug签名HAP完成（2026-10-28）：用户更新Profile后已验证debug、新包名com.tea4go.claudemobileremote1028、2台设备及新团队Debug证书匹配，保存于仓库外私有签名目录。1.0.3 Debug HAP构建成功，ZIP完整性、debug标记/包名/版本、嵌入Profile及华为verify-profile/verify-app验签通过；签名证书为刘启铨Development。产物.local-tools/harmony-apptest/team-debug/ClaudeRemoteControl-1028-1.0.3-debug-signed.hap，SHA256 4cef63c6c54f4adbe2fbed5362474c8a324887ce55708880be8041a0d8880b8a。首次签名遇JDK ZIP64校验兼容错误，使用本次进程JAVA_TOOL_OPTIONS禁用该额外字段校验后成功，另做ZIP完整性检查。53项测试、16文件逻辑检查、git diff --check通过；hdc设备列表未返回结果已停止，尚未真机安装验证。Debug包仅限Profile包含设备，不能作为AppTest发布包；邀请发布仍需匹配团队Release证书私钥和Release Profile、签名上传及后台审核。推送未启用，无Git写操作。
+- 团队Debug签名HAP完成（2026-10-28）：用户更新Profile后已验证debug、新包名com.tea4go.claudemobileremote1028、2台设备及新团队Debug证书匹配，保存于仓库外私有签名目录。1.0.3 Debug HAP构建成功，ZIP完整性、debug标记/包名/版本、嵌入Profile及华为verify-profile/verify-app验签通过；签名证书为唐林小宝Development。产物.local-tools/harmony-apptest/team-debug/ClaudeRemoteControl-1028-1.0.3-debug-signed.hap，SHA256 4cef63c6c54f4adbe2fbed5362474c8a324887ce55708880be8041a0d8880b8a。首次签名遇JDK ZIP64校验兼容错误，使用本次进程JAVA_TOOL_OPTIONS禁用该额外字段校验后成功，另做ZIP完整性检查。53项测试、16文件逻辑检查、git diff --check通过；hdc设备列表未返回结果已停止，尚未真机安装验证。Debug包仅限Profile包含设备，不能作为AppTest发布包；邀请发布仍需匹配团队Release证书私钥和Release Profile、签名上传及后台审核。推送未启用，无Git写操作。
 
 - Debug签名续办检查点（2026-10-28）：用户已签发并下载ClaudeRemoteControl-Mac-Debug-1028.cer，已验证叶证书匹配team-debug-1028本地私钥/CSR。用户更新并下载ClaudeMobileRemote1028-DebugDebug.p7b；已核实debug类型、新包名、2台设备及development-certificate匹配新团队证书。接下来保存私有Profile并执行隔离Debug HAP构建、官方验签、标识/嵌入Profile核对；不重新创建证书或Profile，不将Debug包声明为AppTest发布成功。
 
@@ -392,7 +392,7 @@
 
 - 新包检查点（2026-10-28）：新应用发布Profile已由用户创建并下载，核实release/app_gallery、新包名及APP ID正确；关联MyPhoneCSR公钥与用户指定私有目录内debug/release两套CSR均不匹配。新包1.0.3未签名Release真实构建通过（SHA256 07905fe94ef6096351d66d48f7fa44dc41fce9bbe76a9ef315baee54236e47dd），53项测试及16文件逻辑类型检查通过。未配置推送从活动依赖/Ability/AppShell初始化中隔离，未完成源码移至apps/harmony/deferred-push保留；iOS/Android/edo未改。本轮待准备匹配本机私钥的团队证书和新Profile，未签名/上传/发布；原本地旧材料保留。
 
-- 当前执行（2026-10-28，团队新包邀请测试）：用户明确确认使用已创建的新包名 com.tea4go.claudemobileremote1028，团队刘启铨，APP ID 6917620267596106735、项目101653523865476343。替代此前保留旧包名/等待删除的发布路线；本轮只完成Harmony新应用签名、1.0.3构建与AppTest邀请测试，不实现推送，不改iOS/Android/edo。保留旧签名和未完成推送源码，发布路径禁用未配置推送。通过条件为新包标识与团队Profile一致、本机构建验签通过、后台接收并核实邀请测试状态；真机安装另验，无Git写操作。
+- 当前执行（2026-10-28，团队新包邀请测试）：用户明确确认使用已创建的新包名 com.tea4go.claudemobileremote1028，团队唐林小宝，APP ID 6917620267596106735、项目101653523865476343。替代此前保留旧包名/等待删除的发布路线；本轮只完成Harmony新应用签名、1.0.3构建与AppTest邀请测试，不实现推送，不改iOS/Android/edo。保留旧签名和未完成推送源码，发布路径禁用未配置推送。通过条件为新包标识与团队Profile一致、本机构建验签通过、后台接收并核实邀请测试状态；真机安装另验，无Git写操作。
 
 - 删除申请已提交（2026-10-28）：用户在知悉不可恢复及凭据/服务影响后明确确认永久删除。对张玉梅主体Claude Mobile Remote（APP ID 6917619813829911575）点击删除最终确认，华为转入“已上架鸿蒙应用申请删除”申诉流程，要求运营审核。已提交指定应用删除申请，说明团队重建、固定原包名及请求确认释放规则；工单461323199010855107，后台状态“处理中”，提示3个工作日处理。互动中心同时可见更早同主题申请“使用团队账号发布，删除旧应用”（12:26）也在处理中，本轮不重复追加。应用尚未确认删除、包名尚未确认释放，未重签/构建/发布。等待华为处理后复核旧APP ID及团队创建结果；工程包名未改、旧本地签名材料保留，无Git写操作。
 
@@ -408,7 +408,7 @@
 
 - 当前范围修订（2026-10-28）：用户撤回新包名方案，因极光Harmony应用已固定com.tea4go.claudemobileremote且不可修改，要求删除此前发布内容。尚未修改工程包名、未创建新包名应用；先只读核对旧应用、发布/测试记录、删除可恢复性及包名能否释放，不假定删除即可重新注册。永久删除须在明确对象和影响后取得执行时确认；签名重建/发布暂缓。
 
-- 删除前核查结果：已从刘启铨团队切回张玉梅个人主体，唯一Harmony应用为Claude Mobile Remote（APP ID 6917619813829911575，包名com.tea4go.claudemobileremote，准备提交）。打开删除说明，后台明确“应用删除后无法恢复”，申请的项目/应用凭据及服务也会同步删除或停用，并建议仅主体变更使用“应用转移流程”。未点最终确认，未删除任何应用；未核实删除可释放包名。下一步需用户在知悉以上影响后选择转移或明确永久删除；浏览器保留该确认框。
+- 删除前核查结果：已从唐林小宝团队切回张玉梅个人主体，唯一Harmony应用为Claude Mobile Remote（APP ID 6917619813829911575，包名com.tea4go.claudemobileremote，准备提交）。打开删除说明，后台明确“应用删除后无法恢复”，申请的项目/应用凭据及服务也会同步删除或停用，并建议仅主体变更使用“应用转移流程”。未点最终确认，未删除任何应用；未核实删除可释放包名。下一步需用户在知悉以上影响后选择转移或明确永久删除；浏览器保留该确认框。
 
 - 当前执行补充（2026-10-28）：用户明确确认新包名com.tea4go.claudemobileremote.harmony，继续团队应用创建、工程/打包校验同步、匹配发布签名及AppTest邀请测试；旧包名占用阻塞已由本次确认解除。新应用独立安装，旧主体签名材料保留；不执行Git写操作。
 
@@ -416,7 +416,7 @@
 
 - Android阶段检查点（2026-10-28）：JPush6.3.0及小米/华为/荣耀/OPPO/vivo配套插件已接入，原生编译和9项单测通过，合并Manifest存在五类通道；移动相关18项测试、TS noEmit及Go push/remote race通过。RID登记/撤销、超时未知结果保留撤销记录、通知点击本地路由、前台抑制及缺厂商配置提示已实现。edo已部署ios/android载荷，SHA256 b9c918ff560dfffef148851cc8f49d6557316cf445982783351c13d16713ceb1，备份/etc/cmr-notify/backups/20261028T033314Z-android，健康204/公网GET405/无鉴权POST401。极光Android包名已保存，厂商通道0/8；用户决定自行配置各家key，尚未完成真机送达验收。无Git写操作。
 
-- 当前执行（2026-10-28，E2 Harmony团队主体签名与邀请测试）：用户确认目标主体为刘启铨/hid31950036，授权重新创建应用、更新匹配的发布签名、构建并通过AppTest发布邀请测试。先核实团队归属、包名可用性与已有证书/Profile；保留旧主体材料，复核暂停的Harmony极光改动，不将未完成推送接入视为可发布功能。通过条件为后台应用/签名一致、Release APP构建验签、平台接收和邀请测试状态核实；真机安装另验。不执行Git写操作。
+- 当前执行（2026-10-28，E2 Harmony团队主体签名与邀请测试）：用户确认目标主体为唐林小宝/hid31950036，授权重新创建应用、更新匹配的发布签名、构建并通过AppTest发布邀请测试。先核实团队归属、包名可用性与已有证书/Profile；保留旧主体材料，复核暂停的Harmony极光改动，不将未完成推送接入视为可发布功能。通过条件为后台应用/签名一致、Release APP构建验签、平台接收和邀请测试状态核实；真机安装另验。不执行Git写操作。
 
 - 本轮检查结果：在当前主体的新建APP ID表单提交Claude Mobile Remote、原包名com.tea4go.claudemobileremote、手机及独立同名项目后，后台明确拒绝：“应用包名已存在，建议更换包名。”应用未创建，未更换包名、未生成新签名、未构建或发布。需用户确认采用新包名，或先处理旧应用归属；按既有设计不擅自更换包名。浏览器保留后台错误提示供复核。
 

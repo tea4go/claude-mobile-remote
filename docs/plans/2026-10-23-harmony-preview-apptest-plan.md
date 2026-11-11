@@ -21,11 +21,11 @@
 
 ### 2026-10-28 团队新应用发布修订（用户已确认）
 
-使用团队刘启铨已创建的包名`com.tea4go.claudemobileremote1028`、APP ID `6917620267596106735`，替代旧包名约束；版本沿用1.0.3。先核实团队证书及新应用app_gallery发布Profile，再同步Harmony标识和打包检查、禁用尚未配置的推送入口、构建验签、上传并创建邀请测试。推送接入另行实施，不修改iOS/Android/edo；保留旧签名材料。以平台实际接收/审核/发布状态记录结果。
+使用团队唐林小宝已创建的包名`com.tea4go.claudemobileremote1028`、APP ID `6917620267596106735`，替代旧包名约束；版本沿用1.0.3。先核实团队证书及新应用app_gallery发布Profile，再同步Harmony标识和打包检查、禁用尚未配置的推送入口、构建验签、上传并创建邀请测试。推送接入另行实施，不修改iOS/Android/edo；保留旧签名材料。以平台实际接收/审核/发布状态记录结果。
 
 ### 2026-10-28 指定设备Debug包（用户确认）
 
-原团队MyPhoneCSR私钥不可得，创建独立Debug私钥/CSR并由刘启铨团队签发新调试证书。为新包com.tea4go.claudemobileremote1028创建匹配证书及已登记设备的Debug Profile；在私有隔离副本注入签名、执行debug assembleHap，使用官方verify-profile/verify-app校验Profile和HAP，核对包名、版本、debug标志、证书和Profile一致性。交付签名HAP和摘要；不把此产物作为AppTest发布APP。
+原团队MyPhoneCSR私钥不可得，创建独立Debug私钥/CSR并由唐林小宝团队签发新调试证书。为新包com.tea4go.claudemobileremote1028创建匹配证书及已登记设备的Debug Profile；在私有隔离副本注入签名、执行debug assembleHap，使用官方verify-profile/verify-app校验Profile和HAP，核对包名、版本、debug标志、证书和Profile一致性。交付签名HAP和摘要；不把此产物作为AppTest发布APP。
 
 ### 2026-10-29 Harmony 显示名称修订（D105，用户已确认）
 
