@@ -18,8 +18,8 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         manifestPlaceholders = [JPUSH_PKGNAME: "com.tea4go.claudemobileremote.android", JPUSH_APPKEY: pushEnabled ? pushAppKey : "", JPUSH_CHANNEL: "cmr"]
-        versionCode 2
-        versionName "1.0.1"
+        versionCode 4
+        versionName "1.0.3"
         buildConfigField 'boolean', 'CMR_PUSH_ENABLED', pushEnabled.toString()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

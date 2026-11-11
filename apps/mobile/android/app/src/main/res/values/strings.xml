@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">CodeBuddy</string>
-    <string name="title_activity_main">CodeBuddy</string>
+    <string name="app_name">ccBuddy</string>
+    <string name="title_activity_main">ccBuddy</string>
     <string name="package_name">com.tea4go.claudemobileremote.android</string>
     <string name="custom_url_scheme">com.tea4go.claudemobileremote.android</string>
 </resources>

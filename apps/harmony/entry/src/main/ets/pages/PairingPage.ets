@@ -62,7 +62,7 @@ export struct PairingPage {
       Row() {
         if (this.canBack) { Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).fontSize(30).fontColor(SECONDARY).backgroundColor('#ffffff').borderRadius(22).accessibilityText('返回').onClick(() => this.onBack()) }
         if (!this.canBack) { Blank().width(44) }
-        Text('CodeBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
+        Text('ccBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
         Button('设置', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onSettings())
       }.width('100%').height(56).padding({ left: 8, right: 8 })
       Scroll() {

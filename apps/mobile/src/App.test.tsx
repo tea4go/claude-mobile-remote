@@ -419,7 +419,7 @@ describe('App：多 Session 生命周期', () => {
     await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Mac' }))
+    fireEvent.click(screen.getByRole('button', { name: '确定' }))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
     const secondPairing = { ...PAIRING, sessionId: 'session-2', pcId: 'abcdef0123456789abcdef0123456789', pcName: 'Studio' }
     fireEvent.change(screen.getByRole('textbox'), { target: { value: JSON.stringify(secondPairing) } })

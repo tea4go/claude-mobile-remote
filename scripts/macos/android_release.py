@@ -84,17 +84,17 @@ def sign(config_path, apk_path, push_enabled=False):
         raise SystemExit('Android Build Tools 36.0.0 are required.')
     with zipfile.ZipFile(apk_path) as apk:
         native = json.loads(apk.read('assets/capacitor.config.json'))
-        if native.get('appId') != APP_ID or native.get('appName') != 'Whale Remote Control':
+        if native.get('appId') != APP_ID or native.get('appName') != 'ccBuddy':
             raise SystemExit('Unexpected Capacitor Android identity.')
         if native.get('server', {}).get('url') or native.get('android', {}).get('webContentsDebuggingEnabled') is not False:
             raise SystemExit('APK contains a development server or WebView debugging.')
     badging = subprocess.check_output([str(tools / 'aapt'), 'dump', 'badging', str(apk_path)], text=True)
-    expected = f"package: name='{APP_ID}' versionCode='2' versionName='1.0.1'"
+    expected = f"package: name='{APP_ID}' versionCode='4' versionName='1.0.3'"
     if expected not in badging or 'application-debuggable' in badging or (('POST_NOTIFICATIONS' in badging) != push_enabled):
         raise SystemExit('APK identity/version/debug/notification validation failed.')
     output_dir = REPO / '.local-tools/android-release'
     output_dir.mkdir(parents=True, exist_ok=True)
-    output = output_dir / ('WhaleRemoteControl-1.0.1-huawei-push-signed.apk' if push_enabled else 'WhaleRemoteControl-1.0.1-android-signed.apk')
+    output = output_dir / ('WhaleRemoteControl-1.0.3-huawei-push-signed.apk' if push_enabled else 'WhaleRemoteControl-1.0.3-android-signed.apk')
     env = dict(os.environ, CMR_STORE_PASSWORD=config['storePassword'], CMR_KEY_PASSWORD=config['keyPassword'],
                JAVA_HOME=str(java_tool('java').parent.parent))
     with tempfile.TemporaryDirectory(prefix='cmr-android-sign-') as temporary:

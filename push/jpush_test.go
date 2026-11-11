@@ -42,6 +42,7 @@ func TestJPushSendsOnlyScopedPrivateReminder(t *testing.T) {
 			Notification struct {
 				Android struct {
 					Alert             string `json:"alert"`
+					Title             string `json:"title"`
 					DisplayForeground string `json:"display_foreground"`
 					Intent            struct {
 						URL string `json:"url"`
@@ -70,7 +71,7 @@ func TestJPushSendsOnlyScopedPrivateReminder(t *testing.T) {
 		if len(payload.Audience.Tag) != 0 || len(payload.Audience.RegistrationID) != 1 || payload.Audience.RegistrationID[0] != "010b81b3582" || payload.Notification.IOS.Extras.Topic != topic || payload.Notification.IOS.Extras.EventID != strings.Repeat("a", 32) || payload.Options.Production {
 			t.Fatal("wrong reminder scope")
 		}
-		if strings.Join(payload.Platform, ",") != "ios,android" || payload.Notification.Android.Alert != "Claude 已完成本轮任务" || payload.Notification.IOS.Alert.Title != "CodeBuddy" {
+		if strings.Join(payload.Platform, ",") != "ios,android" || payload.Notification.Android.Alert != "Claude 已完成本轮任务" || payload.Notification.Android.Title != "ccBuddy" || payload.Notification.IOS.Alert.Title != "ccBuddy" {
 			t.Fatal("missing platform or non-fixed text")
 		}
 		if payload.Notification.Android.DisplayForeground != "0" || payload.Notification.Android.Extras.Topic != topic {
@@ -117,7 +118,7 @@ func TestHarmonyPayloadScoped(t *testing.T) {
 				} `json:"intent"`
 			} `json:"notification"`
 		}
-		if json.NewDecoder(r.Body).Decode(&body) != nil || strings.Join(body.Platform, ",") != "hmos" || len(body.Notification) != 1 || body.Notification["hmos"].Intent.URL != "cmr-push://notification/"+topic || body.Notification["hmos"].Category != "MARKETING" || body.Notification["hmos"].Title != "CodeBuddy" {
+		if json.NewDecoder(r.Body).Decode(&body) != nil || strings.Join(body.Platform, ",") != "hmos" || len(body.Notification) != 1 || body.Notification["hmos"].Intent.URL != "cmr-push://notification/"+topic || body.Notification["hmos"].Category != "MARKETING" || body.Notification["hmos"].Title != "ccBuddy" {
 			t.Error("invalid Harmony notification")
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))}, nil

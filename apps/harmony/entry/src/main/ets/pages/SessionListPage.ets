@@ -174,7 +174,7 @@ export struct SessionListPage {
           Blank().width(44)
         } else {
           Blank().width(44)
-          Text('CodeBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
+          Text('ccBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
           Button('设置', { type: ButtonType.Normal }).height(40).fontSize(14).fontColor('#1b2739')
             .backgroundColor('#ffffff').borderRadius(20).onClick(() => this.changePage())
         }

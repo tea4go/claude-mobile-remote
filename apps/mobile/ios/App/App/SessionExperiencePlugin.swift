@@ -368,7 +368,7 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
               let seq = call.getInt("seq"), seq > 0,
               let kind = call.getString("kind"), let body = messages[kind] else { call.resolve(); return }
         let content = UNMutableNotificationContent()
-        content.title = "CodeBuddy"
+        content.title = "ccBuddy"
         content.body = body
         content.sound = .default
         content.userInfo = ["sessionId": sessionId]

@@ -227,10 +227,10 @@ test('长消息菜单跟随触摸点及可视区域，选中后可继续滚动�
   render(<div data-testid="detail-scroll" style={{ overflowY: 'auto' }}><SelectableMessage>长消息内容</SelectableMessage></div>)
   const scroll = screen.getByTestId('detail-scroll')
   const text = screen.getByText('长消息内容')
-  vi.spyOn(scroll, 'getBoundingClientRect').mockReturnValue(box(0, 100, 400, 500))
+  Object.defineProperty(scroll, 'getBoundingClientRect', { configurable: true, value: () => box(0, 100, 400, 500) })
   Object.defineProperties(scroll, { clientHeight: { configurable: true, value: 500 }, clientWidth: { configurable: true, value: 400 } })
   let top = -500
-  vi.spyOn(text, 'getBoundingClientRect').mockImplementation(() => box(0, top, 400, 1200))
+  Object.defineProperty(text, 'getBoundingClientRect', { configurable: true, value: () => box(0, top, 400, 1200) })
   fireEvent.touchStart(text, { touches: [finger(200, 540)] })
   act(() => vi.advanceTimersByTime(500))
   fireEvent.touchEnd(text)

@@ -6,6 +6,22 @@
 
 - 2026-11-11：按用户要求重写 Git 历史，将最初提交及全仓文档中署名「刘启铨」统一改为「唐林小宝」（邮箱仍为 lqq1119@sina.com，committer 保留 `GitHub <noreply@github.com>`，文件内容树哈希不变）。`filter-branch` 重写 108 提交，新增文档修改提交 `aacd6fa`，主线共 109 提交。10 个发布标签 v0.0.1~v1.0.0 均位于新历史主线内。已执行 `git push --force-with-lease origin main` 及 10 个标签 force push，远端更新成功。本地旧线引用（备份分支、`refs/original`、reflog）已清理，`cb54cc9`、`53dad08` 等旧对象已 gc，仓库仅剩单条主线。
 
+- 当前执行（2026-11-11，ccBuddy 更新记录与提交）：按用户要求整理 iOS 更新说明并提交本轮三端名称、图标、通知标题和 Android 发布配置及相关测试、记录；排除签名材料、构建产物、临时缓存及无关测试截图。验证沿用本轮 iOS 626 项测试和构建、Android 发布包与签名、Harmony 构建及图标真机验收；本次进行差异和暂存检查，不重新运行全量测试。Harmony 隐私政策已在华为后台更新并生成，显示提交成功；测试版重新提交及权限报错是否消除尚未核实。iOS 1.0（11）已上传，TestFlight 后台处理和真机验收状态待确认。
+
+- 当前执行（2026-11-11，蒲公英 Android 包）：基于当前源码重建 Web 并同步 Android，沿用 1.0.3（4）、既有正式签名和华为推送配置生成 `.local-tools/android-release/WhaleRemoteControl-1.0.3-huawei-push-signed.apk`，SHA256 `77cacb7e6256a70e324136771be1a10f8de549375d276c23e91c9cd3e6903d5d`，与上次发布包一致。Web build、离线 Release 构建、包身份及通知权限检查、16 KiB 对齐和 v2/v3 验签通过；构建有既有警告。未运行完整测试、未上传或进行真机验收；用户自行上传蒲公英。首次沙箱受 Gradle 缓存权限限制，系统环境重试成功；无 Git 写操作。
+
+- 当前执行（2026-11-11，Harmony 和 Android 上传包）：当前源码以既有发布签名生成 Harmony 1.0.5（1000005）`.local-tools/harmony-apptest/signed/ccBuddy-1.0.5-harmony-signed.app`，SHA256 `d7277c701aca872b735dffba308e29bd1f8e200327a9616d85cb12201e14c128`；官方 Release 构建、Profile/APP 验签、证书匹配、APP/HAP ZIP、版本及推送 Ability 检查通过。Android 启用华为推送的 1.0.3（4）`.local-tools/android-release/WhaleRemoteControl-1.0.3-huawei-push-signed.apk`，SHA256 `77cacb7e6256a70e324136771be1a10f8de549375d276c23e91c9cd3e6903d5d`；Release 构建、ccBuddy 标签、通知权限、v2/v3 签名和 16 KiB 对齐检查通过。签名脚本旧名称校验已更新为 ccBuddy；复用上次 iOS 构建时的 Web dist（626 项测试通过），本轮未重跑全量测试。首次沙箱受网络/Gradle 缓存限制，系统环境重试成功；构建有既有警告。未上传或进行本轮真机推送验收；相同版本能否覆盖取决于平台现状，用户上传后确认。未执行 Git 写操作。
+
+- 当前执行（2026-11-11，iOS ccBuddy TestFlight）：后台原最新为 1.0（10），已用现有 App 和签名构建并上传 1.0（11）；Xcode 报上传成功并开始处理，刷新后台构建列表暂未显示 11，尚未确认处理完成、加入测试组或审核。IPA `apps/mobile/ios/DerivedData/testflight-20261111-b11-r2/export/App.ipa` SHA256 `32bbfc7edb2a209f91f731ae5eef1bd8ecb4bd26b508647c8e2d9625f94df7f7`；App Store 签名与内容核验、626 项测试、lint、Web 构建及定向 diff 检查通过，lint 有既有警告。修正 5 项过时测试：适配电脑选择器与队列提示、修正选区几何模拟；无业务逻辑变更。首次沙箱归档因 Xcode 服务和网络受限失败，系统环境重试成功。iOS 真机图标、名称及推送待验收。
+
+- 当前执行（2026-11-11，Harmony 图标白边修复）：用户真机截图显示桌面图标白边，定位为 Harmony 前景资源生成时添加白色内边距；前景与背景改为全幅直角图并同步修正生成脚本。API 24 Debug 构建、签名、ZIP 和定向 diff 检查通过；签名包 SHA256 `30670b8a30abdf98230ebd972ba782ab5416fc64d7c2135914bfb51f47398792`，已覆盖安装及启动。用户确认真机验证通过；构建有既有警告。
+
+- 当前执行（2026-11-11，Harmony 真机安装 ccBuddy）：当前源码 API 24 Debug HAP 构建、ZIP 校验、既有设备调试签名通过；签名包 SHA256 `48eebea9d7b00d7770ac2830e2ffb241bb4e224c9f43b0801930f0f36550045c`，HDC 覆盖安装成功、EntryAbility 启动成功。未卸载或清除数据；应用名称、图标、界面及推送仍待真机人工验收。构建有既有警告；签名使用 Java ZIP64 兼容参数。
+
+- 当前执行（2026-11-11，华为市场直角图标）：从 ccBuddy.svg 移除圆角遮罩后导出 `apps/harmony/branding/ccBuddy-square-1024.png`，视觉检查四角为蓝色直角，PNG 1024×1024、482589 字节，符合用户提供的后台规格；尚未上传或验证平台裁切效果。现有应用图标及其他未完成工作保留。
+
+- 当前执行（2026-11-11，ccBuddy 名称和图标）：三端应用内标题、桌面名称、本地通知和三平台服务端推送标题改为 ccBuddy，以根目录 ccBuddy.svg 生成三端桌面图标与 Harmony 启动图；不改包标识。用户完成华为 Android/Harmony 后台名称和极光 Android/Harmony 默认标题；极光 iOS 集成页未见默认标题字段，实际通知标题由服务端载荷指定。edo 已部署 SHA256 `d98fcf9ab7c78a9c93cbe073015520d723e016172b6db4d5b37ff8b5cbb6a8f8`，服务 active、healthz 204，旧程序已备份。Go push 测试、Web 构建、Android 华为推送 Debug 构建、Harmony API 24 未签名 Debug 构建及 ZIP 检查、iOS 无签名模拟器构建、diff --check 通过；iOS 图标无 Alpha。移动端全量测试 621 通过、5 失败，分别涉及电脑筛选（3）、复制菜单（1）、队列错误提示（1），不能宣称全量通过；测试门禁导致标准 Android 脚本停止，改用 Gradle 验证。构建有既有警告；未打正式包、上传或真机验证图标及推送。华为 Harmony 应用市场信息显示改动待提交版本并审核，图标尚未更新后台；iOS 极光应用管理名称未核实修改。无 Git 写操作。
+
 - 当前执行（2026-11-11，步骤抽屉关闭按钮）：用户反馈 Harmony 详情抽屉右上关闭图形异常；将字形替换为居中的矢量图标，保留关闭交互。Harmony Debug 构建、ZIP 和 API 检查及 git diff --check 通过（有既有构建警告）；签名后已覆盖安装到 Pura X 并启动，用户回复“OK”，确认该项验收通过。其他步骤抽屉与换行问题未收到逐项验收结果，既有未完成项仍见下方记录。
 
 - 当前执行（2026-11-11，问题记录3续，待验收）：用户提供的本地会话中，一条用户消息包含字面量 `\\n`，PC 端有针对性显示转换；iOS/Android 共用界面和 Harmony 均增加相同保守显示处理，保留已有真实换行、代码片段及孤立转义，不改原始消息或协议。对照新截图调整 Harmony 步骤抽屉标题、关闭按钮、时间线、工具状态、详情和组内工具结果合并；配对失效按用户要求忽略。Web 生产构建和定向测试通过，Harmony API 24 Debug 构建及 ZIP 检查通过（有既有警告），parity 70/70、git diff --check 通过；签名 HAP SHA256 `26c4217435852abf9dc99c36cf027e6c165bf15d6745e80d96755c82e25c0ae4` 已在 Pura X 覆盖安装并启动。尚未对该会话的实时事件和三端界面完成端到端验证，也未在手机实际打开新步骤抽屉进行视觉或交互验收；需用户按截图复验。其他问题记录3未完成项仍见下条记录。

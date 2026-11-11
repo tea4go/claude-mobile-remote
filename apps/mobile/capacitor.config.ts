@@ -9,7 +9,7 @@ const androidTarget = process.argv.includes('android') || process.env.CMR_NATIVE
 
 const config: CapacitorConfig = {
   appId: androidTarget ? 'com.tea4go.claudemobileremote.android' : 'com.tea4go.claudemobileremote',
-  appName: androidTarget ? 'Whale Remote Control' : 'Claude Mobile Remote',
+  appName: 'ccBuddy',
   webDir: 'dist',
   backgroundColor: '#f2f2f7',
   // Capacitor 的 Debug 桥接日志会打印插件请求/结果，包含安全存储中的 Pair Token。

@@ -135,16 +135,16 @@ func (j *JPush) Send(ctx context.Context, n Notification) error {
 	payload := map[string]any{
 		"platform": []string{"ios", "android"}, "audience": map[string]any{"registration_id": n.RegistrationIDs},
 		"notification": map[string]any{
-			"android": map[string]any{"alert": body, "title": "Claude Mobile Remote", "display_foreground": "0", "channel_id": "cmr.session.events",
+			"android": map[string]any{"alert": body, "title": "ccBuddy", "display_foreground": "0", "channel_id": "cmr.session.events",
 				"intent": map[string]string{"url": "intent://notification/" + n.Topic + "#Intent;scheme=cmr-push;action=android.intent.action.VIEW;package=com.tea4go.claudemobileremote.android;component=com.tea4go.claudemobileremote.android/com.tea4go.claudemobileremote.MainActivity;end"},
 				"extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}},
-			"ios": map[string]any{"alert": map[string]string{"title": "CodeBuddy", "body": body}, "sound": "default", "thread-id": n.Topic,
+			"ios": map[string]any{"alert": map[string]string{"title": "ccBuddy", "body": body}, "sound": "default", "thread-id": n.Topic,
 				"extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}},
 		"options": map[string]any{"time_to_live": ttl, "apns_production": j.Production, "apns_collapse_id": n.Topic[4:]},
 	}
 	if n.Platform == "hmos" {
 		payload["platform"] = []string{"hmos"}
-		payload["notification"] = map[string]any{"hmos": map[string]any{"alert": body, "title": "CodeBuddy", "category": "MARKETING", "display_foreground": "0", "intent": map[string]string{"url": "cmr-push://notification/" + n.Topic}, "extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}}
+		payload["notification"] = map[string]any{"hmos": map[string]any{"alert": body, "title": "ccBuddy", "category": "MARKETING", "display_foreground": "0", "intent": map[string]string{"url": "cmr-push://notification/" + n.Topic}, "extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}}
 		payload["options"] = map[string]any{"time_to_live": ttl}
 	} else if n.Platform == "android" || n.Platform == "ios" {
 		payload["platform"] = []string{n.Platform}

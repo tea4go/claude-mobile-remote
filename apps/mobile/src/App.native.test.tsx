@@ -138,7 +138,7 @@ test('恢复筛选与调试设置，删除所选 PC 后选择剩余电脑', asyn
   render(<App native={state.native} cache={null} experience={null} socketFactory={(url) => new FakeSocket(url)} />)
   await waitFor(() => expect(screen.getByRole('button', { name: '筛选电脑，当前 Studio' })).toBeInTheDocument())
   fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Studio' }))
-  expect(screen.getByRole('button', { name: 'Studio' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: '当前选择的是：Studio' })).toBeInTheDocument()
 })
 
 test('首次仅一台电脑默认选中，主动选择全部后重启仍保留', async () => {
@@ -155,14 +155,17 @@ test('首次仅一台电脑默认选中，主动选择全部后重启仍保留',
   const first = renderApp()
   await waitFor(() => expect(saved).toBe(`pc:${pcId}`))
   fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac' }))
-  expect(screen.getByRole('button', { name: 'Mac' })).toHaveAttribute('aria-pressed', 'true')
-  fireEvent.click(screen.getByRole('button', { name: '全部电脑' }))
+  expect(screen.getByRole('button', { name: '当前选择的是：Mac' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '选择上一项：全部电脑' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: '当前选择的是：全部电脑' })).toBeInTheDocument())
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+  fireEvent.click(screen.getByRole('button', { name: '确定' }))
   await waitFor(() => expect(saved).toBeNull())
   first.unmount()
   renderApp()
   await waitFor(() => expect(screen.getByRole('button', { name: '筛选电脑，当前 Mac' })).toBeInTheDocument())
   fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac' }))
-  expect(screen.getByRole('button', { name: '全部电脑' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: '当前选择的是：全部电脑' })).toBeInTheDocument()
 })
 
 test('原生扫码验证成功后安全保存，URL 不留配对凭证；前台过期后不重连', async () => {

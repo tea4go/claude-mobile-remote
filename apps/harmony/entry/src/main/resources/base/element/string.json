@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "CodeBuddy Harmony entry module"
+      "value": "ccBuddy Harmony entry module"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "Entry ability for CodeBuddy Harmony"
+      "value": "Entry ability for ccBuddy Harmony"
     },
     {
       "name": "EntryAbility_label",
-      "value": "CodeBuddy"
+      "value": "ccBuddy"
     },
     {
       "name": "microphone_reason",

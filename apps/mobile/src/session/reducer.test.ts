@@ -330,7 +330,7 @@ describe('单飞命令', () => {
     state = reducer(state, commandRejected({ commandId: 'cmd-1', code: 'queue_full', message: '队列已满' }))
     expect(state.pendingCommand).toBeNull()
     expect(state.messages).not.toContainEqual(expect.objectContaining({ kind: 'input' }))
-    expect(state.lastError).toEqual({ code: 'queue_full', message: '队列已满' })
+    expect(state.lastError).toEqual({ code: 'queue_full', message: '等待队列已满，请稍后再发送' })
   })
 
   test('commandUnknown：结果未知反馈', () => {
