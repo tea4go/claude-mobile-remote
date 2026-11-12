@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 import type { DomainEvent } from '../protocol/types'
 
 export interface ExperiencePort {
+  readPasteboard?(): Promise<{ text: string }>
   copyText?(options: { text: string }): Promise<void>
   selectionFeedback?(): Promise<void>
   copyDebugLog?(options: { text: string }): Promise<void>

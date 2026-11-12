@@ -8,6 +8,7 @@ const VALID_JSON =
 describe('PairingForm', () => {
   test('渲染标题、说明、输入框与连接按钮', () => {
     render(<PairingForm initialError={null} onSubmit={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     expect(screen.getByText('连接 Claude 会话')).toBeInTheDocument()
     expect(screen.getByText('粘贴配对 JSON 或完整 #pair Fragment')).toBeInTheDocument()
     expect(screen.getByRole('textbox')).toBeInTheDocument()
@@ -17,6 +18,7 @@ describe('PairingForm', () => {
   test('空输入提交显示就地错误', () => {
     const onSubmit = vi.fn()
     render(<PairingForm initialError={null} onSubmit={onSubmit} />)
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     expect(screen.getByText('请输入配对 JSON 或 Fragment')).toBeInTheDocument()
     expect(onSubmit).not.toHaveBeenCalled()
@@ -25,6 +27,7 @@ describe('PairingForm', () => {
   test('有效 JSON 提交回调', () => {
     const onSubmit = vi.fn()
     render(<PairingForm initialError={null} onSubmit={onSubmit} />)
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: VALID_JSON } })
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     expect(onSubmit).toHaveBeenCalledWith(VALID_JSON)
@@ -41,4 +44,10 @@ describe('PairingForm', () => {
     )
     expect(document.body.textContent).not.toContain('secret-token')
   })
+})
+
+test('iOS scan and pairing errors show toast', async () => {
+  render(<PairingForm iosDesign initialError="扫码失败，请检查相机权限" onSubmit={() => {}} />)
+  expect(await screen.findByText(/扫码失败/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '确定' })).not.toBeInTheDocument()
 })

@@ -596,7 +596,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         </div>
         <div className="mobile-demo-entry"><button onClick={() => { cancelPairing(); appStore.getState().setPairingError(null); setDemoOpen(true) }}>• 体验演示（无需连接电脑）</button></div>
         {projectPairingCwd && <p>请扫描目标电脑和目录下新会话的配对码：{projectPairingCwd}</p>}
-        <PairingForm target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
+        <PairingForm onDismissError={() => appStore.getState().setPairingError(null)} iosDesign={Capacitor.getPlatform() === 'ios'} target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
           recordAction('scan')
           const generation = ++pairingGeneration.current
           setPairingProgress('正在扫码…')
