@@ -110,7 +110,7 @@ export struct MessageComposer {
       Column({ space: 4 }) {
         TextArea({ text: this.draft.text, placeholder: this.textOnly ? '输入消息体验模拟回复' : '输入消息或添加附件' })
           .id('send-input').height('auto').constraintSize({ minHeight: 36, maxHeight: 100 }).fontSize(15).backgroundColor(Color.Transparent)
-          .padding({ left: 2, right: 2, top: 2, bottom: 4 }).enabled(this.editable() && this.composerEnabled)
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 }).enabled(this.editable() && this.composerEnabled)
           .onChange((text: string) => this.onDraft(text))
           .onFocus(() => { messageSelection.close() })
         Row({ space: 2 }) {

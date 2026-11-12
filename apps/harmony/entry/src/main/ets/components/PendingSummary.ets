@@ -207,7 +207,7 @@ export struct PendingSummary {
   build() {
     Column({ space: 12 }) {
       if (this.pendingAction !== null) {
-        Text('关闭此面板将取消当前任务。')
+        Text(this.hasToolApprovalAction() ? '关闭此面板将取消当前任务。' : '取消将跳过本次提问。')
           .fontSize(12)
           .opacity(0.7)
           .width('100%')

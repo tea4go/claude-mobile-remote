@@ -64,6 +64,14 @@ function drawerState(): string | null {
 }
 
 describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
+  test('取消提问只拒绝问题，不取消当前轮次', () => {
+    const onResolve = vi.fn()
+    const onCancel = vi.fn()
+    render(<Card action={ask([question()])} onResolve={onResolve} onCancel={onCancel} />)
+    fireEvent.click(screen.getByLabelText('关闭'))
+    expect(onResolve).toHaveBeenCalledWith({ actionId: 'act-2', decision: 'deny' })
+    expect(onCancel).not.toHaveBeenCalled()
+  })
   test('事项出现即自动弹出抽屉', () => {
     render(
       <Card

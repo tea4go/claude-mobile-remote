@@ -121,9 +121,7 @@ export struct MessageList {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
     List({ space: 10, scroller: this.scroller }) {
-      if (this.messages.length === 0) {
-        ListItem() { Text('还没有消息。').fontSize(14).opacity(0.7) }
-      } else {
+      if (this.messages.length > 0) {
         LazyForEach(this.source, (message: FeedRow, index: number) => {
           ListItem() {
           if (message.kind === 'input') {

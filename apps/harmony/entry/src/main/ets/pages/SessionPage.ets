@@ -114,6 +114,7 @@ export struct SessionPage {
   onAllowOnce: () => void = () => {}
   onAllowSession: () => void = () => {}
   onDeny: () => void = () => {}
+  onCancelQuestion: () => void = () => {}
   onQuestionAnswerChange: (questionId: string, values: Array<string>) => void = () => {}
   onSubmitAnswers: () => void = () => {}
   onCancelTurn: (requestId: string) => void = () => {}
@@ -203,7 +204,10 @@ export struct SessionPage {
   }
   private closeSheet(): void {
     if (this.sheet === 'action' && this.state.pendingAction !== null) {
-      if (this.commandReady()) this.onCancelTurn(this.state.pendingAction.requestId)
+      if (this.commandReady()) {
+        if (this.state.pendingAction.kind === 'ask_user_question') this.onCancelQuestion()
+        else this.onCancelTurn(this.state.pendingAction.requestId)
+      }
       return
     }
     this.sheet = ''
@@ -214,7 +218,7 @@ export struct SessionPage {
       Blank().width(36).height(5).backgroundColor('#d5deea').borderRadius(3).margin({ top: 10, bottom: 4 })
       Row() {
           Text(this.sheet === 'action' ? (this.state.pendingAction?.kind === 'ask_user_question' ? '需要你的回答' : '待处理事项') : `排队队列（${this.state.queuedRequests.length}）`).fontSize(18).layoutWeight(1)
-        Button(this.sheet === 'action' ? '取消本轮' : '关闭', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
+        Button(this.sheet === 'action' ? (this.state.pendingAction?.kind === 'ask_user_question' ? '取消提问' : '取消本轮') : '关闭', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
           .enabled(this.sheet !== 'action' || this.commandReady()).onClick(() => this.closeSheet())
       }.padding(12)
       Scroll() {

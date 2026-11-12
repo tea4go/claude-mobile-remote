@@ -552,9 +552,9 @@ export struct AppShell {
   private handleStoreState(sessionId: string, nextState: HarmonySessionState): void {
     const previousState = this.states.get(sessionId) ?? createInitialHarmonySessionState()
     this.states.set(sessionId, nextState)
-    const queueCommand = previousState.pendingCommand?.kind === 'cancel_queued' || previousState.pendingCommand?.kind === 'steer_queued'
+    const queueCommand = previousState.pendingCommand?.kind === 'cancel_queued' || previousState.pendingCommand?.kind === 'steer_queued' || (previousState.pendingCommand?.kind === 'resolve_action' && previousState.pendingAction?.kind === 'ask_user_question')
     if (sessionId === this.currentSessionId && this.view === 'detail' && queueCommand && nextState.pendingCommand === null && nextState.lastError !== null) {
-      promptAction.showToast({ message: nextState.lastError.message })
+      promptAction.showToast({ message: previousState.pendingCommand?.kind === 'resolve_action' ? '操作未成功，请在电脑端取消提问或更新电脑端' : nextState.lastError.message })
     }
     if (nextState.messages !== previousState.messages || nextState.projectCwd !== previousState.projectCwd || nextState.sessionTitle !== previousState.sessionTitle) this.scheduleCache(sessionId)
     if (nextState.connection === ConnectionStage.READY && previousState.connection !== ConnectionStage.READY) this.notifications?.seed(sessionId, nextState.seqBase)
@@ -989,6 +989,12 @@ export struct AppShell {
       },
       onDeny: () => {
         this.handleResolveToolApproval('deny')
+      },
+      onCancelQuestion: () => {
+        const action = this.sessionState.pendingAction
+        if (action !== null && action.kind === 'ask_user_question') {
+          if (!this.store.resolveAction(createDecisionResolution(action.actionId, 'deny'))) this.sessionState = this.store.getState()
+        }
       },
       onQuestionAnswerChange: (questionId: string, values: Array<string>) => {
         this.handleQuestionAnswerChange(questionId, values)

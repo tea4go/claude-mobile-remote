@@ -494,6 +494,9 @@ func ValidateActionResolution(action protocol.PendingAction, config protocol.Ser
 			return protocolError(CodeInvalidAction, "unknown approval decision")
 		}
 	case protocol.ActionAskUserQuestion:
+		if hasDecision && payload.Decision == protocol.DecisionDeny {
+			return nil
+		}
 		if !hasAnswers {
 			return protocolError(CodeInvalidAction, "question expects answers")
 		}

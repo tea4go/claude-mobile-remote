@@ -813,6 +813,9 @@ func resolvedAnswers(pending *PendingAction, ordered [][]string) []ResolvedAnswe
 // select arity) belongs to Transport, which owns the wire contract.
 func buildActionDecision(pending *PendingAction, decision ActionDecision, answers []QuestionAnswer) (projectclaude.ActionDecision, error) {
 	if pending.Kind == ActionAskUserQuestion {
+		if decision == DecisionDeny && len(answers) == 0 {
+			return projectclaude.ActionDecision{Kind: projectclaude.DecisionDeny, Reason: denyReasonUser}, nil
+		}
 		if decision != "" {
 			return projectclaude.ActionDecision{}, ErrInvalidAction
 		}

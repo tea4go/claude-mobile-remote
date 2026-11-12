@@ -22,7 +22,7 @@ interface PendingActionCardProps {
   cancelEnabled: boolean
   // 返回 false 表示命令未真正写入 WebSocket；此时不能把按钮锁死。
   onResolve: (resolution: ActionResolution) => boolean | void
-  // 显式关闭 = 放弃这一轮，向 Claude 发取消信号（D53）。
+  // 关闭审批取消本轮；关闭提问拒绝本次问题。
   onCancel: (requestId: string) => boolean | void
 }
 
@@ -41,7 +41,7 @@ const BODY_STYLE: CSSProperties = {
 
 // 待处理事项抽屉（B2 §6 + D53）：工具审批与 AskUserQuestion 共用同一形态，
 // 事项出现即自动弹出，只能由标题行的关闭按钮收起，点遮罩与下滑不关闭——
-// 关闭等价于取消当前 Turn，不能被误触触发。
+// 审批关闭取消当前 Turn；提问关闭拒绝问题，不能被误触触发。
 // 内容必须自包含，不依赖历史上下文，因为重连后的 snapshot 不重放结构化内容；
 // 只展示服务端下发的 preview 与问答内容，不展示 actionId、工具原始 input
 // 或权限规则原文。
@@ -50,6 +50,7 @@ function Drawer({
   visible,
   canClose,
   onClose,
+  question,
   children,
   footer,
 }: {
@@ -57,6 +58,7 @@ function Drawer({
   visible: boolean
   canClose: boolean
   onClose: () => void
+  question?: boolean
   children: ReactNode
   footer?: ReactNode
 }) {
@@ -91,7 +93,7 @@ function Drawer({
         </div>
         <div data-testid="pending-action-card" style={BODY_STYLE}>
           {/* 关闭语义不直观，直接写明，避免用户把它当成「稍后再说」。 */}
-          <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>关闭此面板将取消当前 Turn</div>
+          <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>{question ? '取消将跳过本次提问。' : '关闭此面板将取消当前 Turn'}</div>
           {children}
         </div>
         {footer && <div className="pending-footer">{footer}</div>}
@@ -130,15 +132,16 @@ export default function PendingActionCard({
     // 使被拒绝但仍在等待的事项可以重新提交，也把已收起的抽屉重新弹出。
     if (!enabled) setSubmitted(false)
     else {
+      if (dismissed && action.kind === 'ask_user_question') setSubmitError(true)
+      else setSubmitError(false)
       setDismissed(false)
-      setSubmitError(false)
     }
   }
 
   const active = enabled && !submitted
   const close = () => {
     if (!cancelEnabled) return
-    const sent = onCancel(action.requestId)
+    const sent = action.kind === 'ask_user_question' ? onResolve({ actionId: action.actionId, decision: 'deny' }) : onCancel(action.requestId)
     if (sent !== false) setDismissed(true)
     else setSubmitError(true)
   }
@@ -242,7 +245,7 @@ export default function PendingActionCard({
   }
 
   return (
-    <Drawer title="需要你的回答" visible={!dismissed} canClose={cancelEnabled} onClose={close} footer={<Button color="primary" block disabled={!active || !answered} onClick={submit}>提交</Button>}>
+    <Drawer title="需要你的回答" visible={!dismissed} canClose={cancelEnabled} onClose={close} question footer={<Button color="primary" block disabled={!active || !answered} onClick={submit}>提交</Button>}>
       {submitError && <SubmitError />}
       {action.questions.map((question) => (
         <div key={question.questionId} className="pending-question" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -305,7 +308,7 @@ export default function PendingActionCard({
 function SubmitError() {
   return (
     <div data-testid="pending-action-error" style={{ fontSize: FONT_SIZE_COMPACT, color: '#e00' }}>
-      当前连接未就绪，操作未发送，请重试
+      操作未成功，请重试；取消提问失败时可在电脑端处理或更新电脑端
     </div>
   )
 }

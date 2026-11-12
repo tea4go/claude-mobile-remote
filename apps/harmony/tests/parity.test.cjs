@@ -410,6 +410,15 @@ test('permission mode rejection preserves current mode and active approval', () 
   assert.throws(() => decodeServerMessage(JSON.stringify(eventWire(event('permission_mode_changed', 1)))))
 })
 
+test('ordinary permission resolution without answers keeps the connection ready', () => {
+  const { store, socket } = readyStore()
+  const action = { actionId: 'a', requestId: 'r1', kind: 'tool_approval', toolName: 'Bash', preview: '', allowSessionAvailable: true }
+  socket.wire(eventWire(event('action_required', store.getState().seqBase + 1, { pendingAction: action, turnStatus: 'waiting' })))
+  socket.wire(eventWire(event('action_resolved', store.getState().seqBase + 1, { turnStatus: 'running' })))
+  assert.equal(store.getState().connection, ConnectionStage.READY)
+  assert.equal(store.getState().pendingAction, null)
+})
+
 test('cleared display cache is not recreated by connection-only changes', () => {
   const gate = new (load('session/cache').CacheWriteGate)()
   const { store } = readyStore()

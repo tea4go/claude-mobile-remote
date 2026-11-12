@@ -4,6 +4,24 @@
 
 ## 当前状态
 
+- 2026-11-12 交接与提交：按用户要求记录并提交本轮 Harmony 真机反馈修复及跨端取消提问修复。公共组件仍需发布新版本，WhaleTerm 需升级依赖并重新构建；真机验收和手机新建会话后 PC 终止按钮状态不同步问题仍待完成。WhaleTerm 定向测试依赖临时 overlay 绕过现有无关测试编译错误，正式依赖尚未修改。
+
+- 当前执行（2026-11-12，取消提问跨端修复，待集成和验收）：用户确认三种移动端取消 AskUserQuestion 应与 WhaleTerm 一致，只拒绝本次提问，不中断当前 Turn；普通审批和显式取消 Turn 不改变。三端与两种宿主的源码修改及定向验证见下；仍需发布公共组件、升级 WhaleTerm 依赖并重新构建，完成真实双端验收。PC 取消后等待状态未复位另需定位，不能认定已修复。
+
+- 2026-11-12 实施进展：复用 resolve_action/deny 拒绝问题，CLI Controller 保持 Turn running；iOS/Android 共享界面、Harmony 和 WhaleTerm 宿主已接入，旧服务拒绝时保留问题并提示，不回退为取消 Turn。Controller 定向、transport 全包、移动端组件 27 项、Harmony 91 项测试、Harmony API 24 构建、Web 构建及 diff 检查通过。WhaleTerm 定向测试通过，但其现有无关测试源码有编译错误，测试使用临时 overlay 修正这一编译错误；另用临时 modfile 指向本项目源码复测通过，未更改正式依赖。WhaleTerm 仍依赖发布版 v1.0.0，需发布本项目新版本并升级依赖、重新构建宿主后才能端到端使用；未发布、未安装、未真机验证。PC 终止按钮/等待状态不同步仍未定位或修复。
+
+- 当前执行（2026-11-12，Harmony 真机反馈，部分完成）：移除空消息提示，调整输入框内边距；普通审批的 action_resolved 无 answers 时原解码器误将 undefined 当数组并主动断开，已修复并增加连接回归。Harmony API 24 Debug 构建、ZIP 和 API 检查、parity 71/71、diff --check 通过，构建有既有警告；输入框外观和真实权限流程尚未真机验收。Pura X 已识别，使用含设备的调试 Profile 签名后覆盖安装被拒（9568286，手机当前 AppTest 安装与调试 Profile 类型不同），未卸载或清除数据；第一次使用旧 Profile 安装被设备授权拒绝。WhaleTerm 的终止按钮由独立的队列收尾状态控制，尚未复现或确定具体未复位状态，未修改 WhaleTerm。下一步需采用与现有 AppTest 相容的发行测试包或由用户决定如何切换安装，复测三项并采集 PC 状态事件定位第四项。未变更共用协议，未执行 Git 写操作。
+
+- 同轮补充：已用既有 1028 发行签名成功构建并校验 AppTest APP（SHA256 `f26f2ddc336ed8dfacac3502fa8ee8a68fecb600ab1eab24ada60db5bb374308`，路径 `.local-tools/harmony-apptest/signed/ClaudeMobileRemote-signed.app`）；提取其中 HAP 通过 HDC 安装被拒（9568320，no signature file），未上传 AppTest，未改变手机安装。首次发行构建因沙箱 DNS 失败，系统环境重试成功。
+
+- 第四项补充复现背景：用户从手机首页目录右侧加号新建会话，在该新会话中对话后，手机已完成而 WhaleTerm 消息 loading 已消失、发送区仍为终止图标。代码追踪到手机新建会话以 `claude-local:<sessionId>` 创建并在配对后通知 PC 加载；PC 的 oncomplete 仅结束消息显示，footer 等待 onqueueempty、活动轮次和待处理集合全部收尾才复位，监听注册与切换也涉及该链路。尚无现场事件证据，不能断言哪个条件丢失；需围绕此新建会话路径复现并验证，未修改 WhaleTerm。
+
+- 2026-11-12 用户要求 USB 安装：Pura X 可识别；再次尝试以含设备的调试 Profile 签名的修复 HAP 覆盖安装，系统仍返回 9568286（安装签发类型不同），未卸载 AppTest 应用或清除数据；需通过 AppTest 更新，或用户明确同意卸载现有应用及可能丢失本地数据后才能尝试调试安装。第四项未修复。
+
+- 2026-11-12 用户自行卸载 AppTest 应用后，已通过 HDC 成功安装 `.local-tools/harmony-debug-purax/feedback-20261112-signed.hap` 并启动 EntryAbility；空会话、输入框及权限操作的真实效果待用户验收。WhaleTerm 终止按钮问题仍未修复。
+
+- 当前执行（2026-11-11，Harmony 真机重新安装）：当前源码 Harmony API 24 Debug HAP 构建、ZIP 与最低 API 检查通过，沿用既有设备调试证书和含目标设备的 Profile 签名；HDC 对已连接手机覆盖安装成功、EntryAbility 启动成功，未卸载或清除数据。产物 `.local-tools/harmony-debug-purax/ccbuddy-latest-debug-signed.hap`，SHA256 `d1e875ab25c6892fa117cb22bba6ef4c03b82313b05efa2524ab4af5160274e5`。界面和推送本轮尚待用户真机验收；未执行 Git 写操作。
+
 - 2026-11-11：按用户要求重写 Git 历史，将最初提交及全仓文档中署名「刘启铨」统一改为「唐林小宝」（邮箱仍为 lqq1119@sina.com，committer 保留 `GitHub <noreply@github.com>`，文件内容树哈希不变）。`filter-branch` 重写 108 提交，新增文档修改提交 `aacd6fa`，主线共 109 提交。10 个发布标签 v0.0.1~v1.0.0 均位于新历史主线内。已执行 `git push --force-with-lease origin main` 及 10 个标签 force push，远端更新成功。本地旧线引用（备份分支、`refs/original`、reflog）已清理，`cb54cc9`、`53dad08` 等旧对象已 gc，仓库仅剩单条主线。
 
 - 当前执行（2026-11-11，ccBuddy 更新记录与提交）：按用户要求整理 iOS 更新说明并提交本轮三端名称、图标、通知标题和 Android 发布配置及相关测试、记录；排除签名材料、构建产物、临时缓存及无关测试截图。验证沿用本轮 iOS 626 项测试和构建、Android 发布包与签名、Harmony 构建及图标真机验收；本次进行差异和暂存检查，不重新运行全量测试。Harmony 隐私政策已在华为后台更新并生成，显示提交成功；测试版重新提交及权限报错是否消除尚未核实。iOS 1.0（11）已上传，TestFlight 后台处理和真机验收状态待确认。

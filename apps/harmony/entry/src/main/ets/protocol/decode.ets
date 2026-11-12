@@ -952,7 +952,7 @@ function decodeEventPayload(value: Object | null, version: number): EventPayload
     )
   }
   if (event.kind === 'action_resolved') {
-    const answers = decodeResolvedAnswers(eventCandidate.answers as Object | null)
+    const answers = decodeResolvedAnswers(eventCandidate.answers ?? null)
     if (answers.length > 0) {
       event.answers = answers
     }
