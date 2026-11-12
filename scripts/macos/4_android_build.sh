@@ -26,7 +26,7 @@ if [[ "$release" -eq 1 ]]; then
   apk_path="$MOBILE_DIR/android/app/build/outputs/apk/release/app-release-unsigned.apk"
   [[ -f "$apk_path" ]] || die "未找到未签名 APK：$apk_path"
   python3 "$SCRIPT_DIR/android_release.py" --config "${CMR_ANDROID_SIGNING_CONFIG:-$HOME/.config/claude-mobile-remote/android-signing/signing.json}" --apk "$apk_path"
-  apk_path="$REPO_ROOT/.local-tools/android-release/WhaleRemoteControl-1.0.3-android-signed.apk"
+  apk_path="$REPO_ROOT/.local-tools/android-release/WhaleRemoteControl-1.0.4-android-signed.apk"
 else
   (cd "$MOBILE_DIR/android" && ./gradlew assembleDebug)
   apk_path="$MOBILE_DIR/android/app/build/outputs/apk/debug/ClaudeMobileRemote.apk"

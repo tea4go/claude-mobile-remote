@@ -4,6 +4,15 @@
 
 ## 当前状态
 
+- 当前执行（2026-11-12，版本修正）：用户指定 Harmony 1.0.6、Android 1.0.4，调整版本并重新构建签名包，核对版本、签名和推送配置后交付；不上传、不执行 Git 写操作。已完成两端 Release 构建、签名校验及版本核验；Harmony 1.0.6（1000006）和 Android 1.0.4（5）产物位于 `.local-tools/releases/20261112/`。同步修正 Android 签名脚本、打包入口和发布说明中的版本与产物名称。用户要求记录并提交；未上传、未安装、未重跑测试。
+
+- 当前执行（2026-11-12，Harmony / Android 签名打包）：用户暂停推送排查，要求生成两端签名包自行上传。沿用 Harmony 1.0.5（1000005）、Android 1.0.3（4）及既有发布身份，保留推送配置；范围为最新源码生产构建、签名、包身份与资源核验。通过条件为两端产物和验签成功，交付路径；不上传、不安装、不执行 Git 写操作。推送真实送达问题暂未定位。
+  - 已完成：最新 Web 生产构建、Android Release（显式启用华为推送）、既有证书 v2/v3 签名及 16 KiB 对齐、包身份和禁用调试检查；APK 内 Web 资源与本轮 dist 逐字节一致，华为/极光组件和通知权限存在。Harmony API24 Release APP 构建、发布 Profile/证书一致性、官方验签和 APP/HAP ZIP 检查通过，版本和 PushMessageAbility 正确。首次沙箱内 Gradle 缓存及官方依赖 DNS 受限，系统环境重试成功；构建有既有警告。
+  - 交付目录 `.local-tools/releases/20261112/`：`ccBuddy-1.0.3-android-huawei-push-signed.apk`（34.4 MiB，SHA256 `7264a7c561f1242ddea2773f5e5e48007c84d4d5fb98c340b19873efdedb6d7f`）；`ccBuddy-1.0.5-harmony-signed.app`（1.1 MiB，SHA256 `b4c87292abc9b7a869953e30cf0ad735c95f1e9ad899c49f1d050882da1b29c3`）。未重跑测试、未上传/安装、未执行 Git 写操作；由用户上传并验收，后台同版本接受情况未核实。
+
+
+- 当前执行（2026-11-12，iOS TestFlight 上传）：用户要求打包并上传；后台最新 1.0（11）正在 Public Beta 测试，本轮构建 1.0（12），沿用现有应用和签名。范围为生产构建、签名归档、导出验证、上传及核对处理状态；不执行 Git 写操作。Web 生产构建、iOS 资源同步、Release 归档、App Store 导出、包内资源和签名核验通过；Xcode 显示 Upload succeeded，Apple 已接收并开始处理。后台刷新时构建 12 暂未出现，处理完成、加入 Public Beta 和外测状态尚未确认；未运行全量测试。IPA 为 apps/mobile/ios/DerivedData/testflight-20261112-b12/export/App.ipa，SHA256 213949fe2ef1ac8d7bbe152d32ace20b949a76ad82d3768f713a797352591686。
+
 - 当前执行（2026-11-12，Harmony 粘贴图标反馈）：用户真机确认除 IP 输入框右侧粘贴图标不符合设计外，其余本轮 Harmony 配对功能验证通过。当前使用系统 PasteButton 获取临时剪贴板授权；华为文档规定其图标不可自定义，遮挡安全控件可能导致授权失败。用户同意暂时保留系统粘贴图标；未修改配对代码或重新安装。Android 真机验收状态不变。
 
 - 当前执行（2026-11-12，Harmony 真机安装）：当前源码 API 24 Debug HAP 构建、ZIP 检查及既有设备调试签名成功，已通过 HDC 覆盖安装到已连接华为手机并启动 EntryAbility；未卸载或清除数据。首次启动误用旧包名失败，使用工程实际包名启动成功。快速配对、旧配对粘贴、扫码、验证码及取消交互仍待用户真机验收；构建有既有警告，未执行 Git 写操作。产物 `.local-tools/harmony-debug-purax/quick-pair-latest-signed.hap`。

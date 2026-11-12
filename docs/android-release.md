@@ -1,6 +1,6 @@
 # Android 华为测试发布
 
-Android应用显示名称：CodeBuddy，applicationId `com.tea4go.claudemobileremote.android`，华为APP ID `119552119`。Java namespace保持`com.tea4go.claudemobileremote`；iOS和Harmony身份独立。本次华为推送构建版本1.0.3（4）；此前首次发布版本为1.0.0（1）。
+Android应用显示名称：ccBuddy，applicationId `com.tea4go.claudemobileremote.android`，华为APP ID `119552119`。Java namespace保持`com.tea4go.claudemobileremote`；iOS和Harmony身份独立。当前华为推送构建版本1.0.4（5）；此前首次发布版本为1.0.0（1）。
 
 默认 Release 脚本关闭系统通知。华为推送包需显式以 `cmrPushEnabled=true` 构建并使用签名脚本的 `--push-enabled` 选项；厂商推送仍需真机验收。
 
@@ -16,7 +16,7 @@ JAVA_HOME="$HOME/jdk" python3 scripts/macos/android_release.py --init-signing
 JAVA_HOME="$HOME/jdk" bash scripts/macos/4_android_build.sh --release
 ```
 
-脚本执行Web测试/lint/build、清除live reload地址、只同步Android、关闭WebView调试、Release构建、16KiB zipalign、apksigner签名/验签及包内身份检查。使用既有私有配置，不隐式生成密钥。自定义配置使用`CMR_ANDROID_SIGNING_CONFIG=/仓库外/signing.json`。默认无推送APK输出至`.local-tools/android-release/WhaleRemoteControl-1.0.3-android-signed.apk`；本次华为推送签名包输出至`.local-tools/android-release/WhaleRemoteControl-1.0.3-huawei-push-signed.apk`。Windows现有Release命令仍只生成未签名APK，不能直接上传，需另行执行正式签名。
+脚本执行Web测试/lint/build、清除live reload地址、只同步Android、关闭WebView调试、Release构建、16KiB zipalign、apksigner签名/验签及包内身份检查。使用既有私有配置，不隐式生成密钥。自定义配置使用`CMR_ANDROID_SIGNING_CONFIG=/仓库外/signing.json`。默认无推送APK输出至`.local-tools/android-release/WhaleRemoteControl-1.0.4-android-signed.apk`；本次华为推送签名包输出至`.local-tools/android-release/WhaleRemoteControl-1.0.4-huawei-push-signed.apk`。Windows现有Release命令仍只生成未签名APK，不能直接上传，需另行执行正式签名。
 
 AGC按D106使用方式二：依据目标Android签名页当前公钥，用Google官方PEPK本地加密JKS，上传生成的ZIP。仅上传加密副本，不上传原始JKS或密码；本次未单设上传密钥，应用签名密钥兼作上传密钥。务必核对AGC签名指纹与本地公开证书一致。APK上传成功、测试提交和审核通过分别核实。
 
