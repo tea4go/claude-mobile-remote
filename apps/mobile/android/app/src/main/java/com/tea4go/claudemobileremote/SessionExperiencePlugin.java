@@ -72,6 +72,18 @@ public class SessionExperiencePlugin extends Plugin {
         for (String key : new String[]{"remoteConfigured", "remoteEnabled", "remoteReady", "pushError", "vendorConfigured"}) state.put(key, remote.opt(key));
         return state;
     }
+    @PluginMethod public void readPasteboard(PluginCall call) {
+        main.post(() -> {
+            ClipboardManager clipboard = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+            try {
+                ClipData clip = clipboard == null ? null : clipboard.getPrimaryClip();
+                CharSequence text = clip == null || clip.getItemCount() == 0 ? "" : clip.getItemAt(0).coerceToText(getContext());
+                JSObject result = new JSObject();
+                result.put("text", text == null ? "" : text.toString());
+                call.resolve(result);
+            } catch (RuntimeException error) { call.reject("Clipboard unavailable"); }
+        });
+    }
     @PluginMethod public void copyText(PluginCall call) {
         String text = call.getString("text");
         if (text == null || text.isEmpty() || text.getBytes(StandardCharsets.UTF_8).length > 1024 * 1024) { call.reject("Invalid text"); return; }

@@ -534,7 +534,7 @@ export struct AppShell {
         this.pairingInput = raw; this.handleConnect()
       }
     } catch (_) {
-      if (this.alive && generation === this.nativeGeneration) this.nativeError = '扫码已取消或不可用，可粘贴配对信息'
+      if (this.alive && generation === this.nativeGeneration) promptAction.showToast({ message: '扫码已取消或不可用，可粘贴配对信息' })
     } finally { if (generation === this.nativeGeneration) this.scanning = false }
   }
 
