@@ -215,7 +215,7 @@ export struct SessionPage {
   @Builder
   private drawer() {
     Column() {
-      Blank().width(36).height(5).backgroundColor('#d5deea').borderRadius(3).margin({ top: 10, bottom: 4 })
+      Blank().width(36).height(5).backgroundColor($r('app.color.border')).borderRadius(3).margin({ top: 10, bottom: 4 })
       Row() {
           Text(this.sheet === 'action' ? (this.state.pendingAction?.kind === 'ask_user_question' ? '需要你的回答' : '待处理事项') : `排队队列（${this.state.queuedRequests.length}）`).fontSize(18).layoutWeight(1)
         Button(this.sheet === 'action' ? (this.state.pendingAction?.kind === 'ask_user_question' ? '取消提问' : '取消本轮') : '关闭', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
@@ -238,16 +238,16 @@ export struct SessionPage {
       }.constraintSize({ maxHeight: Math.max(80, this.pageHeight * 0.75 -
         (this.sheet === 'action' && this.state.pendingAction?.kind === 'ask_user_question' ? 136 : 68)) }).width('100%').align(Alignment.TopStart)
       if (this.sheet === 'action' && this.state.pendingAction?.kind === 'ask_user_question') {
-        Row() { Button('提交', { type: ButtonType.Normal }).height(52).width('100%').fontSize(16).fontColor('#ffffff').backgroundColor(PRIMARY).borderRadius(16)
+        Row() { Button('提交', { type: ButtonType.Normal }).height(52).width('100%').fontSize(16).fontColor('#ffffff').backgroundColor($r('app.color.primary_fill')).borderRadius(16)
           .enabled(this.state.canResolveAction && this.answersReady()).onClick(() => this.onSubmitAnswers()) }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
       }
-    }.width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 20, topRight: 20 }).transition(pageFade())
+    }.width('100%').backgroundColor($r('app.color.surface')).borderRadius({ topLeft: 20, topRight: 20 }).transition(pageFade())
   }
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       Column() {
         Row({ space: 8 }) {
-          Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).padding(0).fontSize(30).fontColor(SECONDARY).backgroundColor('#ffffff').borderRadius(22).hoverEffect(HoverEffect.Highlight).clip(true).accessibilityText('返回会话列表').onClick(() => this.onBack())
+          Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).padding(0).fontSize(30).fontColor(SECONDARY).backgroundColor($r('app.color.surface')).borderRadius(22).hoverEffect(HoverEffect.Highlight).clip(true).accessibilityText('返回会话列表').onClick(() => this.onBack())
           Column({ space: 3 }) {
             Text(this.title).fontSize(17).fontWeight(FontWeight.Medium).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').textAlign(TextAlign.Center)
             StatusBar({ state: this.state })

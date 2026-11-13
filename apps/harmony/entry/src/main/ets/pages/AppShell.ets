@@ -166,6 +166,7 @@ export struct AppShell {
   @State private sessionState: HarmonySessionState = createInitialHarmonySessionState()
   @State private sessions: Array<SessionRecord> = []
   @State private view: AppView = 'pairing'
+  @State private pairingBehindSettings: boolean = false
   @State private currentSessionId: string = ''
   @State private recentlyViewedId: string = ''
   private listOffset: number = 0
@@ -724,6 +725,7 @@ export struct AppShell {
 
   private openPairingPage(): void {
     if (this.pairingSaving) return
+    this.pairingBehindSettings = false
     this.projectTarget = null; this.createdSource = ''
     this.pendingPairing = null
     this.entryStore.reset()
@@ -813,6 +815,7 @@ export struct AppShell {
     this.reconcileSelectedPC()
     this.saveRecords()
     if (this.sessions.length === 0) {
+      this.pairingBehindSettings = false
       this.view = 'pairing'
     }
   }
@@ -1016,7 +1019,7 @@ export struct AppShell {
   private buildPairingView(): void {
     PairingPage({
       onDemo: () => this.openDemo(),
-      onSettings: () => { this.view = 'pairingSettings' },
+      onSettings: () => { this.pairingBehindSettings = true; this.view = 'pairingSettings' },
       projectCwd: this.projectTarget?.cwd ?? '',
       saving: this.pairingSaving,
       onCancel: () => { if (!this.pairingSaving) { this.pendingPairing = null; this.entryStore.disconnect(); this.pairingTarget = '' } },
@@ -1116,7 +1119,7 @@ export struct AppShell {
     if (this.view === 'detail' && this.hasActiveRecord()) {
       Column() { this.buildDetailPage() }.width('100%').height('100%').transition(pageSlide())
     } else if (this.view === 'pairing') {
-      Column() { this.buildPairingView() }.width('100%').height('100%').transition(pageSlide())
+      Column() { this.buildPairingView() }.width('100%').height('100%').transition(pageSlide(this.pairingBehindSettings))
     } else {
       Column() { this.buildListView() }.width('100%').height('100%').transition(pageSlide(this.view !== 'pairingSettings'))
     }
@@ -1126,7 +1129,7 @@ export struct AppShell {
     Stack({ alignContent: Alignment.Bottom }) {
     Column() {
       if (this.nativeError.length > 0) {
-        Text(this.nativeError).fontSize(13).fontColor('#a54b00').padding(8).onClick(() => { this.nativeError = '' })
+        Text(this.nativeError).fontSize(13).fontColor($r('app.color.warning')).padding(8).onClick(() => { this.nativeError = '' })
       }
       if (!this.nativeReady) { LoadingProgress().width(32).height(32) }
       Stack() {

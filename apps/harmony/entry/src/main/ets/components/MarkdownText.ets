@@ -183,7 +183,7 @@ export struct MarkdownText {
     Text(undefined, { controller: this.selection.controller(block, row, column, row >= 0) }) {
       ForEach(inlineMarkdown(text), (part: InlineText) => {
         if (part.url.length > 0) {
-          Span(part.text).fontColor('#1677ff').fontWeight(strong || part.bold ? FontWeight.Bold : FontWeight.Normal)
+          Span(part.text).fontColor($r('app.color.primary')).fontWeight(strong || part.bold ? FontWeight.Bold : FontWeight.Normal)
             .fontStyle(part.italic ? FontStyle.Italic : FontStyle.Normal)
             .fontFamily(part.code ? 'monospace' : 'sans-serif')
             .decoration({ type: part.strike ? TextDecorationType.LineThrough : TextDecorationType.Underline })
@@ -192,8 +192,8 @@ export struct MarkdownText {
           Span(part.text).fontWeight(strong || part.bold ? FontWeight.Bold : FontWeight.Normal)
             .fontStyle(part.italic ? FontStyle.Italic : FontStyle.Normal)
             .fontFamily(part.code ? 'monospace' : 'sans-serif').fontSize(part.code ? 14 : size)
-            .fontColor('#252525')
-            .textBackgroundStyle({ color: part.code ? '#f0f0f0' : Color.Transparent, radius: 4 })
+            .fontColor($r('app.color.text'))
+            .textBackgroundStyle({ color: part.code ? $r('app.color.surface_subtle') : Color.Transparent, radius: 4 })
             .decoration({ type: part.strike ? TextDecorationType.LineThrough : TextDecorationType.None })
         }
       }, (part: InlineText, index: number) => `${index}-${JSON.stringify(part)}`)
@@ -204,7 +204,7 @@ export struct MarkdownText {
     if (block.kind === 'code') {
       Column() {
         if (block.language.length > 0) {
-          Text(block.language).fontSize(11).fontColor('#6e6e73').padding({ left: 10, top: 6 }).width('100%')
+          Text(block.language).fontSize(11).fontColor($r('app.color.text_secondary')).padding({ left: 10, top: 6 }).width('100%')
         }
         Scroll(this.scrollFor(index)) {
           Column() {
@@ -213,7 +213,7 @@ export struct MarkdownText {
           }.padding(10)
         }.id(this.selection.clipId(index)).scrollable(ScrollDirection.Horizontal).width('100%').align(Alignment.TopStart)
           .onScroll(() => messageSelection.refresh())
-      }.width('100%').backgroundColor('#f6f8fa').border({ width: 1, color: '#e3e6ec' }).borderRadius(6).clip(true)
+      }.width('100%').backgroundColor($r('app.color.surface_subtle')).border({ width: 1, color: $r('app.color.border') }).borderRadius(6).clip(true)
     } else if (block.kind === 'table') {
       Scroll(this.scrollFor(index)) {
         Column() {
@@ -221,8 +221,8 @@ export struct MarkdownText {
             Row() {
               ForEach(row, (cell: string, column: number) => {
                 Column() { this.inline(cell, index, 16, rowIndex === 0, block.alignments[column], rowIndex, column) }
-                  .width(this.tableWidths.get(block)?.[column] ?? 180).padding({ left: 8, right: 8, top: 5, bottom: 5 }).border({ width: 0.5, color: '#e3e6ec' })
-                  .backgroundColor(rowIndex === 0 ? '#f5f7fa' : '#ffffff')
+                  .width(this.tableWidths.get(block)?.[column] ?? 180).padding({ left: 8, right: 8, top: 5, bottom: 5 }).border({ width: 0.5, color: $r('app.color.border') })
+                  .backgroundColor(rowIndex === 0 ? $r('app.color.surface_subtle') : $r('app.color.surface'))
               }, (cell: string, index: number) => `${index}-${cell}`)
             }.alignItems(VerticalAlign.Top)
           }, (row: Array<string>, index: number) => `${index}-${JSON.stringify(row)}`)
@@ -230,7 +230,7 @@ export struct MarkdownText {
       }.id(this.selection.clipId(index)).scrollable(ScrollDirection.Horizontal).width('100%').borderRadius(8).clip(true)
         .onScroll(() => messageSelection.refresh())
     } else if (block.kind === 'rule') {
-      Divider().color('#e3e6ec').margin({ top: 8, bottom: 8 })
+      Divider().color($r('app.color.border')).margin({ top: 8, bottom: 8 })
     } else if (block.kind === 'heading') {
       this.inline(block.text, index, Math.max(16, 28 - block.level * 2), true)
     } else {
@@ -254,20 +254,20 @@ export struct MarkdownText {
     Stack({ alignContent: Alignment.TopStart }) {
     if (this.plain) {
       Text(this.text, { controller: this.selection.controller(0) }).id(this.selection.nodeId(0))
-        .fontSize(14).fontColor('#ffffff').copyOption(CopyOptions.None).width('100%').textAlign(TextAlign.Start)
+        .fontSize(14).fontColor(Color.White).copyOption(CopyOptions.None).width('100%').textAlign(TextAlign.Start)
     } else {
     Column({ space: 8 }) {
       ForEach(this.blocks, (block: MarkdownBlock, index: number) => {
         Row({ space: 6 }) {
           if (block.marker.length > 0) {
             Text(block.marker, { controller: this.selection.controller(index, -2, -2) }).id(this.selection.nodeId(index, -2, -2))
-              .fontSize(16).lineHeight(24).fontColor('#6e6e73').constraintSize({ minWidth: 18 }).copyOption(CopyOptions.None)
+              .fontSize(16).lineHeight(24).fontColor($r('app.color.text_secondary')).constraintSize({ minWidth: 18 }).copyOption(CopyOptions.None)
               .accessibilityText(block.marker === '☑' ? '已完成' : block.marker === '☐' ? '未完成' : block.marker)
           }
           Column() { this.content(block, index) }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.width('100%').alignItems(VerticalAlign.Top)
           .padding({ left: Math.max(0, Math.min(block.indent, 8) - (block.marker.length > 0 ? 1 : 0)) * 20 + Math.min(block.quote, 4) * 12, top: 2, bottom: 2 })
-          .border({ width: { left: block.quote > 0 ? 3 : 0 }, color: '#d0d7de' })
+          .border({ width: { left: block.quote > 0 ? 3 : 0 }, color: $r('app.color.border') })
       }, (block: MarkdownBlock, index: number) => `${index}-${JSON.stringify(block)}`)
     }.width('100%').alignItems(HorizontalAlign.Start)
     }
@@ -279,7 +279,7 @@ export struct MarkdownText {
       if (this.selectionView.start !== null) { this.selectionHandle('start', this.selectionView.start as SelectionHandle) }
       if (this.selectionView.end !== null) { this.selectionHandle('end', this.selectionView.end as SelectionHandle) }
       if (!this.dragging && this.selectionView.rects.length > 0) {
-        Button('复制', { type: ButtonType.Normal }).width(80).height(40).fontSize(14).fontColor('#ffffff').backgroundColor('#252525').borderRadius(10)
+        Button('复制', { type: ButtonType.Normal }).width(80).height(40).fontSize(14).fontColor(Color.White).backgroundColor('#252525').borderRadius(10)
           .position({ x: this.selectionView.menuX, y: this.selectionView.menuY }).onClick(() => this.copySelection())
       }
     }

@@ -161,7 +161,7 @@ export struct SessionListPage {
         }.padding(8)
       }
     }.id(`session-item-${session.sessionId}`).width('100%').padding({ left: 16, right: 12, top: 6, bottom: 14 }).alignItems(HorizontalAlign.Start)
-      .backgroundColor(this.recentlyViewedId === session.sessionId ? '#f3f7ff' : '#ffffff').border({ width: 1, color: '#dfe6f1' }).borderRadius(16)
+      .backgroundColor(this.recentlyViewedId === session.sessionId ? $r('app.color.surface_selected') : $r('app.color.surface')).border({ width: 1, color: $r('app.color.border') }).borderRadius(16)
   }
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -169,14 +169,14 @@ export struct SessionListPage {
       Row() {
         if (this.settings) {
           Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).padding(0).fontSize(30).fontColor(SECONDARY)
-            .backgroundColor('#ffffff').borderRadius(22).accessibilityText('返回').onClick(() => this.changePage())
+            .backgroundColor($r('app.color.surface')).borderRadius(22).accessibilityText('返回').onClick(() => this.changePage())
           Text(this.computers ? 'PC 管理' : '设置').fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
           Blank().width(44)
         } else {
           Blank().width(44)
           Text('ccBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
-          Button('设置', { type: ButtonType.Normal }).height(40).fontSize(14).fontColor('#1b2739')
-            .backgroundColor('#ffffff').borderRadius(20).onClick(() => this.changePage())
+          Button('设置', { type: ButtonType.Normal }).height(40).fontSize(14).fontColor($r('app.color.text'))
+            .backgroundColor($r('app.color.surface')).borderRadius(20).onClick(() => this.changePage())
         }
       }.padding({ left: 16, right: 16, top: 8, bottom: 8 }).width('100%')
       if (this.settings) {
@@ -189,31 +189,31 @@ export struct SessionListPage {
                   Text(pcName(record)).fontSize(16).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                   Text(this.pcStatus(record)).fontSize(12).fontColor(SECONDARY)
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                Button('移除', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor('#d4380d').backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => {
+                Button('移除', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor($r('app.color.danger')).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => {
                   AlertDialog.show({ title: '移除此电脑的全部配对？', message: '本机配对与缓存会清除，电脑上的 Claude 会话继续运行。',
                     primaryButton: { value: '移除', action: () => this.onRemovePC(pcKey(record)) }, secondaryButton: { value: '取消', action: () => {} } })
                 })
-              }.padding(12).width('100%').backgroundColor('#ffffff').borderRadius(12)
+              }.padding(12).width('100%').backgroundColor($r('app.color.surface')).borderRadius(12)
             }, (record: SessionRecord) => JSON.stringify([pcKey(record), pcName(record), this.pcStatus(record)]))
             if (this.sessions.length === 0) { Text('暂无已配对电脑').fontSize(14).fontColor(SECONDARY).padding(24) }
           } else {
             Row({ space: 12 }) {
-              Text('▣').fontSize(20).fontColor(PRIMARY).width(36).height(36).textAlign(TextAlign.Center).backgroundColor('#e9f1ff').borderRadius(10)
+              Text('▣').fontSize(20).fontColor(PRIMARY).width(36).height(36).textAlign(TextAlign.Center).backgroundColor($r('app.color.surface_blue')).borderRadius(10)
               Text('PC 管理').fontSize(16).layoutWeight(1)
               Text('›').fontSize(24).fontColor(SECONDARY)
-            }.width('100%').height(60).padding({ left: 16, right: 16 }).backgroundColor('#ffffff').borderRadius(16).onClick(() => { this.computers = true })
+            }.width('100%').height(60).padding({ left: 16, right: 16 }).backgroundColor($r('app.color.surface')).borderRadius(16).onClick(() => { this.computers = true })
             Row({ space: 12 }) {
-              Text('✧').fontSize(20).fontColor(PRIMARY).width(36).height(36).textAlign(TextAlign.Center).backgroundColor('#e9f1ff').borderRadius(10)
+              Text('✧').fontSize(20).fontColor(PRIMARY).width(36).height(36).textAlign(TextAlign.Center).backgroundColor($r('app.color.surface_blue')).borderRadius(10)
               Text('体验演示（无需连接电脑）').fontSize(16).layoutWeight(1)
               Text('›').fontSize(24).fontColor(SECONDARY)
-            }.width('100%').height(60).padding({ left: 16, right: 16 }).backgroundColor('#ffffff').borderRadius(16).onClick(() => this.onDemo())
+            }.width('100%').height(60).padding({ left: 16, right: 16 }).backgroundColor($r('app.color.surface')).borderRadius(16).onClick(() => this.onDemo())
             Column({ space: 8 }) {
               Row() {
                 Text('调试日志').fontSize(16).layoutWeight(1)
                 Toggle({ type: ToggleType.Switch, isOn: this.debugEnabled }).onChange((value: boolean) => this.onDebug(value))
               }.width('100%')
               Text('开启后显示悬浮入口；日志始终在本次运行中记录，最多保留 200 条。').fontSize(12).fontColor(SECONDARY).width('100%')
-            }.padding(16).width('100%').backgroundColor('#ffffff').borderRadius(16).alignItems(HorizontalAlign.Start)
+            }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).alignItems(HorizontalAlign.Start)
             Column({ space: 10 }) {
               Text('本地保存说明').fontSize(16).fontWeight(FontWeight.Medium).width('100%')
               Text('配对凭证保存在系统安全存储；移除配对不会关闭电脑上的会话。').fontSize(13).fontColor(SECONDARY).width('100%')
@@ -224,7 +224,7 @@ export struct SessionListPage {
                   AlertDialog.show({ title: '清除本机消息缓存？', message: '配对仍保留；未缓存的历史无法从电脑补回。', primaryButton: { value: '清除', action: () => this.onClearCache() }, secondaryButton: { value: '取消', action: () => {} } })
                 })
               }.width('100%')
-            }.padding(16).width('100%').backgroundColor('#ffffff').borderRadius(16).alignItems(HorizontalAlign.Start)
+            }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).alignItems(HorizontalAlign.Start)
             Column({ space: 8 }) {
               Row() {
                 Text('在线会话提醒').fontSize(16).layoutWeight(1)
@@ -236,26 +236,26 @@ export struct SessionListPage {
                 Toggle({ type: ToggleType.Switch, isOn: this.pushConsent }).selectedColor(PRIMARY).onChange((enabled: boolean) => { if (enabled !== this.pushConsent) this.onEnablePush() })
               }.width('100%')
               Text(this.pushStatus).fontSize(12).fontColor(SECONDARY).width('100%')
-            }.padding(16).width('100%').backgroundColor('#ffffff').borderRadius(16).alignItems(HorizontalAlign.Start)
+            }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).alignItems(HorizontalAlign.Start)
 
           }
           }.padding({ left: 16, right: 16, top: 12, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
         }.layoutWeight(1).width('100%').align(Alignment.TopStart).transition(pageSlide())
       } else {
         List({ space: 8, scroller: this.scroller }) {
-          ListItem() { Row({ space: 10 }) { Text('会话列表').fontSize(28).fontWeight(FontWeight.Bold); Text(`${this.sessions.length} 个会话`).fontSize(12).fontColor(SECONDARY).padding({ left: 10, right: 10, top: 6, bottom: 6 }).backgroundColor('#e8effd').borderRadius(16) }.width('100%').padding({ top: 18, bottom: 12 }) }
+          ListItem() { Row({ space: 10 }) { Text('会话列表').fontSize(28).fontWeight(FontWeight.Bold); Text(`${this.sessions.length} 个会话`).fontSize(12).fontColor(SECONDARY).padding({ left: 10, right: 10, top: 6, bottom: 6 }).backgroundColor($r('app.color.surface_blue')).borderRadius(16) }.width('100%').padding({ top: 18, bottom: 12 }) }
           if (this.groups.length === 0) { ListItem() { Text('扫码连接电脑上的 Claude 会话').fontSize(14).fontColor(SECONDARY).padding(24) } }
           LazyForEach(this.listSource, (row: ProjectListRow) => {
             ListItem() {
               if (row.kind === 'pc' && row.pc !== undefined) {
                 Row({ space: 12 }) {
-                  Text('▣').fontSize(23).fontColor('#ffffff').width(44).height(44).textAlign(TextAlign.Center).backgroundColor(PRIMARY).borderRadius(11)
+                  Text('▣').fontSize(23).fontColor(Color.White).width(44).height(44).textAlign(TextAlign.Center).backgroundColor($r('app.color.primary_fill')).borderRadius(11)
                   Column({ space: 4 }) {
                     Text(row.pc.label).fontSize(16).fontWeight(FontWeight.Medium).width('100%')
                     Text(`${row.pc.connected}/${row.pc.sessions.length} 个会话已连接`).fontSize(12).fontColor(SECONDARY).width('100%')
                   }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                   Text('›').fontSize(24).fontColor(SECONDARY)
-                }.padding(16).width('100%').backgroundColor('#ffffff').borderRadius(16).onClick(() => this.openFilter())
+                }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).onClick(() => this.openFilter())
               } else if (row.kind === 'project' && row.pc !== undefined && row.project !== undefined) {
                 Row({ space: 8 }) {
                   Column({ space: 4 }) {
@@ -278,8 +278,8 @@ export struct SessionListPage {
           .onScroll(() => this.onScrollOffset(this.scroller.currentOffset().yOffset))
       }
       if (!this.settings) {
-        Row() { Button('＋ 新会话', { type: ButtonType.Normal }).height(52).width('100%').fontSize(16).fontColor('#ffffff')
-          .backgroundColor(PRIMARY).borderRadius(16).onClick(() => this.onAdd()) }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
+        Row() { Button('＋ 新会话', { type: ButtonType.Normal }).height(52).width('100%').fontSize(16).fontColor(Color.White)
+          .backgroundColor($r('app.color.primary_fill')).borderRadius(16).onClick(() => this.onAdd()) }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
       }
     }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
     if (this.filterOpen) {
@@ -298,7 +298,7 @@ export struct SessionListPage {
           .width('100%').height(200).onChange((_value: string | string[], index: number | number[]) => {
             this.filterIndex = typeof index === 'number' ? index : index[0]
           })
-      }.padding(16).width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 24, topRight: 24 })
+      }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius({ topLeft: 24, topRight: 24 })
     }
     }.width('100%').height('100%')
   }

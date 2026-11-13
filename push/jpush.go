@@ -144,7 +144,7 @@ func (j *JPush) Send(ctx context.Context, n Notification) error {
 	}
 	if n.Platform == "hmos" {
 		payload["platform"] = []string{"hmos"}
-		payload["notification"] = map[string]any{"hmos": map[string]any{"alert": body, "title": "ccBuddy", "category": "MARKETING", "display_foreground": "0", "intent": map[string]string{"url": "cmr-push://notification/" + n.Topic}, "extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}}
+		payload["notification"] = map[string]any{"hmos": map[string]any{"alert": body, "title": "ccBuddy", "category": "WORK", "display_foreground": "0", "intent": map[string]string{"url": "cmr-push://notification/" + n.Topic}, "extras": map[string]any{"topic": n.Topic, "eventId": n.EventID, "kind": n.Kind}}}
 		payload["options"] = map[string]any{"time_to_live": ttl}
 	} else if n.Platform == "android" || n.Platform == "ios" {
 		payload["platform"] = []string{n.Platform}

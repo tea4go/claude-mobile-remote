@@ -78,7 +78,7 @@ export struct MessageComposer {
   }
   build() {
     Column({ space: 6 }) {
-      if (this.draft.error.length > 0) { Text(this.draft.error).fontSize(12).fontColor('#a54b00').width('100%') }
+      if (this.draft.error.length > 0) { Text(this.draft.error).fontSize(12).fontColor($r('app.color.warning')).width('100%') }
       if (this.draft.attachments.length > 0) {
         Text(`已选 ${this.draft.attachments.length} 个附件（每个最多 4 MiB，合计 8 MiB）`).fontSize(12).fontColor(SECONDARY).width('100%')
         Scroll() {
@@ -91,7 +91,7 @@ export struct MessageComposer {
                       .onClick(() => this.onPreviewImage(`data:${item.mediaType};base64,${item.data}`))
                   } else {
                     Text(item.name).fontSize(11).maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis })
-                      .width(76).height(76).padding(6).backgroundColor('#eef1f5').borderRadius(8)
+                      .width(76).height(76).padding(6).backgroundColor($r('app.color.surface_subtle')).borderRadius(8)
                   }
                   Button('×', { type: ButtonType.Normal }).width(25).height(25).padding(0).fontSize(20).fontColor(Color.White)
                     .backgroundColor('#60656d').border({ width: 2, color: Color.White }).borderRadius(13)
@@ -106,7 +106,7 @@ export struct MessageComposer {
       if (this.speechActive) {
         Text(this.speechFinishing ? '正在识别，请稍候…' : '正在聆听，点击语音按钮结束').fontSize(12).fontColor(SECONDARY)
       }
-      if (this.textBytes > 1024 * 1024) { Text('文本超出 1 MiB 上限').fontColor('#b3261e').fontSize(12) }
+      if (this.textBytes > 1024 * 1024) { Text('文本超出 1 MiB 上限').fontColor($r('app.color.danger')).fontSize(12) }
       Column({ space: 4 }) {
         TextArea({ text: this.draft.text, placeholder: this.textOnly ? '输入消息体验模拟回复' : '输入消息或添加附件' })
           .id('send-input').height('auto').constraintSize({ minHeight: 36, maxHeight: 100 }).fontSize(15).backgroundColor(Color.Transparent)
@@ -140,7 +140,7 @@ export struct MessageComposer {
           if (!this.textOnly) {
             Button({ type: ButtonType.Normal }) {
               Image($r('app.media.composer_microphone')).width(20).height(20)
-            }.width(40).height(40).padding(0).borderRadius(20).backgroundColor(this.speechActive ? '#e7efff' : Color.Transparent)
+            }.width(40).height(40).padding(0).borderRadius(20).backgroundColor(this.speechActive ? $r('app.color.surface_blue') : Color.Transparent)
               .accessibilityText(this.speechFinishing ? '正在识别语音' : this.speechActive ? '结束语音输入' : '语音输入')
               .enabled(this.composerEnabled && !this.draft.sending && !this.selecting && !this.speechFinishing)
               .onClick(() => { if (this.speechActive) this.onStopSpeech(); else this.onSpeech() })
@@ -152,14 +152,14 @@ export struct MessageComposer {
           if (!this.running || this.draft.text.trim().length > 0 || this.draft.attachments.length > 0) {
             Button({ type: ButtonType.Normal }) {
               Image($r('app.media.composer_send')).width(20).height(20)
-            }.width(32).height(32).padding(0).backgroundColor(PRIMARY).borderRadius(16)
+            }.width(32).height(32).padding(0).backgroundColor($r('app.color.primary_fill')).borderRadius(16)
               .accessibilityText(this.draft.sending ? '等待受理' : '发送消息')
               .enabled(this.composerEnabled && this.editable() && this.textBytes <= 1024 * 1024 && (this.draft.text.trim().length > 0 || this.draft.attachments.length > 0))
               .onClick(() => this.onSend())
           }
         }.width('100%')
       }.width('100%').padding({ left: 12, right: 12, top: 10, bottom: 8 }).alignItems(HorizontalAlign.Start)
-        .backgroundColor('#ffffff').borderRadius(26).border({ width: 1, color: '#e1e3e7' })
+        .backgroundColor($r('app.color.surface')).borderRadius(26).border({ width: 1, color: $r('app.color.border') })
     }.width('100%').alignItems(HorizontalAlign.Start)
   }
 }

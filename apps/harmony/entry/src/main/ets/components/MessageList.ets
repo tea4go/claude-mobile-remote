@@ -139,14 +139,14 @@ export struct MessageList {
                     }, (attachment: Attachment, itemIndex: number) => `${itemIndex}-${attachment.name}`)
                   }
                   MarkdownText({ text: inputDisplayText(message.text), plain: true, scrollController: this.scroller })
-                }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor('#3478f6').borderRadius(16)
+                }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.primary_fill')).borderRadius(16)
                 Text(`${message.source === 'terminal' ? '电脑端' : '手机端'}${inputStatusLabel(message.status)}`)
-                  .fontSize(12).fontColor('#8e8e93').width('100%').textAlign(TextAlign.End)
+                  .fontSize(12).fontColor($r('app.color.text_secondary')).width('100%').textAlign(TextAlign.End)
               }.width('80%').alignItems(HorizontalAlign.End)
             }.width('100%')
           } else if (message.kind === 'answer') {
             Column({ space: 8 }) {
-              Row({ space: 6 }) { Image($r('app.media.claude_mark')).width(18).height(18); Text('Claude').fontSize(12).fontColor('#748198') }.width('100%')
+              Row({ space: 6 }) { Image($r('app.media.claude_mark')).width(18).height(18); Text('Claude').fontSize(12).fontColor($r('app.color.text_secondary')) }.width('100%')
 
               ForEach(message.answers, (answer: ResolvedAnswer) => {
                 Column({ space: 4 }) {
@@ -157,8 +157,8 @@ export struct MessageList {
 
                   ForEach(answer.values, (value: string) => {
                     Row({ space: 8 }) {
-                      Text('✓').fontSize(13).fontColor('#ffffff').width(20).height(20).textAlign(TextAlign.Center).backgroundColor('#32946c').borderRadius(5)
-                      Text(value).copyOption(CopyOptions.LocalDevice).fontSize(14).fontColor('#394760').layoutWeight(1)
+                      Text('✓').fontSize(13).fontColor(Color.White).width(20).height(20).textAlign(TextAlign.Center).backgroundColor($r('app.color.badge_success')).borderRadius(5)
+                      Text(value).copyOption(CopyOptions.LocalDevice).fontSize(14).fontColor($r('app.color.text')).layoutWeight(1)
                     }.width('100%').padding({ top: 6, bottom: 6 })
                   }, (value: string) => `${answer.questionId}-${value}`)
                 }
@@ -169,37 +169,37 @@ export struct MessageList {
             .padding(12)
             .width('100%')
             .alignItems(HorizontalAlign.Start)
-            .backgroundColor('#ffffff')
+            .backgroundColor($r('app.color.surface'))
             .borderRadius(12)
           } else if (message.kind === 'activity') {
             Button({ type: ButtonType.Normal }) {
               Row() {
-                Text(`☷  ${stepSummary(message)}`).fontSize(14).fontColor('#394760').layoutWeight(1).textAlign(TextAlign.Start)
-                Text('›').fontSize(20).fontColor('#748198')
+                Text(`☷  ${stepSummary(message)}`).fontSize(14).fontColor($r('app.color.text')).layoutWeight(1).textAlign(TextAlign.Start)
+                Text('›').fontSize(20).fontColor($r('app.color.text_secondary'))
               }.width('100%')
-            }.width('100%').height(48).padding({ left: 14, right: 14 }).backgroundColor('#ffffff').borderRadius(14)
+            }.width('100%').height(48).padding({ left: 14, right: 14 }).backgroundColor($r('app.color.surface')).borderRadius(14)
               .onClick(() => { this.selectedActivity = message; this.selectedStep = -1 })
           } else if (message.kind === 'block') {
             Text('步骤').fontSize(13)
           } else if (message.text.trim().length > 0 || message.status === 'streaming' || message.status === 'failed' || message.status === 'cancelled') {
             Column({ space: 8 }) {
-              Row({ space: 6 }) { Image($r('app.media.claude_mark')).width(18).height(18); Text('Claude').fontSize(12).fontColor('#748198') }.width('100%')
+              Row({ space: 6 }) { Image($r('app.media.claude_mark')).width(18).height(18); Text('Claude').fontSize(12).fontColor($r('app.color.text_secondary')) }.width('100%')
 
-              if (message.text.trim().length > 0) { Column() { MarkdownText({ text: message.text, scrollController: this.scroller }) }.padding(14).width('100%').backgroundColor('#ffffff').borderRadius(16) }
+              if (message.text.trim().length > 0) { Column() { MarkdownText({ text: message.text, scrollController: this.scroller }) }.padding(14).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16) }
 
               if (message.status === 'streaming') { LoadingProgress().width(20).height(20) }
               if (message.status === 'cancelled') {
                 Text('已取消')
-                  .fontSize(12)
+                  .fontColor($r('app.color.warning')).fontSize(12)
                   .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-                  .backgroundColor('#fff4d6')
+                  .backgroundColor($r('app.color.surface_warning'))
                   .borderRadius(999)
               }
 
               if (message.status === 'failed' && message.error !== null) {
                 Text(`Turn 失败：${message.error.message}`)
                   .fontSize(12)
-                  .fontColor('#c0392b')
+                  .fontColor($r('app.color.danger'))
                   .width('100%')
               }
             }
@@ -237,7 +237,7 @@ export struct ActivityOverlay {
     if (this.selectedActivity !== null) {
       Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })
       Column() {
-        Blank().width(36).height(5).backgroundColor('#d5deea').borderRadius(3).margin({ top: 10, bottom: 10 })
+        Blank().width(36).height(5).backgroundColor($r('app.color.border')).borderRadius(3).margin({ top: 10, bottom: 10 })
         Row({ space: 8 }) {
           if (this.selectedStep >= 0) {
             Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(22).height(22) }
@@ -245,43 +245,43 @@ export struct ActivityOverlay {
           }
           Text(this.selectedStep >= 0 ? blockTitle(visibleSteps(this.selectedActivity as ActivityFeedGroup)[this.selectedStep].block, (this.selectedActivity as ActivityFeedGroup).requestId, toolNamesByTurn(this.messages)) : stepSummary(this.selectedActivity as ActivityFeedGroup))
             .fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (this.debugEnabled) { Button('调试', { type: ButtonType.Normal }).height(44).fontColor('#3478f6').backgroundColor(Color.Transparent).onClick(() => this.onDebugOpen()) }
+          if (this.debugEnabled) { Button('调试', { type: ButtonType.Normal }).height(44).fontColor($r('app.color.primary')).backgroundColor(Color.Transparent).onClick(() => this.onDebugOpen()) }
           Button({ type: ButtonType.Normal }) { Image($r('app.media.drawer_close')).width(18).height(18) }
-            .width(44).height(44).padding(0).backgroundColor('#f8fafc').border({ width: 1, color: '#e9eef5' }).borderRadius(22).onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })
+            .width(44).height(44).padding(0).backgroundColor($r('app.color.surface_subtle')).border({ width: 1, color: $r('app.color.border') }).borderRadius(22).onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })
         }.width('100%').padding({ left: 20, right: 20, bottom: 14 })
-        Blank().height(1).width('100%').backgroundColor('#edf0f4')
+        Blank().height(1).width('100%').backgroundColor($r('app.color.border'))
         Scroll() {
           Column() {
             ForEach(visibleSteps(this.selectedActivity as ActivityFeedGroup), (item: BlockFeedMessage, itemIndex: number) => {
               if (this.selectedStep < 0) {
                 Row({ space: 10 }) {
                   Column() {
-                    Blank().width(8).height(8).borderRadius(4).backgroundColor(item.block.kind === 'thinking' ? '#3478f6' : (toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) === '已完成' ? '#00b578' : '#b88020'))
-                    if (itemIndex < visibleSteps(this.selectedActivity as ActivityFeedGroup).length - 1) { Blank().width(1).layoutWeight(1).backgroundColor('#dce5f0') }
+                    Blank().width(8).height(8).borderRadius(4).backgroundColor(item.block.kind === 'thinking' ? $r('app.color.primary_fill') : (toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) === '已完成' ? $r('app.color.badge_success') : $r('app.color.badge_warning')))
+                    if (itemIndex < visibleSteps(this.selectedActivity as ActivityFeedGroup).length - 1) { Blank().width(1).layoutWeight(1).backgroundColor($r('app.color.border')) }
                   }.width(10).height('100%').padding({ top: 6 })
                   Column({ space: 4 }) {
                     Row({ space: 8 }) {
                       Text(blockTitle(item.block, item.requestId, toolNamesByTurn(this.messages))).fontSize(15).layoutWeight(1).maxLines(1)
                       if (item.block.kind === 'tool_use') {
                         Text(toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) === '已完成' ? '成功' : (toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) ?? '执行中'))
-                          .fontSize(12).fontColor('#ffffff').backgroundColor(toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) === '已完成' ? '#00b578' : '#b88020').borderRadius(12).padding({ left: 8, right: 8, top: 2, bottom: 2 })
+                          .fontSize(12).fontColor(Color.White).backgroundColor(toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) === '已完成' ? $r('app.color.badge_success') : $r('app.color.badge_warning')).borderRadius(12).padding({ left: 8, right: 8, top: 2, bottom: 2 })
                       }
-                      Text('›').fontSize(22).fontColor('#bfbfbf')
+                      Text('›').fontSize(22).fontColor($r('app.color.text_secondary'))
                     }.width('100%')
                     if (item.block.kind === 'tool_use' && (item.block.preview ?? '').length > 0) {
-                      Text(item.block.preview ?? '').fontSize(13).fontColor('#8c8c8c').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+                      Text(item.block.preview ?? '').fontSize(13).fontColor($r('app.color.text_secondary')).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                     }
                   }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                 }.width('100%').height(itemIndex === visibleSteps(this.selectedActivity as ActivityFeedGroup).length - 1 ? 74 : 100).padding({ left: 20, right: 20, top: 18 }).alignItems(VerticalAlign.Top).onClick(() => { this.selectedStep = itemIndex })
               } else if (this.selectedStep === itemIndex) {
                 Column({ space: 18 }) {
-                  Text(item.block.kind === 'thinking' ? '内容' : item.block.kind === 'tool_use' ? '输入' : '结果').fontSize(13).fontColor('#8c8c8c').width('100%')
-                  Text(blockBody(item.block)).fontSize(15).fontColor('#333333').copyOption(CopyOptions.LocalDevice).width('100%')
+                  Text(item.block.kind === 'thinking' ? '内容' : item.block.kind === 'tool_use' ? '输入' : '结果').fontSize(13).fontColor($r('app.color.text_secondary')).width('100%')
+                  Text(blockBody(item.block)).fontSize(15).fontColor($r('app.color.text')).copyOption(CopyOptions.LocalDevice).width('100%')
                   if (item.block.kind === 'tool_use') {
                     ForEach((this.selectedActivity as ActivityFeedGroup).blocks, (result: BlockFeedMessage) => {
                       if (result.block.kind === 'tool_result' && item.block.kind === 'tool_use' && result.block.toolUseId === item.block.toolUseId) {
-                        Text('结果').fontSize(13).fontColor('#8c8c8c').width('100%')
-                        Text(blockBody(result.block)).fontSize(15).fontColor('#333333').copyOption(CopyOptions.LocalDevice).width('100%')
+                        Text('结果').fontSize(13).fontColor($r('app.color.text_secondary')).width('100%')
+                        Text(blockBody(result.block)).fontSize(15).fontColor($r('app.color.text')).copyOption(CopyOptions.LocalDevice).width('100%')
                       }
                     }, (result: BlockFeedMessage) => result.block.id)
                   }
@@ -290,7 +290,7 @@ export struct ActivityOverlay {
             }, (item: BlockFeedMessage, itemIndex: number) => `${itemIndex}-${item.block.id}`)
           }.width('100%').alignItems(HorizontalAlign.Start)
         }.width('100%').constraintSize({ maxHeight: this.pageHeight * 0.72 }).align(Alignment.TopStart)
-      }.padding({ bottom: 16 }).width('100%').backgroundColor('#ffffff').borderRadius({ topLeft: 24, topRight: 24 })
+      }.padding({ bottom: 16 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius({ topLeft: 24, topRight: 24 })
     }
     }.width('100%').height('100%')
   }

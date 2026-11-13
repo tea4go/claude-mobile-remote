@@ -20,13 +20,13 @@ export struct ActionMenu {
     Scroll() {
       Column({ space: 8 }) {
         Text(this.title).fontSize(18).fontWeight(FontWeight.Medium)
-          .fontColor('#252525').width('100%').padding({ top: 4, bottom: 12 })
+          .fontColor($r('app.color.text')).width('100%').padding({ top: 4, bottom: 12 })
         ForEach(this.items, (item: ActionMenuItem) => {
           Button({ type: ButtonType.Normal }) {
-            Text(item.title).fontSize(16).fontColor(item.danger === true ? '#d4380d' : '#252525')
+            Text(item.title).fontSize(16).fontColor(item.danger === true ? $r('app.color.danger') : $r('app.color.text'))
               .width('100%').textAlign(TextAlign.Start)
           }.width('100%').constraintSize({ minHeight: 52 }).padding({ left: 16, right: 16, top: 14, bottom: 14 })
-            .backgroundColor('#f2f2f7').borderRadius(12).hoverEffect(HoverEffect.Highlight)
+            .backgroundColor($r('app.color.surface_subtle')).borderRadius(12).hoverEffect(HoverEffect.Highlight)
             .enabled(item.enabled !== false).onClick(() => { this.onClose(); item.action() })
         }, (item: ActionMenuItem) => item.title)
         Button('关闭', { type: ButtonType.Normal }).width('100%').height(44).fontSize(16)
@@ -34,6 +34,6 @@ export struct ActionMenu {
           .hoverEffect(HoverEffect.Highlight).onClick(() => this.onClose())
       }.padding(16).width('100%').alignItems(HorizontalAlign.Start)
     }.constraintSize({ maxHeight: '80%' }).width('92%').align(Alignment.TopStart)
-      .backgroundColor('#ffffff').borderRadius(20).clip(true).margin({ bottom: 12 }).transition(pageFade())
+      .backgroundColor($r('app.color.surface')).borderRadius(20).clip(true).margin({ bottom: 12 }).transition(pageFade())
   }
 }

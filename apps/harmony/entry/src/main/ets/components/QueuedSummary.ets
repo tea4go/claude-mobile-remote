@@ -13,7 +13,7 @@ export struct QueuedSummary {
     Column({ space: 8 }) {
       ForEach(this.queuedRequests, (item: QueuedRequest, index: number) => {
         Column({ space: 6 }) {
-          Text(`${index + 1} · ${item.source === 'terminal' ? '电脑端' : '手机端'}`).fontSize(12).fontColor('#777777').width('100%')
+          Text(`${index + 1} · ${item.source === 'terminal' ? '电脑端' : '手机端'}`).fontSize(12).fontColor($r('app.color.text_secondary')).width('100%')
           Text(item.preview).fontSize(14).maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
           Row() {
             Blank()
@@ -21,10 +21,10 @@ export struct QueuedSummary {
               Button('引导', { type: ButtonType.Normal }).height(44).fontColor(PRIMARY).backgroundColor(Color.Transparent)
                 .enabled(this.cancelAllowed).onClick(() => this.onSteerQueued(item.requestId))
             }
-            Button('取消排队', { type: ButtonType.Normal }).height(44).fontColor('#b3261e').backgroundColor(Color.Transparent)
+            Button('取消排队', { type: ButtonType.Normal }).height(44).fontColor($r('app.color.danger')).backgroundColor(Color.Transparent)
               .enabled(this.cancelAllowed).onClick(() => this.onCancelQueued(item.requestId))
           }.width('100%')
-        }.padding(12).width('100%').backgroundColor('#f4f8ff').borderRadius(12)
+        }.padding(12).width('100%').backgroundColor($r('app.color.surface_selected')).borderRadius(12)
       }, (item: QueuedRequest) => item.requestId)
     }.id('queue-summary').width('100%').alignItems(HorizontalAlign.Start)
   }

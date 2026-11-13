@@ -1,4 +1,4 @@
-// Shared visual values in logical units.
-export const PAGE_BACKGROUND: string = '#f4f6fa'
-export const PRIMARY: string = '#3478f6'
-export const SECONDARY: string = '#748198'
+// Semantic resources follow the system light/dark color configuration.
+export const PAGE_BACKGROUND: Resource = $r('app.color.page_bg')
+export const PRIMARY: Resource = $r('app.color.primary')
+export const SECONDARY: Resource = $r('app.color.text_secondary')

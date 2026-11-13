@@ -99,7 +99,7 @@ export struct StatusBar {
   build() {
     Row({ space: 4 }) {
       Text(`● ${connectionLabel(this.state.connection)} · ${this.statusText()}`).id('connection-state').fontSize(11)
-        .fontColor(this.state.connection === ConnectionStage.READY ? '#36a574' : '#748198').maxLines(1)
+        .fontColor(this.state.connection === ConnectionStage.READY ? $r('app.color.success') : $r('app.color.text_secondary')).maxLines(1)
     }.justifyContent(FlexAlign.Center)
   }
 }

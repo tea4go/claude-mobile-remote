@@ -1,5 +1,11 @@
 # HarmonyOS 后台推送联调记录
 
+## 2026-11-13 后续验证
+
+- 华为后台“工作事项提醒”权益已审核通过；服务端 Harmony 载荷由 MARKETING 改为 WORK，其他平台和协议未变。`GOFLAGS=-buildvcs=false go test -race ./push ./cmd/notify-server` 通过。
+- 新版已部署 edo，服务 active，`/healthz` 返回 204；用户确认 Harmony 推送验证通过。用户未逐项说明审批及任务完成通知各自的验证结果。
+- iOS TestFlight 1.0（12）桌面使用新版图标，通知曾显示旧图标；用户重启 iPhone 后确认恢复。本次未修改 iOS 代码或图标资源。
+
 2026-11-10，用户要求恢复 HarmonyOS 系统推送。沿用 WhaleTerm → edo HTTPS → 极光 → 华为 Push Kit，通知仅含固定事件类型和不透明路由；点击只定位本地有效配对。新增 Harmony 平台登记与独立路由，iOS 旧登记兼容，Android 使用原凭据。Harmony SDK 仅在用户开启后台推送并允许系统通知后初始化。
 
 - 华为应用包名和应用级 Client ID 已核对，推送服务开启。用户授权项目级服务账号及向极光上传密钥；新文件所属项目与应用一致，极光 Harmony 配置回显包名、标题、Client ID 和文件名，厂商通道已开启。用户表示误建于其他同名项目的凭证已删除。

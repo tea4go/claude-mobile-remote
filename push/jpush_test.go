@@ -118,7 +118,7 @@ func TestHarmonyPayloadScoped(t *testing.T) {
 				} `json:"intent"`
 			} `json:"notification"`
 		}
-		if json.NewDecoder(r.Body).Decode(&body) != nil || strings.Join(body.Platform, ",") != "hmos" || len(body.Notification) != 1 || body.Notification["hmos"].Intent.URL != "cmr-push://notification/"+topic || body.Notification["hmos"].Category != "MARKETING" || body.Notification["hmos"].Title != "ccBuddy" {
+		if json.NewDecoder(r.Body).Decode(&body) != nil || strings.Join(body.Platform, ",") != "hmos" || len(body.Notification) != 1 || body.Notification["hmos"].Intent.URL != "cmr-push://notification/"+topic || body.Notification["hmos"].Category != "WORK" || body.Notification["hmos"].Title != "ccBuddy" {
 			t.Error("invalid Harmony notification")
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))}, nil

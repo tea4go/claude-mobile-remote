@@ -12,7 +12,7 @@ export struct SelfCheckPanel {
       if (this.error.length > 0) {
         Text(this.error)
           .fontSize(14)
-          .fontColor('#c0392b')
+          .fontColor($r('app.color.danger'))
       } else if (this.results.length > 0) {
         ForEach(this.results, (item: string) => {
           Text(`- ${item}`)
@@ -28,7 +28,7 @@ export struct SelfCheckPanel {
     .padding(16)
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .backgroundColor('#f4f6f8')
+    .backgroundColor($r('app.color.surface_subtle'))
     .borderRadius(12)
   }
 }

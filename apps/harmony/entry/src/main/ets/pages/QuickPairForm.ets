@@ -33,7 +33,7 @@ struct VerifyDialog {
         Button('取消').layoutWeight(1).onClick(() => this.onCancel())
         Button('验证并连接').layoutWeight(1).enabled(this.code.length === 6).onClick(() => this.onVerify())
       }.width('100%')
-    }.padding(24).width('90%').backgroundColor(Color.White).borderRadius(18)
+    }.padding(24).width('90%').backgroundColor($r('app.color.surface')).borderRadius(18)
   }
 }
 
@@ -151,16 +151,16 @@ export struct QuickPairForm {
   build() {
     Column({ space: 16 }) {
       Row() {
-        TextInput({ text: this.ip, placeholder: '请输入IP' }).layoutWeight(1).height(54).backgroundColor(Color.White)
+        TextInput({ text: this.ip, placeholder: '请输入IP' }).layoutWeight(1).height(54).backgroundColor($r('app.color.surface'))
           .enabled(this.phase === 'idle' && !this.disabled).onChange((value: string) => { this.ip = value; this.legacy = '' })
           .onPaste((value: string, event: PasteEvent) => { event.preventDefault?.(); this.acceptInput(value) })
         PasteButton({ icon: PasteIconStyle.LINES, buttonType: ButtonType.Normal })
-          .width(44).height(44).backgroundColor('#eaf3ff').fontColor(PRIMARY).enabled(this.phase === 'idle' && !this.disabled)
+          .width(44).height(44).backgroundColor($r('app.color.surface_blue')).fontColor(PRIMARY).enabled(this.phase === 'idle' && !this.disabled)
           .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => { if (result === PasteButtonOnClickResult.SUCCESS) void this.paste() })
-      }.width('100%').padding({ left: 8, right: 8 }).backgroundColor(Color.White).border({ width: 1, color: '#dfe6f1' }).borderRadius(15)
+      }.width('100%').padding({ left: 8, right: 8 }).backgroundColor($r('app.color.surface')).border({ width: 1, color: $r('app.color.border') }).borderRadius(15)
       Text('请与 PC 配对窗口核对；手机所在网络需要能访问此地址。不同路由器共用宽带不代表设备能够互通。').fontSize(13).fontColor(SECONDARY).width('100%')
-      Button('连接').width('100%').height(48).margin({ top: 52 }).backgroundColor(PRIMARY).enabled(!this.disabled && this.phase === 'idle').onClick(() => this.start())
-      Button('扫描二维码').width('100%').height(48).fontColor(PRIMARY).backgroundColor(Color.White).border({ width: 1, color: PRIMARY }).enabled(!this.disabled && this.phase === 'idle').onClick(() => this.onScan())
+      Button('连接').fontColor(Color.White).width('100%').height(48).margin({ top: 52 }).backgroundColor($r('app.color.primary_fill')).enabled(!this.disabled && this.phase === 'idle').onClick(() => this.start())
+      Button('扫描二维码').width('100%').height(48).fontColor(PRIMARY).backgroundColor($r('app.color.surface')).border({ width: 1, color: PRIMARY }).enabled(!this.disabled && this.phase === 'idle').onClick(() => this.onScan())
     }.width('100%')
   }
 }

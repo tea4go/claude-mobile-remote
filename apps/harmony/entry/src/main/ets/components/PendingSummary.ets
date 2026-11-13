@@ -44,8 +44,8 @@ function toggleMultiSelect(values: Array<string>, label: string): Array<string> 
   return next
 }
 
-function optionBackground(selected: boolean): string {
-  return selected ? '#f0f5ff' : '#ffffff'
+function optionBackground(selected: boolean): Resource {
+  return selected ? $r('app.color.surface_selected') : $r('app.color.surface')
 }
 
 @Component
@@ -117,26 +117,26 @@ export struct PendingSummary {
           .fontSize(13)
           .width('100%')
           .padding(10)
-          .backgroundColor('#f2f2f7')
+          .backgroundColor($r('app.color.surface_subtle'))
           .borderRadius(8)
       }
 
       Column({ space: 8 }) {
-        Button('本次允许', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor('#1677ff').backgroundColor('#eef5ff').borderRadius(8)
+        Button('本次允许', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor($r('app.color.primary')).backgroundColor($r('app.color.surface_blue')).borderRadius(8)
           .enabled(this.actionEnabled)
           .onClick(() => {
             this.onAllowOnce()
           })
 
         if (action.allowSessionAvailable) {
-          Button('本会话允许', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor('#1677ff').backgroundColor('#eef5ff').borderRadius(8)
+          Button('本会话允许', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor($r('app.color.primary')).backgroundColor($r('app.color.surface_blue')).borderRadius(8)
             .enabled(this.actionEnabled)
             .onClick(() => {
               this.onAllowSession()
             })
         }
 
-        Button('拒绝', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor('#d4380d').backgroundColor('#fff1f0').borderRadius(8)
+        Button('拒绝', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor($r('app.color.danger')).backgroundColor($r('app.color.surface_danger')).borderRadius(8)
           .enabled(this.actionEnabled)
           .onClick(() => {
             this.onDeny()
@@ -152,7 +152,7 @@ export struct PendingSummary {
     Column({ space: 8 }) {
       Text(question.header).copyOption(CopyOptions.LocalDevice)
         .fontSize(12)
-        .fontColor('#3478f6')
+        .fontColor($r('app.color.primary'))
         .width('100%')
 
       Text(question.question).copyOption(CopyOptions.LocalDevice)
@@ -172,7 +172,7 @@ export struct PendingSummary {
       } else {
         ForEach(question.options, (option: QuestionOption) => {
           Row({ space: 10 }) {
-            Stack() { if (this.optionSelected(question.questionId, option.label)) { Text(question.multiSelect ? '✓' : '●').fontSize(question.multiSelect ? 15 : 12).fontColor(question.multiSelect ? '#ffffff' : '#3478f6') } }.width(22).height(22).backgroundColor(question.multiSelect && this.optionSelected(question.questionId, option.label) ? '#3478f6' : '#ffffff').border({ width: 1, color: this.optionSelected(question.questionId, option.label) ? '#3478f6' : '#b9c4d2' }).borderRadius(question.multiSelect ? 5 : 11)
+            Stack() { if (this.optionSelected(question.questionId, option.label)) { Text(question.multiSelect ? '✓' : '●').fontSize(question.multiSelect ? 15 : 12).fontColor(question.multiSelect ? Color.White : $r('app.color.primary')) } }.width(22).height(22).backgroundColor(question.multiSelect && this.optionSelected(question.questionId, option.label) ? $r('app.color.primary_fill') : $r('app.color.surface')).border({ width: 1, color: this.optionSelected(question.questionId, option.label) ? $r('app.color.primary_fill') : $r('app.color.border') }).borderRadius(question.multiSelect ? 5 : 11)
             Column({ space: 4 }) {
               Text(option.label).fontSize(14).fontWeight(this.optionSelected(question.questionId, option.label) ? FontWeight.Medium : FontWeight.Regular).width('100%')
               if (option.description.length > 0) { Text(option.description).fontSize(12).opacity(0.7).width('100%') }
@@ -183,7 +183,7 @@ export struct PendingSummary {
           .alignItems(VerticalAlign.Center)
           .backgroundColor(optionBackground(this.optionSelected(question.questionId, option.label)))
           .borderRadius(10)
-          .border({ width: 1, color: this.optionSelected(question.questionId, option.label) ? '#d0dfff' : '#ffffff' })
+          .border({ width: 1, color: this.optionSelected(question.questionId, option.label) ? $r('app.color.border') : $r('app.color.surface') })
           .onClick(() => {
             if (!this.actionEnabled) {
               return
@@ -220,7 +220,7 @@ export struct PendingSummary {
           }, (question: Question) => question.questionId)
 
           if (this.showSubmit) {
-          Button('提交回答', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor('#1677ff').backgroundColor('#eef5ff').borderRadius(8)
+          Button('提交回答', { type: ButtonType.Normal }).width('100%').height(44).fontSize(14).fontColor($r('app.color.primary')).backgroundColor($r('app.color.surface_blue')).borderRadius(8)
             .enabled(this.actionEnabled && this.answersReady)
             .onClick(() => {
               this.onSubmitAnswers()
@@ -233,7 +233,7 @@ export struct PendingSummary {
     .padding(0)
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .backgroundColor('#ffffff')
+    .backgroundColor($r('app.color.surface'))
     .borderRadius(12)
   }
 }

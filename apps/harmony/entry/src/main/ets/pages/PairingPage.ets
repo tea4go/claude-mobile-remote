@@ -65,14 +65,14 @@ export struct PairingPage {
     Stack() {
     Column() {
       Row() {
-        if (this.canBack) { Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).fontSize(30).fontColor(SECONDARY).backgroundColor('#ffffff').borderRadius(22).accessibilityText('返回').onClick(() => this.onBack()) }
+        if (this.canBack) { Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).fontSize(30).fontColor(SECONDARY).backgroundColor($r('app.color.surface')).borderRadius(22).accessibilityText('返回').onClick(() => this.onBack()) }
         if (!this.canBack) { Blank().width(44) }
         Text('ccBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
         Button('设置', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onSettings())
       }.width('100%').height(56).padding({ left: 8, right: 8 })
       Scroll() {
         Column({ space: 16 }) {
-          Button('• 体验演示（无需连接电脑）', { type: ButtonType.Normal }).id('open-demo-button').height(36).fontSize(13).fontColor(PRIMARY).backgroundColor('#e9f1ff').borderRadius(18).alignSelf(ItemAlign.Center).enabled(!this.scanning && !this.connecting()).onClick(() => this.onDemo())
+          Button('• 体验演示（无需连接电脑）', { type: ButtonType.Normal }).id('open-demo-button').height(36).fontSize(13).fontColor(PRIMARY).backgroundColor($r('app.color.surface_blue')).borderRadius(18).alignSelf(ItemAlign.Center).enabled(!this.scanning && !this.connecting()).onClick(() => this.onDemo())
           Text('连接 Claude 会话').fontSize(30).fontWeight(FontWeight.Bold).width('100%')
           if (this.projectCwd.length > 0) { Text(`请扫描目标电脑和目录：${this.projectCwd}`).fontSize(13).fontColor(PRIMARY).width('100%') }
           QuickPairForm({ disabled: !this.nativeReady || this.scanning || this.connecting() || this.saving,

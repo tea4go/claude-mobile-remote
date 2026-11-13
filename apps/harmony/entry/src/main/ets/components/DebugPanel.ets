@@ -51,13 +51,13 @@ export struct DebugPanel {
         Column({ space: 2 }) {
           ForEach(this.entries, (item: LogEntry) => {
             Column({ space: 2 }) {
-              Text(`${new Date(item.time).toLocaleTimeString()} · ${item.code}`).fontSize(11).fontColor('#666666').width('100%')
+              Text(`${new Date(item.time).toLocaleTimeString()} · ${item.code}`).fontSize(11).fontColor($r('app.color.text_secondary')).width('100%')
               Text(`${logDescription(item.code)} ${item.detail}`).fontSize(12).width('100%')
-            }.padding(6).backgroundColor('#f3f4f6').borderRadius(4).width('100%')
+            }.padding(6).backgroundColor($r('app.color.surface_subtle')).borderRadius(4).width('100%')
           }, (item: LogEntry, index: number) => `${index}-${item.time}`)
           if (this.entries.length === 0) { Text('暂无日志；不采集凭证、会话正文或原始异常').fontSize(12).padding(12) }
         }.width('100%')
       }.layoutWeight(1).width('100%')
-    }.padding(10).height('75%').width('100%').backgroundColor('#ffffff').borderRadius(16)
+    }.padding(10).height('75%').width('100%').backgroundColor($r('app.color.surface')).borderRadius(16)
   }
 }
