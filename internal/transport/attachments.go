@@ -1,6 +1,10 @@
 package transport
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -98,4 +102,89 @@ func stageAttachments(root string, text string, items []protocol.Attachment) (st
 		return "", nil, nil, protocol.ErrInvalidInput
 	}
 	return prompt.String(), paths, cleanup, nil
+}
+
+// imageManifest binds the server-generated upload directory to exactly one
+// session. It never contains a client-provided filesystem path.
+type imageManifest struct {
+	SessionHash string              `json:"sessionHash"`
+	Images      []imageManifestItem `json:"images"`
+}
+type imageManifestItem struct {
+	File      string `json:"file"`
+	Name      string `json:"name"`
+	MediaType string `json:"mediaType"`
+}
+
+func sessionHash(sessionID string) string {
+	sum := sha256.Sum256([]byte(sessionID))
+	return hex.EncodeToString(sum[:])
+}
+
+// registerStagedImages writes only metadata into the existing seven-day upload
+// directory. An empty reference means that item is not an image.
+func registerStagedImages(sessionID string, paths []string, items []protocol.Attachment) ([]string, error) {
+	if len(paths) == 0 || len(paths) != len(items) {
+		return nil, protocol.ErrInternal
+	}
+	dir := filepath.Dir(paths[0])
+	manifest := imageManifest{SessionHash: sessionHash(sessionID), Images: make([]imageManifestItem, len(items))}
+	refs := make([]string, len(items))
+	for i, item := range items {
+		if filepath.Dir(paths[i]) != dir {
+			return nil, protocol.ErrInternal
+		}
+		switch item.MediaType {
+		case "image/jpeg", "image/png", "image/gif", "image/webp":
+			manifest.Images[i] = imageManifestItem{File: filepath.Base(paths[i]), Name: item.Name, MediaType: item.MediaType}
+			refs[i] = filepath.Base(dir) + ":" + strconv.Itoa(i)
+		}
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil || os.WriteFile(filepath.Join(dir, "images.json"), data, 0600) != nil {
+		return nil, protocol.ErrInternal
+	}
+	return refs, nil
+}
+
+// readStagedImage accepts an opaque upload reference, never a filesystem path.
+// Expiry is enforced even if no subsequent upload has triggered cache cleanup.
+func readStagedImage(root, sessionID, ref string) (protocol.Attachment, error) {
+	attachmentCacheMu.Lock()
+	defer attachmentCacheMu.Unlock()
+	parts := strings.Split(ref, ":")
+	if len(parts) != 2 || !strings.HasPrefix(parts[0], "upload-") || filepath.Base(parts[0]) != parts[0] || strings.ContainsAny(parts[0], "/\\") {
+		return protocol.Attachment{}, protocol.ErrInvalidInput
+	}
+	index, err := strconv.Atoi(parts[1])
+	if err != nil || index < 0 || index >= protocol.MaxAttachments || strconv.Itoa(index) != parts[1] {
+		return protocol.Attachment{}, protocol.ErrInvalidInput
+	}
+	dir := filepath.Join(root, parts[0])
+	info, err := os.Lstat(dir)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || time.Since(info.ModTime()) > 7*24*time.Hour {
+		return protocol.Attachment{}, protocol.ErrInvalidInput
+	}
+	metadata, err := os.ReadFile(filepath.Join(dir, "images.json"))
+	if err != nil || len(metadata) > 4096 {
+		return protocol.Attachment{}, protocol.ErrInvalidInput
+	}
+	var manifest imageManifest
+	if json.Unmarshal(metadata, &manifest) != nil || manifest.SessionHash != sessionHash(sessionID) || index >= len(manifest.Images) {
+		return protocol.Attachment{}, protocol.ErrInvalidInput
+	}
+	item := manifest.Images[index]
+	if item.File == "" || filepath.Base(item.File) != item.File || !strings.HasPrefix(item.File, "attachment-") {
+		return protocol.Attachment{}, protocol.ErrInvalidInput
+	}
+	path := filepath.Join(dir, item.File)
+	info, err = os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > protocol.MaxAttachmentBytes {
+		return protocol.Attachment{}, protocol.ErrInvalidInput
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 || len(data) > protocol.MaxAttachmentBytes {
+		return protocol.Attachment{}, protocol.ErrInvalidInput
+	}
+	return protocol.Attachment{Name: item.Name, MediaType: item.MediaType, Data: base64.StdEncoding.EncodeToString(data)}, nil
 }

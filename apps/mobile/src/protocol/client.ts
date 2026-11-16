@@ -26,6 +26,7 @@ export type ActionResolution =
 
 export type ClientEvent =
   | { kind: 'connectionStateChanged'; connection: 'connecting' | 'authenticating' | 'subscribing' | 'connected' }
+  | { kind: 'imageResult'; ref: string; image?: Attachment }
   | { kind: 'snapshot'; snapshot: import('./types').SessionSnapshot }
   | { kind: 'event'; event: import('./types').DomainEvent }
   // 服务端不支持通知（B2 §4.4）：属于提示，不终止连接。通知经服务端
@@ -36,6 +37,7 @@ export type ClientEvent =
       commandId: string
       requestId: string
       accepted: boolean
+      imageRefs?: string[]
       code: string
       message: string
     }
@@ -316,6 +318,12 @@ export class ProtocolClient {
     socket.close()
   }
 
+  getImage(ref: string): boolean {
+    if (this.stage !== 'ready' || this.socket === null || this.wireVersion < 10) return false
+    this.socket.send(envelope(this.wireVersion, 'image_get', this.payload.sessionId, '', '', 0, { ref }))
+    return true
+  }
+
   sendAttachments(text: string, attachments: Attachment[], commandId: string): SendResult {
     return this.sendCommand(commandId, { kind: 'send_attachments', text, attachments })
   }
@@ -435,7 +443,7 @@ export class ProtocolClient {
       return
     }
 
-    const legacyVersion = message.version >= 2 && message.version <= 7
+    const legacyVersion = message.version >= 2 && message.version <= 9
     if (legacyVersion && message.version < this.wireVersion && this.stage === 'authenticating' && message.type === 'hello_ack') {
       this.wireVersion = message.version
     }
@@ -448,7 +456,7 @@ export class ProtocolClient {
     }
 
     if (
-      (message.type === 'pong' || message.type === 'snapshot' ||
+      (message.type === 'image_result' || message.type === 'pong' || message.type === 'snapshot' ||
         message.type === 'event' ||
         message.type === 'unsupported' ||
         message.type === 'command_result' ||
@@ -461,6 +469,10 @@ export class ProtocolClient {
     }
 
     switch (message.type) {
+      case 'image_result':
+        if (this.stage !== 'ready') { this.terminate('protocolError'); return }
+        this.emit({ kind: 'imageResult', ...message.payload })
+        return
       case 'pong':
         if (this.stage !== 'ready' || this.pongDeadline === 0) { this.terminate('protocolError'); return }
         if (Date.now() >= this.pongDeadline) { this.checkConnection(); return }
@@ -530,6 +542,7 @@ export class ProtocolClient {
           commandId: message.commandId,
           requestId: message.requestId,
           accepted: message.payload.accepted,
+          imageRefs: message.payload.imageRefs,
           code: message.payload.code,
           message: message.payload.message,
         })

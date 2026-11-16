@@ -28,8 +28,10 @@ function displayMessage(value: unknown): Message | null {
   if (value.kind === 'input' || value.kind === 'claude') {
     if (!text(value.text) || (value.source !== 'mobile' && value.source !== 'terminal')) return null
     if (value.kind === 'input') {
-      const names = Array.isArray(value.attachments) ? value.attachments.filter(object).map((item) => text(item.name, 255) ? item.name : '').filter(Boolean) : []
-      return { kind: 'input', requestId: requestId || null, source: value.source, text: value.text + (names.length ? `\n[附件：${names.join('、')}；预览未缓存]` : ''), status: value.status === 'unknown' ? 'unknown' : 'accepted' }
+      const items = Array.isArray(value.attachments) ? value.attachments.filter(object) : []
+      const attachments = items.filter(item => text(item.name, 255) && text(item.mediaType, 128) && text(item.ref, 128) && !!item.ref && /^image\/(jpeg|png|gif|webp)$/.test(item.mediaType as string)).map(item => ({ name: item.name as string, mediaType: item.mediaType as string, ref: item.ref as string, data: '' }))
+      const names = items.filter(item => !attachments.some(a => a.name === item.name && a.ref === item.ref)).map(item => text(item.name, 255) ? item.name : '').filter(Boolean)
+      return { kind: 'input', requestId: requestId || null, source: value.source, text: value.text + (names.length ? `\n[附件：${names.join('、')}；预览未缓存]` : ''), ...(attachments.length ? { attachments } : {}), status: value.status === 'unknown' ? 'unknown' : 'accepted' }
     }
     return { kind: 'claude', requestId, source: value.source, text: value.text,
       status: value.status === 'failed' || value.status === 'cancelled' ? value.status : 'done', error: null }

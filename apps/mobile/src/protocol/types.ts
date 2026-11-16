@@ -2,7 +2,7 @@
 // 组件不得复制消息定义，一律从本文件导入。
 
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 9
+export const PREFERRED_PROTOCOL_VERSION = 10
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
@@ -138,6 +138,8 @@ export interface UnsupportedPayload {
 // ---- envelope（B2 internal/transport/protocol.go）----
 
 export type MessageType =
+  | 'image_get'
+  | 'image_result'
   | 'ping'
   | 'pong'
   | 'hello'
@@ -159,6 +161,7 @@ export type MessageType =
 
 // 消息方向表（A4 设计 §5、B2 §4.4）：客户端→服务端、服务端→客户端。
 export const CLIENT_TO_SERVER_TYPES: ReadonlySet<string> = new Set([
+  'image_get',
   'ping',
   'hello',
   'subscribe',
@@ -169,6 +172,7 @@ export const CLIENT_TO_SERVER_TYPES: ReadonlySet<string> = new Set([
 ])
 
 export const SERVER_TO_CLIENT_TYPES: ReadonlySet<string> = new Set([
+  'image_result',
   'pong',
   'hello_ack',
   'subscribed',
@@ -282,6 +286,7 @@ export interface EventPayload {
 }
 
 export interface CommandResultPayload {
+  imageRefs?: string[]
   accepted: boolean
   code: string
   message: string
@@ -338,6 +343,7 @@ export type ServerMessage = {
   requestId: string
   seq: number
 } & (
+  | { type: 'image_result'; payload: { ref: string; image?: Attachment } }
   | { type: 'pong' | 'hello_ack' | 'subscribed' | 'unsubscribed'; payload: Record<string, never> }
   | { type: 'snapshot'; payload: SnapshotPayload }
   | { type: 'event'; payload: EventPayload }
@@ -347,5 +353,5 @@ export type ServerMessage = {
   | { type: 'error'; payload: ErrorPayload }
 )
 
-export interface Attachment { name: string; mediaType: string; data: string }
+export interface Attachment { name: string; mediaType: string; data: string; ref?: string }
 export type AttachmentSendResult = 'accepted' | 'rejected' | 'unknown'

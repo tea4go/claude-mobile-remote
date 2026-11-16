@@ -18,6 +18,7 @@ import {
   connectionFailed,
   connectionStateChanged,
   eventReceived,
+  imageRestored,
   noticeReceived,
   permissionModeSent,
   queuedCancelSent,
@@ -69,6 +70,8 @@ export class SessionRuntimeManager {
     this.attachmentResults.delete(sessionId)
     pending.resolve(result)
   }
+  private readonly imageQueues = new Map<string, string[]>()
+  private readonly imagePending = new Map<string, string>()
   private readonly reminders = new ReminderPolicy()
   onReminder: ((sessionId: string, seq: number, kind: ReminderKind) => void) | null = null
   viewedSession: () => string | null = () => null
@@ -271,12 +274,29 @@ export class SessionRuntimeManager {
     return result.ok
   }
 
+  private nextImage(sessionId: string): void {
+    if (this.imagePending.has(sessionId)) return
+    const ref = this.imageQueues.get(sessionId)?.shift()
+    if (!ref) return
+    const client = this.entries.get(sessionId)?.client
+    if (client?.getImage(ref)) this.imagePending.set(sessionId, ref)
+  }
+
   private handleEvent(sessionId: string, event: ClientEvent): void {
     switch (event.kind) {
+      case 'imageResult':
+        if (this.imagePending.get(sessionId) !== event.ref) return
+        this.imagePending.delete(sessionId)
+        if (event.image) this.store.getState().dispatchSession(sessionId, imageRestored(event.ref, event.image))
+        this.nextImage(sessionId)
+        return
       case 'snapshot':
         this.reminders.snapshot(sessionId, event.snapshot.seq)
         this.store.getState().dispatchSession(sessionId, snapshotReceived(event.snapshot))
         this.store.getState().markPairingStatus(sessionId, 'connected', this.now())
+        this.imagePending.delete(sessionId)
+        this.imageQueues.set(sessionId, [...new Set((this.store.getState().sessions[sessionId]?.messages ?? []).flatMap(message => message.kind === 'input' ? (message.attachments ?? []).filter(item => item.ref && !item.data).map(item => item.ref!) : []))])
+        this.nextImage(sessionId)
         {
           const pending = this.pendingManagement.get(sessionId)
           const entry = this.entries.get(sessionId)
@@ -317,6 +337,7 @@ export class SessionRuntimeManager {
           this.store.getState().dispatchSession(sessionId, commandAccepted({
             commandId: event.commandId,
             requestId: event.requestId,
+            imageRefs: event.imageRefs,
           }))
         } else if (event.accepted) {
           this.store.getState().dispatchSession(sessionId, connectionFailed({ kind: 'protocolError' }))
@@ -340,6 +361,8 @@ export class SessionRuntimeManager {
     const management = this.pendingManagement.get(sessionId)
     if (management !== undefined) this.onManagementResult?.(sessionId, management.operation, false, 'result_unknown')
     this.finishAttachment(sessionId, 'unknown')
+    this.imagePending.delete(sessionId)
+    this.imageQueues.delete(sessionId)
     const kind = info.kind === 'protocolError' ? 'protocolError' : 'disconnected'
     this.store.getState().dispatchSession(sessionId, connectionFailed({ kind }))
     if (info.pendingCommandId !== null) {

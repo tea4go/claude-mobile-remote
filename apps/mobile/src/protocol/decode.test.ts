@@ -325,8 +325,8 @@ describe('decodeServerMessage：非法 JSON 与基础结构', () => {
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 
-  test('version = 10（未来版本）拒绝', () => {
-    const envelope = baseEnvelope({ version: 10 })
+  test('version = 11（未来版本）拒绝', () => {
+    const envelope = baseEnvelope({ version: 11 })
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 

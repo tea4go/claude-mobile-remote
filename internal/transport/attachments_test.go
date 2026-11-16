@@ -150,3 +150,62 @@ func TestWebSocketAttachmentsCannotBypassPairingOrSession(t *testing.T) {
 		t.Fatal("unauthorized request wrote files")
 	}
 }
+
+func TestStagedImageReferenceIsSessionScopedAndExpires(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "cache")
+	items := []protocol.Attachment{testAttachment(), {Name: "notes.txt", MediaType: "text/plain", Data: base64.StdEncoding.EncodeToString([]byte("note"))}}
+	_, paths, cleanup, err := stageAttachments(root, "", items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	refs, err := registerStagedImages("session-a", paths, items)
+	if err != nil || len(refs) != 2 || refs[0] == "" || refs[1] != "" {
+		t.Fatalf("invalid references: %v %v", refs, err)
+	}
+	image, err := readStagedImage(root, "session-a", refs[0])
+	if err != nil || image != items[0] {
+		t.Fatalf("image mismatch: %v", err)
+	}
+	for _, ref := range []string{refs[0], "../secret:0", "upload-x:../0", "upload-x:4"} {
+		if _, err := readStagedImage(root, "session-b", ref); err == nil {
+			t.Fatal("unauthorized reference accepted")
+		}
+	}
+	ago := time.Now().Add(-8 * 24 * time.Hour)
+	if err := os.Chtimes(filepath.Dir(paths[0]), ago, ago); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readStagedImage(root, "session-a", refs[0]); err == nil {
+		t.Fatal("expired image accepted")
+	}
+}
+
+func TestImageRestorationOverVersion10WebSocket(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	fixture := newServerFixture(t, nil)
+	socket := fixture.dial(t)
+	writeVersionedTestEnvelope(t, socket, 10, TypeHello, "session-1", HelloPayload{PairToken: fixture.token})
+	_ = readTestEnvelope(t, socket)
+	writeVersionedTestEnvelope(t, socket, 10, TypeSubscribe, "session-1", struct{}{})
+	_ = readTestEnvelope(t, socket)
+	_ = readTestEnvelope(t, socket)
+	fixture.controller.submit = func(input protocol.Input) (string, error) { return "request", nil }
+	item := testAttachment()
+	env, _ := NewEnvelope(TypeCommand, "session-1", "upload", "", 0, CommandPayload{Kind: CommandSendAttachments, Attachments: []protocol.Attachment{item}})
+	env.Version = 10
+	data, _ := EncodeEnvelope(env)
+	if err := socket.WriteMessage(1, data); err != nil {
+		t.Fatal(err)
+	}
+	_, result := readCommandResult(t, socket, "upload")
+	if len(result.ImageRefs) != 1 || result.ImageRefs[0] == "" {
+		t.Fatalf("missing reference: %+v", result)
+	}
+	writeVersionedTestEnvelope(t, socket, 10, TypeImageGet, "session-1", ImageRequestPayload{Ref: result.ImageRefs[0]})
+	response := readTestEnvelope(t, socket)
+	var payload ImageResultPayload
+	if response.Type != TypeImageResult || DecodePayload(response, &payload) != nil || payload.Image == nil || *payload.Image != item {
+		t.Fatalf("image not restored: %+v", response)
+	}
+}

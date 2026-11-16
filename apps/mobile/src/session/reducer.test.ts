@@ -1166,3 +1166,13 @@ test('v9 运行中快照之后继续合并增量', () => {
   state = reducer(state, eventReceived(event('text_delta', 13, { requestId: 'r', text: 'after' })))
   expect(state.messages.find(m => m.kind === 'claude')).toMatchObject({ text: 'beforeafter' })
 })
+
+test('queued mixed input retains server image reference without changing ordinary files', () => {
+  let state = createInitialState()
+  state.messages = [{ kind: 'claude', requestId: 'running', source: 'terminal', status: 'streaming', text: '', error: null }]
+  const attachments = [{ name: 'photo.jpg', mediaType: 'image/jpeg', data: 'aGVsbG8=' }, { name: 'note.txt', mediaType: 'text/plain', data: 'bm90ZQ==' }]
+  state = reducer(state, commandSent({ commandId: 'upload', text: 'look', attachments }))
+  state = reducer(state, commandAccepted({ commandId: 'upload', requestId: 'queued', imageRefs: ['upload-123:0', ''] }))
+  expect(state.messages.find(m => m.kind === 'input')).toMatchObject({ requestId: 'queued', attachments: [{ ...attachments[0], ref: 'upload-123:0' }, attachments[1]] })
+  expect(state.queuedRequests.map(q => q.requestId)).toContain('queued')
+})

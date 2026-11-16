@@ -169,6 +169,21 @@ func (c *connection) readLoop() {
 				}
 				continue
 			}
+			if envelope.Type == TypeImageGet && envelope.SessionID == c.sessionID {
+				var payload ImageRequestPayload
+				if DecodePayload(envelope, &payload) != nil {
+					return
+				}
+				image, err := readStagedImage(filepath.Join(os.TempDir(), "cmr-attachments"), c.sessionID, payload.Ref)
+				result := ImageResultPayload{Ref: payload.Ref}
+				if err == nil {
+					result.Image = &image
+				}
+				if c.enqueue(TypeImageResult, "", "", 0, result) != nil {
+					return
+				}
+				continue
+			}
 			if envelope.Type == TypeUnsubscribe {
 				if !c.handleUnsubscribe(envelope) {
 					return
@@ -292,8 +307,11 @@ func (c *connection) handleCommand(envelope Envelope) bool {
 		return false
 	}
 
-	requestID, commandErr := c.dispatchCommand(payload)
+	requestID, refs, commandErr := c.dispatchCommand(payload)
 	resultPayload := CommandResultPayload{Accepted: commandErr == nil}
+	if c.version >= 10 && commandErr == nil {
+		resultPayload.ImageRefs = refs
+	}
 	resultRequestID := requestID
 	if commandErr != nil {
 		resultRequestID = ""
@@ -317,32 +335,42 @@ func (c *connection) handleCommand(envelope Envelope) bool {
 // reports the request ID an accepted result has to acknowledge. Every branch
 // goes through the Channel, so the transport never touches the SDK or the
 // pending permission callback itself.
-func (c *connection) dispatchCommand(payload CommandPayload) (string, error) {
+func (c *connection) dispatchCommand(payload CommandPayload) (string, []string, error) {
 	switch payload.Kind {
 	case CommandSendAttachments:
 		prompt, paths, cleanup, err := stageAttachments(filepath.Join(os.TempDir(), "cmr-attachments"), payload.Text, payload.Attachments)
 		if err != nil {
-			return "", err
+			return "", nil, err
+		}
+		var refs []string
+		if c.version >= 10 {
+			refs, err = registerStagedImages(c.sessionID, paths, payload.Attachments)
+			if err != nil {
+				cleanup()
+				return "", nil, err
+			}
 		}
 		requestID, err := c.subscriptionChannel.SubmitInput(c.context, protocol.Input{SessionID: c.sessionID, Source: protocol.InputMobile, Text: prompt, Display: &protocol.InputDisplay{Text: payload.Text, Attachments: payload.Attachments, StagedPaths: paths}})
 		if err != nil {
 			cleanup()
 		}
-		return requestID, err
+		return requestID, refs, err
 	case CommandSendText:
-		return c.subscriptionChannel.SubmitText(c.context, c.sessionID, payload.Text)
+		id, err := c.subscriptionChannel.SubmitText(c.context, c.sessionID, payload.Text)
+		return id, nil, err
 	case CommandResolveAction:
-		return c.resolveAction(payload)
+		id, err := c.resolveAction(payload)
+		return id, nil, err
 	case CommandCancelTurn:
-		return payload.RequestID, c.subscriptionChannel.CancelTurn(c.context, c.sessionID, payload.RequestID)
+		return payload.RequestID, nil, c.subscriptionChannel.CancelTurn(c.context, c.sessionID, payload.RequestID)
 	case CommandCancelQueued:
-		return payload.RequestID, c.subscriptionChannel.CancelQueued(c.context, c.sessionID, payload.RequestID)
+		return payload.RequestID, nil, c.subscriptionChannel.CancelQueued(c.context, c.sessionID, payload.RequestID)
 	case CommandSteerQueued:
-		return payload.RequestID, c.subscriptionChannel.SteerQueued(c.context, c.sessionID, payload.RequestID)
+		return payload.RequestID, nil, c.subscriptionChannel.SteerQueued(c.context, c.sessionID, payload.RequestID)
 	case CommandSetPermissionMode:
-		return c.sessionID, c.subscriptionChannel.SetPermissionMode(c.context, c.sessionID, payload.PermissionMode)
+		return c.sessionID, nil, c.subscriptionChannel.SetPermissionMode(c.context, c.sessionID, payload.PermissionMode)
 	default:
-		return "", protocolError(CodeInvalidCommand, "unknown command kind")
+		return "", nil, protocolError(CodeInvalidCommand, "unknown command kind")
 	}
 }
 
@@ -642,7 +670,7 @@ func (c *connection) enqueue(messageType MessageType, commandID, requestID strin
 	if err != nil {
 		return err
 	}
-	if messageType == TypeSnapshot {
+	if messageType == TypeSnapshot || messageType == TypeImageResult {
 		return c.outbox.EnqueueSnapshot(data)
 	}
 	return c.outbox.Enqueue(data)

@@ -203,7 +203,7 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
               <SelectableMessage selectionTone="inverse" style={{ background: '#3478f6', color: '#fff', borderRadius: 20, padding: '12px 16px' }}>
                 <MessageMarkdown text={inputDisplayText(message.text)} />
                 {message.attachments?.map((attachment, i) => <div key={i} style={{ marginTop: 6 }}>
-                  {/^image\/(jpeg|png|gif|webp)$/.test(attachment.mediaType) && <img alt={attachment.name} src={`data:${attachment.mediaType};base64,${attachment.data}`} style={{ display: 'block', maxWidth: '100%', maxHeight: 240, borderRadius: 8, objectFit: 'contain' }} />}
+                  {attachment.data && /^image\/(jpeg|png|gif|webp)$/.test(attachment.mediaType) && <img alt={attachment.name} src={`data:${attachment.mediaType};base64,${attachment.data}`} style={{ display: 'block', maxWidth: '100%', maxHeight: 240, borderRadius: 8, objectFit: 'contain' }} />}
                   <span style={{ fontSize: FONT_SIZE_COMPACT }}>{attachment.name}</span>
                 </div>)}
               </SelectableMessage>

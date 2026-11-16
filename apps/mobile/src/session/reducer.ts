@@ -243,7 +243,7 @@ export function noticeReceived(code: UnsupportedCode, seq: number) {
   return { type: 'noticeReceived', code, seq } as const
 }
 
-export function commandAccepted(info: { commandId: string; requestId: string }) {
+export function commandAccepted(info: { commandId: string; requestId: string; imageRefs?: string[] }) {
   return { type: 'commandAccepted', ...info } as const
 }
 
@@ -263,7 +263,10 @@ export function reset() {
   return { type: 'reset' } as const
 }
 
+export function imageRestored(ref: string, image: Attachment) { return { type: 'imageRestored', ref, image } as const }
+
 export type Action =
+  | ReturnType<typeof imageRestored>
   | ReturnType<typeof pairLoaded>
   | ReturnType<typeof sessionOpened>
   | ReturnType<typeof snapshotReceived>
@@ -663,6 +666,8 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
 
 export function reducer(state: MobileState, action: Action): MobileState {
   switch (action.type) {
+    case 'imageRestored':
+      return { ...state, messages: state.messages.map(message => message.kind !== 'input' || !message.attachments ? message : { ...message, attachments: message.attachments.map(item => item.ref === action.ref ? { ...item, data: action.image.data } : item) }) }
     case 'sessionOpened':
       return applyCanSend({
         ...(action.state ?? createInitialState()),
@@ -728,7 +733,7 @@ export function reducer(state: MobileState, action: Action): MobileState {
             source: 'mobile',
             requestId: action.requestId,
             text: pending.text,
-            attachments: pending.attachments,
+            attachments: pending.attachments?.map((item, index) => action.imageRefs?.[index] ? { ...item, ref: action.imageRefs[index] } : item),
             status: 'accepted',
           }
           next.messages = [...state.messages, accepted]

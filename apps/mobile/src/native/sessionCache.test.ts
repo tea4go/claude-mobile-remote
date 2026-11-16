@@ -96,3 +96,15 @@ test('cache failures are reported without modifying the connected runtime', asyn
   expect(store.getState().sessions.a!.messages).toEqual(state().messages)
   writer.dispose()
 })
+test('image references survive restart without persisting image bytes', () => {
+  const current = state()
+  current.messages = [{ kind: 'input', requestId: 'r', source: 'mobile', text: 'picture', status: 'accepted', attachments: [
+    { name: 'photo.png', mediaType: 'image/png', data: 'PRIVATE_IMAGE_BYTES', ref: 'upload-123:0' },
+    { name: 'notes.txt', mediaType: 'text/plain', data: 'PRIVATE_FILE_BYTES' },
+  ] }]
+  const encoded = encodeSessionCache('a', current, now)
+  expect(encoded).not.toMatch(/PRIVATE_IMAGE_BYTES|PRIVATE_FILE_BYTES/)
+  expect(decodeSessionCache(encoded, 'a', now)!.messages[0]).toMatchObject({
+    text: 'picture\n[附件：notes.txt；预览未缓存]', attachments: [{ name: 'photo.png', ref: 'upload-123:0', data: '' }],
+  })
+})

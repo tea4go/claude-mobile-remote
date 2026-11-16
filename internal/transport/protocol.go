@@ -15,7 +15,7 @@ import (
 
 // Version remains the v2 default for callers constructing legacy envelopes.
 const Version = 2
-const LatestVersion = 9
+const LatestVersion = 10
 
 var ErrInvalidMessage = errors.New("invalid protocol message")
 
@@ -62,6 +62,8 @@ func (e *ProtocolError) Unwrap() error {
 type MessageType string
 
 const (
+	TypeImageGet            MessageType = "image_get"
+	TypeImageResult         MessageType = "image_result"
 	TypePing                MessageType = "ping"
 	TypePong                MessageType = "pong"
 	TypeHello               MessageType = "hello"
@@ -143,10 +145,19 @@ type CommandPayload struct {
 	PermissionMode protocol.PermissionMode   `json:"permissionMode,omitempty"`
 }
 
+type ImageRequestPayload struct {
+	Ref string `json:"ref"`
+}
+type ImageResultPayload struct {
+	Ref   string               `json:"ref"`
+	Image *protocol.Attachment `json:"image,omitempty"`
+}
+
 type CommandResultPayload struct {
-	Accepted bool   `json:"accepted"`
-	Code     string `json:"code"`
-	Message  string `json:"message"`
+	ImageRefs []string `json:"imageRefs,omitempty"`
+	Accepted  bool     `json:"accepted"`
+	Code      string   `json:"code"`
+	Message   string   `json:"message"`
 }
 
 // ManagementResultPayload never enters a Session event stream. A successful
@@ -225,6 +236,21 @@ func ValidateEnvelope(envelope Envelope) error {
 	}
 
 	switch envelope.Type {
+	case TypeImageGet:
+		var payload ImageRequestPayload
+		if envelope.Version < 10 || envelope.CommandID != "" || envelope.RequestID != "" || envelope.Seq != 0 || DecodePayload(envelope, &payload) != nil || len(payload.Ref) == 0 || len(payload.Ref) > 128 {
+			return protocolError(CodeInvalidMessage, "invalid image request")
+		}
+	case TypeImageResult:
+		var payload ImageResultPayload
+		if envelope.Version < 10 || envelope.CommandID != "" || envelope.RequestID != "" || envelope.Seq != 0 || DecodePayload(envelope, &payload) != nil || len(payload.Ref) == 0 || len(payload.Ref) > 128 {
+			return protocolError(CodeInvalidMessage, "invalid image result")
+		}
+		if payload.Image != nil {
+			if _, err := protocol.DecodeAttachments([]protocol.Attachment{*payload.Image}); err != nil {
+				return protocolError(CodeInvalidMessage, "invalid image")
+			}
+		}
 	case TypeCreateSession, TypeStopSession:
 		if envelope.CommandID == "" || envelope.RequestID != "" || envelope.Seq != 0 || !isEmptyPayload(envelope) {
 			return protocolError(CodeInvalidMessage, "invalid management request")
@@ -298,6 +324,9 @@ func ValidateEnvelope(envelope Envelope) error {
 		var payload CommandResultPayload
 		if envelope.CommandID == "" || envelope.Seq != 0 || DecodePayload(envelope, &payload) != nil {
 			return protocolError(CodeInvalidMessage, "invalid command result")
+		}
+		if (envelope.Version < 10 && len(payload.ImageRefs) != 0) || len(payload.ImageRefs) > protocol.MaxAttachments || (!payload.Accepted && len(payload.ImageRefs) != 0) {
+			return protocolError(CodeInvalidMessage, "invalid image references")
 		}
 		if payload.Accepted && (envelope.RequestID == "" || payload.Code != "") {
 			return protocolError(CodeInvalidMessage, "invalid accepted command result")

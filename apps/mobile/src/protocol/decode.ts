@@ -688,8 +688,10 @@ function decodeCommandResultPayload(value: unknown): CommandResultPayload {
   if (!isObject(value)) fail('command_result payload must be an object')
   const accepted = value.accepted
   if (typeof accepted !== 'boolean') fail('field accepted must be a boolean')
+  if (value.imageRefs !== undefined && (!accepted || !Array.isArray(value.imageRefs) || value.imageRefs.length > 4 || !value.imageRefs.every((ref: unknown) => typeof ref === 'string' && ref.length <= 128))) fail('invalid image references')
   return {
     accepted,
+    ...(Array.isArray(value.imageRefs) && value.imageRefs.length <= 4 && value.imageRefs.every((ref: unknown) => typeof ref === 'string' && ref.length <= 128) ? { imageRefs: value.imageRefs as string[] } : {}),
     code: requireString(value, 'code'),
     message: requireString(value, 'message'),
   }
@@ -774,6 +776,13 @@ export function decodeServerMessage(text: string): ServerMessage {
   }
 
   switch (type) {
+    case 'image_result': {
+      if (version < 10 || envelope.commandId !== '' || envelope.requestId !== '' || envelope.seq !== 0 || typeof payload.ref !== 'string' || payload.ref.length > 128 || !payload.ref) fail('invalid image result')
+      if (payload.image === undefined) return { ...envelope, type, payload: { ref: payload.ref } }
+      const item = payload.image
+      if (!isObject(item) || typeof item.name !== 'string' || item.name.length > 255 || typeof item.mediaType !== 'string' || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(item.mediaType) || typeof item.data !== 'string' || item.data.length > Math.ceil(4 * 1024 * 1024 / 3) * 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(item.data) || item.data.length % 4 !== 0) fail('invalid image')
+      return { ...envelope, type, payload: { ref: payload.ref, image: { name: item.name, mediaType: item.mediaType, data: item.data } } }
+    }
     case 'pong':
       if (version < 6 || envelope.commandId !== '' || envelope.requestId !== '' || envelope.seq !== 0) fail('invalid heartbeat fields')
       if (Object.keys(payload).length > 0) fail('payload must be empty')
