@@ -1,4 +1,6 @@
 .pending-header { position: relative; padding-top: 25px !important; border-bottom: 1px solid #e5ebf3; }
+.pending-collapsed { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid #cfdeff; border-radius: 12px; background: #f1f6ff; color: #245db8; text-align: left; font-size: 14px; }
+.pending-collapsed span:last-child { margin-left: auto; font-size: 20px; }
 .pending-header::before { content: ''; position: absolute; top: 10px; left: calc(50% - 18px); width: 36px; height: 5px; border-radius: 4px; background: #d5deeb; }
 .pending-question { padding: 8px 0 14px; }
 .pending-question > div:nth-child(2) { font-weight: 600; color: #1e293b; }
@@ -8,6 +10,8 @@
 .pending-option--selected { background: #f1f6ff; border-color: #cfdeff; }
 .pending-footer { flex: 0 0 auto; padding: 12px 24px; background: #fff; }
 .pending-footer .adm-button { border-radius: 16px; min-height: 52px; font-weight: 600; }
+.pending-footer-actions { display: flex; gap: 10px; }
+.pending-footer-actions > * { flex: 1; min-width: 0; }
 .answer-echo { align-self: stretch; padding: 16px; background: white; border: 1px solid #e0e7f1; border-radius: 20px; color: #253148; }
 .answer-echo-title { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; }
 .answer-echo-title span, .answer-echo-header { color: #96a5ba; font-size: 12px; }

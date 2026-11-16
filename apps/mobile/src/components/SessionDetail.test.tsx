@@ -74,6 +74,21 @@ describe('WhaleTerm 双向队列入口', () => {
 })
 
 describe('SessionDetail：基本渲染', () => {
+  test('导航随滚动位置隐藏边界按钮并滚动到对应位置', () => {
+    render(<SessionDetail record={record()} state={connectedState()} turnStatus="idle" pairingInvalid={false} cancelTarget={null} onResolveAction={noop} onCancelTurn={noop} onCancelQueued={noop} onBack={noop} onReconnect={noop} onSend={noop} />)
+    const scroll = screen.getByTestId('detail-scroll')
+    Object.defineProperties(scroll, { scrollHeight: { value: 1000, configurable: true }, clientHeight: { value: 200, configurable: true }, scrollTop: { value: 0, writable: true, configurable: true } })
+    scroll.scrollTo = vi.fn()
+    fireEvent.scroll(scroll)
+    expect(screen.queryByRole('button', { name: '到顶部' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '到底部' }))
+    expect(scroll.scrollTo).toHaveBeenCalledWith({ top: 1000, behavior: 'smooth' })
+    scroll.scrollTop = 800
+    fireEvent.scroll(scroll)
+    expect(screen.queryByRole('button', { name: '到底部' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '到顶部' }))
+    expect(scroll.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+  })
   test('状态和重连固定在标题栏，消息使用全宽滚动区，输入栏固定在滚动区外', () => {
     render(
       <SessionDetail

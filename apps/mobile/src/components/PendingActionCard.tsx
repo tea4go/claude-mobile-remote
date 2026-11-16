@@ -57,7 +57,7 @@ function Drawer({
 }) {
   return (
     <div data-testid="pending-action" data-drawer={visible ? 'open' : 'closed'}>
-      {!visible && <Button size="small" onClick={onClose}>查看待处理事项</Button>}
+      {!visible && <button type="button" className="pending-collapsed" onClick={onClose}><span aria-hidden="true">●</span> 查看待处理事项 <span aria-hidden="true">›</span></button>}
       <BottomDrawer
         visible={visible}
       >
@@ -99,7 +99,9 @@ function Drawer({
 export default function PendingActionCard({
   action,
   enabled,
+  cancelEnabled,
   onResolve,
+  onCancel,
 }: PendingActionCardProps) {
   // 提交后立即本地禁用，等 command_result 让父组件重新给出 enabled。
   const [submitted, setSubmitted] = useState(false)
@@ -129,6 +131,12 @@ export default function PendingActionCard({
 
   const active = enabled && !submitted
   const close = () => setDismissed((current) => !current)
+  const cancel = () => {
+    if (submitted || !(action.kind === 'tool_approval' ? cancelEnabled : enabled)) return
+    const sent = action.kind === 'tool_approval' ? onCancel(action.requestId) : onResolve({ actionId: action.actionId, decision: 'deny' })
+    if (sent === false) { setSubmitError(true); return }
+    setSubmitted(true)
+  }
 
 
   if (action.kind === 'tool_approval') {
@@ -142,7 +150,7 @@ export default function PendingActionCard({
       setSubmitted(true)
     }
     return (
-      <Drawer title="权限请求" visible={!dismissed} canClose={true} onClose={close}>
+      <Drawer title="权限请求" visible={!dismissed} canClose={true} onClose={close} footer={<Button block disabled={!cancelEnabled || submitted} onClick={cancel}>取消当前任务</Button>}>
         {submitError && <SubmitError />}
         <div style={{ fontSize: FONT_SIZE_SECONDARY }}>Claude 请求使用工具：{action.toolName}</div>
         {/* preview 由服务端按白名单抽取；未下发时只显示工具名，不自行拼接。 */}
@@ -230,7 +238,7 @@ export default function PendingActionCard({
   }
 
   return (
-    <Drawer title="需要你的回答" visible={!dismissed} canClose={true} onClose={close} footer={<Button color="primary" block disabled={!active || !answered} onClick={submit}>提交</Button>}>
+    <Drawer title="需要你的回答" visible={!dismissed} canClose={true} onClose={close} footer={<div className="pending-footer-actions"><Button block disabled={!active} onClick={cancel}>取消提问</Button><Button color="primary" block disabled={!active || !answered} onClick={submit}>提交</Button></div>}>
       {submitError && <SubmitError />}
       {action.questions.map((question) => (
         <div key={question.questionId} className="pending-question" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

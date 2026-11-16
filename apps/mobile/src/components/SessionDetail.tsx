@@ -73,6 +73,19 @@ export default function SessionDetail({
     !pairingInvalid && state.phase === 'connected' && state.pendingCommand === null && !managementBusy
   const cancelRequested = state.pendingCommand?.kind === 'cancel_turn'
   const contentScrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [scrollEdges, setScrollEdges] = useState({ top: true, bottom: true })
+  useEffect(() => {
+    const element = contentScrollRef.current
+    if (!element) return
+    const update = () => setScrollEdges({ top: element.scrollTop <= 1, bottom: element.scrollHeight - element.clientHeight - element.scrollTop <= 1 })
+    element.addEventListener('scroll', update, { passive: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(element)
+    if (contentRef.current) observer?.observe(contentRef.current)
+    update()
+    return () => { element.removeEventListener('scroll', update); observer?.disconnect() }
+  }, [record.sessionId])
   const [queueOpen, setQueueOpen] = useState(false)
   const showQueue = state.canSteerQueue && state.queuedRequests.length > 0
   const queueOperation = useRef<{ kind: 'cancel' | 'steer'; previousError: MobileState['lastError'] } | null>(null)
@@ -153,11 +166,13 @@ export default function SessionDetail({
         </NavBar>
       </div>
       {state.cachedAt != null && <div role="status" style={{ padding: '8px 16px', fontSize: 12, color: '#666' }}>本地缓存 · {new Date(state.cachedAt).toLocaleString()} · 运行状态待连接 PC 确认</div>}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
       <div
         ref={contentScrollRef}
         data-testid="detail-scroll"
-        style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', position: 'relative', isolation: 'isolate' }}
+        style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', position: 'relative', isolation: 'isolate' }}
       >
+      <div ref={contentRef}>
       {showDetailNotices && <div style={{ flexShrink: 0, padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <SessionStatus
           connection={pairingInvalid ? 'disconnected' : state.connection}
@@ -188,6 +203,12 @@ export default function SessionDetail({
       <div style={{ padding: '0 16px' }}>
         <MessageFeed messages={state.messages} scrollContainerRef={contentScrollRef} />
       </div>
+      </div>
+      </div>
+      {(!scrollEdges.top || !scrollEdges.bottom) && <div className="detail-scroll-navigation">
+        {!scrollEdges.top && <button type="button" className="composer-scroll-button" aria-label="到顶部" onClick={() => contentScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}>↑</button>}
+        {!scrollEdges.bottom && <button type="button" className="composer-scroll-button" aria-label="到底部" onClick={() => contentScrollRef.current?.scrollTo({ top: contentScrollRef.current.scrollHeight, behavior: 'smooth' })}>↓</button>}
+      </div>}
       </div>
       <div
         style={{
@@ -225,8 +246,6 @@ export default function SessionDetail({
           queueCount={showQueue ? state.queuedRequests.length : 0}
           queueOpen={queueOpen}
           onOpenQueue={() => setQueueOpen(true)}
-          onScrollTop={() => contentScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
-          onScrollBottom={() => contentScrollRef.current?.scrollTo({ top: contentScrollRef.current.scrollHeight, behavior: 'smooth' })}
           progress={state.progress}
           turnWaiting={state.pendingAction !== null}
           turnRunning={sessionUsable && state.connection === 'connected' && cancelTarget !== null}

@@ -64,6 +64,26 @@ function drawerState(): string | null {
 }
 
 describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
+  test('权限取消当前任务，提问取消仅拒绝问题', () => {
+    const onCancel = vi.fn()
+    const onResolve = vi.fn()
+    const view = render(<Card action={approval()} onCancel={onCancel} onResolve={onResolve} />)
+    fireEvent.click(screen.getByRole('button', { name: '取消当前任务' }))
+    expect(onCancel).toHaveBeenCalledWith('req-1')
+    view.unmount()
+    render(<Card action={ask([question()])} onCancel={onCancel} onResolve={onResolve} />)
+    fireEvent.click(screen.getByRole('button', { name: '取消提问' }))
+    expect(onResolve).toHaveBeenCalledWith({ actionId: 'act-2', decision: 'deny' })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+  test('取消发送失败时允许重试', () => {
+    const onResolve = vi.fn(() => false)
+    render(<Card action={ask([question()])} onResolve={onResolve} />)
+    const button = screen.getByRole('button', { name: '取消提问' })
+    fireEvent.click(button)
+    expect(button).toBeEnabled()
+    expect(screen.getByTestId('pending-action-error')).toBeInTheDocument()
+  })
   test('收起提问不发送决议或取消', () => {
     const onResolve = vi.fn()
     const onCancel = vi.fn()

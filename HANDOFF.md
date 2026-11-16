@@ -4,6 +4,18 @@
 
 ## 当前状态
 
+- 提交检查点（2026-11-16，iOS 图片及交互修复）：用户要求记录并提交本轮公共组件和 WhaleTerm 改动。当前 WhaleTerm 本地 go.mod 以 replace 指向本仓库，便于本机联调；正式依赖为 v1.0.2，正式集成需发布包含本轮公共组件修改的新版本、升级依赖并重新构建，尚未发布。提交不代表验收完成：手机本地图片历史恢复尚未实现，真实 CLI transcript、混合附件及队列的 iPhone/PC 端到端验收未完成，SDK 超限及后续发送异常尚未复现，Android/Harmony 待 iOS 验收后同步。已有 Harmony 版本号、测试截图及缓存不纳入本轮提交；已执行验证和限制详见下条。
+
+- 当前执行（2026-11-16，手机图片结构化输入）：用户要求优先完成手机图片与 PC 一致，涵盖混合普通文件、队列及历史验证。公共传输保留原路径文本供旧宿主和 Standalone 回退，新增不序列化的逐项暂存路径；WhaleTerm 将签名校验通过的 JPEG/PNG/GIF/WebP 转为 PC 同款 QueryStream 图片块，混合普通文件仍以受控路径读取，不支持或伪装图片沿用文件路径。WhaleTerm SDK 解析上限由默认 1 MiB 提至 24 MiB，覆盖现有附件 wire 预算但不保证任意 CLI 输出不会超限；用户此前压缩后实测未报错，原错误的触发内容及后续手机发送失效仍未复现。公共 transport/protocol 测试通过；WhaleTerm 图片、混合附件、历史投影、SDK 配置、图片引导及 FIFO 定向测试通过。WhaleTerm 原测试文件存在 `convertClaudeAssistantContent` 返回值数量不匹配，测试以 /private/tmp 临时 overlay 修正该单行后运行，未修改原文件；扩大测试范围另出现引导后续响应次数断言失败及无效 Wails context，不能宣称全量通过。PC 历史图片仅验证原生消息数据可被既有投影解析，尚未真实验证 CLI transcript、iPhone 或 PC 刷新；手机本地缓存仍剔除图片，杀进程后仍不能保证恢复。未安装真机，未同步 Android/Harmony，未做 Git 写操作。下一步补齐手机图片历史恢复设计及实现，定位超限后发送异常并做真实双端验收。
+
+- 当前执行补充（2026-11-16）：用户确认结构化图片方向，要求需要时修改 WhaleTerm，并反馈现有自动压缩后本次测试未报错，仍要求彻底排查和修复超限及后续发送。已实现问答取消为 deny、权限取消当前 Turn、收起态入口和位于消息区右下角的滚动导航；三个组件定向测试 66 项、Web 构建、cap copy ios 和无签名模拟器构建通过。首次沙箱内 Xcode 构建因系统缓存及模拟器权限失败，提权重试通过；窄屏与真机仍待验。图片尚未改：WhaleTerm 现有 Remote 输入将所有附件路径拼成文本，PC 原生图片走 QueryStream；同时包含普通附件时不能直接丢弃路径。需设计和测试混合附件、FIFO、历史恢复及老宿主兼容后，申请环境权限写入 WhaleTerm（位于当前可写根之外）。SDK 超限实际触发内容及后续发送异常仍未复现、未修复，不能将用户本次压缩后未报错视为根因解决。先 iOS 验收后同步 Android/Harmony。
+
+- 当前执行（2026-11-16，iOS 测试问题列表3）：用户要求手机发图与 PC 发图保持一致。已核对允许参考的 WhaleTerm SDK 代码：PC 经 QueryStream 发送结构化图片块，而手机通过文本路径提交，展示数据为旁路；本机缓存也剔除图片。已修订 `docs/specs/2026-11-16-ios-history-action-navigation-design.md`，以统一结构化输入为优先方向；仍需细化宿主/Standalone、非图片附件、历史恢复、兼容性及 SDK 限额，设计待用户检查。待办组件收到取消回调但未使用；提问取消按 D53 使用 deny，权限取消当前 Turn。尚未编写代码或运行本轮测试；先完成 iOS 自动化、构建及真机验收，再同步 Android/Harmony。问题列表2的 SDK 超限及后续发送异常仍待定位。
+
+- 当前执行（2026-11-16，iOS 测试问题列表2）：用户已确认 `docs/specs/2026-11-16-ios-image-navigation-design.md`。超过 512 KiB 的 JPEG 自动按最长边 2048、质量 0.85 压缩，HEIC 转换，PNG/GIF/WebP 保持原样以保护透明度及动画；超过 20 MiB 的待转换照片仍拒绝。顶部/底部改为图标按钮以释放状态行空间。图片及输入组件定向测试 25 项、Web 生产构建、cap copy ios、无签名模拟器 Debug 构建和 diff --check 通过；首次 Xcode 命令误用不存在的 workspace，改用 project 后通过，构建有 chunk 和 destination 警告。未安装真机；窄屏视觉和压缩清晰度待验收。
+
+  SDK v0.1.4 的 1 MiB 限制已定位为 Claude CLI stdout JSON 解析上限，实际超限内容及 WhaleTerm 随后手机发送失效的原因仍未复现；压缩不保证解决，尚未修改 SDK 限额或宿主恢复逻辑。WhaleTerm 持有自己的 SDK Client，Standalone 配置不影响其行为，需在允许的宿主范围内进一步排查。原问题 3 仍待处理、问题 6 低优先级，先完成 iOS 验收再同步 Android/Harmony；此前全量移动端测试 11 个配对用例失败仍待查。
+
 - 提交检查点（2026-11-16）：用户要求记录并提交当前 iOS 反馈修复及 v9 有序重连快照。自动化和构建结果见下；iPhone 与真实 WhaleTerm 端到端尚未验收，问题 3 未修复，问题 6 其余范围继续后置，全量测试仍有 11 个配对用例失败待查。iOS 验收后再同步 Android/Harmony；已有 Harmony 1.0.7 版本号变更、测试截图及缓存不纳入本次提交。
 
 - 当前执行补充（2026-11-16，v9 有序快照进行中）：已按 D125 在 EventStream 和 Standalone Controller 保留最近一轮有界有序片段，v8 及更早不下发，iOS 解码与同轮去重接入；实现仍在验证。Go 四包 race 和移动端 331 项定向测试通过，v8/v9 实际 WebSocket 字段隔离测试通过；Web 生产构建、iOS 资源复制及无签名 iOS Simulator Debug 构建通过；新增快照后续增量测试，协议与 reducer 定向 243 项通过。快照仅从新宿主开始观察的事件建立，超限及中途接入标记截断；旧宿主与升级前未保存的步骤不可重建。真实 WhaleTerm 使用的依赖和端到端/iPhone 验收尚未验证，问题 3、完整测试的配对用例失败及 Android/Harmony 后续同步仍待处理。

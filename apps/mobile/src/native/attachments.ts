@@ -23,11 +23,12 @@ export function encodeFile(file: File): Promise<Attachment> {
   })
 }
 
-// iOS commonly supplies HEIC photos. Convert these, and oversized photos, into
-// bounded JPEGs before the shared upload validation; ordinary files stay intact.
+// Compress photographs before upload. Preserve small JPEGs and formats that may
+// contain transparency or animation, including PNG, GIF and WebP.
 export function needsPhotoPreparation(file: File): boolean {
-  const image = file.type.startsWith('image/') || /\.(heic|heif)$/i.test(file.name)
-  return image && (/heic|heif/i.test(file.type) || /\.(heic|heif)$/i.test(file.name) || file.size > MAX_FILE_BYTES)
+  const heic = /heic|heif/i.test(file.type) || /\.(heic|heif)$/i.test(file.name)
+  const jpeg = file.type === 'image/jpeg' || /\.jpe?g$/i.test(file.name)
+  return heic || (jpeg && file.size > 512 * 1024)
 }
 
 export async function preparePickedFile(file: File): Promise<File> {
@@ -52,6 +53,7 @@ export async function preparePickedFile(file: File): Promise<File> {
     context.fillRect(0, 0, canvas.width, canvas.height)
     context.drawImage(image, 0, 0, canvas.width, canvas.height)
     const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value === null ? reject(new Error('照片转换失败')) : resolve(value), 'image/jpeg', 0.85))
+    if (file.type === 'image/jpeg' && blob.size >= file.size && file.size <= MAX_FILE_BYTES) return file
     return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' })
   } finally { URL.revokeObjectURL(url) }
 }

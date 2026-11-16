@@ -32,8 +32,6 @@ interface MessageComposerProps {
   queueCount?: number
   queueOpen?: boolean
   onOpenQueue?: () => void
-  onScrollTop?: () => void
-  onScrollBottom?: () => void
 }
 
 const SHELL_STYLE: CSSProperties = {
@@ -110,8 +108,6 @@ export default function MessageComposer({
   queueCount = 0,
   queueOpen = false,
   onOpenQueue,
-  onScrollTop,
-  onScrollBottom,
 }: MessageComposerProps) {
   const [text, setText] = useState('')
   const speech = useSpeechDraft(experience, enabled, (value) => setText((draft) => draft + (draft.trim() ? '\n' : '') + value))
@@ -264,11 +260,7 @@ export default function MessageComposer({
       {speech.error !== null && <div role="alert">{speech.error}</div>}
       {nativeNotice !== null && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#64748b' }}>{nativeNotice}</div>}
       {((oversize && oversizeNow) || oversizeNow) && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#dc2626' }}>文本超出长度上限</div>}
-      {(turnRunning || onScrollTop || onScrollBottom) && <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>{turnRunning && <TurnLoading progress={progress} waiting={turnWaiting} />}</div>
-        {onScrollTop && <Button size="mini" onClick={onScrollTop}>到顶部</Button>}
-        {onScrollBottom && <Button size="mini" onClick={onScrollBottom}>到底部</Button>}
-      </div>}
+      {turnRunning && <TurnLoading progress={progress} waiting={turnWaiting} />}
       <div style={{ position: 'relative' }}>
         {blockedFeedback && !enabled && <div className="composer-disabled-feedback" role="status">{disabledReason}</div>}
         <div style={{ ...SHELL_STYLE, ...(blockedFeedback && !enabled ? { borderColor: '#d97706', boxShadow: '0 0 0 3px rgba(217, 119, 6, 0.18)' } : {}) }}>

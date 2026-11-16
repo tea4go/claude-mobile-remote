@@ -2,6 +2,7 @@ package transport
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,12 +18,15 @@ func testAttachment() protocol.Attachment {
 
 func TestAttachmentStagingPrivacyCleanupAndRetention(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "cache")
-	prompt, cleanup, err := stageAttachments(root, "describe", []protocol.Attachment{testAttachment()})
+	prompt, paths, cleanup, err := stageAttachments(root, "describe", []protocol.Attachment{testAttachment()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	dirs, _ := os.ReadDir(root)
 	path := filepath.Join(root, dirs[0].Name(), "attachment-1.png")
+	if len(paths) != 1 || paths[0] != path {
+		t.Fatal("staged path missing or out of order")
+	}
 	data, err := os.ReadFile(path)
 	if err != nil || string(data) != "image fixture" || !strings.Contains(prompt, path) || !strings.Contains(prompt, "describe") {
 		t.Fatal("attachment not passed as an existing private file")
@@ -40,13 +44,25 @@ func TestAttachmentStagingPrivacyCleanupAndRetention(t *testing.T) {
 	_ = os.Mkdir(old, 0700)
 	ago := time.Now().Add(-8 * 24 * time.Hour)
 	_ = os.Chtimes(old, ago, ago)
-	_, cleanup, err = stageAttachments(root, "", []protocol.Attachment{testAttachment()})
+	_, _, cleanup, err = stageAttachments(root, "", []protocol.Attachment{testAttachment()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Fatal("expired cache retained")
+	}
+}
+
+func TestAttachmentStagingKeepsMixedFilesInOrder(t *testing.T) {
+	items := []protocol.Attachment{testAttachment(), {Name: "notes.txt", MediaType: "text/plain", Data: base64.StdEncoding.EncodeToString([]byte("notes"))}}
+	prompt, paths, cleanup, err := stageAttachments(filepath.Join(t.TempDir(), "cache"), "describe", items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if len(paths) != len(items) || !strings.HasSuffix(paths[0], "attachment-1.png") || !strings.HasSuffix(paths[1], "attachment-2.txt") || !strings.Contains(prompt, paths[1]) {
+		t.Fatalf("mixed attachments lost their ordered paths: %v", paths)
 	}
 }
 
@@ -62,7 +78,7 @@ func TestAttachmentRejectsMalformedAndOversizeData(t *testing.T) {
 	} {
 		item := testAttachment()
 		change(&item)
-		if _, _, err := stageAttachments(filepath.Join(t.TempDir(), "cache"), "", []protocol.Attachment{item}); err == nil {
+		if _, _, _, err := stageAttachments(filepath.Join(t.TempDir(), "cache"), "", []protocol.Attachment{item}); err == nil {
 			t.Fatal("invalid file accepted")
 		}
 	}
@@ -92,6 +108,13 @@ func TestWebSocketAttachmentsUseExistingSessionQueue(t *testing.T) {
 	_, result := readCommandResult(t, socket, "upload")
 	if !result.Accepted || got.SessionID != "session-1" || got.Source != protocol.InputMobile || !strings.Contains(got.Text, "attachment-1.png") {
 		t.Fatal("file did not reach original authorized queue")
+	}
+	if got.Display == nil || len(got.Display.StagedPaths) != 1 || !strings.Contains(got.Display.StagedPaths[0], "attachment-1.png") {
+		t.Fatal("trusted attachment path was not delivered to the host")
+	}
+	encoded, err := json.Marshal(got.Display)
+	if err != nil || strings.Contains(string(encoded), got.Display.StagedPaths[0]) {
+		t.Fatal("trusted local path must not be serialized")
 	}
 	fixture.controller.submit = func(protocol.Input) (string, error) { return "", protocol.ErrQueueFull }
 	root := filepath.Join(os.TempDir(), "cmr-attachments")

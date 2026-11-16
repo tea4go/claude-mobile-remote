@@ -320,11 +320,11 @@ func (c *connection) handleCommand(envelope Envelope) bool {
 func (c *connection) dispatchCommand(payload CommandPayload) (string, error) {
 	switch payload.Kind {
 	case CommandSendAttachments:
-		prompt, cleanup, err := stageAttachments(filepath.Join(os.TempDir(), "cmr-attachments"), payload.Text, payload.Attachments)
+		prompt, paths, cleanup, err := stageAttachments(filepath.Join(os.TempDir(), "cmr-attachments"), payload.Text, payload.Attachments)
 		if err != nil {
 			return "", err
 		}
-		requestID, err := c.subscriptionChannel.SubmitInput(c.context, protocol.Input{SessionID: c.sessionID, Source: protocol.InputMobile, Text: prompt, Display: &protocol.InputDisplay{Text: payload.Text, Attachments: payload.Attachments}})
+		requestID, err := c.subscriptionChannel.SubmitInput(c.context, protocol.Input{SessionID: c.sessionID, Source: protocol.InputMobile, Text: prompt, Display: &protocol.InputDisplay{Text: payload.Text, Attachments: payload.Attachments, StagedPaths: paths}})
 		if err != nil {
 			cleanup()
 		}
