@@ -2,7 +2,7 @@
 // 组件不得复制消息定义，一律从本文件导入。
 
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 8
+export const PREFERRED_PROTOCOL_VERSION = 9
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
@@ -196,7 +196,9 @@ export interface SessionDiagnostic {
  code: 'api_retry' | 'query_failed' | 'receive_failed' | 'response_incomplete' | 'assistant_error' | 'result_error' | 'turn_failed' | 'tool_failed'
  httpStatus?: number; attempt?: number; maxAttempts?: number; retryDelayMs?: number
 }
+export interface TurnDisplay { items: Array<{ text: string } | { block: ContentBlock }>; truncated: boolean }
 export interface TurnSnapshot {
+  display?: TurnDisplay
   inputText?: string
  progress?: TurnProgress
   status: TurnStatus

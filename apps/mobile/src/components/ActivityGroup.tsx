@@ -1,6 +1,6 @@
 import './ActivityGroup.css'
 import SessionIcon from './SessionIcon'
-import { useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { debugLog } from '../debug/log'
 import { Tag } from 'antd-mobile'
 import BottomDrawer from './BottomDrawer'
@@ -319,8 +319,9 @@ function ActivityDetail({ activity }: { activity: Activity }) {
 export default function ActivityGroup({ activities, variant = 'inline' }: { activities: Activity[]; variant?: 'inline' | 'card' }) {
   const { enabled: debugEnabled } = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
   const [drawer, setDrawer] = useState<DrawerState>({ open: false, view: { kind: 'list' } })
+  const opened = useRef(false)
   const close = () => setDrawer((current) => ({ ...current, open: false }))
-  const openList = () => setDrawer({ open: true, view: { kind: 'list' } })
+  const openList = () => { opened.current = true; setDrawer({ open: true, view: { kind: 'list' } }) }
   const summary = summaryOf(activities)
   const view = drawer.view
   const detail =
@@ -349,7 +350,7 @@ export default function ActivityGroup({ activities, variant = 'inline' }: { acti
         visible={drawer.open}
         onMaskClick={close}
       >
-        {detail === undefined ? (
+        {opened.current && (detail === undefined ? (
           <>
             <DrawerHeader title={summary} onClose={close} showDebug={debugEnabled} />
             <div
@@ -383,7 +384,7 @@ export default function ActivityGroup({ activities, variant = 'inline' }: { acti
             />
             <ActivityDetail activity={detail} />
           </>
-        )}
+        ))}
       </BottomDrawer>
     </div>
   )

@@ -39,18 +39,12 @@ const BODY_STYLE: CSSProperties = {
   WebkitTouchCallout: 'default',
 }
 
-// 待处理事项抽屉（B2 §6 + D53）：工具审批与 AskUserQuestion 共用同一形态，
-// 事项出现即自动弹出，只能由标题行的关闭按钮收起，点遮罩与下滑不关闭——
-// 审批关闭取消当前 Turn；提问关闭拒绝问题，不能被误触触发。
-// 内容必须自包含，不依赖历史上下文，因为重连后的 snapshot 不重放结构化内容；
-// 只展示服务端下发的 preview 与问答内容，不展示 actionId、工具原始 input
-// 或权限规则原文。
+// 待处理事项自动弹出；收起只影响本地展示，可随时重新打开。
 function Drawer({
   title,
   visible,
   canClose,
   onClose,
-  question,
   children,
   footer,
 }: {
@@ -58,12 +52,12 @@ function Drawer({
   visible: boolean
   canClose: boolean
   onClose: () => void
-  question?: boolean
   children: ReactNode
   footer?: ReactNode
 }) {
   return (
     <div data-testid="pending-action" data-drawer={visible ? 'open' : 'closed'}>
+      {!visible && <Button size="small" onClick={onClose}>查看待处理事项</Button>}
       <BottomDrawer
         visible={visible}
       >
@@ -83,17 +77,17 @@ function Drawer({
           </span>
           <button
             type="button"
-            aria-label="关闭"
-            style={{ ...ICON_BUTTON_STYLE, opacity: canClose ? 1 : 0.4 }}
+            aria-label="收起"
+            style={{ ...ICON_BUTTON_STYLE, width: 52, fontSize: FONT_SIZE_COMPACT, opacity: canClose ? 1 : 0.4 }}
             disabled={!canClose}
             onClick={onClose}
           >
-            ✕
+            收起
           </button>
         </div>
         <div data-testid="pending-action-card" style={BODY_STYLE}>
           {/* 关闭语义不直观，直接写明，避免用户把它当成「稍后再说」。 */}
-          <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>{question ? '取消将跳过本次提问。' : '关闭此面板将取消当前 Turn'}</div>
+          <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}>收起后可继续查看会话，待处理事项会保留。</div>
           {children}
         </div>
         {footer && <div className="pending-footer">{footer}</div>}
@@ -105,15 +99,12 @@ function Drawer({
 export default function PendingActionCard({
   action,
   enabled,
-  cancelEnabled,
   onResolve,
-  onCancel,
 }: PendingActionCardProps) {
   // 提交后立即本地禁用，等 command_result 让父组件重新给出 enabled。
   const [submitted, setSubmitted] = useState(false)
   const [answers, setAnswers] = useState<Record<string, string[]>>({})
-  // 显式关闭后本地收起。取消成功时父组件会清掉事项并卸载本组件；
-  // 若取消被拒绝而事项仍在，下面按 enabled 回升重新弹出，不会留下无法处理的事项。
+  // 收起只影响展示，事项和已选择的答案继续保留。
   const [dismissed, setDismissed] = useState(false)
   const [submitError, setSubmitError] = useState(false)
   // 按 React “prop 变化时调整 state”模式在渲染期比较上一次的值，
@@ -129,22 +120,16 @@ export default function PendingActionCard({
   } else if (tracked.enabled !== enabled) {
     setTracked({ actionId: action.actionId, enabled })
     // enabled 落到假说明命令已在途或连接不可用；恢复时解除本地禁用，
-    // 使被拒绝但仍在等待的事项可以重新提交，也把已收起的抽屉重新弹出。
+    // 使被拒绝但仍在等待的事项可以重新提交。
     if (!enabled) setSubmitted(false)
     else {
-      if (dismissed && action.kind === 'ask_user_question') setSubmitError(true)
-      else setSubmitError(false)
-      setDismissed(false)
+      setSubmitError(false)
     }
   }
 
   const active = enabled && !submitted
-  const close = () => {
-    if (!cancelEnabled) return
-    const sent = action.kind === 'ask_user_question' ? onResolve({ actionId: action.actionId, decision: 'deny' }) : onCancel(action.requestId)
-    if (sent !== false) setDismissed(true)
-    else setSubmitError(true)
-  }
+  const close = () => setDismissed((current) => !current)
+
 
   if (action.kind === 'tool_approval') {
     const resolve = (decision: ActionDecision) => {
@@ -157,7 +142,7 @@ export default function PendingActionCard({
       setSubmitted(true)
     }
     return (
-      <Drawer title="权限请求" visible={!dismissed} canClose={cancelEnabled} onClose={close}>
+      <Drawer title="权限请求" visible={!dismissed} canClose={true} onClose={close}>
         {submitError && <SubmitError />}
         <div style={{ fontSize: FONT_SIZE_SECONDARY }}>Claude 请求使用工具：{action.toolName}</div>
         {/* preview 由服务端按白名单抽取；未下发时只显示工具名，不自行拼接。 */}
@@ -245,7 +230,7 @@ export default function PendingActionCard({
   }
 
   return (
-    <Drawer title="需要你的回答" visible={!dismissed} canClose={cancelEnabled} onClose={close} question footer={<Button color="primary" block disabled={!active || !answered} onClick={submit}>提交</Button>}>
+    <Drawer title="需要你的回答" visible={!dismissed} canClose={true} onClose={close} footer={<Button color="primary" block disabled={!active || !answered} onClick={submit}>提交</Button>}>
       {submitError && <SubmitError />}
       {action.questions.map((question) => (
         <div key={question.questionId} className="pending-question" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

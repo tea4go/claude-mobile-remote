@@ -467,6 +467,9 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 		return false
 	}
 	snapshot := subscription.Snapshot
+	if c.version < 9 {
+		snapshot.Turn.Display = nil
+	}
 	snapshot.CanSteerQueue = c.version >= 8 && sessionChannel.CanSteerQueue()
 	if c.version < 7 || (snapshot.Turn.Status != protocol.TurnRunning && snapshot.Turn.Status != protocol.TurnWaiting) {
 		snapshot.Turn.InputText = ""

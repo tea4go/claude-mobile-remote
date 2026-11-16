@@ -99,6 +99,7 @@ func (s *EventStream) UpdateSnapshot(snapshot protocol.Snapshot) error {
 			snapshot.Turn = s.snapshot.Turn
 		} else {
 			snapshot.Turn.Message = s.snapshot.Turn.Message
+			snapshot.Turn.Display = protocol.CloneTurnDisplay(s.snapshot.Turn.Display)
 			if snapshot.Turn.Status == protocol.TurnRunning || snapshot.Turn.Status == protocol.TurnWaiting {
 				snapshot.Turn.Progress = cloneProgress(s.snapshot.Turn.Progress)
 			}
@@ -149,6 +150,7 @@ func (s *EventStream) Publish(event protocol.Event) error {
 		event.LastActivityAt = s.snapshot.LastActivityAt
 	}
 	s.snapshot = applyEvent(s.snapshot, event)
+	s.snapshot.Turn.Display = protocol.AppendTurnDisplay(s.snapshot.Turn.Display, event)
 	s.snapshot.Seq++
 	event.Seq = s.snapshot.Seq
 	for id, events := range s.subscribers {
@@ -274,6 +276,7 @@ func applyEvent(snapshot protocol.Snapshot, event protocol.Event) protocol.Snaps
 }
 
 func cloneSnapshot(snapshot protocol.Snapshot) protocol.Snapshot {
+	snapshot.Turn.Display = protocol.CloneTurnDisplay(snapshot.Turn.Display)
 	snapshot.Turn.Progress = cloneProgress(snapshot.Turn.Progress)
 	snapshot.SessionError = cloneError(snapshot.SessionError)
 	snapshot.Turn.Error = cloneError(snapshot.Turn.Error)

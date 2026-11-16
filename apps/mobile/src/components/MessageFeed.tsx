@@ -1,6 +1,6 @@
 import './PendingActionCard.css'
 import SessionIcon from './SessionIcon'
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Tag } from 'antd-mobile'
 import MessageMarkdown from './MessageMarkdown'
 import ActivityGroup, { type Activity } from './ActivityGroup'
@@ -112,11 +112,12 @@ function buildDisplayItems(messages: Message[]): DisplayItem[] {
 }
 
 // 易失消息流（D32）：本连接期内手机输入、来源标记、Claude 流式文本与失败反馈。
-// Claude 文本经受限 Markdown 渲染（B1）；输入消息保持纯文本，不解析语法。
+// 用户输入和 Claude 文本均使用受限 Markdown 渲染。
 export default function MessageFeed({ messages, scrollContainerRef }: MessageFeedProps) {
   const feedRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
+  const [expandedTurns, setExpandedTurns] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef?.current
@@ -137,6 +138,21 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
   }, [messages])
 
   const displayItems = buildDisplayItems(messages)
+  // Long turns keep the final reply visible while the execution history stays
+  // unmounted until explicitly opened. Its original item order is preserved.
+  const longTurns = new Map<string, { first: number; last: number; final: number }>()
+  for (let i = 0; i < displayItems.length; i += 1) {
+    const item = displayItems[i]
+    const id = item.kind === 'activities' ? item.requestId : item.message.kind === 'claude' ? item.message.requestId : null
+    if (!id) continue
+    const group = longTurns.get(id)
+    if (!group) longTurns.set(id, { first: i, last: i, final: item.kind === 'message' ? i : -1 })
+    else { group.last = i; if (item.kind === 'message') group.final = i }
+  }
+  for (const [id, group] of longTurns) {
+    const slice = displayItems.slice(group.first, group.last + 1)
+    if (slice.filter(item => item.kind === 'activities').length < 8 || slice.some(item => (item.kind === 'activities' ? item.requestId : item.message.requestId) !== id) || group.final !== group.last) longTurns.delete(id)
+  }
 
   return (
     <div
@@ -152,6 +168,16 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
       style={{ display: 'flex', flexDirection: 'column', gap: 12, height: scrollContainerRef === undefined ? '100%' : undefined, overflowY: scrollContainerRef === undefined ? 'auto' : undefined, padding: '8px 0' }}
     >
       {displayItems.map((item, index) => {
+        const id = item.kind === 'activities' ? item.requestId : item.message.kind === 'claude' ? item.message.requestId : null
+        const group = id ? longTurns.get(id) : undefined
+        if (group && index < group.final && !expandedTurns.has(id!)) {
+          if (index !== group.first) return null
+          return <button key={`collapsed-${id}`} type="button" onClick={() => setExpandedTurns(current => new Set(current).add(id!))}>展开执行过程</button>
+        }
+        if (group && index === group.first && expandedTurns.has(id!)) {
+          // The toggle precedes the first item without changing its position.
+          return <div key={`expanded-${id}`}><button type="button" onClick={() => setExpandedTurns(current => { const next = new Set(current); next.delete(id!); return next })}>收起执行过程</button>{item.kind === 'activities' ? <ActivityGroup activities={item.activities} variant="card" /> : item.message.kind === 'claude' && <SelectableMessage><MessageMarkdown text={item.message.text} /></SelectableMessage>}</div>
+        }
         if (item.kind === 'activities') {
           // 结构化活动是行式摘要（参考图），占满行宽而不是气泡宽度。
           const previous = displayItems[index - 1]
@@ -175,7 +201,7 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
           return (
             <div key={index} style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
               <SelectableMessage selectionTone="inverse" style={{ background: '#3478f6', color: '#fff', borderRadius: 20, padding: '12px 16px' }}>
-                <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{inputDisplayText(message.text)}</div>
+                <MessageMarkdown text={inputDisplayText(message.text)} />
                 {message.attachments?.map((attachment, i) => <div key={i} style={{ marginTop: 6 }}>
                   {/^image\/(jpeg|png|gif|webp)$/.test(attachment.mediaType) && <img alt={attachment.name} src={`data:${attachment.mediaType};base64,${attachment.data}`} style={{ display: 'block', maxWidth: '100%', maxHeight: 240, borderRadius: 8, objectFit: 'contain' }} />}
                   <span style={{ fontSize: FONT_SIZE_COMPACT }}>{attachment.name}</span>

@@ -1318,6 +1318,7 @@ func (c *Controller) failSession(state *actorState, err error) {
 }
 
 func (c *Controller) publish(state *actorState, event Event) {
+	state.snapshot.Turn.Display = protocol.AppendTurnDisplay(state.snapshot.Turn.Display, event)
 	switch event.Kind {
 	case EventTurnStarted:
 		if state.snapshot.SessionTitle == "" {
@@ -1378,6 +1379,7 @@ func (c *Controller) syncQueue(state *actorState) {
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {
 	cloned := snapshot
+	cloned.Turn.Display = protocol.CloneTurnDisplay(snapshot.Turn.Display)
 	cloned.SessionError = cloneErrorInfo(snapshot.SessionError)
 	cloned.Turn.Error = cloneErrorInfo(snapshot.Turn.Error)
 	cloned.Turn.PendingAction = clonePendingAction(snapshot.Turn.PendingAction)

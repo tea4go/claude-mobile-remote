@@ -728,6 +728,8 @@ describe('B2 结构化内容块', () => {
       'block',
       '后置文本',
     ])
+    state = reducer(state, snapshotReceived(snapshot({ seq: 13, turn: { status: 'running', requestId: 'req-9', source: 'terminal', message: '前置文本后置文本', error: null, pendingAction: null } })))
+    expect(state.messages.map((message) => message.kind === 'claude' ? message.text : message.kind)).toEqual(['前置文本', 'block', '后置文本'])
   })
 
   test('重连 snapshot 不伪造历史内容块', () => {
@@ -1144,4 +1146,23 @@ test('快照先于同一轮开始事件时归并一次，重复事件仍被拒�
   expect(state.messages[0]).toMatchObject({ attachments: images })
   state = reducer(state, eventReceived(event('turn_started', 12, { requestId: 'active', source: 'terminal', text: '安全提问' })))
   expect(state.phase).toBe('protocolError')
+})
+
+
+test('v9 重连以有序快照替换当前轮次并去重', () => {
+  let state = stateWithSnapshot({ seq: 7 })
+  state = reducer(state, eventReceived(event('turn_started', 8, { requestId: 'r', text: 'question' })))
+  state = reducer(state, eventReceived(event('text_delta', 9, { requestId: 'r', text: 'before' })))
+  const turn = { requestId: 'r', source: 'terminal' as const, status: 'completed' as const, message: 'beforeafter', error: null, pendingAction: null, display: { truncated: false, items: [{ text: 'before' }, { block: { id: 'b', kind: 'thinking' as const, thinking: 'think' } }, { text: 'after' }] } }
+  state = reducer(state, snapshotReceived(snapshot({ seq: 12, turn })))
+  expect(state.messages.filter(m => m.kind !== 'input').map(m => m.kind === 'claude' ? m.text : m.kind)).toEqual(['before', 'block', 'after'])
+  state = reducer(state, snapshotReceived(snapshot({ seq: 12, turn })))
+  expect(state.messages.filter(m => m.kind !== 'input')).toHaveLength(3)
+})
+
+test('v9 运行中快照之后继续合并增量', () => {
+  const turn = { requestId: 'r', source: 'terminal' as const, status: 'running' as const, message: 'before', error: null, pendingAction: null, display: { truncated: false, items: [{ text: 'before' }] } }
+  let state = reducer(createInitialState(), snapshotReceived(snapshot({ seq: 12, turn })))
+  state = reducer(state, eventReceived(event('text_delta', 13, { requestId: 'r', text: 'after' })))
+  expect(state.messages.find(m => m.kind === 'claude')).toMatchObject({ text: 'beforeafter' })
 })

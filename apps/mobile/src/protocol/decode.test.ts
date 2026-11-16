@@ -325,8 +325,8 @@ describe('decodeServerMessage：非法 JSON 与基础结构', () => {
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 
-  test('version = 9（未来版本）拒绝', () => {
-    const envelope = baseEnvelope({ version: 9 })
+  test('version = 10（未来版本）拒绝', () => {
+    const envelope = baseEnvelope({ version: 10 })
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 
@@ -1514,4 +1514,15 @@ describe('decodeServerMessage：unsupported 独立消息类型（B2 §4.4）', (
       ),
     ).toThrow(/protocol decode error/)
   })
+})
+
+
+test('v9 快照接受有序片段，旧版本拒绝该字段', () => {
+  const payload = snapshotPayload()
+  const turn = { ...payload.snapshot.turn, status: 'completed', requestId: 'r', source: 'terminal', message: 'ab', display: { items: [{ text: 'a' }, { block: { id: 'b', kind: 'thinking', thinking: 'x' } }, { text: 'b' }], truncated: false } }
+  const envelope = baseEnvelope({ version: 9, type: 'snapshot', seq: 7, payload: { ...payload, snapshot: { ...payload.snapshot, turn } } })
+  const result = decodeServerMessage(JSON.stringify(envelope))
+  expect(result.type).toBe('snapshot')
+  if (result.type === 'snapshot') expect(result.payload.snapshot.turn.display?.items).toHaveLength(3)
+  expect(() => decodeServerMessage(JSON.stringify({ ...envelope, version: 8 }))).toThrow()
 })

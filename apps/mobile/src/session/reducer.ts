@@ -408,20 +408,36 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
   // 前配对，订阅后的 text_delta 需要归并目标（A5.1 验收回归）。
   // source 为空即首轮前尚无 Turn（A5.2），此时不创建任何消息。
   const turnSource = snapshot.turn.source
-  if (turnSource !== '' && (snapshot.turn.message !== '' || turnActive)) {
+  if (turnSource !== '' && (snapshot.turn.message !== '' || turnActive || snapshot.turn.display !== undefined)) {
     const current = {
       kind: 'claude' as const,
       requestId: snapshot.turn.requestId,
       source: turnSource,
       text: snapshot.turn.message,
-      status: snapshot.turn.status === 'failed' ? 'failed' as const : turnActive ? 'streaming' as const : 'done' as const,
+      status: snapshot.turn.status === 'failed' ? 'failed' as const : snapshot.turn.status === 'cancelled' ? 'cancelled' as const : turnActive ? 'streaming' as const : 'done' as const,
       error: snapshot.turn.error,
+    }
+    if (snapshot.turn.display !== undefined) {
+      const display = snapshot.turn.display
+      const replacement: Message[] = display.items.map(item => 'text' in item
+        ? { ...current, text: item.text }
+        : { kind: 'block' as const, requestId: current.requestId, block: item.block })
+      if (display.truncated) replacement.unshift({ ...current, text: '[较早的执行过程未同步]' })
+      if (!replacement.some(message => message.kind === 'claude')) replacement.push({ ...current, text: '' })
+      const first = next.messages.findIndex(message => (message.kind === 'claude' || message.kind === 'block') && message.requestId === current.requestId)
+      const kept = next.messages.filter(message => !((message.kind === 'claude' || message.kind === 'block') && message.requestId === current.requestId))
+      const position = first < 0 ? kept.length : next.messages.slice(0, first).filter(message => !((message.kind === 'claude' || message.kind === 'block') && message.requestId === current.requestId)).length
+      next.messages = [...kept.slice(0, position), ...replacement, ...kept.slice(position)]
+      return applyCanSend(next)
     }
     const currentIndex = next.messages.findIndex(
       (message) => message.kind === 'claude' && message.requestId === current.requestId,
     )
     if (currentIndex < 0) {
       next.messages = [...next.messages, current]
+    } else if (current.text !== '' && next.messages.filter((message) => message.kind === 'claude' && message.requestId === current.requestId).map((message) => message.kind === 'claude' ? message.text : '').join('') === current.text) {
+      // Keep observed text and tool blocks interleaved when the snapshot agrees.
+      next.messages = next.messages.map((message) => message.kind === 'claude' && message.requestId === current.requestId ? { ...message, status: current.status, error: current.error } : message)
     } else {
       const existing = next.messages[currentIndex]
       const merged = existing?.kind === 'claude' && current.text === ''

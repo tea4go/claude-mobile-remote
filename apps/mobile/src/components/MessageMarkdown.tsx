@@ -15,6 +15,7 @@ const codeBlockStyle: React.CSSProperties = {
   margin: '8px 0',
   padding: '8px 10px',
   background: '#f6f8fa',
+  color: '#1f2937',
   // 与表格同理：正文区无气泡背景，偏白底色下光靠底色差很容易看不出
   // 代码块边界，因此补一条网格线。
   border: '1px solid #e3e6ec',
@@ -28,6 +29,7 @@ const codeBlockStyle: React.CSSProperties = {
 const inlineCodeStyle: React.CSSProperties = {
   padding: '1px 4px',
   background: '#f0f0f0',
+  color: '#1f2937',
   borderRadius: 4,
   fontSize: FONT_SIZE_SECONDARY,
   wordBreak: 'break-all',

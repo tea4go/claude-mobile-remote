@@ -32,6 +32,8 @@ interface MessageComposerProps {
   queueCount?: number
   queueOpen?: boolean
   onOpenQueue?: () => void
+  onScrollTop?: () => void
+  onScrollBottom?: () => void
 }
 
 const SHELL_STYLE: CSSProperties = {
@@ -108,6 +110,8 @@ export default function MessageComposer({
   queueCount = 0,
   queueOpen = false,
   onOpenQueue,
+  onScrollTop,
+  onScrollBottom,
 }: MessageComposerProps) {
   const [text, setText] = useState('')
   const speech = useSpeechDraft(experience, enabled, (value) => setText((draft) => draft + (draft.trim() ? '\n' : '') + value))
@@ -176,7 +180,7 @@ export default function MessageComposer({
         if (!mountedRef.current) return
         const result = await onSendAttachments(trimmed, attachments)
         if (!mountedRef.current) return
-        if (result === 'accepted') { setText(''); setSelectedFiles([]); setNativeNotice('附件已传到电脑，Claude 将按现有权限读取。') }
+        if (result === 'accepted') { setText(''); setSelectedFiles([]); setNativeNotice(null) }
         else setNativeNotice(result === 'unknown' ? '发送结果未知，草稿已保留。请先查看会话结果再决定是否重试，避免重复发送。' : '附件未被接收，草稿已保留。请确认电脑端已更新并检查连接。')
       } catch (error) {
         if (mountedRef.current) setNativeNotice(error instanceof Error ? error.message : '附件发送失败，草稿已保留')
@@ -260,7 +264,11 @@ export default function MessageComposer({
       {speech.error !== null && <div role="alert">{speech.error}</div>}
       {nativeNotice !== null && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#64748b' }}>{nativeNotice}</div>}
       {((oversize && oversizeNow) || oversizeNow) && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#dc2626' }}>文本超出长度上限</div>}
-      {turnRunning && <TurnLoading progress={progress} waiting={turnWaiting} />}
+      {(turnRunning || onScrollTop || onScrollBottom) && <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>{turnRunning && <TurnLoading progress={progress} waiting={turnWaiting} />}</div>
+        {onScrollTop && <Button size="mini" onClick={onScrollTop}>到顶部</Button>}
+        {onScrollBottom && <Button size="mini" onClick={onScrollBottom}>到底部</Button>}
+      </div>}
       <div style={{ position: 'relative' }}>
         {blockedFeedback && !enabled && <div className="composer-disabled-feedback" role="status">{disabledReason}</div>}
         <div style={{ ...SHELL_STYLE, ...(blockedFeedback && !enabled ? { borderColor: '#d97706', boxShadow: '0 0 0 3px rgba(217, 119, 6, 0.18)' } : {}) }}>

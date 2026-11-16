@@ -1746,3 +1746,24 @@ func TestCurrentInputSnapshotWorstCaseJSONFitsBoundedOutbox(t *testing.T) {
 		t.Fatal("second large snapshot exceeded the bound")
 	}
 }
+
+func TestSnapshotTurnDisplayVersionIsolation(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	fixture.controller.snapshot.Turn = protocol.TurnSnapshot{Status: protocol.TurnCompleted, RequestID: "r", Source: protocol.InputTerminal, Message: "beforeafter", Display: &protocol.TurnDisplay{Items: []protocol.TurnDisplayItem{{Text: "before"}, {Block: &protocol.ContentBlock{ID: "b", Kind: protocol.BlockThinking, Thinking: "think"}}, {Text: "after"}}}}
+	for _, version := range []int{8, 9} {
+		connection := fixture.dial(t)
+		writeVersionedTestEnvelope(t, connection, version, TypeHello, "session-1", HelloPayload{PairToken: fixture.token})
+		_ = readTestEnvelope(t, connection)
+		writeVersionedTestEnvelope(t, connection, version, TypeSubscribe, "session-1", struct{}{})
+		_ = readTestEnvelope(t, connection)
+		envelope := readTestEnvelope(t, connection)
+		var payload SnapshotPayload
+		if err := DecodePayload(envelope, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if (payload.Snapshot.Turn.Display != nil) != (version == 9) {
+			t.Fatalf("version %d display: %s", version, envelope.Payload)
+		}
+		connection.Close()
+	}
+}

@@ -514,6 +514,19 @@ function decodeSessionSnapshot(value: unknown, version: number): SessionSnapshot
   }
   // queueDepth 与列表长度恒等（B2 §4.3）：不一致说明快照自相矛盾。
   const rawTurn = requireObject(value, 'turn')
+  if (rawTurn.display !== undefined) {
+    const display = rawTurn.display
+    if (version < 9 || !snapshot.turn.requestId || !isObject(display) || !Array.isArray(display.items) || display.items.length > 512 || typeof display.truncated !== 'boolean' || new TextEncoder().encode(JSON.stringify(display)).length > 512 * 1024) fail('invalid turn display')
+    rejectUnknownKeys(display, new Set(['items', 'truncated']), 'turn display')
+    const items = display.items.map((item: unknown) => {
+      if (!isObject(item)) return fail('invalid turn display item')
+      rejectUnknownKeys(item, new Set(['text', 'block']), 'turn display item')
+      if (typeof item.text === 'string' && item.text !== '' && item.block === undefined) return { text: item.text }
+      if (item.text === undefined && item.block !== undefined) return { block: decodeContentBlock(item.block) }
+      return fail('invalid turn display item')
+    })
+    snapshot.turn.display = { items, truncated: display.truncated }
+  }
   if (rawTurn.inputText !== undefined) {
     if (version < 7 || typeof rawTurn.inputText !== 'string' || rawTurn.inputText === '' || new TextEncoder().encode(rawTurn.inputText).length > MAX_TEXT_BYTES || !snapshot.turn.requestId || !['running', 'waiting'].includes(snapshot.turn.status)) fail('invalid current input')
     snapshot.turn.inputText = rawTurn.inputText

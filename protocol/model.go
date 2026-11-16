@@ -184,6 +184,7 @@ type QueuedRequest struct {
 }
 
 type TurnSnapshot struct {
+	Display       *TurnDisplay   `json:"display,omitempty"`
 	InputText     string         `json:"inputText,omitempty"`
 	Progress      *TurnProgress  `json:"progress,omitempty"`
 	Status        TurnStatus     `json:"status"`

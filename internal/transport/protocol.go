@@ -15,7 +15,7 @@ import (
 
 // Version remains the v2 default for callers constructing legacy envelopes.
 const Version = 2
-const LatestVersion = 8
+const LatestVersion = 9
 
 var ErrInvalidMessage = errors.New("invalid protocol message")
 
@@ -343,6 +343,26 @@ func validateDisplayTitle(value string) bool {
 }
 
 func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
+	if version < 9 && snapshot.Turn.Display != nil {
+		return protocolError(CodeInvalidMessage, "turn display requires v9")
+	}
+	if display := snapshot.Turn.Display; display != nil {
+		encoded, err := json.Marshal(display)
+		if err != nil || len(encoded) > protocol.MaxTurnDisplayBytes || len(display.Items) > protocol.MaxTurnDisplayItems || snapshot.Turn.RequestID == "" {
+			return protocolError(CodeInvalidMessage, "invalid turn display")
+		}
+		for _, item := range display.Items {
+			if item.Block == nil {
+				if item.Text == "" || !utf8.ValidString(item.Text) {
+					return protocolError(CodeInvalidMessage, "invalid turn display text")
+				}
+			} else if item.Text != "" {
+				return protocolError(CodeInvalidMessage, "invalid turn display item")
+			} else if err := validateContentBlock(*item.Block); err != nil {
+				return err
+			}
+		}
+	}
 	if version < 8 && snapshot.CanSteerQueue {
 		return protocolError(CodeInvalidMessage, "queue steering requires v8")
 	}

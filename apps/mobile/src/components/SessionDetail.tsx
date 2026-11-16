@@ -203,7 +203,7 @@ export default function SessionDetail({
           flexShrink: 0,
         }}
       >
-        {/* 待处理事项以底部抽屉强呈现（D53）：事项出现即弹出，显式关闭即取消当前 Turn。 */}
+        {/* 事项出现即弹出；收起后可再次打开，事项仍待处理。 */}
         {state.pendingAction !== null && (
           <PendingActionCard
             action={state.pendingAction}
@@ -225,6 +225,8 @@ export default function SessionDetail({
           queueCount={showQueue ? state.queuedRequests.length : 0}
           queueOpen={queueOpen}
           onOpenQueue={() => setQueueOpen(true)}
+          onScrollTop={() => contentScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+          onScrollBottom={() => contentScrollRef.current?.scrollTo({ top: contentScrollRef.current.scrollHeight, behavior: 'smooth' })}
           progress={state.progress}
           turnWaiting={state.pendingAction !== null}
           turnRunning={sessionUsable && state.connection === 'connected' && cancelTarget !== null}

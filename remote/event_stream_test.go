@@ -175,3 +175,28 @@ func TestSnapshotRetainsWholeReplyAfterHostRefresh(t *testing.T) {
 		t.Fatal("new turn retained previous reply")
 	}
 }
+
+func TestReconnectSnapshotKeepsOrderedTurnDisplay(t *testing.T) {
+	stream, _ := NewEventStream(protocol.Snapshot{SessionID: "s"})
+	for _, event := range []protocol.Event{
+		{Kind: protocol.EventTurnStarted, RequestID: "r", Source: protocol.InputTerminal, Text: "input", TurnStatus: protocol.TurnRunning},
+		{Kind: protocol.EventTextDelta, RequestID: "r", Text: "before"},
+		{Kind: protocol.EventContentBlock, RequestID: "r", Block: &protocol.ContentBlock{ID: "b", Kind: protocol.BlockThinking, Thinking: "think"}},
+		{Kind: protocol.EventTextDelta, RequestID: "r", Text: "after"},
+		{Kind: protocol.EventTurnCompleted, RequestID: "r", TurnStatus: protocol.TurnCompleted},
+	} {
+		if err := stream.Publish(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, events, err := stream.Subscribe(context.Background(), 2)
+	if err != nil || snapshot.Turn.Display == nil || len(snapshot.Turn.Display.Items) != 3 || snapshot.Turn.Display.Items[0].Text != "before" || snapshot.Turn.Display.Items[1].Block.ID != "b" || snapshot.Turn.Display.Items[2].Text != "after" {
+		t.Fatalf("snapshot = %#v err=%v", snapshot.Turn.Display, err)
+	}
+	if err = stream.Publish(protocol.Event{Kind: protocol.EventSessionStarted}); err != nil {
+		t.Fatal(err)
+	}
+	if event := <-events; event.Seq != snapshot.Seq+1 {
+		t.Fatalf("sequence %d after snapshot %d", event.Seq, snapshot.Seq)
+	}
+}

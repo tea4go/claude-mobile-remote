@@ -64,12 +64,12 @@ function drawerState(): string | null {
 }
 
 describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
-  test('取消提问只拒绝问题，不取消当前轮次', () => {
+  test('收起提问不发送决议或取消', () => {
     const onResolve = vi.fn()
     const onCancel = vi.fn()
     render(<Card action={ask([question()])} onResolve={onResolve} onCancel={onCancel} />)
-    fireEvent.click(screen.getByLabelText('关闭'))
-    expect(onResolve).toHaveBeenCalledWith({ actionId: 'act-2', decision: 'deny' })
+    fireEvent.click(screen.getByLabelText('收起'))
+    expect(onResolve).not.toHaveBeenCalled()
     expect(onCancel).not.toHaveBeenCalled()
   })
   test('事项出现即自动弹出抽屉', () => {
@@ -86,7 +86,7 @@ describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
     expect(screen.getByTestId('pending-action-card')).toBeInTheDocument()
   })
 
-  test('显式关闭后收起抽屉并取消当前 Turn', () => {
+  test('收起权限请求后可重新打开且不取消 Turn', () => {
     const onCancel = vi.fn()
     render(
       <Card
@@ -97,9 +97,11 @@ describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
         onCancel={onCancel}
       />,
     )
-    fireEvent.click(screen.getByLabelText('关闭'))
-    expect(onCancel).toHaveBeenCalledWith('req-1')
+    fireEvent.click(screen.getByLabelText('收起'))
+    expect(onCancel).not.toHaveBeenCalled()
     expect(drawerState()).toBe('closed')
+    fireEvent.click(screen.getByRole('button', { name: '查看待处理事项' }))
+    expect(drawerState()).toBe('open')
   })
 
   test('决议命令未实际发出时保留按钮并允许重试', () => {
@@ -140,7 +142,7 @@ describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
     expect(sheet.style.background).toBe('rgb(255, 255, 255)')
   })
 
-  test('取消命令不可发时关闭按钮禁用', () => {
+  test('取消命令不可发时仍可收起', () => {
     const onCancel = vi.fn()
     render(
       <Card
@@ -151,14 +153,14 @@ describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
         onCancel={onCancel}
       />,
     )
-    const close = screen.getByLabelText('关闭')
-    expect(close).toBeDisabled()
+    const close = screen.getByLabelText('收起')
+    expect(close).not.toBeDisabled()
     fireEvent.click(close)
     expect(onCancel).not.toHaveBeenCalled()
-    expect(drawerState()).toBe('open')
+    expect(drawerState()).toBe('closed')
   })
 
-  test('取消未生效、事项仍在时抽屉重新弹出', () => {
+  test('连接状态变化不会自动重新弹出已收起的事项', () => {
     const onCancel = vi.fn()
     const { rerender } = render(
       <Card
@@ -169,7 +171,7 @@ describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
         onCancel={onCancel}
       />,
     )
-    fireEvent.click(screen.getByLabelText('关闭'))
+    fireEvent.click(screen.getByLabelText('收起'))
     expect(drawerState()).toBe('closed')
 
     // 取消命令在途 → enabled 落假；命令被拒后 enabled 回升而事项仍在。
@@ -191,7 +193,7 @@ describe('PendingActionCard：底部抽屉与关闭语义（D53）', () => {
         onCancel={onCancel}
       />,
     )
-    expect(drawerState()).toBe('open')
+    expect(drawerState()).toBe('closed')
   })
 })
 

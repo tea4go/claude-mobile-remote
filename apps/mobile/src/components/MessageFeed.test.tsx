@@ -182,12 +182,11 @@ describe('MessageFeed：Markdown 渲染边界（B1）', () => {
     expect(container.querySelector('script')).toBeNull()
   })
 
-  test('输入消息保持纯文本，不解析 Markdown', () => {
+  test('输入消息按 Markdown 渲染', () => {
     const messages: Message[] = [input({ text: '**不要加粗** 和 `不要代码`' })]
     const { container } = render(<MessageFeed messages={messages} />)
-    expect(container.querySelector('strong')).toBeNull()
-    expect(container.querySelector('code')).toBeNull()
-    expect(container.textContent).toContain('**不要加粗** 和 `不要代码`')
+    expect(container.querySelector('strong')).toHaveTextContent('不要加粗')
+    expect(container.querySelector('code')).toHaveTextContent('不要代码')
   })
 
   test('空 Claude 文本不渲染消息气泡', () => {
@@ -211,6 +210,26 @@ describe('MessageFeed：Markdown 渲染边界（B1）', () => {
 })
 
 describe('MessageFeed：结构化活动分组（B2 §6）', () => {
+  test('长任务默认收起过程，展开后按顺序展示且可再次收起', () => {
+    const messages: Message[] = []
+    for (let i = 0; i < 8; i += 1) {
+      messages.push(claude({ text: `过程${i}` }))
+      messages.push(block({ id: `step-${i}`, kind: 'thinking', thinking: `思考${i}` }))
+    }
+    messages.push(claude({ text: '最终答复', status: 'done' }))
+    render(<MessageFeed messages={messages} />)
+    expect(screen.getByText('最终答复')).toBeInTheDocument()
+    expect(screen.queryByText('过程0')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('展开执行过程'))
+    expect(screen.getByText('过程0')).toBeInTheDocument()
+    expect(screen.getByText('过程7')).toBeInTheDocument()
+    const content = screen.getByTestId('message-feed').textContent ?? ''
+    expect(content.indexOf('过程0')).toBeLessThan(content.indexOf('过程7'))
+    expect(content.indexOf('过程7')).toBeLessThan(content.indexOf('最终答复'))
+    fireEvent.click(screen.getByText('收起执行过程'))
+    expect(screen.queryByText('过程0')).not.toBeInTheDocument()
+  })
+
   test('只依据工具所属轮次判定未收到结果，并隔离相同工具 ID', () => {
     const use = { id: 'tool-1', kind: 'tool_use' as const, toolUseId: 'shared', toolClass: 'builtin' as const, toolName: 'Bash', mcpServer: '' }
     render(<MessageFeed messages={[
