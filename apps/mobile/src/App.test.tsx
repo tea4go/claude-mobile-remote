@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from './App'
 import { parsePairingFragment } from './protocol/pairing'
 import { PROTOCOL_VERSION } from './protocol/types'
+import { Capacitor } from '@capacitor/core'
 
 // 可编程假 WebSocket（与 client.test 相同形状）。
 class FakeWebSocket {
@@ -163,6 +164,7 @@ describe('App：自动连接与发送', () => {
   test('粘贴完整 Fragment 后连接成功', async () => {
     window.location.hash = ''
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: fragmentOf(PAIRING) } })
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
 
@@ -177,6 +179,7 @@ describe('App：自动连接与发送', () => {
   test('粘贴 JSON 连接成功后可发送文本', async () => {
     window.location.hash = ''
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: JSON.stringify(PAIRING) } })
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     const socket = FakeWebSocket.instances[0]!
@@ -359,6 +362,26 @@ describe('App：返回列表', () => {
 })
 
 describe('App：多 Session 生命周期', () => {
+  test('iOS 目录配对提示短暂显示，不占据页面，返回设置后不重复出现', async () => {
+    const firstPairing = { ...PAIRING, pcId: '0123456789abcdef0123456789abcdef' }
+    const snapshot = { ...SNAPSHOT, version: 3, payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, projectCwd: '/work/alpha' } } }
+    window.location.hash = fragmentOf(firstPairing)
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    act(() => completeHandshake(FakeWebSocket.instances[0]!, snapshot, 3))
+    await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('返回'))
+    act(() => FakeWebSocket.instances[0]!.serverClose())
+    vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios')
+    fireEvent.click(screen.getByRole('button', { name: '在 alpha 新建会话' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('请扫描目标电脑和目录下新会话的配对码：/work/alpha')
+    expect(screen.queryByText(/请扫描目标电脑和目录/, { selector: 'p' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText(/请扫描目标电脑和目录/)).not.toBeInTheDocument(), { timeout: 4000 })
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(screen.getByLabelText('返回'))
+    expect(screen.queryByText(/请扫描目标电脑和目录/)).not.toBeInTheDocument()
+    vi.restoreAllMocks()
+  })
+
   test('配对进入设置后返回原配对页并清除上次错误，使用返回动画', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false }))
     window.location.hash = fragmentOf(PAIRING)
@@ -367,6 +390,7 @@ describe('App：多 Session 生命周期', () => {
     await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'invalid' } })
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     expect(screen.getByText('配对信息无效')).toBeInTheDocument()
@@ -397,6 +421,7 @@ describe('App：多 Session 生命周期', () => {
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     fireEvent.click(screen.getByLabelText('返回'))
     expect(screen.getByText(/请扫描目标电脑和目录/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     const submit = (payload: unknown) => {
       fireEvent.change(screen.getByRole('textbox'), { target: { value: JSON.stringify(payload) } })
       fireEvent.click(screen.getByRole('button', { name: '连接' }))
@@ -422,6 +447,7 @@ describe('App：多 Session 生命周期', () => {
     fireEvent.click(screen.getByRole('button', { name: '确定' }))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
     const secondPairing = { ...PAIRING, sessionId: 'session-2', pcId: 'abcdef0123456789abcdef0123456789', pcName: 'Studio' }
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: JSON.stringify(secondPairing) } })
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
@@ -517,6 +543,7 @@ describe('App：多 Session 生命周期', () => {
     fireEvent.click(screen.getByLabelText('返回'))
     expect(first.closed).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: JSON.stringify({ ...PAIRING, sessionId: 'session-2' }) },
     })
@@ -547,6 +574,7 @@ describe('App：多 Session 生命周期', () => {
 
     fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: JSON.stringify({ ...PAIRING, pairToken: 'replacement-token' }) },
     })
@@ -569,6 +597,7 @@ describe('App：多 Session 生命周期', () => {
 
     fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: JSON.stringify({ ...PAIRING, sessionId: 'session-2' }) },
     })
@@ -605,6 +634,7 @@ describe('App：多 Session 生命周期', () => {
 
     fireEvent.click(screen.getByLabelText('返回'))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: JSON.stringify({ ...PAIRING, sessionId: 'session-2' }) },
     })
@@ -709,10 +739,15 @@ describe('App：unauthorized 配对失效', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText(/配对已失效/)).toBeInTheDocument()
+      expect(screen.getByText(/配对验证未通过/)).toBeInTheDocument()
       expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
       expect(screen.getByText(/结果未知/)).toBeInTheDocument()
     })
+    fireEvent.click(screen.getByRole('button', { name: '重新连接' }))
+    const retry = FakeWebSocket.instances.at(-1)!
+    expect(retry).not.toBe(socket)
+    completeHandshake(retry)
+    await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
   })
 })
 

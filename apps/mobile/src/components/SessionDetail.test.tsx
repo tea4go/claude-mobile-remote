@@ -309,6 +309,16 @@ describe('SessionDetail：错误与重连', () => {
     expect(screen.queryByRole('button', { name: '重新连接' })).not.toBeInTheDocument()
   })
 
+  test('凭证仍有效时鉴权失败可手动重试', () => {
+    const onReconnect = vi.fn()
+    render(<SessionDetail record={record()} state={connectedState({ phase: 'disconnected', connection: 'disconnected' })}
+      turnStatus="idle" pairingInvalid canRetryPairing cancelTarget={null} onResolveAction={noop}
+      onCancelTurn={noop} onCancelQueued={noop} onBack={noop} onReconnect={onReconnect} onSend={noop} />)
+    expect(screen.getByText(/配对验证未通过/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新连接' }))
+    expect(onReconnect).toHaveBeenCalledOnce()
+  })
+
   test('协议错误时提示重新连接以获取最新状态', () => {
     render(
       <SessionDetail

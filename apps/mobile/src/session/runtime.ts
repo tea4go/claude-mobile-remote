@@ -36,6 +36,18 @@ interface RuntimeEntry {
   payloadKey: string
   generation: number
   client: ProtocolClient
+  payload: PairingPayload
+  fallbackFrom?: PairingPayload
+  ready: boolean
+}
+
+function stableSessionURL(value: string): string | null {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'ws:' || url.username || url.password) return null
+    url.port = '7330'; url.pathname = '/session/v1'; url.search = ''; url.hash = ''
+    return url.toString() === value ? null : url.toString()
+  } catch { return null }
 }
 
 interface PendingManagement {
@@ -80,7 +92,13 @@ export class SessionRuntimeManager {
   private readonly store: AppStore
   private readonly socketFactory: SocketFactory
   private readonly now: () => number
+  private readonly enableStableRoute: boolean
   private readonly pendingManagement = new Map<string, PendingManagement>()
+  private onVerifiedRoute: ((previous: PairingPayload, next: PairingPayload) => void) | null = null
+
+  setVerifiedRouteCallback(callback: typeof this.onVerifiedRoute): void {
+    this.onVerifiedRoute = callback
+  }
   private onSessionCreated: ((payload: PairingPayload, sourceSessionId: string) => void) | null = null
   private onManagementResult: ((sessionId: string, operation: PendingManagement['operation'], accepted: boolean, code: string) => void) | null = null
 
@@ -104,13 +122,15 @@ export class SessionRuntimeManager {
     store: AppStore,
     socketFactory: SocketFactory,
     now: () => number,
+    enableStableRoute = false,
   ) {
     this.store = store
     this.socketFactory = socketFactory
     this.now = now
+    this.enableStableRoute = enableStableRoute
   }
 
-  ensureConnected(payload: PairingPayload, verified?: ProtocolClient): void {
+  ensureConnected(payload: PairingPayload, verified?: ProtocolClient, fallbackFrom?: PairingPayload): void {
     const key = payloadKey(payload)
     const existing = this.entries.get(payload.sessionId)
     if (existing?.payloadKey === key && verified === undefined) {
@@ -123,7 +143,7 @@ export class SessionRuntimeManager {
     const generation = (this.generations.get(payload.sessionId) ?? 0) + 1
     this.generations.set(payload.sessionId, generation)
     const client = verified ?? new ProtocolClient(payload, this.socketFactory)
-    const entry: RuntimeEntry = { payloadKey: key, generation, client }
+    const entry: RuntimeEntry = { payloadKey: key, generation, client, payload, fallbackFrom, ready: false }
     this.entries.set(payload.sessionId, entry)
     const current = this.store.getState().sessions[payload.sessionId] ?? null
     this.store.getState().dispatchSession(payload.sessionId, sessionOpened(current))
@@ -135,6 +155,13 @@ export class SessionRuntimeManager {
     }
     client.onClose = (info) => {
       if (!this.isCurrent(payload.sessionId, generation, client)) return
+      const stableURL = this.enableStableRoute && !entry.ready && !entry.fallbackFrom && info.pendingCommandId === null &&
+        (info.kind === 'disconnected' || info.kind === 'pairingInvalid') && Date.parse(payload.expiresAt) > this.now()
+        ? stableSessionURL(payload.wsUrl) : null
+      if (stableURL !== null) {
+        this.ensureConnected({ ...payload, wsUrl: stableURL }, undefined, payload)
+        return
+      }
       this.handleClose(payload.sessionId, info)
     }
     if (verified === undefined) client.connect()
@@ -149,6 +176,13 @@ export class SessionRuntimeManager {
   reconnect(sessionId: string): void {
     const entry = this.entries.get(sessionId)
     if (entry === undefined) return
+    if (entry.fallbackFrom) {
+      this.ensureConnected(entry.fallbackFrom)
+      return
+    }
+    entry.ready = false
+    this.store.getState().setPairingInvalid(sessionId, false)
+    this.store.getState().markPairingStatus(sessionId, 'disconnected')
     const current = this.store.getState().sessions[sessionId] ?? null
     this.store.getState().dispatchSession(sessionId, sessionOpened(current))
     entry.client.reconnect()
@@ -291,6 +325,17 @@ export class SessionRuntimeManager {
         this.nextImage(sessionId)
         return
       case 'snapshot':
+        {
+          const entry = this.entries.get(sessionId)
+          if (entry) {
+            entry.ready = true
+            if (entry.fallbackFrom) {
+              const previous = entry.fallbackFrom
+              entry.fallbackFrom = undefined
+              this.onVerifiedRoute?.(previous, entry.payload)
+            }
+          }
+        }
         this.reminders.snapshot(sessionId, event.snapshot.seq)
         this.store.getState().dispatchSession(sessionId, snapshotReceived(event.snapshot))
         this.store.getState().markPairingStatus(sessionId, 'connected', this.now())

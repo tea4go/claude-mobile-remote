@@ -73,6 +73,19 @@ export function parseScannedPairing(input: string, now: number): PairingResult {
 export class NativePairingLogic {
   private readonly secure: SecurePairingPort
   private readonly metadata: PairingMetadataPort
+  private readonly writes = new Map<string, Promise<void>>()
+
+  private async serial<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.writes.get(sessionId) ?? Promise.resolve()
+    let release!: () => void
+    const current = new Promise<void>((resolve) => { release = resolve })
+    this.writes.set(sessionId, current)
+    await previous
+    try { return await operation() } finally {
+      release()
+      if (this.writes.get(sessionId) === current) this.writes.delete(sessionId)
+    }
+  }
 
   constructor(
     secure: SecurePairingPort,
@@ -136,6 +149,7 @@ export class NativePairingLogic {
     if (!parsed.ok) return parsed
 
     const sessionId = parsed.value.sessionId
+    return this.serial(sessionId, async () => {
     let previous: NativePairingMetadata | undefined
     let previousSecure: unknown | null = null
     let writing = false
@@ -175,6 +189,19 @@ export class NativePairingLogic {
       throw storageError()
     }
     return parsed
+    })
+  }
+
+  async updateVerifiedRoute(previous: PairingPayload, next: PairingPayload, now: number, isCurrent: () => boolean): Promise<boolean> {
+    return this.serial(previous.sessionId, async () => {
+      try {
+        const stored = await this.secure.read(previous.sessionId)
+        const parsed = parsePairingJson(JSON.stringify(stored), now)
+        if (!parsed.ok || !isCurrent() || JSON.stringify(parsed.value) !== JSON.stringify(previous)) return false
+        await this.secure.write(next)
+        return true
+      } catch { throw storageError() }
+    })
   }
 
   async scanAndSave(scanner: NativeScanPort, now: number): Promise<PairingResult | null> {
@@ -214,12 +241,14 @@ export class NativePairingLogic {
   }
 
   async remove(sessionId: string): Promise<void> {
+    return this.serial(sessionId, async () => {
     try {
       await this.secure.remove(sessionId)
       await this.metadata.remove(sessionId)
     } catch {
       throw storageError()
     }
+    })
   }
 }
 

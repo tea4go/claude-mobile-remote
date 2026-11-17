@@ -92,6 +92,49 @@ test('原生启动恢复有效配对并保留失效占位；占位不会连接',
   expect(FakeSocket.instances).toHaveLength(1)
 })
 
+test('旧端口失败后通过固定入口恢复，并在快照验证后安全保存地址', async () => {
+  const original = pairing('route')
+  const native = bindings([{ metadata: { sessionId: 'route', name: '目标', customName: true, lastConnectedAt: null }, payload: original }])
+  render(<App native={native.native} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
+  act(() => FakeSocket.instances[0]!.onerror?.())
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(2))
+  const gateway = FakeSocket.instances[1]!
+  expect(gateway.url).toBe('ws://127.0.0.1:7330/session/v1')
+  expect(native.secure.get('route')).toEqual(original)
+  completeNativeHandshake(gateway, 'route')
+  await waitFor(() => expect(native.secure.get('route')).toMatchObject({ wsUrl: gateway.url }))
+  expect(native.metadata.get('route')?.name).toBe('目标')
+})
+
+test('旧端口鉴权拒绝时尝试固定入口，固定入口失败不覆盖安全存储', async () => {
+  const original = pairing('route')
+  const native = bindings([{ metadata: { sessionId: 'route', name: '目标', customName: true, lastConnectedAt: null }, payload: original }])
+  render(<App native={native.native} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
+  const first = FakeSocket.instances[0]!
+  act(() => {
+    first.onopen?.()
+    first.onmessage?.({ data: JSON.stringify({ version: 10, type: 'error', sessionId: '', commandId: '', requestId: '', seq: 0, payload: { code: 'unauthorized', message: 'unauthorized' } }) })
+  })
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(2))
+  act(() => FakeSocket.instances[1]!.onerror?.())
+  expect(native.secure.get('route')).toEqual(original)
+  expect(FakeSocket.instances).toHaveLength(2)
+  fireEvent.click(screen.getByLabelText('进入 目标'))
+  await waitFor(() => expect(FakeSocket.instances.at(-1)?.url).toBe(original.wsUrl))
+})
+
+test('加密地址失败时不会向明文固定入口发送凭证', async () => {
+  const original = { ...pairing('secure-route'), wsUrl: 'wss://example.test/ws' }
+  const native = bindings([{ metadata: { sessionId: 'secure-route', name: '加密目标', customName: true, lastConnectedAt: null }, payload: original }])
+  render(<App native={native.native} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
+  act(() => FakeSocket.instances[0]!.onerror?.())
+  expect(FakeSocket.instances).toHaveLength(1)
+  expect(native.secure.get('secure-route')).toEqual(original)
+})
+
 test('设置页按 PC 编码移除本地配对，其他 PC 保留且安全记录同步删除', async () => {
   const firstPC = '0123456789abcdef0123456789abcdef'
   const secondPC = 'abcdef0123456789abcdef0123456789'

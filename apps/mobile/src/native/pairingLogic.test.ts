@@ -137,6 +137,28 @@ describe('原生配对纯逻辑', () => {
     expect(state.secrets.has('a')).toBe(true)
   })
 
+  test('验证后的地址更新与删除串行，不恢复已删除的凭证', async () => {
+    const state = ports()
+    const first = pairing('a')
+    await state.logic.saveScanned(JSON.stringify(first), now)
+    const update = state.logic.updateVerifiedRoute(first, { ...first, wsUrl: 'ws://127.0.0.1:7330/session/v1' }, now, () => true)
+    const remove = state.logic.remove('a')
+    expect(await update).toBe(true)
+    await remove
+    expect(state.secrets.has('a')).toBe(false)
+    expect(state.records.has('a')).toBe(false)
+  })
+
+  test('验证结束前重新配对时，旧连接不得覆盖新凭证', async () => {
+    const state = ports()
+    const first = pairing('a')
+    await state.logic.saveScanned(JSON.stringify(first), now)
+    const replacement = { ...first, pairToken: 'new-fixture-token' }
+    await state.logic.saveScanned(JSON.stringify(replacement), now)
+    expect(await state.logic.updateVerifiedRoute(first, { ...first, wsUrl: 'ws://127.0.0.1:7330/session/v1' }, now, () => true)).toBe(false)
+    expect(state.secrets.get('a')).toEqual(replacement)
+  })
+
   test('前台计划刷新所有有效 Session，过期者要求重新配对', () => {
     expect(planForegroundRefresh([
       pairing('a'), pairing('b'), pairing('a'), pairing('expired', '2026-09-23T00:00:00Z'),

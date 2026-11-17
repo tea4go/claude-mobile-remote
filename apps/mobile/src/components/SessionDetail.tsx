@@ -26,6 +26,7 @@ interface SessionDetailProps {
   state: MobileState
   turnStatus: string
   pairingInvalid: boolean
+  canRetryPairing?: boolean
   // 当前可取消 Turn 的 request ID；无可取消 Turn 时为 null。
   cancelTarget: string | null
   onBack: () => void
@@ -51,6 +52,7 @@ export default function SessionDetail({
   state,
   turnStatus,
   pairingInvalid,
+  canRetryPairing = false,
   cancelTarget,
   onBack,
   onReconnect,
@@ -65,7 +67,7 @@ export default function SessionDetail({
   managementFeedback = null,
 }: SessionDetailProps) {
   const showReconnect =
-    (state.phase === 'disconnected' || state.phase === 'protocolError') && !pairingInvalid
+    (state.phase === 'disconnected' || state.phase === 'protocolError') && (!pairingInvalid || canRetryPairing)
   // 所有命令共用单在途门控（B2 §5）：取消类命令不依赖 canSend，
   // 因为等待待处理事项时自由文本被禁用但仍应可取消。
   const sessionUsable = state.sessionStatus !== 'stopped' && state.sessionStatus !== 'failed'
@@ -192,7 +194,7 @@ export default function SessionDetail({
             {state.lastNotice.message}
           </div>
         )}
-        {pairingInvalid && <div style={{ color: '#e00' }}>配对已失效，请返回列表重新配对</div>}
+        {pairingInvalid && <div style={{ color: '#e00' }}>{canRetryPairing ? '配对验证未通过，可重试连接；仍失败时请重新配对' : '配对已失效，请返回列表重新配对'}</div>}
         {state.phase === 'protocolError' && !pairingInvalid && (
           <div style={{ color: '#e00' }}>状态异常，请重新连接以获取最新状态</div>
         )}

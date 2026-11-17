@@ -76,7 +76,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   }, [toast])
   const debugState = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
   const [appStore] = useState(createAppStore)
-  const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now))
+  const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now, native !== null))
   const [managementBusy, setManagementBusy] = useState<Record<string, boolean>>({})
   const [managementFeedback, setManagementFeedback] = useState<Record<string, string | null>>({})
   const [recentlyViewedId, setRecentlyViewedId] = useState<string | null>(null)
@@ -162,6 +162,21 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   const adding = useStore(appStore, (state) => state.adding)
   const pairingError = useStore(appStore, (state) => state.pairingError)
 
+  useEffect(() => {
+    if (native === null) return
+    let active = true
+    runtime.setVerifiedRouteCallback((previous, next) => {
+      const current = () => {
+        const record = appStore.getState().pairings.records.find((item) => item.sessionId === previous.sessionId)
+        return active && record?.wsUrl === previous.wsUrl && record.pairToken === previous.pairToken && record.expiresAt === previous.expiresAt
+      }
+      void native.logic.updateVerifiedRoute(previous, next, now(), current).then((saved) => {
+        if (saved && current()) appStore.getState().upsertPairing(next)
+      }).catch(() => { if (active) appStore.getState().setPairingError('连接已恢复，但配对地址保存失败') })
+    })
+    return () => { active = false; runtime.setVerifiedRouteCallback(null) }
+  }, [appStore, native, now, runtime])
+
   const sessions = useMemo<SessionListItem[]>(() => pairings.records.map((record) => ({
     ...record,
     runtimeState: sessionStates[record.sessionId],
@@ -197,7 +212,6 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         showToast('电脑已创建会话，但手机连接失败，请在电脑检查后重新配对')
       } else {
         appStore.getState().setPairingError(message)
-        if (projectPairing.current) showToast(message)
       }
       setPairingProgress(null)
     }
@@ -259,7 +273,6 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
               showToast('电脑已创建会话，但手机保存失败，请在电脑检查后重新配对')
             } else {
               appStore.getState().setPairingError('配对保存失败或连接已断开，请重试')
-              if (projectPairing.current) showToast('配对保存失败或连接已断开，请重试')
             }
           }
         } finally {
@@ -308,12 +321,11 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   const submitJson = useCallback((json: string) => {
     const result = parsePairingInput(json, now())
     if (!result.ok) {
-      if (projectPairing.current) showToast(result.error)
       appStore.getState().setPairingError(result.error)
       return
     }
     void openPairing(result.value)
-  }, [appStore, now, openPairing, showToast])
+  }, [appStore, now, openPairing])
 
   useEffect(() => {
     if (native !== null && restoring) return
@@ -554,9 +566,12 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         state={currentState}
         turnStatus={turnStatus}
         pairingInvalid={pairingInvalidBySession[currentSessionId] ?? false}
+        canRetryPairing={currentRecord.pairToken !== '' && Date.parse(currentRecord.expiresAt) > now()}
         cancelTarget={cancelTarget}
         onBack={backToList}
-        onReconnect={() => runtime.reconnect(currentSessionId)}
+        onReconnect={() => {
+          if (currentRecord.pairToken !== '' && Date.parse(currentRecord.expiresAt) > now()) runtime.reconnect(currentSessionId)
+        }}
         onSendAttachments={(text, attachments) => runtime.sendAttachments(currentSessionId, text, attachments)}
         onSend={(text) => { runtime.sendText(currentSessionId, text) }}
         onPermissionModeChange={(permissionMode: PermissionMode) => {
@@ -595,7 +610,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
           </NavBar>
         </div>
         <div className="mobile-demo-entry"><button onClick={() => { cancelPairing(); appStore.getState().setPairingError(null); setDemoOpen(true) }}>• 体验演示（无需连接电脑）</button></div>
-        {projectPairingCwd && <p>请扫描目标电脑和目录下新会话的配对码：{projectPairingCwd}</p>}
+        {projectPairingCwd && !['ios', 'android'].includes(Capacitor.getPlatform()) && <p>请扫描目标电脑和目录下新会话的配对码：{projectPairingCwd}</p>}
         <PairingForm onDismissError={() => appStore.getState().setPairingError(null)} iosDesign={['ios', 'android'].includes(Capacitor.getPlatform())} target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
           recordAction('scan')
           const generation = ++pairingGeneration.current
@@ -609,7 +624,6 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
             setPairingProgress(null)
             recordAction('scan_failed')
             appStore.getState().setPairingError('扫码暂不可用，请检查相机权限')
-            if (projectPairing.current) showToast('扫码暂不可用，请检查相机权限')
           })
         }} />
       </div>
@@ -678,6 +692,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
           setPairingDirection('forward')
           projectPairing.current = { pcId, cwd }
           setProjectPairingCwd(cwd)
+          if (['ios', 'android'].includes(Capacitor.getPlatform())) showToast(`请扫描目标电脑和目录下新会话的配对码：${cwd}`)
           setPairingTarget(null)
           appStore.getState().setPairingError(null)
           appStore.getState().setAdding(true)
