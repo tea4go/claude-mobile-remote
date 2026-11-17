@@ -10,7 +10,7 @@ import NotificationSettings from './components/NotificationSettings'
 import { ProtocolClient } from './protocol/client'
 import { networkDiagnostics, networkCodeText, safeNetworkTarget } from './protocol/diagnostics'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { Button, List, NavBar, Switch } from 'antd-mobile'
+import { Button, List, NavBar, PullToRefresh, SpinLoading, Switch } from 'antd-mobile'
 import { useStore } from 'zustand'
 import PairingForm from './components/PairingForm'
 import SessionDetail from './components/SessionDetail'
@@ -233,7 +233,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         candidate.current = null
         client.close()
         setPairingProgress(null)
-        showToast(!payload.pcId || !event.snapshot.projectCwd ? '无法验证电脑或工作目录，请重新扫码' : payload.pcId !== target.pcId ? '电脑不匹配，请扫描目标电脑的配对码' : `工作目录不匹配：期望 ${target.cwd}，实际 ${event.snapshot.projectCwd}`)
+        appStore.getState().setPairingError(!payload.pcId || !event.snapshot.projectCwd ? '无法验证电脑或工作目录，请重新扫码' : payload.pcId !== target.pcId ? '电脑不匹配，请扫描目标电脑的配对码' : `工作目录不匹配：期望 ${target.cwd}，实际 ${event.snapshot.projectCwd}`)
         return
       }
       pairingSavingRef.current = true
@@ -611,7 +611,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         </div>
         <div className="mobile-demo-entry"><button onClick={() => { cancelPairing(); appStore.getState().setPairingError(null); setDemoOpen(true) }}>• 体验演示（无需连接电脑）</button></div>
         {projectPairingCwd && !['ios', 'android'].includes(Capacitor.getPlatform()) && <p>请扫描目标电脑和目录下新会话的配对码：{projectPairingCwd}</p>}
-        <PairingForm onDismissError={() => appStore.getState().setPairingError(null)} iosDesign={['ios', 'android'].includes(Capacitor.getPlatform())} target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
+        <PairingForm projectCwd={projectPairingCwd} onDismissError={() => appStore.getState().setPairingError(null)} iosDesign={['ios', 'android'].includes(Capacitor.getPlatform())} target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
           recordAction('scan')
           const generation = ++pairingGeneration.current
           setPairingProgress('正在扫码…')
@@ -670,6 +670,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         <NavBar back={null} right={<button className="mobile-settings-button" onClick={() => { setSettingsDirection('forward'); setSettingsPage('settings') }}><SessionIcon name="settings" size={16} style={{ marginRight: 5 }} />设置</button>}>{appDisplayName}</NavBar>
       </div>
       <div className="session-list-scroll" onScroll={(event) => { listScrollY.current = event.currentTarget.scrollTop }}>
+      <PullToRefresh renderText={() => <span role="status" aria-label="刷新连接状态"><SpinLoading color="primary" /></span>} onRefresh={async () => { runtime.refreshConnectionStates() }}>
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <ProjectSessionList
         sessions={sessions}
@@ -692,7 +693,6 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
           setPairingDirection('forward')
           projectPairing.current = { pcId, cwd }
           setProjectPairingCwd(cwd)
-          if (['ios', 'android'].includes(Capacitor.getPlatform())) showToast(`请扫描目标电脑和目录下新会话的配对码：${cwd}`)
           setPairingTarget(null)
           appStore.getState().setPairingError(null)
           appStore.getState().setAdding(true)
@@ -716,6 +716,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
           appStore.getState().renamePairing(sessionId, name)
         }}
       />
+      </PullToRefresh>
       </div>
     </div>
     )

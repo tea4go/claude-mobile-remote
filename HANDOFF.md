@@ -1,5 +1,29 @@
 # HANDOFF.md — Claude Mobile Remote 交接文档
 
+- 当前执行（2026-11-17，iOS IP 输入筛选复验）：用户真机反馈输入时历史列表未匹配。现有 includes 筛选和 change 用例不能复现此反馈；检查键盘 input 事件与受控值同步，补充连续输入、删除、清空、无匹配回归，构建并复制 iOS 资源。通过条件为自动化和构建通过、用户真机复验；不将推测视为已确认根因，不改协议，不提交，保留其他任务的改动。
+  - Completed, pending device verification: public OnConnectionChange / RecheckConnections; coalesced per-connection control-frame probes with a 3-second timeout, matched Pong validation and cleanup. WhaleTerm shares a 1-second local address monitor while services exist, coalesces changes per session and pushes safe metadata via Wails. Lists, header and QR use events instead of polling; stale queries are guarded and credential rotation still uses explicit Get. Local WhaleTerm go.mod replaces this dependency with this checkout; no dependency release or Git writes.
+  - Passed: library `go test -race ./internal/transport ./remote`; WhaleTerm `go test -race ./backend/remote ./backend/quickpair`; two frontend state tests, compilation of three Vue SFCs, both repositories' diff checks. Services default vet is blocked by existing errors in md_cloud_service.go:326 and pref_service.go:3800. An overly broad Remote test regex also selected unrelated cloud-dependent TestGetRemoteConn and panicked; the precise `go test -vet=off ./backend/services -run '^TestRemote' -count=1` passes all five relevant tests.
+  - Not verified: actual phone/network switching, rebuilt desktop UI, full builds or native mobile builds. Next: rebuild WhaleTerm, pair, switch PC network and compare both lists/header/QR; an unrelated interface change with a reachable VPN must preserve the connection; stopping all services must stop monitoring. Address changes are normally detected within one second plus a three-second probe and cleanup/event scheduling. Same-IP route changes or phone-only outages retain the ordinary 30-second heartbeat fallback.
+
+  - 修复待真机：IP 框使用原生 input，直接读取 input/compositionEnd 事件中的当前值并驱动历史筛选，关闭地址自动纠正与大写；保留 contains 匹配（IPv6 不区分大小写）、清空恢复全部、无匹配隐藏、原有历史存储和选择行为。新增模拟 input 连续输入/删除/替换/清空及组合输入、延迟加载历史的回归用例；相关 4 文件 71 项测试、Web 构建、cap copy ios、diff --check 通过，构建仍有大 chunk 提示。尚未原生编译安装或真机复验，不能确认用户现场的唯一根因；待用户提供具体输入与列表示例并验收新版。Android/Harmony 本轮未同步，不提交。
+
+- 当前执行（2026-11-17，宿主后台连接检测）：用户已确认后台网络检测、主动探活和状态推送方案，并授权修改本库及 WhaleTerm。新增宿主连接变化通知、网络变化触发控制帧探活；WhaleTerm 共用后台网卡检测并移除前端状态轮询。通过条件：静默连接清理、正常连接保留、并发与关闭回归、前端编译；真实网络切换待人工验证。保留全部已有修改，不提交。
+
+- 当前执行（2026-11-17，iOS 配对页优化点3）：修复地址历史触摸选择、增加清空历史，并将配对页提示调整为扫码按钮下方的分级面板；通过条件为相关交互和存储测试、前端构建及 iOS 资源同步，真机验收后再同步其他端。保留既有未完成同步和工作区改动，不执行 Git 写操作。
+  - 已完成待真机：历史触摸期间保留下拉，允许失焦后选择回填；新增清空并与已有写入串行，清空后未编辑前不自动重新保存。配对错误和目标目录提示改为扫码按钮下的页面反馈，验证码错误保留在弹窗中；目录校验失败改为页面反馈。预留警告、成功色样式，当前配对页没有对应的独立成功/警告事件。配对相关 4 文件 69 测试、Web 构建、cap copy ios 和 diff --check 通过；未重新编译安装或真机测试触摸、滚动、持久化和视觉。Android 共用源码但本轮未同步构建，Harmony 未同步；其他端与稳定重连遗留事项仍待处理，无 Git 写操作。
+
+- 当前执行（2026-11-17，iOS 配对 IP 历史提示）：按测试文档优化点2，输入框聚焦显示最近 10 个有效地址、输入过滤、失焦关闭并支持选择；仅原生本地保存成功联系过的 IP/可选端口，不保存配对凭证。通过条件为历史去重上限、筛选选择与失焦自动化测试、前端构建及 iOS 资源同步，真机体验待验；iOS 优先，之后同步 Android/Harmony，保留既有未完成同步事项，不执行 Git 写操作。
+  - 真机反馈未通过：用户输入 IP 后没有历史提示。代码确认原实现只在服务返回 ready 后保存，纯输入不触发写入；现修复为有效 IP 输入稳定后或失焦时保存，不依赖服务响应，并验证同页及重开后恢复。用户反馈无法单独证明焦点或原生存储不存在其他问题，仍需真机复验。
+  - 修复验证：有效地址停止输入约 1 秒或输入框失焦即写入，成功连接仍更新最近顺序；输入的配对凭证仍不进入历史。新增模拟存储的组件用例覆盖输入、失焦、页面重开与筛选，相关 2 文件共 10 测试通过，Web 构建、cap copy ios、diff --check 通过；未重新编译或安装 iOS，原生 Preferences 实际持久化及真机焦点/触摸仍需用户复验。未同步 Android/Harmony，未执行 Git 写操作。
+  - 已实现待真机：快速配对服务返回有效 ready 后保存输入的 IP/可选端口，最多 10 条、最近优先并去重；聚焦展示、输入匹配、选中填入及失焦关闭，列表最多显示 240px 并可滚动。只保存校验后的地址，不保存粘贴的配对信息或凭证；浏览器不持久化。相关 2 文件 9 项测试、Web 构建、cap copy ios 及 diff --check 通过；本次未重新编译原生 App 或在 iPhone 上验证键盘、触摸选择和重启恢复。Android 使用共用源码但未更新资源/构建，Harmony 尚未同步；之前 Harmony 稳定重连仍待完成。
+
+- 当前执行（2026-11-17，Android / Harmony 同步最新 iOS）：用户要求同步 iOS 全部变更；核对 Android 共用源码和 Harmony 独立实现，重点为稳定重连、前台及下拉刷新、配对提示和详情重试。iOS 下拉视觉尚未真机验收，用户已要求继续跨端同步；不改共同协议、不重发操作、不执行 Git 写操作。完成各端可执行测试与构建，记录真机未验事项。
+  - 部分完成：Android 共用最新 React 源码，Web 构建、cap copy android 和离线 Debug 构建通过；首次 Gradle 因沙箱缓存权限失败，提权后通过，尚未真机验证。Harmony 已调整列表下拉检查、有效凭证重试入口及配对页内提示；原有前台恢复会重新连接有效配对。Harmony 95 项逻辑测试、22 文件逻辑检查和 diff --check 通过，但这些测试不覆盖新增 ArkUI 手势或真实平台编译。项目默认 `.local-tools/harmony/6.1.1` 工具链不存在，`4_harmony_build.sh` 失败，本机未找到 hvigorw/ohpm 或安装包；新增 Harmony UI 还未构建、真机验证。稳定入口 `/session/v1` 及认证后持久化、安全存储竞态处理尚未在 Harmony 实现，全量同步未完成。下一步实现并测试稳定入口、凭证更新/删除竞态和旧宿主回退，取得 API 24 工具链后构建并真机验收；不将本次逻辑测试当作平台验收。
+
+- 当前执行（2026-11-17，iOS 会话列表连接刷新）：按 `docs/testing/2026-11-17-prove.md`，启动恢复有效配对时连接，回到前台及列表下拉时检查全部连接并尝试恢复已断开的有效会话；不改变协议、不重发命令。通过条件为生命周期及下拉触发、过期配对隔离和连接状态自动化验证、iOS 构建及用户真机验收；iOS 验收后同步 Android/Harmony，不执行 Git 写操作。
+  - 视觉调整完成待验收：按用户要求，下拉各阶段改为居中旋转加载图标并保留无障碍标签，不显示文字，刷新行为不变。App 两组 65 项测试、Web 构建及 iOS 资源复制通过；本次视觉调整后未重新执行原生编译，尚未真机验证手势和显示，iOS 验收后再同步其他端。
+  - 实施验证：恢复配对时沿用现有自动连接；前台、网络恢复及下拉检查对已断开且未过期的连接发起重连，已连接会话沿用 v6+ 探活；下拉提示只表示已发起检查。App 两组 65 项测试通过（含启动恢复、前台重连及过期保护），Web 构建、iOS 资源复制、无签名模拟器构建及 diff --check 通过；首次模拟器构建受沙箱缓存限制，提权重试通过。未自动化验证下拉触摸手势，未在真机或真实网络验证；旧协议无应用层探活，连接状态可能不能立即判断。Android 共用源码但未同步构建，Harmony 尚未同步；下一步请用户在 iOS 验证启动、后台恢复和下拉刷新，再同步其他端。
+
 - 验收与提交（2026-11-17，稳定重连）：用户反馈本次验证通过，未逐项说明端口变化、重启及多会话等具体场景。WhaleTerm 稳定入口及 iOS 重连修复纳入本次提交；Android 共用源码但尚未重新构建验收，Harmony 尚未同步本次方案，下一步按既定顺序同步并验证。Standalone CLI 服务端未在本次修改。
 
 - 当前执行（2026-11-17，稳定重连实施）：用户已确认稳定入口方案，三端契约核对见 D128，实施计划见 `docs/plans/2026-11-17-stable-session-reconnection.md`；现实施 WhaleTerm 与 iOS，目标为端口改变或被其他会话占用时仍能凭原凭证恢复，自动测试及 iOS 真机验证后再同步其他端。WhaleTerm 位于可写根外，需环境写权限；PC IP 改变、服务停止不承诺自动恢复。

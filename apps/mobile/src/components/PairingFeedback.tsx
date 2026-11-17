@@ -29,6 +29,6 @@ export function PairingToast({ message, onClose }: { message: string; onClose: (
   return null
 }
 
-export function PairingCodeDialog({ code, onChange, onCancel, onVerify }: { code: string; onChange: (value: string) => void; onCancel: () => void; onVerify: () => void }) {
-  return createPortal(<div className="pairing-overlay"><div className="pairing-overlay__dialog pairing-code-dialog" role="dialog" aria-modal="true" aria-label="输入验证码"><h3>输入验证码</h3><p>请输入 PC 上的六位验证码</p><Input aria-label="六位验证码" type="tel" inputMode="numeric" maxLength={6} value={code} onChange={value => onChange(value.replace(/\D/g, ''))} placeholder="请输入六位验证码"/><div className="pairing-code-dialog__actions"><Button onClick={onCancel}>取消</Button><Button color="primary" disabled={code.length !== 6} onClick={onVerify}>验证并连接</Button></div></div></div>, document.body)
+export function PairingCodeDialog({ code, error, onChange, onCancel, onVerify }: { error?: string; code: string; onChange: (value: string) => void; onCancel: () => void; onVerify: () => void }) {
+  return createPortal(<div className="pairing-overlay"><div className="pairing-overlay__dialog pairing-code-dialog" role="dialog" aria-modal="true" aria-label="输入验证码"><h3>输入验证码</h3><p>请输入 PC 上的六位验证码</p><Input aria-label="六位验证码" type="tel" inputMode="numeric" maxLength={6} value={code} onChange={value => onChange(value.replace(/\D/g, ''))} placeholder="请输入六位验证码"/>{error && <div className="pairing-notice pairing-notice--error" role="alert">{error}</div>}<div className="pairing-code-dialog__actions"><Button onClick={onCancel}>取消</Button><Button color="primary" disabled={code.length !== 6} onClick={onVerify}>验证并连接</Button></div></div></div>, document.body)
 }

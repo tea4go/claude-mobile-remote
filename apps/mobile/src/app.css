@@ -157,8 +157,14 @@ body {
 .notification-settings p { margin: 14px 0 0; }
 
 .quick-pair-ios { display: flex; flex-direction: column; gap: 16px; }
+.quick-pair-ios__address { position: relative; }
+.quick-pair-ios__suggestions { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; right: 0; max-height: 240px; overflow-y: auto; padding: 8px 0; border-radius: 15px; background: white; box-shadow: 0 8px 24px rgba(51, 76, 120, .16); }
+.quick-pair-ios__suggestions button { display: block; width: 100%; min-height: 44px; padding: 10px 16px; border: 0; background: transparent; color: #394760; font: inherit; text-align: left; }
 .quick-pair-ios__input { display: flex; align-items: center; height: 56px; box-sizing: border-box; padding: 4px 8px 4px 14px; border: 1px solid #dfe6f1; border-radius: 15px; background: white; }
 .quick-pair-ios__input .adm-input { flex: 1; --font-size: 16px; }
+.quick-pair-ios__ip { flex: 1; min-width: 0; width: 100%; padding: 0; border: 0; outline: none; background: transparent; color: var(--adm-color-text); font: inherit; font-size: 16px; line-height: 1.5; }
+.quick-pair-ios__ip::placeholder { color: var(--adm-color-light); }
+.quick-pair-ios__ip:disabled { opacity: .4; }
 .quick-pair-ios__input button { padding: 0; width: 40px; height: 40px; border: 0; border-radius: 12px; background: #eaf3ff; }
 .quick-pair-ios__input img { width: 40px; height: 40px; }
 .quick-pair-ios p { margin: 0; color: #748198; font-size: 13px; line-height: 1.5; }
@@ -182,3 +188,12 @@ body {
 .pairing-loading-toast__content .adm-button { display: inline-flex; align-items: center; justify-content: center; min-width: 72px; }
 .pairing-error-toast .adm-toast-main-icon { max-width: calc(100vw - 32px); padding: 10px 14px; display: inline-flex; align-items: center; gap: 8px; word-break: normal; }
 .pairing-error-toast .adm-toast-main-icon .adm-toast-icon { margin: 0; font-size: 20px; flex: none; }
+
+.quick-pair-ios__history-header { display: flex; align-items: center; justify-content: space-between; padding-left: 16px; color: #8997ac; font-size: 13px; }
+.quick-pair-ios__history-header button { width: auto; min-height: 44px; color: #3478f6; font-size: 13px; }
+.pairing-notice { padding: 14px 16px; border-radius: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.pairing-notice--error { color: #a42c26; background: #fff4f3; border: 1px solid #ffd2cf; }
+.pairing-notice--warning { color: #8c6100; background: #fff8e7; border: 1px solid #ffe3a2; }
+.pairing-notice--success { color: #247443; background: #effaf2; border: 1px solid #c8e9d1; }
+.pairing-notice--info { color: #748198; }
+.pairing-notice__path { margin-top: 8px; overflow-wrap: anywhere; }

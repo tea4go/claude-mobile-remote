@@ -427,6 +427,18 @@ export struct AppShell {
     }
   }
 
+  private refreshSessions(): void {
+    if (!this.foreground) return
+    for (const record of this.sessions) {
+      if (record.pairToken.length === 0 || Date.parse(record.expiresAt) <= Date.now()) continue
+      const store = this.stores.get(record.sessionId)
+      if (store === undefined) this.connectSession(pairingPayloadFromRecord(record))
+      else if (store.getState().connection === ConnectionStage.DISCONNECTED ||
+        store.getState().connection === ConnectionStage.PAIRING_INVALID) store.reconnect()
+      else store.checkConnection()
+    }
+  }
+
   private async persistRecords(): Promise<void> {
     if (this.storage === null) throw new Error('secure storage unavailable')
     await this.storage.saveRecords(this.sessions)
@@ -1055,6 +1067,7 @@ export struct AppShell {
   @Builder
   private buildListView(): void {
     SessionListPage({
+      onRefresh: () => this.refreshSessions(),
       initialSettings: this.view === 'pairingSettings',
       onExitSettings: () => { this.view = 'pairing' },
       onDemo: () => this.openDemo(),

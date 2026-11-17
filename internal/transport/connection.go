@@ -40,11 +40,14 @@ type connection struct {
 	server *Server
 	socket *websocket.Conn
 
-	context context.Context
-	cancel  context.CancelFunc
-	done    chan struct{}
-	once    sync.Once
-	subMu   sync.Mutex
+	context    context.Context
+	cancel     context.CancelFunc
+	done       chan struct{}
+	once       sync.Once
+	subMu      sync.Mutex
+	probeMu    sync.Mutex
+	probeTimer *time.Timer
+	probeID    uint64
 
 	state               connectionState
 	version             int
@@ -79,6 +82,7 @@ func newConnection(server *Server, socket *websocket.Conn) *connection {
 
 func (c *connection) run() {
 	defer close(c.done)
+	defer c.cancelProbe()
 	defer func() {
 		c.server.setSubscribed(c, "")
 		c.server.recordConnectionEvent(c.sessionID, "disconnected")
@@ -523,7 +527,8 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 		go c.server.config.OnSubscribed(c.sessionID)
 	}
 	_ = c.socket.SetReadDeadline(time.Now().Add(c.server.config.IdleTimeout))
-	c.socket.SetPongHandler(func(string) error {
+	c.socket.SetPongHandler(func(payload string) error {
+		c.ackProbe(payload)
 		return c.socket.SetReadDeadline(time.Now().Add(c.server.config.IdleTimeout))
 	})
 	pumpDone := make(chan struct{})

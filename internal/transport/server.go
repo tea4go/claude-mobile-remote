@@ -26,9 +26,11 @@ type ManagementHandler interface {
 }
 
 type Config struct {
-	ListenAddress  string
-	OnSubscribed   func(string)
-	AllowedOrigins []string
+	ListenAddress string
+	OnSubscribed  func(string)
+	// OnConnectionChange must not block; called outside the server lock.
+	OnConnectionChange func()
+	AllowedOrigins     []string
 	// AdvertiseURL is the address the phone is told to dial. Its host is trusted
 	// as an Origin host: the user has already declared that clients reach this
 	// server through it, and a real-device live reload shell is served from that

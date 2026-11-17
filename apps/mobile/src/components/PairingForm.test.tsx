@@ -46,8 +46,15 @@ describe('PairingForm', () => {
   })
 })
 
-test('iOS scan and pairing errors show toast', async () => {
+test('iOS scan and pairing errors show inline feedback', async () => {
   render(<PairingForm iosDesign initialError="扫码失败，请检查相机权限" onSubmit={() => {}} />)
   expect(await screen.findByText(/扫码失败/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '确定' })).not.toBeInTheDocument()
+})
+
+test('iOS 目录提示显示在扫码按钮下方', () => {
+  render(<PairingForm iosDesign initialError={null} projectCwd="/project" onScan={() => {}} onSubmit={() => {}} />)
+  const scan = screen.getByRole('button', {name: /扫描二维码/})
+  const notice = screen.getByText('/project')
+  expect(scan.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })

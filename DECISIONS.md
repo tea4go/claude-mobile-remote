@@ -917,3 +917,7 @@ D103范围调整：用户明确Harmony因签名变更先暂停，本轮先实现
 ## D128 · 已配对会话稳定重连入口（2026-11-17）
 
 用户确认复用 WhaleTerm 固定 7330 入口，为已配对 Session 提供稳定 WebSocket 路由；入口按 Session 转交现有 Remote，由原服务校验配对凭证，不暴露会话列表、不签发或延长凭证。原端口失败或鉴权拒绝时可向同一主机的入口尝试，仅取得有效快照后更新安全存储；旧宿主降级、未知命令结果不自动重发。iOS/Android 和 Harmony 均可使用相同 WebSocket/JSON 契约独立实现，不依赖浏览器专属能力；原协议与 Session 隔离保持不变。iOS 验收后同步其他端。设计见 `docs/specs/2026-11-17-stable-session-reconnection-design.md`。
+
+## D129 · 宿主后台连接检测（2026-11-17）
+
+用户确认 WhaleTerm 统一后台检测网络变化，使用公共 Remote API 主动探活并推送状态到 PC UI。新增可选本地状态变化回调与 RecheckConnections；只使用标准 WebSocket Ping/Pong 控制帧，不修改 JSON envelope、配对凭证或 Session 状态。iOS/Android WebView 与 Harmony 标准 WebSocket 栈沿用已有控制帧响应，三端无需新增消息处理；真实设备网络切换仍须验收。常规心跳保持兜底，网卡变化本身不等同所有连接失效。

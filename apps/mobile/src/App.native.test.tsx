@@ -92,6 +92,21 @@ test('原生启动恢复有效配对并保留失效占位；占位不会连接',
   expect(FakeSocket.instances).toHaveLength(1)
 })
 
+test('回到前台重新检查已断开的有效会话，不重复连接正在连接的会话', async () => {
+  const native = bindings(['a', 'b'].map((id) => ({
+    metadata: { sessionId: id, name: id, customName: true, lastConnectedAt: null },
+    payload: { ...pairing(id), wsUrl: `wss://example.test/${id}` },
+  })))
+  render(<App native={native.native} cache={null} experience={null} socketFactory={(url) => new FakeSocket(url)} />)
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(2))
+  act(() => FakeSocket.instances[0]!.onerror?.())
+  act(() => native.foreground())
+  expect(FakeSocket.instances).toHaveLength(3)
+  expect(FakeSocket.instances[2]!.url).toBe('wss://example.test/a')
+  act(() => native.foreground())
+  expect(FakeSocket.instances).toHaveLength(3)
+})
+
 test('旧端口失败后通过固定入口恢复，并在快照验证后安全保存地址', async () => {
   const original = pairing('route')
   const native = bindings([{ metadata: { sessionId: 'route', name: '目标', customName: true, lastConnectedAt: null }, payload: original }])

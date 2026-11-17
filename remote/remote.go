@@ -49,7 +49,9 @@ type Config struct {
 	SessionCreator SessionCreator
 	// OnSubscribed observes successful authenticated subscriptions. Hosts may use
 	// it to expose a pre-reserved Session in their own local UI.
-	OnSubscribed           func(string)
+	OnSubscribed func(string)
+	// OnConnectionChange invalidates local connection metadata. Must not block.
+	OnConnectionChange     func()
 	EnablePush             bool
 	PushSender             push.Sender
 	SessionID              string
@@ -166,6 +168,7 @@ func newServer(config Config, factory transportFactory) (*Server, error) {
 	}
 	tcfg.ServiceConfig = serviceConfig
 	tcfg.OnSubscribed = config.OnSubscribed
+	tcfg.OnConnectionChange = config.OnConnectionChange
 	if config.SessionCreator != nil {
 		tcfg.Management = sessionCreationAdapter{creator: config.SessionCreator, sessionID: config.SessionID}
 	}
@@ -338,4 +341,11 @@ func (s *Server) ConnectionStatus() ConnectionStatus {
 		return provider.ConnectionStatus(s.sessionID)
 	}
 	return ConnectionStatus{}
+}
+
+// RecheckConnections requests bounded transport probes without touching the Session.
+func (s *Server) RecheckConnections() {
+	if checker, ok := s.server.(interface{ RecheckConnections() }); ok {
+		checker.RecheckConnections()
+	}
 }

@@ -362,7 +362,7 @@ describe('App：返回列表', () => {
 })
 
 describe('App：多 Session 生命周期', () => {
-  test('iOS 目录配对提示短暂显示，不占据页面，返回设置后不重复出现', async () => {
+  test('iOS 目录配对提示在页面内显示，返回设置后保留', async () => {
     const firstPairing = { ...PAIRING, pcId: '0123456789abcdef0123456789abcdef' }
     const snapshot = { ...SNAPSHOT, version: 3, payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, projectCwd: '/work/alpha' } } }
     window.location.hash = fragmentOf(firstPairing)
@@ -373,12 +373,11 @@ describe('App：多 Session 生命周期', () => {
     act(() => FakeWebSocket.instances[0]!.serverClose())
     vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios')
     fireEvent.click(screen.getByRole('button', { name: '在 alpha 新建会话' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('请扫描目标电脑和目录下新会话的配对码：/work/alpha')
     expect(screen.queryByText(/请扫描目标电脑和目录/, { selector: 'p' })).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByText(/请扫描目标电脑和目录/)).not.toBeInTheDocument(), { timeout: 4000 })
+    expect(screen.getByText(/请扫描目标电脑和目录/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     fireEvent.click(screen.getByLabelText('返回'))
-    expect(screen.queryByText(/请扫描目标电脑和目录/)).not.toBeInTheDocument()
+    expect(screen.getByText(/请扫描目标电脑和目录/)).toBeInTheDocument()
     vi.restoreAllMocks()
   })
 

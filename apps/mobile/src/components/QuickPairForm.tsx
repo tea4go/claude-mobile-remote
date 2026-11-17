@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Input } from 'antd-mobile'
 import { parsePairingInput, parsePairingJson } from '../protocol/pairing'
 import { nativeExperience } from '../native/experience'
 import pasteIcon from '../assets/icons/svgs/session/paste_pari.svg'
 import SessionIcon from './SessionIcon'
-import { PairingCodeDialog, PairingLoading, PairingToast } from './PairingFeedback'
+import { PairingCodeDialog, PairingLoading } from './PairingFeedback'
+import { clearRecentPairingAddresses, readRecentPairingAddresses, rememberPairingAddress, validPairingAddress } from '../native/recentPairingAddresses'
 
 export function quickPairUrl(input: string): URL {
   const text = input.trim()
@@ -15,22 +16,42 @@ export function quickPairUrl(input: string): URL {
   return url
 }
 const unavailable = '连接失败，请检查 PC 服务和网络'
-export default function QuickPairForm({ onPair, disabled = false, iosDesign = false, onScan }: { onPair: (text: string) => void; disabled?: boolean; iosDesign?: boolean; onScan?: () => void }) {
+export default function QuickPairForm({ onPair, disabled = false, iosDesign = false, onScan, feedback, onDismissFeedback }: { onDismissFeedback?: () => void; feedback?: ReactNode; onPair: (text: string) => void; disabled?: boolean; iosDesign?: boolean; onScan?: () => void }) {
   const [ip,setIP]=useState(''), [code,setCode]=useState(''), [phase,setPhase]=useState('idle'), [error,setError]=useState('')
   const [toast, setToast] = useState('')
+  const [recent, setRecent] = useState<string[]>([])
+  const [focused, setFocused] = useState(false)
   const legacy=useRef<string|null>(null)
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const suppressRemember = useRef(false)
+  const touchingSuggestions = useRef(false)
+  const matchingAddresses = recent.filter(address => address.toLowerCase().includes(ip.trim().toLowerCase()))
   const socket=useRef<WebSocket|null>(null), timer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined), request=useRef('')
+  function rememberAddress(value: string) {
+    const address = value.trim()
+    if (suppressRemember.current || legacy.current || !validPairingAddress(address)) return
+    void rememberPairingAddress(address).then(() => readRecentPairingAddresses()).then(setRecent).catch(() => {})
+  }
   function stop() { clearTimeout(timer.current);const s=socket.current;socket.current=null;s?.close();request.current='';setPhase('idle') }
   useEffect(()=>{if(disabled)stop()},[disabled])
-  useEffect(()=>()=>{clearTimeout(timer.current);socket.current?.close();socket.current=null},[])
+  useEffect(()=>()=>{clearTimeout(timer.current);clearTimeout(blurTimer.current);socket.current?.close();socket.current=null},[])
+  useEffect(() => { let active = true; void readRecentPairingAddresses().then((items) => { if (active) setRecent(items) }).catch(() => {}); return () => { active = false } }, [])
+  useEffect(() => {
+    if (!iosDesign || !focused || !validPairingAddress(ip.trim()) || legacy.current) return
+    const timeout = setTimeout(() => rememberAddress(ip), 1000)
+    return () => clearTimeout(timeout)
+  }, [ip, focused, iosDesign])
   useEffect(()=>{const hide=()=>{if(document.hidden)stop()};document.addEventListener('visibilitychange',hide);return()=>document.removeEventListener('visibilitychange',hide)},[])
   function validIP(value: string): boolean {
-    try {
-      const url = quickPairUrl(value)
-      if (url.hostname.startsWith('[')) return true
-      const match = /^(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/.exec(value)
-      return !!match && match[1]!.split('.').every(n => Number(n) <= 255)
-    } catch { return false }
+    return validPairingAddress(value)
+  }
+  function editAddress(value: string) {
+    suppressRemember.current = false
+    legacy.current = null
+    setIP(value)
+    setError('')
+    setToast('')
+    onDismissFeedback?.()
   }
   function acceptInput(text: string) {
     const value = text.trim(), parsed = parsePairingInput(value, Date.now())
@@ -62,6 +83,7 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
         if(m.type==='ready') {
           if(typeof m.requestId!=='string'||!m.requestId)throw new Error()
           const ttl=Date.parse(m.payload.expiresAt)-Date.now();if(!Number.isFinite(ttl)||ttl<=0||ttl>125000)throw new Error()
+          rememberAddress(ip)
           request.current=m.requestId;clearTimeout(timer.current);timer.current=setTimeout(()=>fail('验证码已过期，请重新连接'),ttl);setPhase('code')
         } else if(m.type==='paired') {
           if(!request.current||m.requestId!==request.current)throw new Error()
@@ -77,19 +99,25 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
     }
   }
   if (iosDesign) return <div className="quick-pair-ios">
+    <div className="quick-pair-ios__address">
     <div className="quick-pair-ios__input" onPaste={event => { event.preventDefault(); acceptInput(event.clipboardData.getData('text')) }}>
-      <Input aria-label="PC IP" placeholder="请输入IP" value={ip} onChange={value => { legacy.current = null; setIP(value); setError('') }} disabled={phase !== 'idle' || disabled}/>
+      <input className="quick-pair-ios__ip" aria-label="PC IP" placeholder="请输入IP" type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} value={ip} onInput={event => editAddress(event.currentTarget.value)} onChange={event => { if (event.currentTarget.value !== ip) editAddress(event.currentTarget.value) }} onCompositionEnd={event => editAddress(event.currentTarget.value)} onFocus={() => { clearTimeout(blurTimer.current); setFocused(true) }} onBlur={event => { rememberAddress(event.currentTarget.value); blurTimer.current = setTimeout(() => { if (!touchingSuggestions.current) setFocused(false) }, 300) }} disabled={phase !== 'idle' || disabled}/>
       <button type="button" aria-label="粘贴配对信息" onClick={() => void paste()} disabled={phase !== 'idle' || disabled}><img src={pasteIcon} alt="" /></button>
     </div>
+    {focused && phase === 'idle' && !disabled && matchingAddresses.length > 0 && <div className="quick-pair-ios__suggestions" role="listbox" aria-label="最近连接地址" onTouchStart={() => { touchingSuggestions.current = true }} onTouchEnd={() => { touchingSuggestions.current = false; clearTimeout(blurTimer.current); blurTimer.current = setTimeout(() => setFocused(false), 300) }} onTouchCancel={() => { touchingSuggestions.current = false; setFocused(false) }}>
+      <div className="quick-pair-ios__history-header"><span>历史记录</span><button type="button" aria-label="清空历史记录" onMouseDown={event => event.preventDefault()} onClick={() => { suppressRemember.current = true; void clearRecentPairingAddresses().then(() => setRecent([])).catch(() => setError('清空历史记录失败，请重试')) }}>清空</button></div>
+      {matchingAddresses.map((address) => <button type="button" role="option" aria-selected="false" key={address} onMouseDown={(event) => event.preventDefault()} onClick={() => { clearTimeout(blurTimer.current); suppressRemember.current = false; legacy.current = null; setIP(address); setError(''); setToast(''); setFocused(false) }}>{address}</button>)}
+    </div>}
+    </div>
     <p>请与 PC 配对窗口核对；手机所在网络需要能访问此地址。不同路由器共用宽带不代表设备能够互通。</p>
-    {phase === 'code' && <PairingCodeDialog code={code} onChange={setCode} onCancel={stop} onVerify={() => { if (socket.current?.readyState === WebSocket.OPEN) { setError(''); setPhase('verifying'); socket.current.send(JSON.stringify({version:1,type:'verify',requestId:request.current,payload:{code}})) } }}/>}
-    {error && <PairingToast message={error} onClose={() => setError('')}/>}
-    {toast && <PairingToast message={toast} onClose={() => setToast('')}/>}
+    {phase === 'code' && <PairingCodeDialog code={code} error={error} onChange={setCode} onCancel={stop} onVerify={() => { if (socket.current?.readyState === WebSocket.OPEN) { setError(''); setPhase('verifying'); socket.current.send(JSON.stringify({version:1,type:'verify',requestId:request.current,payload:{code}})) } }}/>}
     {(phase === 'connecting' || phase === 'verifying') && <PairingLoading message={phase === 'connecting' ? '正在连接…' : '正在验证…'} onCancel={stop}/>}
     <div className="quick-pair-ios__actions">
       <Button className="pairing-form__primary" color="primary" disabled={disabled || phase !== 'idle'} onClick={start}>连接</Button>
       {onScan && <Button className="pairing-form__scan" disabled={disabled || phase !== 'idle'} color="primary" fill="outline" onClick={onScan}><SessionIcon name="scan" size={16} style={{ marginRight: 6 }} />扫描二维码</Button>}
     </div>
+    {phase !== 'code' && (error || toast) && <div className="pairing-notice pairing-notice--error" role="alert">{error || toast}</div>}
+    {feedback}
   </div>
   return <div style={{display:'grid',gap:16}}>
     <Input aria-label="PC IP" placeholder="请输入 PC IP" value={ip} onChange={setIP} disabled={phase!=='idle'||disabled}/>

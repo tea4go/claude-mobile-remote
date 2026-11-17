@@ -22,6 +22,7 @@ func (s *Server) recordConnectionEvent(sessionID, code string) {
 		}
 	}
 	s.mu.Lock()
+	defer s.notifyConnectionChange()
 	defer s.mu.Unlock()
 	s.recent = append(s.recent, ConnectionDiagnostic{Time: time.Now().UTC(), SessionID: sessionID, Code: code})
 	if len(s.recent) > 100 {
@@ -31,6 +32,7 @@ func (s *Server) recordConnectionEvent(sessionID, code string) {
 
 func (s *Server) setSubscribed(c *connection, sessionID string) {
 	s.mu.Lock()
+	defer s.notifyConnectionChange()
 	defer s.mu.Unlock()
 	if sessionID == "" {
 		delete(s.subscribed, c)
@@ -55,4 +57,10 @@ func (s *Server) ConnectionStatus(sessionID string) ConnectionStatus {
 		}
 	}
 	return status
+}
+
+func (s *Server) notifyConnectionChange() {
+	if s.config.OnConnectionChange != nil {
+		s.config.OnConnectionChange()
+	}
 }

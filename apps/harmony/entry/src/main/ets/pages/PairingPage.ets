@@ -74,7 +74,6 @@ export struct PairingPage {
         Column({ space: 16 }) {
           Button('• 体验演示（无需连接电脑）', { type: ButtonType.Normal }).id('open-demo-button').height(36).fontSize(13).fontColor(PRIMARY).backgroundColor($r('app.color.surface_blue')).borderRadius(18).alignSelf(ItemAlign.Center).enabled(!this.scanning && !this.connecting()).onClick(() => this.onDemo())
           Text('连接 Claude 会话').fontSize(30).fontWeight(FontWeight.Bold).width('100%')
-          if (this.projectCwd.length > 0) { Text(`请扫描目标电脑和目录：${this.projectCwd}`).fontSize(13).fontColor(PRIMARY).width('100%') }
           QuickPairForm({ disabled: !this.nativeReady || this.scanning || this.connecting() || this.saving,
             onPair: (text: string) => { this.onPairingInputChange(text); this.onConnect() }, onScan: () => this.onScan() })
         }.padding(24).width('100%').alignItems(HorizontalAlign.Start)

@@ -209,7 +209,12 @@ export class SessionRuntimeManager {
 
   refreshConnectionStates(): void {
     for (const [sessionId, entry] of this.entries) {
+      if (entry.client.connectionState() === 'disconnected' && Date.parse(entry.payload.expiresAt) > this.now()) {
+        this.reconnect(sessionId)
+        continue
+      }
       entry.client.checkConnection(true)
+      if (this.entries.get(sessionId) !== entry) continue
       this.store.getState().dispatchSession(
         sessionId,
         connectionStateChanged(entry.client.connectionState()),

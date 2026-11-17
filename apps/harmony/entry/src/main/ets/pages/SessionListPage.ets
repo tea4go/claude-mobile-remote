@@ -36,6 +36,8 @@ export struct SessionListPage {
   onExitSettings: () => void = () => {}
   @Prop scrollOffset: number = 0
   onScrollOffset: (value: number) => void = () => {}
+  onRefresh: () => void = () => {}
+  @State private refreshing: boolean = false
   @Prop @Watch('updateGroups') sessions: Array<SessionRecord> = []
   @Prop @Watch('updateGroups') selectedPC: string = 'all'
   @Prop projectCreating: boolean = false
@@ -242,6 +244,7 @@ export struct SessionListPage {
           }.padding({ left: 16, right: 16, top: 12, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
         }.layoutWeight(1).width('100%').align(Alignment.TopStart).transition(pageSlide())
       } else {
+        Refresh({ refreshing: $$this.refreshing }) {
         List({ space: 8, scroller: this.scroller }) {
           ListItem() { Row({ space: 10 }) { Text('会话列表').fontSize(28).fontWeight(FontWeight.Bold); Text(`${this.sessions.length} 个会话`).fontSize(12).fontColor(SECONDARY).padding({ left: 10, right: 10, top: 6, bottom: 6 }).backgroundColor($r('app.color.surface_blue')).borderRadius(16) }.width('100%').padding({ top: 18, bottom: 12 }) }
           if (this.groups.length === 0) { ListItem() { Text('扫码连接电脑上的 Claude 会话').fontSize(14).fontColor(SECONDARY).padding(24) } }
@@ -276,6 +279,10 @@ export struct SessionListPage {
         }.layoutWeight(1).width('100%').padding({ left: 16, right: 16 }).cachedCount(3).transition(pageSlide(true))
           .onAppear(() => { this.listOffset = this.scrollOffset; this.scroller.scrollTo({ xOffset: 0, yOffset: this.scrollOffset }) })
           .onScroll(() => this.onScrollOffset(this.scroller.currentOffset().yOffset))
+        }.layoutWeight(1).width('100%').onRefreshing(() => {
+          this.onRefresh()
+          setTimeout(() => { this.refreshing = false }, 500)
+        })
       }
       if (!this.settings) {
         Row() { Button('＋ 新会话', { type: ButtonType.Normal }).height(52).width('100%').fontSize(16).fontColor(Color.White)

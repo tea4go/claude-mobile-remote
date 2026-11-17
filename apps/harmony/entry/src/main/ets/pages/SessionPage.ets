@@ -138,7 +138,9 @@ export struct SessionPage {
 
   private showReconnect(): boolean {
     return this.state.connection === ConnectionStage.DISCONNECTED ||
-      this.state.connection === ConnectionStage.PROTOCOL_ERROR
+      this.state.connection === ConnectionStage.PROTOCOL_ERROR ||
+      (this.state.connection === ConnectionStage.PAIRING_INVALID && this.state.pairing !== null &&
+        this.state.pairing.pairToken.length > 0 && Date.parse(this.state.pairing.expiresAt) > Date.now())
   }
 
   private cancelTarget(): string {

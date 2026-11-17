@@ -1,7 +1,7 @@
 import QuickPairForm from './QuickPairForm'
 import SessionIcon from './SessionIcon'
-import { useEffect, useState } from 'react'
-import { PairingLoading, PairingToast } from './PairingFeedback'
+import { useState } from 'react'
+import { PairingLoading } from './PairingFeedback'
 import { Button, TextArea } from 'antd-mobile'
 import { parsePairingInput } from '../protocol/pairing'
 import { safeNetworkTarget } from '../protocol/diagnostics'
@@ -16,12 +16,11 @@ interface PairingFormProps {
   saving?: boolean
   onCancel?: () => void
   onDismissError?: () => void
+  projectCwd?: string | null
 }
 
 // 配对页：标题、说明、原始 JSON 多行输入、连接按钮与就地错误（设计 §8）。
-export default function PairingForm({ iosDesign = false, target = null, initialError, onSubmit, onScan, progress = null, saving = false, onCancel, onDismissError }: PairingFormProps) {
-  const [notice, setNotice] = useState<string | null>(null)
-  useEffect(() => { if (iosDesign && initialError) setNotice(initialError) }, [iosDesign, initialError])
+export default function PairingForm({ iosDesign = false, target = null, initialError, onSubmit, onScan, progress = null, saving = false, onCancel, onDismissError, projectCwd = null }: PairingFormProps) {
   const [manual, setManual] = useState(false)
   const [json, setJson] = useState('')
   const [emptyError, setEmptyError] = useState(false)
@@ -30,7 +29,7 @@ export default function PairingForm({ iosDesign = false, target = null, initialE
   const parsed = json.trim() === '' ? null : parsePairingInput(json, 0)
   const displayedTarget = parsed?.ok ? safeNetworkTarget(parsed.value.wsUrl) : json.trim() === '' ? target : null
 
-  if (iosDesign) return <div className="pairing-form"><h2 style={{ margin: 0 }}>连接 Claude 会话</h2><QuickPairForm iosDesign disabled={progress !== null || saving} onPair={onSubmit} onScan={onScan}/>{notice && <PairingToast message={notice} onClose={() => { setNotice(null); onDismissError?.() }}/>}{progress && <PairingLoading message={progress} cancelDisabled={saving} onCancel={onCancel}/>}</div>
+  if (iosDesign) return <div className="pairing-form"><h2 style={{ margin: 0 }}>连接 Claude 会话</h2><QuickPairForm iosDesign onDismissFeedback={onDismissError} disabled={progress !== null || saving} onPair={onSubmit} onScan={onScan} feedback={<>{initialError && <div className="pairing-notice pairing-notice--error" role="alert">{initialError}</div>}{projectCwd && <div className="pairing-notice pairing-notice--info">请扫描目标电脑和目录下新会话的配对码：<div className="pairing-notice__path">{projectCwd}</div></div>}</>}/>{progress && <PairingLoading message={progress} cancelDisabled={saving} onCancel={onCancel}/>}</div>
 
   return (
     <div className="pairing-form">
