@@ -1,5 +1,6 @@
 import { createInitialHarmonySessionState, type HarmonySessionState, type FeedMessage } from './model'
 import { decodeServerMessage } from '../protocol/decode'
+import type { Attachment } from '../protocol/types'
 import { utf8Bytes } from './attachments'
 
 export const CACHE_BYTES = 2 * 1024 * 1024
@@ -38,9 +39,15 @@ function displayMessage(message: FeedMessage): FeedMessage | null {
   if (message.kind === 'input' || message.kind === 'claude') {
     if (typeof message.text !== 'string' || message.text.length > CACHE_BYTES || (message.source !== 'mobile' && message.source !== 'terminal')) return null
     if (message.kind === 'input') {
-      let text = message.text
-      if (Array.isArray(message.attachments) && message.attachments.length > 0) text += '\n[附件预览未缓存]'
-      return { kind: 'input', requestId: message.requestId, source: message.source, text, status: message.status === 'unknown' ? 'unknown' : 'accepted' }
+      const attachments: Array<Attachment> = []
+      if (Array.isArray(message.attachments)) message.attachments.slice(0, 4).forEach((item: Attachment) => {
+        if (item !== null && typeof item.name === 'string' && item.name.length <= 255 && typeof item.mediaType === 'string' && item.mediaType.length <= 128) {
+          const saved: Attachment = { name: item.name, mediaType: item.mediaType, data: '' }
+          if (typeof item.ref === 'string' && item.ref.length > 0 && item.ref.length <= 128 && ['image/png','image/jpeg','image/gif','image/webp'].indexOf(item.mediaType) >= 0) saved.ref = item.ref
+          attachments.push(saved)
+        }
+      })
+      return { kind: 'input', requestId: message.requestId, source: message.source, text: message.text, attachments, status: message.status === 'unknown' ? 'unknown' : 'accepted' }
     }
     return { kind: 'claude', requestId: message.requestId, source: message.source, text: message.text,
       status: message.status === 'failed' || message.status === 'cancelled' ? message.status : 'done', error: null }

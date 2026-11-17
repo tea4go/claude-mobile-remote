@@ -1,5 +1,5 @@
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 8
+export const PREFERRED_PROTOCOL_VERSION = 10
 export const PAIRING_PAYLOAD_VERSION = 1
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
 export const MAX_TEXT_BYTES = 1024 * 1024
@@ -36,7 +36,7 @@ export const TOOL_CLASS_VALUES: string[] = ['builtin', 'mcp']
 export const ACTION_KIND_VALUES: string[] = ['tool_approval', 'ask_user_question']
 export const QUESTION_INPUT_TYPE_VALUES: string[] = ['choice', 'text']
 export const MESSAGE_TYPE_VALUES: string[] = [
-  'ping', 'pong',
+  'ping', 'pong', 'image_get', 'image_result',
   'hello',
   'hello_ack',
   'subscribe',
@@ -55,6 +55,7 @@ export const MESSAGE_TYPE_VALUES: string[] = [
   'error',
 ]
 export const SERVER_MESSAGE_TYPE_VALUES: string[] = [
+  'image_result',
   'pong',
   'hello_ack',
   'subscribed',
@@ -96,7 +97,7 @@ export type ToolClass = 'builtin' | 'mcp'
 export type PendingActionKind = 'tool_approval' | 'ask_user_question'
 export type QuestionInputType = 'choice' | 'text'
 export type MessageType =
-  | 'ping' | 'pong'
+  | 'ping' | 'pong' | 'image_get' | 'image_result'
   | 'hello'
   | 'hello_ack'
   | 'subscribe'
@@ -114,6 +115,7 @@ export type MessageType =
   | 'stop_session_result'
   | 'error'
 export type ServerMessageType =
+  | 'image_result'
   | 'pong'
   | 'hello_ack'
   | 'subscribed'
@@ -243,7 +245,10 @@ export interface SessionDiagnostic {
  code: 'api_retry' | 'query_failed' | 'receive_failed' | 'response_incomplete' | 'assistant_error' | 'result_error' | 'turn_failed' | 'tool_failed'
  httpStatus?: number; attempt?: number; maxAttempts?: number; retryDelayMs?: number
 }
+export interface TurnDisplayItem { text?: string; block?: ContentBlock }
+export interface TurnDisplay { items: Array<TurnDisplayItem>; truncated: boolean }
 export interface TurnSnapshot {
+  display?: TurnDisplay
   inputText?: string
   progress?: TurnProgress
   status: TurnStatus
@@ -309,6 +314,7 @@ export interface EventPayload {
 }
 
 export interface CommandResultPayload {
+  imageRefs?: Array<string>
   accepted: boolean
   code: string
   message: string
@@ -386,7 +392,10 @@ export interface ErrorServerMessage extends BaseServerMessage {
   payload: ErrorPayload
 }
 
+export interface ImageResultPayload { ref: string; image?: Attachment }
+export interface ImageResultServerMessage extends BaseServerMessage { type: 'image_result'; payload: ImageResultPayload }
 export type ServerMessage =
+  | ImageResultServerMessage
   | HelloAckServerMessage
   | SubscribedServerMessage
   | UnsubscribedServerMessage
@@ -399,6 +408,7 @@ export type ServerMessage =
   | ErrorServerMessage
 
 export interface Attachment {
+  ref?: string
   name: string
   mediaType: string
   data: string

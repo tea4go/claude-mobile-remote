@@ -4,6 +4,7 @@ import { webSocket } from '@kit.NetworkKit'
 import { decodeServerMessage } from './decode'
 import type {
   Attachment,
+  ImageResultPayload,
   DomainEvent,
   EmptyPayload,
   ErrorInfo,
@@ -19,6 +20,7 @@ import { PROTOCOL_VERSION, PREFERRED_PROTOCOL_VERSION } from './types'
 
 export type ActionDecision = 'allow_once' | 'allow_session' | 'deny'
 
+interface ImageGetPayload { ref: string }
 export interface SendTextCommandPayload {
   kind: 'send_text'
   text: string
@@ -92,6 +94,7 @@ export interface SendResult {
 }
 
 export interface CommandResultInfo {
+  imageRefs?: Array<string>
   commandId: string
   requestId: string
   accepted: boolean
@@ -118,6 +121,7 @@ export interface ProtocolClientObserver {
   onSocketOpened?(): void
   onHelloAck?(): void
   onSubscribed?(): void
+  onImageResult?(result: ImageResultPayload): void
   onSnapshot?(snapshot: SessionSnapshot): void
   onEvent?(event: DomainEvent): void
   onUnsupported?(code: UnsupportedCode, seq: number): void
@@ -511,6 +515,13 @@ export class ProtocolClient {
     })
   }
 
+  getImage(ref: string): boolean {
+    if (this.stage !== 'READY' || this.wireVersion < 10 || this.socket === null || ref.length === 0 || ref.length > 128) return false
+    const payload: ImageGetPayload = { ref }
+    this.sendFrame(encodeEnvelope(this.wireVersion, 'image_get', this.pairing.sessionId, '', '', 0, payload as Object))
+    return true
+  }
+
   private notifyClosed(
     reason: 'DISCONNECTED' | 'PAIRING_INVALID' | 'PROTOCOL_ERROR',
     error: ErrorInfo | null,
@@ -554,13 +565,13 @@ export class ProtocolClient {
       return
     }
 
-    const legacy = message.version >= 2 && message.version <= 7
+    const legacy = message.version >= 2 && message.version <= 9
     if (legacy && message.version < this.wireVersion && this.stage === 'AUTHENTICATING' && message.type === 'hello_ack') {
       this.wireVersion = message.version
     }
     const fallbackError = message.type === 'error' && this.stage === 'AUTHENTICATING' && legacy &&
       message.payload.code === 'unsupported_version' &&
-      (message.payload.expectedVersion !== undefined && message.payload.expectedVersion >= 2 && message.payload.expectedVersion <= 7) &&
+      (message.payload.expectedVersion !== undefined && message.payload.expectedVersion >= 2 && message.payload.expectedVersion <= 9) &&
       message.payload.expectedVersion < this.wireVersion
     const legacyUnauthorized = message.type === 'error' && this.stage === 'AUTHENTICATING' && legacy &&
       message.payload.code === 'unauthorized'
@@ -570,7 +581,7 @@ export class ProtocolClient {
     }
 
     if (
-      (message.type === 'pong' || message.type === 'snapshot' ||
+      (message.type === 'image_result' || message.type === 'pong' || message.type === 'snapshot' ||
         message.type === 'event' ||
         message.type === 'unsupported' ||
         message.type === 'command_result' ||
@@ -583,6 +594,10 @@ export class ProtocolClient {
     }
 
     switch (message.type) {
+      case 'image_result':
+        if (this.stage !== 'READY') { this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'unexpected image result')); return }
+        this.observer?.onImageResult?.(message.payload)
+        return
       case 'pong':
         if (this.stage !== 'READY' || this.pongAt === 0) { this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'unexpected pong')); return }
         if (Date.now() - this.pongAt >= 5000) { debugLog.record('heartbeat_timeout', 5000); this.terminate('DISCONNECTED', makeError('heartbeat_timeout', '连接探活响应超过5秒，操作结果未知')); return }
@@ -672,6 +687,7 @@ export class ProtocolClient {
           accepted: message.payload.accepted,
           code: message.payload.code,
           message: message.payload.message,
+          imageRefs: message.payload.imageRefs,
         }
         if (this.observer?.onCommandResult !== undefined) {
           this.observer.onCommandResult(result)

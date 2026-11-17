@@ -1,6 +1,7 @@
 import {
+  type TurnDisplayItem, type TurnDisplay,
   type ProgressPhase, type DiagnosticCode, type TurnProgress, type SessionDiagnostic,
-  type Attachment,
+  type Attachment, type ImageResultPayload,
   ACTION_KIND_VALUES,
   ASK_USER_QUESTION_TOOL_NAME,
   BLOCK_KIND_VALUES,
@@ -85,7 +86,10 @@ interface SessionSnapshotCandidate {
   lastActivityAt?: string
 }
 
+interface TurnDisplayCandidate { items?: Array<Object>; truncated?: boolean }
+interface TurnDisplayItemCandidate { text?: string; block?: Object | null }
 interface TurnSnapshotCandidate {
+  display?: Object | null
   inputText?: string
   progress?: Object | null
   status?: string
@@ -200,7 +204,9 @@ interface ResolvedAnswerCandidate {
   values?: Array<string> | null
 }
 
+interface ImageResultCandidate { ref?: string; image?: Object | null }
 interface CommandResultPayloadCandidate {
+  imageRefs?: Array<string>
   accepted?: boolean
   code?: string
   message?: string
@@ -237,7 +243,7 @@ const SESSION_SNAPSHOT_KEYS: Array<string> = [
   'queuedRequests',
   'projectCwd', 'sessionTitle', 'createdAt', 'lastActivityAt',
 ]
-const TURN_SNAPSHOT_KEYS: Array<string> = ['inputText', 'progress', 'status', 'requestId', 'source', 'message', 'error', 'pendingAction']
+const TURN_SNAPSHOT_KEYS: Array<string> = ['inputText', 'progress', 'status', 'requestId', 'source', 'message', 'error', 'pendingAction', 'display']
 const ERROR_INFO_KEYS: Array<string> = ['code', 'message']
 const EVENT_PAYLOAD_KEYS: Array<string> = ['event']
 const EVENT_KEYS: Array<string> = [
@@ -296,7 +302,7 @@ const QUESTION_KEYS: Array<string> = [
 const QUESTION_OPTION_KEYS: Array<string> = ['label', 'description']
 const QUEUED_REQUEST_KEYS: Array<string> = ['requestId', 'source', 'preview']
 const RESOLVED_ANSWER_KEYS: Array<string> = ['questionId', 'header', 'question', 'values']
-const COMMAND_RESULT_KEYS: Array<string> = ['accepted', 'code', 'message']
+const COMMAND_RESULT_KEYS: Array<string> = ['accepted', 'code', 'message', 'imageRefs']
 const MANAGEMENT_RESULT_KEYS: Array<string> = ['accepted', 'code', 'message', 'pairing']
 const ERROR_PAYLOAD_KEYS: Array<string> = ['code', 'message', 'expectedVersion']
 const UNSUPPORTED_KEYS: Array<string> = ['code']
@@ -784,6 +790,19 @@ function decodeTurnSnapshot(value: Object | null, version: number): TurnSnapshot
     error: decodeErrorInfo(candidate.error !== undefined ? candidate.error : null, 'error'),
     pendingAction,
   }
+  if (candidate.display !== undefined) {
+    if (version < 9 || requestId.length === 0 || utf8ByteLength(JSON.stringify(candidate.display)) > 512 * 1024) fail('invalid turn display')
+    const display = requireAllowedObject(candidate.display, 'turn display', ['items', 'truncated']) as TurnDisplayCandidate
+    if (!Array.isArray(display.items) || display.items.length > 512 || typeof display.truncated !== 'boolean') fail('invalid turn display')
+    const items: Array<TurnDisplayItem> = display.items.map((value: Object): TurnDisplayItem => {
+      const item = requireAllowedObject(value, 'turn display item', ['text', 'block']) as TurnDisplayItemCandidate
+      if (typeof item.text === 'string' && item.text.length > 0 && item.block === undefined) return { text: item.text }
+      if (item.text === undefined && item.block !== undefined) return { block: decodeContentBlock(item.block) }
+      return fail('invalid turn display item')
+    })
+    const result: TurnDisplay = { items, truncated: display.truncated }
+    snapshot.display = result
+  }
   if (candidate.inputText !== undefined) {
     const input = readString(candidate.inputText, 'inputText')
     if (version < 7 || input.length === 0 || utf8ByteLength(input) > MAX_TEXT_BYTES || requestId.length === 0 || ['running', 'waiting'].indexOf(snapshot.status) < 0) fail('invalid current input')
@@ -979,6 +998,10 @@ function decodeCommandResultPayload(value: Object | null): CommandResultPayload 
     code: readString(candidate.code, 'code'),
     message: readString(candidate.message, 'message'),
   }
+  if (candidate.imageRefs !== undefined) {
+    if (!payload.accepted || !Array.isArray(candidate.imageRefs) || candidate.imageRefs.length > 4 || !candidate.imageRefs.every((ref: string) => typeof ref === 'string' && ref.length <= 128)) fail('invalid image references')
+    payload.imageRefs = candidate.imageRefs
+  }
   return payload
 }
 
@@ -1049,7 +1072,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
 
   const envelope = requireAllowedObject(parsedValue, 'message', ENVELOPE_KEYS) as EnvelopeCandidate
   const version = readInteger(envelope.version, 'version')
-  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== PREFERRED_PROTOCOL_VERSION) {
+  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== PREFERRED_PROTOCOL_VERSION) {
     fail('unsupported protocol version')
   }
 
@@ -1062,6 +1085,21 @@ export function decodeServerMessage(raw: string): ServerMessage {
     fail('field payload must be an object')
   }
   const payloadValue = envelope.payload
+
+  if (type === 'image_result') {
+    if (version < 10 || commandId !== '' || requestId !== '' || seq !== 0) fail('invalid image result')
+    const item = requireAllowedObject(payloadValue, 'image result', ['ref', 'image']) as ImageResultCandidate
+    const ref = readString(item.ref, 'ref')
+    if (ref.length === 0 || ref.length > 128) fail('invalid image reference')
+    const payload: ImageResultPayload = { ref }
+    if (item.image !== undefined) {
+      const raw = requireAllowedObject(item.image, 'image', ['name', 'mediaType', 'data']) as ImageCandidate
+      const image: Attachment = { name: readString(raw.name, 'name'), mediaType: readString(raw.mediaType, 'mediaType'), data: readString(raw.data, 'data') }
+      if (image.name.length > 255 || ['image/png','image/jpeg','image/gif','image/webp'].indexOf(image.mediaType) < 0 || image.data.length > Math.ceil(4 * 1024 * 1024 / 3) * 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(image.data) || image.data.length % 4 !== 0) fail('invalid image')
+      payload.image = image
+    }
+    return { version, type: 'image_result', sessionId, commandId, requestId, seq, payload }
+  }
 
   if (type === 'pong' && (version < 6 || commandId !== '' || requestId !== '' || seq !== 0)) fail('invalid heartbeat')
   if (type === 'pong' || type === 'hello_ack' || type === 'subscribed' || type === 'unsubscribed') {

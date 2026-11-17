@@ -356,7 +356,7 @@ function cloneNoticeInfo(notice: NoticeInfo | null): NoticeInfo | null {
   }
 }
 
-function cloneState(state: HarmonySessionState, cloneFeed: boolean = true): HarmonySessionState {
+export function cloneState(state: HarmonySessionState, cloneFeed: boolean = true): HarmonySessionState {
   return {
     progress: state.progress,
     progressRequestId: state.progressRequestId,
@@ -650,24 +650,47 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
       else next.messages.splice(replyIndex, 0, input)
     }
   }
-  if (snapshot.turn.source !== '' && (snapshot.turn.message.length > 0 || turnActive)) {
-    const status = snapshot.turn.status === 'failed'
-      ? 'failed'
-      : snapshot.turn.status === 'cancelled'
-        ? 'cancelled'
-      : turnActive
-        ? 'streaming'
-        : 'done'
-    next.messages = next.messages.filter((message: FeedMessage) => !(message.kind === 'claude' && message.requestId === snapshot.turn.requestId))
-    next.messages.push(
-      createClaudeMessage(
-        snapshot.turn.requestId,
-        snapshot.turn.source,
-        snapshot.turn.message,
-        status,
-        snapshot.turn.error,
-      ),
-    )
+  if (snapshot.turn.source !== '' && (snapshot.turn.message.length > 0 || turnActive || snapshot.turn.display !== undefined)) {
+    const status = snapshot.turn.status === 'failed' ? 'failed' : snapshot.turn.status === 'cancelled' ? 'cancelled' : turnActive ? 'streaming' : 'done'
+    const current = createClaudeMessage(snapshot.turn.requestId, snapshot.turn.source, snapshot.turn.message, status, snapshot.turn.error)
+    const display = snapshot.turn.display
+    if (display !== undefined) {
+      const replacement: Array<FeedMessage> = []
+      if (display.truncated) replacement.push(createClaudeMessage(current.requestId, current.source, '[较早的执行过程未同步]', status, current.error))
+      display.items.forEach((item) => {
+        if (item.text !== undefined) replacement.push(createClaudeMessage(current.requestId, current.source, item.text, status, current.error))
+        else if (item.block !== undefined) {
+          const block: BlockFeedMessage = { kind: 'block', requestId: current.requestId, block: item.block }
+          replacement.push(block)
+        }
+      })
+      if (!replacement.some((message: FeedMessage) => message.kind === 'claude')) replacement.push(createClaudeMessage(current.requestId, current.source, '', status, current.error))
+      let position = -1
+      const kept: Array<FeedMessage> = []
+      next.messages.forEach((message: FeedMessage) => {
+        if ((message.kind === 'claude' || message.kind === 'block') && message.requestId === current.requestId) {
+          if (position < 0) position = kept.length
+        } else kept.push(message)
+      })
+      if (position < 0) position = kept.length
+      kept.splice(position, 0, ...replacement)
+      next.messages = kept
+    } else {
+      const existing = next.messages.filter((message: FeedMessage) => message.kind === 'claude' && message.requestId === current.requestId)
+      const observed = existing.map((message: FeedMessage) => message.kind === 'claude' ? message.text : '').join('')
+      if (existing.length > 0 && current.text !== '' && observed === current.text) {
+        existing.forEach((message: FeedMessage) => { if (message.kind === 'claude') { message.status = current.status; message.error = current.error } })
+      } else if (existing.length > 0) {
+        let replaced = false
+        next.messages = next.messages.filter((message: FeedMessage) => {
+          if (message.kind !== 'claude' || message.requestId !== current.requestId) return true
+          if (replaced) return false
+          replaced = true
+          if (current.text === '') current.text = message.text
+          return true
+        }).map((message: FeedMessage): FeedMessage => message === existing[0] ? current : message)
+      } else next.messages.push(current)
+    }
   }
 
   return applyCapabilityFlags(next)
@@ -751,6 +774,7 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       break
     }
     case 'text_delta': {
+      if (/^\$\{[^{}]+\}$/.test(event.text.trim())) break
       const lastClaudeIndex = findLastClaudeIndex(next.messages, event.requestId)
       if (lastClaudeIndex >= 0 && lastClaudeIndex === next.messages.length - 1) {
         const last = next.messages[lastClaudeIndex] as ClaudeFeedMessage

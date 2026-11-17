@@ -66,6 +66,8 @@ export struct MessageList {
   scroller: Scroller = new Scroller()
   onAtBottom: (value: boolean) => void = () => {}
   onPreviewImage: (value: string) => void = () => {}
+  @State private atTop: boolean = true
+  @State private atEnd: boolean = true
   @Prop debugEnabled: boolean = false
   onDebugOpen: () => void = () => {}
   private readonly source: FeedDataSource = new FeedDataSource()
@@ -74,6 +76,7 @@ export struct MessageList {
   private toolNames: Map<string, string> = new Map()
   private toolStatuses: Map<string, string> = new Map()
   private previousMessages: Array<FeedMessage> = []
+  private followTimer: number = -1
 
   aboutToAppear(): void {
     this.messagesChanged(); nativeLifecycle.messageBack = this.backHandler
@@ -81,7 +84,7 @@ export struct MessageList {
       if (this.source.totalCount() > 0) this.scroller.scrollToIndex(this.source.totalCount() - 1, false, ScrollAlign.END)
     }, 500)
   }
-  aboutToDisappear(): void { messageSelection.close(); if (nativeLifecycle.messageBack === this.backHandler) nativeLifecycle.messageBack = null }
+  aboutToDisappear(): void { if (this.followTimer !== -1) clearTimeout(this.followTimer); this.followTimer = -1; messageSelection.close(); if (nativeLifecycle.messageBack === this.backHandler) nativeLifecycle.messageBack = null }
   private readonly backHandler: () => boolean = () => {
     if (messageSelection.close()) return true
     if (this.selectedActivity !== null) {
@@ -94,6 +97,12 @@ export struct MessageList {
   private messagesChanged(): void {
     const previous = this.previousMessages
     this.previousMessages = this.messages
+    if (this.atEnd && this.followTimer === -1) {
+      this.followTimer = setTimeout(() => {
+        this.followTimer = -1
+        if (this.atEnd && this.source.totalCount() > 0) this.scroller.scrollToIndex(this.source.totalCount() - 1, false, ScrollAlign.END)
+      }, 50)
+    }
     // A text delta cannot change the tool index or an open activity group.
     if (previous.length > 0 && previous.length === this.messages.length) {
       const oldLast = previous[previous.length - 1]
@@ -119,7 +128,7 @@ export struct MessageList {
   }
 
   build() {
-    Stack({ alignContent: Alignment.Bottom }) {
+    Stack({ alignContent: Alignment.BottomEnd }) {
     List({ space: 10, scroller: this.scroller }) {
       if (this.messages.length > 0) {
         LazyForEach(this.source, (message: FeedRow, index: number) => {
@@ -131,14 +140,14 @@ export struct MessageList {
                 Column({ space: 6 }) {
                   if (message.attachments !== undefined) {
                     ForEach(message.attachments, (attachment: Attachment) => {
-                      if (attachment.mediaType.startsWith('image/')) {
+                      if (attachment.mediaType.startsWith('image/') && attachment.data.length > 0) {
                         Image(`data:${attachment.mediaType};base64,${attachment.data}`).height(140).width('100%').objectFit(ImageFit.Contain)
                           .onClick(() => this.onPreviewImage(`data:${attachment.mediaType};base64,${attachment.data}`))
                       }
                       Text(attachment.name).fontSize(12)
                     }, (attachment: Attachment, itemIndex: number) => `${itemIndex}-${attachment.name}`)
                   }
-                  MarkdownText({ text: inputDisplayText(message.text), plain: true, scrollController: this.scroller })
+                  MarkdownText({ text: inputDisplayText(message.text), scrollController: this.scroller })
                 }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.primary_fill')).borderRadius(16)
                 Text(`${message.source === 'terminal' ? '电脑端' : '手机端'}${inputStatusLabel(message.status)}`)
                   .fontSize(12).fontColor($r('app.color.text_secondary')).width('100%').textAlign(TextAlign.End)
@@ -171,6 +180,8 @@ export struct MessageList {
             .alignItems(HorizontalAlign.Start)
             .backgroundColor($r('app.color.surface'))
             .borderRadius(12)
+          } else if (message.kind === 'collapsed') {
+            Button(message.expanded ? '收起执行过程' : '展开执行过程', { type: ButtonType.Normal }).width('100%').height(44).fontColor($r('app.color.primary')).backgroundColor($r('app.color.surface')).onClick(() => this.source.toggleTurn(message.requestId))
           } else if (message.kind === 'activity') {
             Button({ type: ButtonType.Normal }) {
               Row() {
@@ -218,8 +229,17 @@ export struct MessageList {
     .height('100%')
     .cachedCount(2)
     .clip(true)
-    .onScroll(() => { messageSelection.refresh(); this.onAtBottom(this.scroller.isAtEnd()) })
-    .onReachEnd(() => this.onAtBottom(true))
+    .onScroll(() => { messageSelection.refresh(); this.atTop = this.scroller.currentOffset().yOffset <= 1; this.atEnd = this.scroller.isAtEnd(); this.onAtBottom(this.atEnd) })
+    .onReachEnd(() => { this.atEnd = true; this.onAtBottom(true) })
+    .onReachStart(() => { this.atTop = true })
+    Column({ space: 8 }) {
+      if (!this.atTop) {
+        Button('↑', { type: ButtonType.Normal }).width(40).height(40).fontSize(21).borderRadius(20).backgroundColor($r('app.color.surface')).fontColor($r('app.color.text')).accessibilityText('到顶部').onClick(() => this.scroller.scrollEdge(Edge.Top))
+      }
+      if (!this.atEnd) {
+        Button('↓', { type: ButtonType.Normal }).width(40).height(40).fontSize(21).borderRadius(20).backgroundColor($r('app.color.surface')).fontColor($r('app.color.text')).accessibilityText('到底部').onClick(() => this.scroller.scrollEdge(Edge.Bottom))
+      }
+    }.padding({ right: 16, bottom: 12 })
     }.width('100%').height('100%')
   }
 }

@@ -192,10 +192,10 @@ test('v2/v3/v4 snapshots and v3 display metadata are accepted', () => {
     assert.equal(decodeServerMessage(JSON.stringify(wire)).version, version)
   }
 })
-test('client negotiates v8 to v3 to v2 without command replay', () => {
+test('client negotiates v10 to v3 to v2 without command replay', () => {
   const client = new (load('protocol/client').ProtocolClient)(pairing)
   client.connect(); sockets.at(-1).emit('open', {})
-  assert.equal(sockets.at(-1).frames[0].version, 8)
+  assert.equal(sockets.at(-1).frames[0].version, 10)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 3 }, 3))
   sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 3)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 2 }, 2))
@@ -779,4 +779,70 @@ test('escaped multiline input is displayed without changing code or isolated esc
   assert.equal(inputDisplayText('first\\n\\nsecond\\nthird `x\\ny`'), 'first\n\nsecond\nthird `x\\ny`')
   assert.equal(inputDisplayText('example \\n'), 'example \\n')
   assert.equal(inputDisplayText('real\nline\\nexample'), 'real\nline\\nexample')
+})
+
+test('v9 snapshot restores interleaved text and tools with strict validation', () => {
+  const wire = snapshot(); wire.version = 9
+  wire.payload.snapshot.turn = { ...wire.payload.snapshot.turn, status: 'completed', requestId: 'r', source: 'mobile', message: '前后', display: { items: [{ text: '前' }, { block: { id: 'b', kind: 'thinking', thinking: '思考' } }, { text: '后' }], truncated: false } }
+  const decoded = decodeServerMessage(JSON.stringify(wire)).payload.snapshot
+  let state = createInitialHarmonySessionState()
+  state.messages = [{ kind: 'claude', requestId: 'r', source: 'mobile', text: '旧', status: 'done', error: null }, { kind: 'block', requestId: 'r', block: { id: 'old', kind: 'thinking', thinking: '旧' } }]
+  state = reducer.reduceHarmonySessionState(state, reducer.snapshotReceived(decoded))
+  assert.deepEqual(state.messages.map(m => m.kind === 'claude' ? m.text : m.block.id), ['前', 'b', '后'])
+  wire.version = 8; assert.throws(() => decodeServerMessage(JSON.stringify(wire)))
+  wire.version = 9; wire.payload.snapshot.turn.display.items.push({ text: 'x', block: { id: 'b', kind: 'thinking', thinking: 'x' } }); assert.throws(() => decodeServerMessage(JSON.stringify(wire)))
+})
+
+test('v10 restores referenced images from PC after restart without caching bytes', () => {
+  const store = load('session/store').createSessionStore(); stores.push(store)
+  store.connectWithPairing(pairing); let socket = sockets.at(-1); socket.emit('open', {})
+  socket.wire(envelope('hello_ack', {}, 10)); socket.wire(envelope('subscribed', {}, 10))
+  let snap = snapshot(); snap.version = 10; socket.wire(snap)
+  const file = { name: 'note.txt', mediaType: 'text/plain', data: 'aGVsbG8=' }
+  assert.equal(store.sendAttachments('查看', [attachment, file]), true)
+  const command = socket.frames.at(-1)
+  socket.wire({ ...envelope('command_result', { accepted: true, code: '', message: '', imageRefs: ['img:0', ''] }, 10), commandId: command.commandId, requestId: 'r' })
+  const cache = encodeCache(pairing.sessionId, store.getState(), 100)
+  assert.equal(cache.includes(attachment.data), false); assert.equal(cache.includes(file.data), false)
+  const restored = decodeCache(cache, pairing.sessionId, 101)
+  assert.deepEqual(restored.messages[0].attachments.map(item => item.ref || ''), ['img:0', ''])
+  const next = load('session/store').createSessionStore(); stores.push(next); next.restoreDisplay(restored); next.connectWithPairing(pairing)
+  socket = sockets.at(-1); socket.emit('open', {}); socket.wire(envelope('hello_ack', {}, 10)); socket.wire(envelope('subscribed', {}, 10)); socket.wire(snap)
+  assert.equal(socket.frames.at(-1).type, 'image_get'); assert.equal(socket.frames.at(-1).payload.ref, 'img:0')
+  socket.wire(envelope('image_result', { ref: 'img:0', image: attachment }, 10))
+  assert.equal(next.getState().messages[0].attachments[0].data, attachment.data)
+  assert.equal(next.getState().messages[0].attachments[1].name, 'note.txt')
+  assert.equal(encodeCache(pairing.sessionId, next.getState(), 102).includes(attachment.data), false)
+  assert.throws(() => decodeServerMessage(JSON.stringify(envelope('image_result', { ref: 'x', image: { ...attachment, data: '!' } }, 10))))
+})
+test('long turn folds its execution history without changing order or final reply', () => {
+  const { projectFeed, collapseLongTurns } = load('ui/feedDataSource')
+  const messages = [{ kind: 'input', requestId: 'r', source: 'mobile', text: '执行', status: 'accepted' }]
+  for (let i = 0; i < 8; i++) {
+    messages.push({ kind: 'block', requestId: 'r', block: { id: 'b' + i, kind: 'thinking', thinking: '步骤' } })
+    messages.push({ kind: 'claude', requestId: 'r', source: 'mobile', text: '文本' + i, status: 'done', error: null })
+  }
+  const rows = projectFeed(messages)
+  const collapsed = collapseLongTurns(rows, new Set())
+  assert.deepEqual(collapsed.map(row => row.kind), ['input', 'collapsed', 'claude'])
+  assert.equal(collapsed[2].text, '文本7')
+  const expanded = collapseLongTurns(rows, new Set(['r']))
+  assert.deepEqual(expanded.slice(2), rows.slice(1))
+})
+test('v10 image restore ignores mismatched results and advances after an expired image', () => {
+  const state = createInitialHarmonySessionState(); state.sessionId = pairing.sessionId
+  state.messages = [{ kind: 'input', source: 'mobile', requestId: 'r', text: '', status: 'accepted', attachments: [
+    { ...attachment, data: '', ref: 'gone:0' }, { ...attachment, name: 'b.png', data: '', ref: 'good:1' }
+  ] }]
+  const store = load('session/store').createSessionStore(); stores.push(store); store.restoreDisplay(state); store.connectWithPairing(pairing)
+  const socket = sockets.at(-1); socket.emit('open', {}); socket.wire(envelope('hello_ack', {}, 10)); socket.wire(envelope('subscribed', {}, 10))
+  const snap = snapshot(); snap.version = 10; socket.wire(snap)
+  assert.equal(socket.frames.at(-1).payload.ref, 'gone:0')
+  socket.wire(envelope('image_result', { ref: 'good:1', image: attachment }, 10))
+  assert.equal(store.getState().messages[0].attachments[1].data, '')
+  socket.wire(envelope('image_result', { ref: 'gone:0' }, 10))
+  assert.equal(socket.frames.at(-1).payload.ref, 'good:1')
+  socket.wire(envelope('image_result', { ref: 'good:1', image: attachment }, 10))
+  assert.equal(store.getState().messages[0].attachments[0].data, '')
+  assert.equal(store.getState().messages[0].attachments[1].data, attachment.data)
 })

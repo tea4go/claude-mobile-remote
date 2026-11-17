@@ -11,6 +11,7 @@ import { validateAttachments } from './attachments'
 import { decodePairingPayload } from '../protocol/pairing'
 import type {
   Attachment,
+  ImageResultPayload,
   CommandKind,
   DomainEvent,
   ErrorInfo,
@@ -23,9 +24,11 @@ import {
   ConnectionStage,
   createInitialHarmonySessionState,
   type HarmonySessionState,
+  type FeedMessage,
 } from './model'
 import type { SessionAction } from './reducer'
 import {
+  cloneState,
   commandAccepted,
   commandRejected,
   commandStarted,
@@ -105,6 +108,8 @@ class SessionStoreObserver implements ProtocolClientObserver {
     this.owner.handleSubscribed()
   }
 
+  onImageResult(result: ImageResultPayload): void { this.owner.handleImageResult(result) }
+
   onSnapshot(snapshot: SessionSnapshot): void {
     this.owner.handleSnapshot(snapshot)
   }
@@ -134,6 +139,8 @@ class SessionStore implements HarmonySessionStore {
   private state: HarmonySessionState = createInitialHarmonySessionState()
   private client: ProtocolClient | null = null
   private pendingAttachments: Array<Attachment> = []
+  private imageQueue: Array<string> = []
+  private imagePending: string = ''
   private eventListener: ((event: DomainEvent) => void) | null = null
   private sendListener: ((accepted: boolean) => void) | null = null
   private commandTimer: number = -1
@@ -329,6 +336,14 @@ class SessionStore implements HarmonySessionStore {
 
   handleSnapshot(snapshot: SessionSnapshot): void {
     this.dispatch(snapshotReceived(snapshot))
+    this.imageQueue = []
+    this.imagePending = ''
+    this.state.messages.forEach((message: FeedMessage) => {
+      if (message.kind === 'input') message.attachments?.forEach((item: Attachment) => {
+        if (item.ref !== undefined && item.ref.length > 0 && item.data.length === 0 && this.imageQueue.indexOf(item.ref) < 0) this.imageQueue.push(item.ref)
+      })
+    })
+    this.nextImage()
     if (this.client !== null && this.pendingManagement !== null) {
       if (this.pendingManagement.operation === 'create_session') {
         this.client.createSession(this.pendingManagement.commandId)
@@ -336,6 +351,30 @@ class SessionStore implements HarmonySessionStore {
         this.client.stopSession(this.pendingManagement.commandId)
       }
     }
+  }
+
+  private nextImage(): void {
+    if (this.imagePending !== '' || this.client === null) return
+    const ref = this.imageQueue.shift()
+    if (ref !== undefined && this.client.getImage(ref)) this.imagePending = ref
+  }
+
+  handleImageResult(result: ImageResultPayload): void {
+    if (result.ref !== this.imagePending) return
+    this.imagePending = ''
+    const image = result.image
+    if (image !== undefined) {
+      const messages: Array<FeedMessage> = this.state.messages.map((message: FeedMessage): FeedMessage => {
+        if (message.kind !== 'input' || message.attachments === undefined) return message
+        const attachments = message.attachments.map((item: Attachment): Attachment => item.ref === result.ref ? { name: item.name, mediaType: image.mediaType, data: image.data, ref: item.ref } : item)
+        return { kind: 'input', requestId: message.requestId, source: message.source, text: message.text, status: message.status, attachments }
+      })
+      const next = cloneState(this.state, false)
+      next.messages = messages
+      this.state = next
+      this.emit()
+    }
+    this.nextImage()
   }
 
   handleEvent(event: DomainEvent): void {
@@ -354,8 +393,14 @@ class SessionStore implements HarmonySessionStore {
     const isSend = this.state.pendingCommand?.kind === 'send_text' || this.state.pendingCommand?.kind === 'send_attachments'
     debugLog.record(result.accepted ? 'command_accepted' : 'command_rejected')
     if (result.accepted) {
+      const attachments = this.pendingAttachments.map((item: Attachment, index: number): Attachment => {
+        const attachment: Attachment = { name: item.name, mediaType: item.mediaType, data: item.data }
+        const ref = result.imageRefs?.[index]
+        if (ref !== undefined && ref.length > 0) attachment.ref = ref
+        return attachment
+      })
       this.dispatch(commandAccepted(result.commandId, result.requestId,
-        isSend && this.pendingAttachments.length > 0 ? this.pendingAttachments : undefined))
+        isSend && attachments.length > 0 ? attachments : undefined))
     } else this.dispatch(commandRejected(result.commandId, result.code, result.message))
     this.pendingAttachments = []
     if (isSend) this.sendListener?.(result.accepted)
@@ -373,6 +418,8 @@ class SessionStore implements HarmonySessionStore {
   }
 
   handleClosed(info: CloseInfo): void {
+    this.imageQueue = []
+    this.imagePending = ''
     if (this.commandTimer !== -1) clearTimeout(this.commandTimer)
     this.commandTimer = -1
     if (this.state.pendingCommand?.kind === 'send_text' || this.state.pendingCommand?.kind === 'send_attachments') this.sendListener?.(false)

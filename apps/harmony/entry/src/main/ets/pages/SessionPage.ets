@@ -203,6 +203,9 @@ export struct SessionPage {
     this.trackedAction = id
   }
   private closeSheet(): void {
+    this.sheet = ''
+  }
+  private cancelAction(): void {
     if (this.sheet === 'action' && this.state.pendingAction !== null) {
       if (this.commandReady()) {
         if (this.state.pendingAction.kind === 'ask_user_question') this.onCancelQuestion()
@@ -218,8 +221,8 @@ export struct SessionPage {
       Blank().width(36).height(5).backgroundColor($r('app.color.border')).borderRadius(3).margin({ top: 10, bottom: 4 })
       Row() {
           Text(this.sheet === 'action' ? (this.state.pendingAction?.kind === 'ask_user_question' ? '需要你的回答' : '待处理事项') : `排队队列（${this.state.queuedRequests.length}）`).fontSize(18).layoutWeight(1)
-        Button(this.sheet === 'action' ? (this.state.pendingAction?.kind === 'ask_user_question' ? '取消提问' : '取消本轮') : '关闭', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
-          .enabled(this.sheet !== 'action' || this.commandReady()).onClick(() => this.closeSheet())
+        Button(this.sheet === 'action' ? '收起' : '关闭', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
+          .onClick(() => this.closeSheet())
       }.padding(12)
       Scroll() {
         Column() {
@@ -238,8 +241,13 @@ export struct SessionPage {
       }.constraintSize({ maxHeight: Math.max(80, this.pageHeight * 0.75 -
         (this.sheet === 'action' && this.state.pendingAction?.kind === 'ask_user_question' ? 136 : 68)) }).width('100%').align(Alignment.TopStart)
       if (this.sheet === 'action' && this.state.pendingAction?.kind === 'ask_user_question') {
-        Row() { Button('提交', { type: ButtonType.Normal }).height(52).width('100%').fontSize(16).fontColor('#ffffff').backgroundColor($r('app.color.primary_fill')).borderRadius(16)
-          .enabled(this.state.canResolveAction && this.answersReady()).onClick(() => this.onSubmitAnswers()) }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
+        Row({ space: 8 }) {
+          Button('取消提问', { type: ButtonType.Normal }).height(52).layoutWeight(1).enabled(this.commandReady()).onClick(() => this.cancelAction())
+          Button('提交', { type: ButtonType.Normal }).height(52).layoutWeight(2).fontSize(16).fontColor('#ffffff').backgroundColor($r('app.color.primary_fill')).borderRadius(16)
+            .enabled(this.state.canResolveAction && this.answersReady()).onClick(() => this.onSubmitAnswers())
+        }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
+      } else if (this.sheet === 'action' && this.state.pendingAction !== null) {
+        Button('取消本轮', { type: ButtonType.Normal }).height(44).width('100%').enabled(this.commandReady()).onClick(() => this.cancelAction())
       }
     }.width('100%').backgroundColor($r('app.color.surface')).borderRadius({ topLeft: 20, topRight: 20 }).transition(pageFade())
   }
@@ -263,17 +271,18 @@ export struct SessionPage {
           Text('本机已收到的消息 · 当前状态待同步').fontSize(12).padding(6)
         }
         if (this.managementFeedback.length > 0) { Text(this.managementFeedback).fontSize(12).padding(6) }
-        Row({ space: 8 }) {
-          if (this.state.pendingAction !== null) { Button('待处理事项', { type: ButtonType.Normal }).height(44).fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => { this.sheet = 'action' }) }
+        if (this.state.pendingAction !== null && this.sheet !== 'action') {
+          Button({ type: ButtonType.Normal }) {
+            Row({ space: 8 }) {
+              Text('●').fontSize(12).fontColor(PRIMARY)
+              Text('查看待处理事项').fontSize(14).fontColor(PRIMARY).layoutWeight(1).textAlign(TextAlign.Start)
+              Text('›').fontSize(20).fontColor(PRIMARY)
+            }.width('100%')
+          }.width('100%').height(44).padding({ left: 12, right: 12 }).backgroundColor('#F1F6FF').borderRadius(12).onClick(() => { this.sheet = 'action' })
         }
         MessageList({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: this.state.messages, scroller: this.scroller, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen,
           onAtBottom: (value: boolean) => { this.atBottom = value }, onPreviewImage: (value: string) => { this.previewImage = value } })
           .layoutWeight(1).width('100%')
-        Row() {
-          Blank()
-          Button(this.atBottom ? '已到最新消息' : '最新消息 ↓', { type: ButtonType.Normal }).height(32).fontSize(12).fontColor(PRIMARY)
-            .backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).enabled(!this.atBottom).onClick(() => this.scroller.scrollEdge(Edge.Bottom))
-        }.padding({ right: 12 })
         Column({ space: 4 }) {
           if (this.state.progress !== undefined) {
             Row({ space: 6 }) {

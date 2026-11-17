@@ -36,7 +36,7 @@ async function readAttachment(uri: string, photo: boolean): Promise<Attachment> 
     bytes = new Uint8Array(buffer)
   } finally { await fs.close(file) }
   let type = mediaType(bytes, name)
-  if (photo && (bytes.length > ATTACHMENT_BYTES || type === 'application/octet-stream')) {
+  if (photo && ((type === 'image/jpeg' && bytes.length > 512 * 1024) || type === 'application/octet-stream')) {
     const source = image.createImageSource(bytes.buffer)
     let pixels: image.PixelMap | null = null
     const packer = image.createImagePacker()
@@ -44,8 +44,11 @@ async function readAttachment(uri: string, photo: boolean): Promise<Attachment> 
       const info = await source.getImageInfo()
       const scale = Math.min(1, 2048 / Math.max(info.size.width, info.size.height))
       pixels = await source.createPixelMap({ desiredSize: { width: Math.max(1, Math.round(info.size.width * scale)), height: Math.max(1, Math.round(info.size.height * scale)) } })
-      bytes = new Uint8Array(await packer.packing(pixels, { format: 'image/jpeg', quality: 85 }))
-      type = 'image/jpeg'; name = name.replace(/\.[^.]+$/, '') + '.jpg'
+      const compressed = new Uint8Array(await packer.packing(pixels, { format: 'image/jpeg', quality: 85 }))
+      if (type !== 'image/jpeg' || compressed.length < bytes.length || bytes.length > ATTACHMENT_BYTES) {
+        bytes = compressed
+        type = 'image/jpeg'; name = name.replace(/\.[^.]+$/, '') + '.jpg'
+      }
     } catch (_) { throw new Error('图片转换失败，请选择 JPEG 或 PNG 图片') }
     finally { await pixels?.release(); await source.release(); await packer.release() }
   }
