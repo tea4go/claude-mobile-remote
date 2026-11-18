@@ -394,7 +394,7 @@ describe('App：多 Session 生命周期', () => {
     fireEvent.click(screen.getByRole('button', { name: '连接' }))
     expect(screen.getByText('配对信息无效')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
-    expect(screen.getByText('PC 管理')).toBeInTheDocument()
+    expect(screen.queryByText('PC 管理')).not.toBeInTheDocument()
     fireEvent.click(container.querySelector('[data-mobile-page="settings"] [aria-label="返回"]')!)
     expect(screen.getByText('连接 Claude 会话')).toBeInTheDocument()
     expect(screen.queryByText('配对信息无效')).not.toBeInTheDocument()
@@ -442,8 +442,6 @@ describe('App：多 Session 生命周期', () => {
     act(() => completeHandshake(FakeWebSocket.instances[0]!))
     await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('返回'))
-    fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac' }))
-    fireEvent.click(screen.getByRole('button', { name: '确定' }))
     fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
     const secondPairing = { ...PAIRING, sessionId: 'session-2', pcId: 'abcdef0123456789abcdef0123456789', pcName: 'Studio' }
     fireEvent.click(screen.getByRole('button', { name: '导入配对信息' }))
@@ -453,8 +451,8 @@ describe('App：多 Session 生命周期', () => {
     act(() => completeHandshake(FakeWebSocket.instances[1]!, { ...SNAPSHOT, sessionId: 'session-2', payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, sessionId: 'session-2' } } }))
     await waitFor(() => expect(screen.getByText('已连接')).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('返回'))
-    expect(screen.getByRole('button', { name: '筛选电脑，当前 Studio' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '筛选电脑，当前 Mac' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('当前电脑 Studio')).toBeInTheDocument()
+    expect(screen.queryByLabelText('当前电脑 Mac')).not.toBeInTheDocument()
   })
 
   test('从已配对 A 创建 B，不关闭 A，并可用同一 commandId 断线重试', async () => {

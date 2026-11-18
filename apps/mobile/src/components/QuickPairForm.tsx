@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, isValidElement, type ReactNode } from 'react'
 import { Button, Input } from 'antd-mobile'
 import { parsePairingInput, parsePairingJson } from '../protocol/pairing'
 import { nativeExperience } from '../native/experience'
@@ -16,9 +16,14 @@ export function quickPairUrl(input: string): URL {
   return url
 }
 const unavailable = '连接失败，请检查 PC 服务和网络'
-export default function QuickPairForm({ onPair, disabled = false, iosDesign = false, onScan, feedback, onDismissFeedback }: { onDismissFeedback?: () => void; feedback?: ReactNode; onPair: (text: string) => void; disabled?: boolean; iosDesign?: boolean; onScan?: () => void }) {
+export default function QuickPairForm({ onPair, disabled = false, iosDesign = false, onScan, feedback, pcFeedback, onDismissFeedback, pcList, externalFeedbackKey }: { externalFeedbackKey?: string | null; pcList?: ReactNode; pcFeedback?: ReactNode; onDismissFeedback?: () => void; feedback?: ReactNode; onPair: (text: string) => void; disabled?: boolean; iosDesign?: boolean; onScan?: () => void }) {
   const [ip,setIP]=useState(''), [code,setCode]=useState(''), [phase,setPhase]=useState('idle'), [error,setError]=useState('')
   const [toast, setToast] = useState('')
+  const [latest, setLatest] = useState<'local' | 'pc' | 'external'>('external')
+  const pcValue = isValidElement<{ feedback?: unknown }>(pcFeedback) ? pcFeedback.props.feedback : null
+  useEffect(() => { if (pcValue) setLatest('pc') }, [pcValue])
+  useEffect(() => { if (error || toast) setLatest('local') }, [error, toast])
+  useEffect(() => { if (externalFeedbackKey) setLatest('external') }, [externalFeedbackKey])
   const [recent, setRecent] = useState<string[]>([])
   const [focused, setFocused] = useState(false)
   const legacy=useRef<string|null>(null)
@@ -58,7 +63,7 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
     if (parsed.ok) { legacy.current = value; setIP(new URL(parsed.value.wsUrl).hostname); setError(''); return }
     legacy.current = null
     if (validIP(value)) { setIP(value); setError('') }
-    else { setIP(''); if (parsed.error === '配对凭证已过期，请重新配对') setError(parsed.error); else setToast('请输入有效的 IP 地址或配对信息') }
+    else { setIP(''); if (parsed.error === '配对凭证已过期，请重新配对') setError(parsed.error); else { setLatest('local'); setToast('请输入有效的 IP 地址或配对信息') } }
   }
   async function paste() {
     try { const text = nativeExperience?.readPasteboard ? (await nativeExperience.readPasteboard()).text : await navigator.clipboard.readText(); acceptInput(text) }
@@ -67,7 +72,7 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
   function start() {
     stop();setError('');setCode('')
     if (iosDesign && legacy.current) { onPair(legacy.current); return }
-    if (iosDesign && !validIP(ip)) { setToast('请输入有效的 IP 地址或配对信息'); return }
+    if (iosDesign && !validIP(ip)) { setLatest('local'); setToast('请输入有效的 IP 地址或配对信息'); return }
     let url:URL;try{url=quickPairUrl(ip)}catch{setError('请输入有效 PC IP，可附带端口');return}
     let s:WebSocket;try{s=new WebSocket(url)}catch{setError(unavailable);return}
     socket.current=s;setPhase('connecting')
@@ -99,6 +104,7 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
     }
   }
   if (iosDesign) return <div className="quick-pair-ios">
+    <div className="quick-pair-ios__body">
     <div className="quick-pair-ios__address">
     <div className="quick-pair-ios__input" onPaste={event => { event.preventDefault(); acceptInput(event.clipboardData.getData('text')) }}>
       <input className="quick-pair-ios__ip" aria-label="PC IP" placeholder="请输入IP" type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} value={ip} onInput={event => editAddress(event.currentTarget.value)} onChange={event => { if (event.currentTarget.value !== ip) editAddress(event.currentTarget.value) }} onCompositionEnd={event => editAddress(event.currentTarget.value)} onFocus={() => { clearTimeout(blurTimer.current); setFocused(true) }} onBlur={event => { rememberAddress(event.currentTarget.value); blurTimer.current = setTimeout(() => { if (!touchingSuggestions.current) setFocused(false) }, 300) }} disabled={phase !== 'idle' || disabled}/>
@@ -110,14 +116,21 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
     </div>}
     </div>
     <p>请与 PC 配对窗口核对；手机所在网络需要能访问此地址。不同路由器共用宽带不代表设备能够互通。</p>
+    <div className="quick-pair-ios__pc-scroll">{pcList}</div>
+    </div>
     {phase === 'code' && <PairingCodeDialog code={code} error={error} onChange={setCode} onCancel={stop} onVerify={() => { if (socket.current?.readyState === WebSocket.OPEN) { setError(''); setPhase('verifying'); socket.current.send(JSON.stringify({version:1,type:'verify',requestId:request.current,payload:{code}})) } }}/>}
     {(phase === 'connecting' || phase === 'verifying') && <PairingLoading message={phase === 'connecting' ? '正在连接…' : '正在验证…'} onCancel={stop}/>}
+    <div className="quick-pair-ios__footer">
+    <div className="quick-pair-ios__feedback">
+    {latest === 'local' && phase !== 'code' && (error || toast) && <div className="pairing-notice pairing-notice--error" role="alert">{error || toast}</div>}
+    {latest === 'pc' && pcFeedback}
+    {latest === 'external' && feedback}
+    </div>
     <div className="quick-pair-ios__actions">
       <Button className="pairing-form__primary" color="primary" disabled={disabled || phase !== 'idle'} onClick={start}>连接</Button>
       {onScan && <Button className="pairing-form__scan" disabled={disabled || phase !== 'idle'} color="primary" fill="outline" onClick={onScan}><SessionIcon name="scan" size={16} style={{ marginRight: 6 }} />扫描二维码</Button>}
     </div>
-    {phase !== 'code' && (error || toast) && <div className="pairing-notice pairing-notice--error" role="alert">{error || toast}</div>}
-    {feedback}
+    </div>
   </div>
   return <div style={{display:'grid',gap:16}}>
     <Input aria-label="PC IP" placeholder="请输入 PC IP" value={ip} onChange={setIP} disabled={phase!=='idle'||disabled}/>

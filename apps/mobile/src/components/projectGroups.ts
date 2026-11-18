@@ -2,6 +2,10 @@ import type { SessionListItem } from './ProjectSessionList'
 
 export interface ProjectGroup { cwd: string | null; title: string; ids: string[] }
 
+export function projectDirectoryName(cwd: string): string {
+  return cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd
+}
+
 function activity(session: SessionListItem): number {
   const value = session.runtimeState?.lastActivityAt ?? session.runtimeState?.createdAt
   const parsed = value ? Date.parse(value) : NaN
@@ -18,7 +22,7 @@ export function projectGroups(sessions: SessionListItem[]): ProjectGroup[] {
     const key = cwd ?? ''
     let group = groups.get(key)
     if (group === undefined) {
-      const title = cwd ? cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd : '工作目录未知'
+      const title = cwd ? projectDirectoryName(cwd) : '工作目录未知'
       group = { cwd, title, ids: [] }
       groups.set(key, group)
     }

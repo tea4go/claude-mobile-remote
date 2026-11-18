@@ -10,6 +10,8 @@ import type { PairingPayload } from '../protocol/pairing'
 export type SessionLocalStatus = 'new' | 'connected' | 'disconnected' | 'needsPairing'
 
 export interface SessionRecord {
+  // Display-only stable grouping key when a local PC address override is applied.
+  localPCKey?: string
   sessionId: string
   wsUrl: string
   pairToken: string

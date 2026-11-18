@@ -1,3 +1,5 @@
+import testConnect from '../assets/icons/svgs/session/test_connect.svg'
+import testConnectButton from '../assets/icons/svgs/session/test_connect_in_button.svg'
 import camera from '../assets/icons/svgs/session/camera.svg'
 import image from '../assets/icons/svgs/session/image.svg'
 import file from '../assets/icons/svgs/session/file.svg'
@@ -23,9 +25,10 @@ import send from '../assets/icons/svgs/session/send.svg'
 import settings from '../assets/icons/svgs/session/setting.svg'
 import target from '../assets/icons/svgs/session/target_pc_ip.svg'
 
-const icons = { camera, image, file, arrow, logo, clear, debug, demo, folder, folderClosed, add, back, steps, microphone, notify, paperclip, pc, pcSettings, permission, scan, send, settings, target }
+const icons = { testConnect, testConnectButton, camera, image, file, arrow, logo, clear, debug, demo, folder, folderClosed, add, back, steps, microphone, notify, paperclip, pc, pcSettings, permission, scan, send, settings, target }
 
 export default function SessionIcon({ name, size = 20, style }: { name: keyof typeof icons; size?: number; style?: CSSProperties }) {
+  if (name === 'testConnect' || name === 'testConnectButton') return <img aria-hidden="true" alt="" src={icons[name]} style={{ display: 'inline-block', flexShrink: 0, width: size, height: size, verticalAlign: 'middle', ...style }}/>
   const mask = `url("${icons[name]}") center / contain no-repeat`
   return <span aria-hidden="true" style={{ display: 'inline-block', flexShrink: 0, width: size, height: size, backgroundColor: 'currentColor', mask, WebkitMask: mask, verticalAlign: 'middle', ...style }} />
 }

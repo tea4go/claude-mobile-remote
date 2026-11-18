@@ -31,6 +31,7 @@ export function groupPCs<T extends SessionRecord>(sessions: T[]): PCGroup<T>[] {
       key = address === '' ? `unknown:${session.sessionId}` : `address:${address}`
       label = (session.pcName ? displayPCName(session.pcName) : undefined) ?? (address === '' ? '未知 PC' : address)
     }
+    key = session.localPCKey ?? key
     let group = groups.get(key)
     if (group === undefined) {
       group = { key, label, legacy, sessions: [] }

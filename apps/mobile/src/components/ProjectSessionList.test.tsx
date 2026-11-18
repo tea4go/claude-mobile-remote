@@ -112,28 +112,15 @@ describe('项目分组', () => {
     expect(onPairProject).toHaveBeenCalledExactlyOnceWith(pcId, '/work/alpha')
   })
 
-  test('PC 筛选只回传本地选择，保留其他 PC 的 Session', () => {
+  test('首页 PC 卡片只展示，按外部选择筛选会话', () => {
     const noop = () => {}
-    const onSelectPC = vi.fn()
     const first = { ...item('a', '/work/shared', null), pcId: '0123456789abcdef0123456789abcdef', pcName: 'Mac mini' }
     const second = { ...item('b', '/work/shared', null), pcId: 'abcdef0123456789abcdef0123456789', pcName: 'Studio' }
-    render(<ProjectSessionList sessions={[first, second]} onSelectPC={onSelectPC} onAdd={noop} onOpen={noop} onRemove={noop} onRename={noop} />)
-    fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac mini' }))
-    expect(screen.getByText('选择电脑')).toBeInTheDocument()
-    expect(onSelectPC).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '取消' }))
-    expect(onSelectPC).not.toHaveBeenCalled()
-    expect(screen.getAllByTestId('session-list-item')).toHaveLength(2)
-  })
-  test('指定电脑时抽屉标记选中项，列表不显示额外的全部电脑入口', () => {
-    const noop = () => {}
-    const first = { ...item('a', '/work/alpha', null), pcId: '0123456789abcdef0123456789abcdef', pcName: 'Mac mini' }
-    render(<ProjectSessionList sessions={[first]} selectedPC={`pc:${first.pcId}`} onSelectPC={noop} onAdd={noop} onOpen={noop} onRemove={noop} onRename={noop} />)
-    expect(screen.queryByText('显示全部电脑')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac mini' }))
-    expect(screen.getByText('选择电脑')).toBeInTheDocument()
-    expect(screen.getByText('全部电脑')).toBeInTheDocument()
-
+    render(<ProjectSessionList sessions={[first, second]} selectedPC={`pc:${first.pcId}`} onAdd={noop} onOpen={noop} onRemove={noop} onRename={noop} />)
+    expect(screen.getByLabelText('当前电脑 Mac mini').tagName).toBe('DIV')
+    expect(screen.queryByText('Studio')).not.toBeInTheDocument()
+    expect(screen.queryByText('选择电脑')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('session-list-item')).toHaveLength(1)
   })
   test('目录行可折叠和展开，且不触发新建', () => {
     const noop = () => {}

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Input, List, Picker, Popover } from 'antd-mobile'
+import { Button, Input, List, Popover } from 'antd-mobile'
 import SessionIcon from './SessionIcon'
 import { MoreOutline } from 'antd-mobile-icons'
 import { defaultSessionName, type SessionRecord } from '../session/store'
@@ -18,7 +18,6 @@ interface Props {
   sessions: SessionListItem[]
   recentlyViewedId?: string | null
   selectedPC?: string | null
-  onSelectPC?(pc: string | null): void
   managementBusy?: Record<string, boolean>
   managementFeedback?: Record<string, string | null>
   onCreate?(sessionId: string): void
@@ -70,7 +69,7 @@ function activityTime(session: SessionListItem): string {
   return formatActivityTime(value)
 }
 
-export default function ProjectSessionList({ sessions, recentlyViewedId, selectedPC = null, onSelectPC, managementBusy = {}, managementFeedback = {}, onCreate, onPairProject, onError, onAdd, onOpen, onRemove, onRename }: Props) {
+export default function ProjectSessionList({ sessions, recentlyViewedId, selectedPC = null, managementBusy = {}, managementFeedback = {}, onCreate, onPairProject, onError, onAdd, onOpen, onRemove, onRename }: Props) {
   // Keep the initial display order while the list is visible; add newly paired sessions at the end.
   const [initialOrder] = useState(() => projectGroups(sessions).flatMap((group) => group.ids))
   const order = [...initialOrder, ...sessions.map((session) => session.sessionId).filter((id) => !initialOrder.includes(id))]
@@ -81,7 +80,6 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [menuId, setMenuId] = useState<string | null>(null)
-  const [filterOpen, setFilterOpen] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   return <div className="project-session-list">
@@ -93,9 +91,8 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
       const projects = projectGroups(pc.sessions.map((session) => ({ ...session, runtimeState: session.runtimeState ? { ...session.runtimeState, lastActivityAt: null, createdAt: null } : undefined })))
       const connected = pc.sessions.filter((session) => session.status !== 'needsPairing' && session.runtimeState?.connection === 'connected').length
       return <section key={pc.key} className="project-session-list__pc">
-        <button className="project-session-list__pc-card" onClick={() => setFilterOpen(true)} aria-expanded={filterOpen} aria-label={`筛选电脑，当前 ${pc.label}`}>
-          <span className="project-session-list__pc-icon"><SessionIcon name="pc" size={36} /></span><span className="project-session-list__pc-text"><strong>{pc.label}</strong><small>{connected > 0 ? `${connected} / ${pc.sessions.length} 个会话已连接` : '暂未连接'}</small></span><SessionIcon name="arrow" size={12} />
-        </button>
+        <div className="project-session-list__pc-card" aria-label={`当前电脑 ${pc.label}`}>
+          <span className="project-session-list__pc-icon"><SessionIcon name="pc" size={36} /></span><span className="project-session-list__pc-text"><strong>{pc.label} <small>{(() => { try { return new URL(pc.sessions[0]!.wsUrl).hostname } catch { return '' } })()}</small></strong><small>Token：{pc.sessions[0]?.pairToken ? '••••' + (pc.sessions[0].pairToken.length > 8 ? pc.sessions[0].pairToken.slice(-4) : '') : '需重新配对'}</small><small>{connected > 0 ? `${connected} / ${pc.sessions.length} 个会话已连接` : '暂未连接'}</small></span></div>
         {projects.map((group) => {
           const key = `${pc.key}:${group.cwd ?? ''}`
           const members = group.ids.map((id) => byId.get(id)!).filter(Boolean)
@@ -144,15 +141,6 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
         })}
       </section>
     })}
-    <Picker
-      visible={filterOpen}
-      title="选择电脑"
-      columns={[[{ label: '全部电脑', value: '' }, ...pcs.map((pc) => ({ label: pc.label, value: pc.key }))]]}
-      value={[selectedPC ?? '']}
-      onConfirm={(value) => { const selected = value[0]; if (typeof selected === 'string' && (selected === '' || pcs.some((pc) => pc.key === selected))) onSelectPC?.(selected || null); setFilterOpen(false) }}
-      onClose={() => setFilterOpen(false)}
-      closeOnMaskClick
-    />
     <div className="project-session-list__add"><Button color="primary" block aria-label="新增配对" onClick={onAdd}>＋ 新会话</Button></div>
   </div>
 }

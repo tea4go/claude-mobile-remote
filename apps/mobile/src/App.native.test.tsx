@@ -1,10 +1,16 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { ExperiencePort } from './native/experience'
 import App from './App'
 import { NativePairingLogic, type NativePairingMetadata } from './native/pairingLogic'
 import type { NativePairingBindings } from './native/capacitorPorts'
 import { encodePairingFragment, type PairingPayload } from './protocol/pairing'
+
+const pcSaved = vi.hoisted(() => ({ value: {} as import('./native/pcProfiles').PCProfiles }))
+vi.mock('./native/pcProfiles', async importOriginal => {
+  const original = await importOriginal<typeof import('./native/pcProfiles')>()
+  return { ...original, readPCProfiles: async () => pcSaved.value, writePCProfiles: async (value: import('./native/pcProfiles').PCProfiles) => { pcSaved.value = structuredClone(value) } }
+})
 
 class FakeSocket {
   static instances: FakeSocket[] = []
@@ -73,6 +79,7 @@ function bindings(initial: Array<{ metadata: NativePairingMetadata; payload?: Pa
 }
 
 afterEach(() => {
+  pcSaved.value = {}
   window.location.hash = ''
   FakeSocket.instances = []
 })
@@ -150,7 +157,7 @@ test('加密地址失败时不会向明文固定入口发送凭证', async () =>
   expect(native.secure.get('secure-route')).toEqual(original)
 })
 
-test('设置页按 PC 编码移除本地配对，其他 PC 保留且安全记录同步删除', async () => {
+test('配对页按 PC 编码移除本地配对，其他 PC 保留且安全记录同步删除', async () => {
   const firstPC = '0123456789abcdef0123456789abcdef'
   const secondPC = 'abcdef0123456789abcdef0123456789'
   const native = bindings(['a', 'b', 'c'].map((id) => ({
@@ -159,15 +166,15 @@ test('设置页按 PC 编码移除本地配对，其他 PC 保留且安全记录
   })))
   render(<App native={native.native} socketFactory={(url) => new FakeSocket(url)} />)
   await waitFor(() => expect(screen.getAllByTestId('session-list-item')).toHaveLength(3))
-  fireEvent.click(screen.getByRole('button', { name: '设置' }))
-  fireEvent.click(screen.getByText('PC 管理'))
-  expect(screen.getAllByRole('button', { name: '移除此 PC' })).toHaveLength(2)
-  fireEvent.click(screen.getAllByRole('button', { name: '移除此 PC' })[0]!)
-  fireEvent.click(screen.getByRole('button', { name: '确认移除' }))
+  fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+  expect(screen.getAllByRole('button', { name: /测试连接 PC/ })).toHaveLength(2)
+  fireEvent.click(screen.getAllByRole('img', { name: '删除' })[0]!)
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '删除' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   await waitFor(() => expect(native.metadata.has('a') || native.metadata.has('b')).toBe(false))
   expect(native.secure.has('a') || native.secure.has('b')).toBe(false)
   expect(native.secure.has('c')).toBe(true)
-  expect(screen.getAllByRole('button', { name: '移除此 PC' })).toHaveLength(1)
+  expect(screen.getAllByRole('button', { name: /测试连接 PC/ })).toHaveLength(1)
 })
 
 test('恢复筛选与调试设置，删除所选 PC 后选择剩余电脑', async () => {
@@ -184,19 +191,20 @@ test('恢复筛选与调试设置，删除所选 PC 后选择剩余电脑', asyn
     writeDebugEnabled: async (value) => { saved.debugEnabled = value },
   }
   const { unmount } = render(<App native={state.native} cache={null} experience={null} socketFactory={(url) => new FakeSocket(url)} />)
-  await waitFor(() => expect(screen.getByRole('button', { name: '筛选电脑，当前 Mac' })).toBeInTheDocument())
-  expect(screen.queryByRole('button', { name: '筛选电脑，当前 Studio' })).not.toBeInTheDocument()
+  await waitFor(() => expect(screen.getByLabelText('当前电脑 Mac')).toBeInTheDocument())
+  expect(screen.queryByLabelText('当前电脑 Studio')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '设置' }))
   expect(screen.getByRole('switch', { name: '调试日志开关' })).toHaveAttribute('aria-checked', 'true')
-  fireEvent.click(screen.getByText('PC 管理'))
-  fireEvent.click(screen.getAllByRole('button', { name: '移除此 PC' })[0]!)
-  fireEvent.click(screen.getByRole('button', { name: '确认移除' }))
+  fireEvent.click(screen.getByLabelText('返回'))
+  fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+  fireEvent.click(screen.getAllByRole('img', { name: '删除' })[0]!)
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '删除' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   await waitFor(() => expect(saved.selectedPC).toBe(`pc:${second}`))
   unmount()
   render(<App native={state.native} cache={null} experience={null} socketFactory={(url) => new FakeSocket(url)} />)
-  await waitFor(() => expect(screen.getByRole('button', { name: '筛选电脑，当前 Studio' })).toBeInTheDocument())
-  fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Studio' }))
-  expect(screen.getByRole('button', { name: '当前选择的是：Studio' })).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByLabelText('当前电脑 Studio')).toBeInTheDocument())
+  expect(screen.queryByText('选择电脑')).not.toBeInTheDocument()
 })
 
 test('首次仅一台电脑默认选中，主动选择全部后重启仍保留', async () => {
@@ -212,18 +220,13 @@ test('首次仅一台电脑默认选中，主动选择全部后重启仍保留',
   const renderApp = () => render(<App native={state.native} cache={null} experience={null} socketFactory={(url) => new FakeSocket(url)} />)
   const first = renderApp()
   await waitFor(() => expect(saved).toBe(`pc:${pcId}`))
-  fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac' }))
-  expect(screen.getByRole('button', { name: '当前选择的是：Mac' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: '选择上一项：全部电脑' }))
-  await waitFor(() => expect(screen.getByRole('button', { name: '当前选择的是：全部电脑' })).toBeInTheDocument())
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
-  fireEvent.click(screen.getByRole('button', { name: '确定' }))
+  fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+  fireEvent.click(await screen.findByRole('button', { name: '全部电脑' }))
   await waitFor(() => expect(saved).toBeNull())
   first.unmount()
   renderApp()
-  await waitFor(() => expect(screen.getByRole('button', { name: '筛选电脑，当前 Mac' })).toBeInTheDocument())
-  fireEvent.click(screen.getByRole('button', { name: '筛选电脑，当前 Mac' }))
-  expect(screen.getByRole('button', { name: '当前选择的是：全部电脑' })).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByLabelText('当前电脑 Mac')).toBeInTheDocument())
+  expect(saved).toBeNull()
 })
 
 test('原生扫码验证成功后安全保存，URL 不留配对凭证；前台过期后不重连', async () => {
@@ -420,4 +423,29 @@ test('验证后安全保存期间的新增事件会交给正式 Runtime，不另
   expect(FakeSocket.instances).toHaveLength(1)
   expect(state.secure.has('scanned')).toBe(true)
   spy.mockRestore()
+})
+
+
+test('编辑 IP 后同一 PC 全部会话使用新地址，其他 PC 保持原连接，重启恢复别名和 IP', async () => {
+  const first = '0123456789abcdef0123456789abcdef', other = 'abcdef0123456789abcdef0123456789'
+  const state = bindings(['a', 'b', 'c'].map(id => ({ metadata: { sessionId: id, name: id, customName: true, lastConnectedAt: null }, payload: { ...pairing(id), pcId: id === 'c' ? other : first, pcName: id === 'c' ? 'Studio' : 'Mac' } })))
+  const mount = () => render(<App native={state.native} cache={null} experience={null} socketFactory={url => new FakeSocket(url)}/>)
+  const view = mount()
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(3))
+  fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+  fireEvent.click(screen.getAllByRole('img', { name: '编辑' })[0]!)
+  fireEvent.change(screen.getByRole('textbox', { name: 'PC 名称' }), { target: { value: '工作电脑' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'PC IP地址' }), { target: { value: '10.0.0.9' } })
+  fireEvent.click(screen.getByText('确认'))
+  await waitFor(() => expect(FakeSocket.instances).toHaveLength(5))
+  expect(FakeSocket.instances.slice(3).map(s => s.url)).toEqual(['ws://10.0.0.9:8765/a', 'ws://10.0.0.9:8765/b'])
+  expect(FakeSocket.instances[2]!.closed).toBe(false)
+  expect(state.secure.get('a')).toEqual({ ...pairing('a'), pcId: first, pcName: 'Mac' })
+  expect(JSON.stringify(pcSaved.value)).not.toContain('fixture')
+  expect(screen.getByText('工作电脑')).toBeInTheDocument()
+  view.unmount()
+  FakeSocket.instances = []
+  mount()
+  await waitFor(() => expect(FakeSocket.instances.filter(s => !s.closed).map(s => s.url)).toEqual(expect.arrayContaining(['ws://10.0.0.9:8765/a', 'ws://10.0.0.9:8765/b', pairing('c').wsUrl])))
+  expect(screen.getByText('工作电脑')).toBeInTheDocument()
 })

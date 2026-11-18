@@ -1,5 +1,32 @@
 # HANDOFF.md — Claude Mobile Remote 交接文档
 
+- iOS 验收（2026-11-18）：用户确认本轮 iOS 更新全部验证完毕；包括配对页 PC 管理、服务检测及刷新、布局和左滑操作。用户未逐项提供测试结果，不将其扩大为其他平台验收。全量移动端测试 50 文件、676 项通过（图标调整后的旧测试选择器已同步）；Android/Harmony 同步仍待处理，WhaleTerm 会话汇总暂缓。
+
+- 当前执行（2026-11-18，iOS 配对页布局修正）：用户确认修复 PC 列表刷新 loading 和放大刷新图标，统一编辑页表单和底部按钮宽度，按设计稿将左滑编辑/删除替换为图标；WhaleTerm 会话汇总暂缓。已修复刷新 loading 的行内尺寸问题并放大刷新图标，编辑表单和底部统一盒模型及宽度，左滑操作按设计稿改为更多和删除图标。PC 管理与转场测试 12 项、Web 构建、iOS 资源复制通过；初次 npm 命令因工作目录错误失败，切换到 apps/mobile 后通过。尚未真机验证布局、图标及手势，未同步 Android/Harmony，不执行 Git 写操作。
+
+- 当前执行（2026-11-18，配对页刷新及检测信息）：用户确认继续优化，先处理 iOS PC 列表刷新、图标对齐、复制 IP、边缘返回；核对授权查询与三端契约，用户确认先只支持 WhaleTerm。配对页刷新、复制 IP、边缘返回和图标对齐已初步实现；相关既有测试 11 项、Web 构建和 iOS 资源复制通过，新增交互及真机尚未验证。会话汇总需解决单 Session 凭证是否授权读取其他 Session 的边界，协议及 WhaleTerm 未修改；刷新目前仅探测既有入口。真机验收后同步其他端；不执行 Git 写操作。
+
+- 当前执行（2026-11-18，iOS PC 检测反馈复验）：用户确认底部只展示最新提示、检测结果驱动 PC 图标、展示 IP/端口及结果、编辑页整体 loading 防闪、离页关闭抽屉。先更新设计计划，再实现并测试；服务检测不代表会话认证，iOS 验收后同步 Android/Harmony，不执行 Git 写操作。
+  - 已完成待真机：反馈区择最新一项；本页已检测 PC 图标按该 IP 最近结果着色，未检测沿用会话状态；详情及编辑结果显示 IP、7330 端口与结果，不显示凭证；编辑检测全页遮罩，成功最少展示 600ms；退出转场页面不自动弹抽屉。
+  - 验证：前端 50 文件 675 项通过，Web 构建、iOS 资源复制、无签名模拟器构建和 diff --check 通过；Xcode 沙箱缓存权限失败后提权通过。未真机验证，Android/Harmony 未同步，未提交。
+
+- 当前执行（2026-11-18，iOS 配对页真机反馈）：用户确认固定输入和操作区、仅滚动 PC 列表，处理长文本、抽屉宽度及返回动画；改为一次 WhaleTerm 服务连通检测，约 3 秒超时，列表和编辑页一致。先更新设计、计划及决策，再实施回归和 iOS 构建；真机验收后同步其他端，不提交。
+  - 已完成待真机：移除配对页演示入口；PC 列表独立滚动、长名称与目录换行、抽屉宽度修正、编辑返回方向修正；单次访问 7330 快速配对 WebSocket，建立后立即关闭且不发送消息，3 秒超时，编辑页复用，去掉底部重复加载提示。仅表示服务入口可访问，不验证会话。
+  - 验证：完整前端 50 文件 673 项、生产构建、cap copy ios、无签名 iOS 模拟器构建通过；Xcode 默认沙箱因缓存权限失败，提权重试通过。未在真机验证布局、动画、真实网络；iOS 验收后再同步 Android/Harmony；未提交。
+
+- 当前执行（2026-11-17，配对页真机反馈修正，iOS 优先）：用户确认放大电脑图标、统一末级目录解析（含 Windows）、修复左滑组件白色漏角和测试按钮双层底色；提示及测试摘要固定在底部操作上方，测试详情自动弹出并可再次查看。范围仅移动界面及对应回归，不改协议或凭证；通过条件为目录与反馈交互回归、Web 构建、iOS 资源复制及可执行原生构建，视觉与长列表由真机验收。不执行 Git 写操作。
+  - 已完成待真机：电脑图标容器由 24 调整为 40px（SVG 内部有留白），目录解析与首页共用并兼容 Windows/UNC/末尾分隔符；左滑外层透明且圆角裁切，测试按钮仅 SVG 自带底色。列表测试摘要提升到底部固定反馈区，测试完成自动显示详情弹层，可关闭后再次查看；离页/进入配对时取消测试并清除旧结果，异常显示通用重试提示。
+  - 验证：完整前端 50 文件 674 项、Web 生产构建、cap copy ios、无签名 iOS Simulator Debug 构建和 diff --check 通过。构建有既有 chunk 提示；Xcode 因系统 Swift 缓存写权限受限首次失败，环境授权后重试通过。本机 Chrome 使用临时 440px 宽、18 台电脑的假数据预览，观察到固定目录提示、末级目录、放大图标、无白色漏角/双层底色及自动弹出的测试详情；预览文件和进程已清理。尚未安装 iPhone 或验证真实测试连接、键盘、安全区与左滑手势；下一步用户真机复验这五项。Android/Harmony 本轮未同步构建；未提交。
+
+- 当前执行（2026-11-17，优化点5，iOS 已实现待真机验收）：用户确认本需求替代优化点4。已完成首页 PC 只读卡片（IP/脱敏 Token）、配对页 PC 选择/实时状态/认证连接测试/左滑编辑删除、独立名称与 IP 必填编辑页及反馈卡片、固定底部按钮；设置移除 PC 管理。名称/IP 原生 Preferences 持久化、浏览器仅内存；凭证仍在安全存储，修改 IP 为所有持有未过期凭证的会话覆盖主机并尝试重连，保留各自端口/路径/授权，其他 PC 保持连接，不自动重发操作。测试须取得快照，旧端口失败时在同主机尝试固定入口；离页取消并释放测试连接。
+  - 验证：完整前端 50 文件 670 项通过；包含配置过滤/恢复、IPv6 与端口隔离、认证快照/超时/取消/固定入口降级、列表状态、必填、编辑结果失效、删除安全记录、同 PC 多会话换 IP/其他 PC 隔离/重启恢复。最终 Web 生产构建、cap copy ios、无签名 iOS Simulator Debug 构建和 diff --check 通过；构建存在既有 chunk 大小提示，Xcode 首次因沙箱缓存权限失败，提权重试通过。指定测试 SVG 保留自身颜色，避免掩码使带底色图标变为实心块。
+  - 未验证：尚未安装或实际操作 iPhone/模拟器；真实 PC/VPN、键盘、安全区、长列表与左滑视觉待用户真机验收。Android 共用 React 源码但本轮未复制资源/构建，Harmony 未同步；不表示此前跨端遗留全量同步已完成。无 Git 写操作。设计、计划和验收清单见 2026-11-17-pc-management 文档。
+
+- 已被优化点5替代（2026-11-17，优化点4，iOS 优先）：用户确认修改 PC IP 后该 PC 下所有已配对会话尝试使用新 IP 重连。已初步实现配对页展示有可用地址的已配对 PC、点击填 IP、反馈上移和底部按钮布局；配对两组 20 项测试与前端构建通过，未同步 iOS 资源，未真机验证或覆盖新增 PC 列表交互。首页展开、左滑管理、别名与 IP 编辑、持久化/重连及从设置移除 PC 管理均未实现；IP 修改需保护凭证、失败回退及多会话并发，先完成设计与测试再实施。Android/Harmony 尚未同步，不执行 Git 写操作。
+
+- 当前执行（2026-11-17，iOS 目录配对警告样式）：将扫码按钮下的目标电脑及目录配对提示调整为黄色警告面板，保留长路径换行；通过条件为配对组件测试、前端构建及 iOS 资源同步，真机视觉待验，不执行 Git 写操作。
+  - 已完成：复用现有黄色警告样式；配对组件 7 项测试、Web 构建与 cap copy ios 通过，构建有既有 chunk 大小提示。未重新编译或安装 iOS，长路径实际显示待真机验收；Android/Harmony 本轮未同步。
+
 - 当前执行（2026-11-17，iOS IP 输入筛选复验）：用户真机反馈输入时历史列表未匹配。现有 includes 筛选和 change 用例不能复现此反馈；检查键盘 input 事件与受控值同步，补充连续输入、删除、清空、无匹配回归，构建并复制 iOS 资源。通过条件为自动化和构建通过、用户真机复验；不将推测视为已确认根因，不改协议，不提交，保留其他任务的改动。
   - Completed, pending device verification: public OnConnectionChange / RecheckConnections; coalesced per-connection control-frame probes with a 3-second timeout, matched Pong validation and cleanup. WhaleTerm shares a 1-second local address monitor while services exist, coalesces changes per session and pushes safe metadata via Wails. Lists, header and QR use events instead of polling; stale queries are guarded and credential rotation still uses explicit Get. Local WhaleTerm go.mod replaces this dependency with this checkout; no dependency release or Git writes.
   - Passed: library `go test -race ./internal/transport ./remote`; WhaleTerm `go test -race ./backend/remote ./backend/quickpair`; two frontend state tests, compilation of three Vue SFCs, both repositories' diff checks. Services default vet is blocked by existing errors in md_cloud_service.go:326 and pref_service.go:3800. An overly broad Remote test regex also selected unrelated cloud-dependent TestGetRemoteConn and panicked; the precise `go test -vet=off ./backend/services -run '^TestRemote' -count=1` passes all five relevant tests.

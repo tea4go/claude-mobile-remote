@@ -130,7 +130,10 @@ export class SessionRuntimeManager {
     this.enableStableRoute = enableStableRoute
   }
 
+  resolveRoute: ((payload: PairingPayload) => PairingPayload) | null = null
+
   ensureConnected(payload: PairingPayload, verified?: ProtocolClient, fallbackFrom?: PairingPayload): void {
+    if (!verified && this.resolveRoute) payload = this.resolveRoute(payload)
     const key = payloadKey(payload)
     const existing = this.entries.get(payload.sessionId)
     if (existing?.payloadKey === key && verified === undefined) {

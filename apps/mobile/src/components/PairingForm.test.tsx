@@ -52,9 +52,10 @@ test('iOS scan and pairing errors show inline feedback', async () => {
   expect(screen.queryByRole('button', { name: '确定' })).not.toBeInTheDocument()
 })
 
-test('iOS 目录提示显示在扫码按钮下方', () => {
+test('iOS 目录提示显示在扫码按钮上方', () => {
   render(<PairingForm iosDesign initialError={null} projectCwd="/project" onScan={() => {}} onSubmit={() => {}} />)
   const scan = screen.getByRole('button', {name: /扫描二维码/})
   const notice = screen.getByText('/project')
-  expect(scan.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(notice.parentElement).toHaveClass('pairing-notice--warning')
+  expect(notice.compareDocumentPosition(scan) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
