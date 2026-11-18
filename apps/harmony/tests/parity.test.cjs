@@ -10,7 +10,7 @@ const sockets = []
 class Socket {
   callbacks = {}; frames = []
   on(name, callback) { this.callbacks[name] = callback }
-  connect(_url, callback) { callback(null, true) }
+  connect(url, callback) { this.url = url; callback(null, true) }
   send(frame) { this.frames.push(JSON.parse(frame)); return Promise.resolve(true) }
   close() { return Promise.resolve(true) }
   emit(name, value) { this.callbacks[name]?.(null, value) }
@@ -57,6 +57,25 @@ function readyStore() {
   assert.equal(store.getState().connection, ConnectionStage.READY)
   return { store, socket }
 }
+test('pairing retries once via the same PC and uses the route that returned a valid snapshot', () => {
+  const store = load('session/store').createSessionStore()
+  stores.push(store)
+  store.connectWithPairing(pairing, true)
+  const original = sockets.at(-1)
+  original.callbacks.error({ code: 2302001, message: 'test failure' })
+
+  const alternate = sockets.at(-1)
+  assert.notEqual(alternate, original)
+  assert.equal(alternate.url, 'ws://example.test:7330/session/v1')
+  alternate.emit('open', {})
+  assert.equal(alternate.frames[0].sessionId, pairing.sessionId)
+  assert.equal(alternate.frames[0].payload.pairToken, pairing.pairToken)
+  alternate.wire(envelope('hello_ack'))
+  alternate.wire(envelope('subscribed'))
+  alternate.wire(snapshot())
+  assert.equal(store.getState().connection, ConnectionStage.READY)
+  assert.equal(store.getState().pairing.wsUrl, alternate.url)
+})
 test('existing self checks remain valid', () => assert.equal(load('debug/selfCheck').runSelfChecks().length, 8))
 test('whole Markdown copy uses visible text and keeps code and table content', () => {
   const { markdownVisibleText } = load('session/markdown')

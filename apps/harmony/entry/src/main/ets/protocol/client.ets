@@ -526,7 +526,8 @@ export class ProtocolClient {
     reason: 'DISCONNECTED' | 'PAIRING_INVALID' | 'PROTOCOL_ERROR',
     error: ErrorInfo | null,
   ): void {
-    debugLog.record(reason === 'PROTOCOL_ERROR' ? 'protocol_error' : reason === 'PAIRING_INVALID' ? 'pairing_invalid' : 'socket_error')
+    debugLog.record(reason === 'PROTOCOL_ERROR' ? 'protocol_error' : reason === 'PAIRING_INVALID' ? 'pairing_invalid' : 'socket_error',
+      reason === 'DISCONNECTED' && error !== null ? Number(error.code) : 0)
     const pendingCommandId = this.pendingCommandId
     this.pendingCommandId = null
     this.pendingKind = null

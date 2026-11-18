@@ -1,21 +1,9 @@
-import { promptAction } from '@kit.ArkUI'
+import { nativeLifecycle } from '../native/lifecycle'
+import type { PCGroup, PCProfile } from '../session/projectGroups'
 import { QuickPairForm } from './QuickPairForm'
 import type { ErrorInfo } from '../protocol/types'
 import { ConnectionStage } from '../session/model'
 import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
-
-function phaseLabel(connection: ConnectionStage): string {
-  switch (connection) {
-    case ConnectionStage.CONNECTING: return '正在连接（10秒）'
-    case ConnectionStage.AUTHENTICATING: return '正在认证（8秒）'
-    case ConnectionStage.SUBSCRIBING: return '正在订阅（8秒）'
-    case ConnectionStage.SUBSCRIBED: return '正在同步快照（10秒）'
-    case ConnectionStage.READY: return '连接已验证'
-    case ConnectionStage.PAIRING_INVALID: return '配对失效'
-    case ConnectionStage.PROTOCOL_ERROR: return '协议错误'
-    case ConnectionStage.DISCONNECTED: return '未连接'
-  }
-}
 
 function buildPairingHint(connection: ConnectionStage, error: ErrorInfo | null): string {
   if (connection === ConnectionStage.PAIRING_INVALID || error?.code === 'unauthorized') {
@@ -35,8 +23,18 @@ function buildPairingHint(connection: ConnectionStage, error: ErrorInfo | null):
 
 @Component
 export struct PairingPage {
+  @State private editOpen: boolean = false
+  @State private editingTest: boolean = false
+  private beganAtEdge: boolean = false
   @State manual: boolean = false
-  onDemo: () => void = () => {}
+  @Prop addressHistory: Array<string> = []
+  onHistoryChange: (values: Array<string>) => void = () => {}
+  @Prop profiles: Array<PCProfile> = []
+  onSaveComputer: (profile: PCProfile) => void = () => {}
+  onRemoveComputer: (key: string) => void = () => {}
+  @Prop computers: Array<PCGroup> = []
+  @Prop selectedPC: string = 'all'
+  onSelectPC: (key: string) => void = () => {}
   @Prop target: string = ''
   @Prop nativeReady: boolean = false
   @Prop scanning: boolean = false
@@ -44,8 +42,7 @@ export struct PairingPage {
   onScan: () => void = () => {}
   @Prop pairingInput: string = ''
   @Prop connection: ConnectionStage = ConnectionStage.DISCONNECTED
-  @Prop @Watch('errorChanged') lastError: ErrorInfo | null = null
-  private errorChanged(): void { if (this.lastError !== null) promptAction.showToast({ message: buildPairingHint(this.connection, this.lastError), duration: 3000 }) }
+  @Prop lastError: ErrorInfo | null = null
   @Prop selfChecks: Array<string> = []
   @Prop selfCheckError: string = ''
   @Prop canBack: boolean = false
@@ -64,21 +61,27 @@ export struct PairingPage {
   build() {
     Stack() {
     Column() {
+      if (!this.editOpen) {
       Row() {
         if (this.canBack) { Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).fontSize(30).fontColor(SECONDARY).backgroundColor($r('app.color.surface')).borderRadius(22).accessibilityText('返回').onClick(() => this.onBack()) }
         if (!this.canBack) { Blank().width(44) }
         Text('ccBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
         Button('设置', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onSettings())
-      }.width('100%').height(56).padding({ left: 8, right: 8 })
-      Scroll() {
-        Column({ space: 16 }) {
-          Button('• 体验演示（无需连接电脑）', { type: ButtonType.Normal }).id('open-demo-button').height(36).fontSize(13).fontColor(PRIMARY).backgroundColor($r('app.color.surface_blue')).borderRadius(18).alignSelf(ItemAlign.Center).enabled(!this.scanning && !this.connecting()).onClick(() => this.onDemo())
-          Text('连接 Claude 会话').fontSize(30).fontWeight(FontWeight.Bold).width('100%')
-          QuickPairForm({ disabled: !this.nativeReady || this.scanning || this.connecting() || this.saving,
+      }.width('100%').height(48).padding({ left: 8, right: 8 })
+      }
+        Column({ space: 8 }) {
+          if (!this.editOpen) Text('连接 Claude 会话').fontSize(26).fontWeight(FontWeight.Bold).width('100%')
+            .onClick(() => this.getUIContext().getFocusController().clearFocus())
+          QuickPairForm({ editOpen: $editOpen, editTesting: $editingTest, pairingError: this.lastError === null ? '' : buildPairingHint(this.connection, this.lastError), addressHistory: this.addressHistory, onHistoryChange: this.onHistoryChange, profiles: this.profiles, onSaveComputer: this.onSaveComputer, onRemoveComputer: this.onRemoveComputer, computers: this.computers, selectedPC: this.selectedPC, onSelectPC: this.onSelectPC, projectCwd: this.projectCwd, disabled: !this.nativeReady || this.scanning || this.connecting() || this.saving,
             onPair: (text: string) => { this.onPairingInputChange(text); this.onConnect() }, onScan: () => this.onScan() })
-        }.padding(24).width('100%').alignItems(HorizontalAlign.Start)
-      }.layoutWeight(1).width('100%').align(Alignment.TopStart)
+        }.padding({ left: this.editOpen ? 0 : 20, right: this.editOpen ? 0 : 20,
+          top: this.editOpen ? 0 : 6, bottom: this.editOpen ? 0 : 12 }).width('100%').layoutWeight(1).alignItems(HorizontalAlign.Start)
     }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
+    if (this.editingTest) {
+      Stack() {
+        LoadingProgress().width(36).height(36).color(PRIMARY).accessibilityText('正在测试连接')
+      }.width('100%').height('100%').backgroundColor('#40000000').hitTestBehavior(HitTestMode.Block)
+    }
     if (this.connecting() || this.saving) {
       Stack() {
       Column({ space: 14 }) {
@@ -89,5 +92,16 @@ export struct PairingPage {
       }.width('100%').height('100%').backgroundColor('#01000000').hitTestBehavior(HitTestMode.Block)
     }
     }.width('100%').height('100%').hitTestBehavior(HitTestMode.Default)
+      .parallelGesture(PanGesture({ direction: PanDirection.Right, distance: 12 })
+        .onActionStart((event: GestureEvent) => {
+          this.beganAtEdge = event.fingerList.length > 0 && event.fingerList[0].localX - event.offsetX <= 24
+        })
+        .onActionEnd((event: GestureEvent) => {
+          if (this.beganAtEdge && !this.saving && !this.connecting() && event.offsetX >= 65) {
+            if (this.editOpen) nativeLifecycle.detailBack?.()
+            else if (this.canBack) this.onBack()
+          }
+          this.beganAtEdge = false
+        }))
   }
 }

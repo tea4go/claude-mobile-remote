@@ -1,24 +1,18 @@
 import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
 import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
-import { curves } from '@kit.ArkUI'
+import { curves, LengthMetrics } from '@kit.ArkUI'
 import { pageSlide } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
 import { defaultSessionName, type SessionRecord } from '../session/records'
-import { groupSessions, type PCGroup, type ProjectGroup } from '../session/projectGroups'
+import { groupSessions, type PCGroup, type ProjectGroup, type PCProfile } from '../session/projectGroups'
 import { ProjectListDataSource, projectListRows, type ProjectListRow } from '../ui/projectListDataSource'
 
 function titleOf(record: SessionRecord): string {
   if (record.customName === true || (record.customName === undefined && record.name !== defaultSessionName(record.sessionId))) return record.name
   return record.sessionTitle ?? record.name
 }
-function pcKey(record: SessionRecord): string { return record.pcId ?? record.wsUrl }
 function pcName(record: SessionRecord): string {
   return record.pcName ?? record.wsUrl.replace(/^wss?:\/\//, '').split('/')[0]
-}
-function devices(records: Array<SessionRecord>): Array<SessionRecord> {
-  const result: Array<SessionRecord> = []
-  records.forEach((record: SessionRecord) => { if (!result.some((item: SessionRecord) => pcKey(item) === pcKey(record))) result.push(record) })
-  return result
 }
 function statusLabel(record: SessionRecord): string {
   if (record.status === 'needsPairing') return '需要重新扫码'
@@ -38,6 +32,7 @@ export struct SessionListPage {
   onScrollOffset: (value: number) => void = () => {}
   onRefresh: () => void = () => {}
   @State private refreshing: boolean = false
+  @Prop @Watch('updateGroups') profiles: Array<PCProfile> = []
   @Prop @Watch('updateGroups') sessions: Array<SessionRecord> = []
   @Prop @Watch('updateGroups') selectedPC: string = 'all'
   @Prop projectCreating: boolean = false
@@ -48,7 +43,19 @@ export struct SessionListPage {
   @State private filterOpen: boolean = false
   @State private filterIndex: number = 0
   private readonly listSource: ProjectListDataSource = new ProjectListDataSource()
-  private updateGroups(): void { this.groups = groupSessions(this.sessions); this.updateRows() }
+  private updateGroups(): void {
+    this.groups = groupSessions(this.sessions)
+    for (const computer of this.groups) {
+      const profile = this.profiles.find((item: PCProfile) => item.key === computer.key)
+      if (profile !== undefined) computer.label = profile.name
+    }
+    this.updateRows()
+  }
+
+  private computerAddress(computer: PCGroup): string {
+    return this.profiles.find((item: PCProfile) => item.key === computer.key)?.ip ??
+      (/^wss?:\/\/(\[[^\]]+\]|[^/:]+)/.exec(computer.sessions[0].wsUrl)?.[1] ?? '')
+  }
   private updateRows(): void { this.listSource.replace(projectListRows(this.groups, this.selectedPC, this.collapsed)) }
   aboutToAppear(): void { this.settings = this.initialSettings; this.updateGroups(); nativeLifecycle.detailBack = this.backHandler }
   private readonly backHandler: () => boolean = () => {
@@ -67,7 +74,6 @@ export struct SessionListPage {
   onOpen: (sessionId: string) => void = () => {}
   onRemove: (sessionId: string) => void = () => {}
   onRename: (sessionId: string, name: string) => void = () => {}
-  onRemovePC: (key: string) => void = () => {}
   onNotifications: () => void = () => {}
   onDemo: () => void = () => {}
   @Prop debugEnabled: boolean = false
@@ -75,7 +81,6 @@ export struct SessionListPage {
   onDebugOpen: () => void = () => {}
   onClearCache: () => void = () => {}
   @State private settings: boolean = false
-  @State private computers: boolean = false
   private createProject(pcKey: string, project: ProjectGroup): void {
     const available = project.sessions.filter((record: SessionRecord) => record.status === 'connected' && (record.capabilities ?? []).indexOf('create_session') >= 0)
     this.onCreateProject(pcKey, project.cwd, available.length > 0 ? available[0].sessionId : '')
@@ -118,8 +123,6 @@ export struct SessionListPage {
     if (!this.settings) {
       this.listOffset = this.scroller.currentOffset().yOffset
       this.settings = true
-    } else if (this.computers) {
-      this.computers = false
     } else if (this.initialSettings) {
       this.onExitSettings()
     } else {
@@ -131,10 +134,6 @@ export struct SessionListPage {
     const date = new Date(record.lastActivityAt)
     if (Number.isNaN(date.getTime())) return ''
     return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
-  }
-  private pcStatus(record: SessionRecord): string {
-    const group = this.sessions.filter((item: SessionRecord) => pcKey(item) === pcKey(record))
-    return `${group.filter((item: SessionRecord) => item.status === 'connected').length}/${group.length} 已连接`
   }
   @Builder
   private sessionRow(session: SessionRecord) {
@@ -172,7 +171,7 @@ export struct SessionListPage {
         if (this.settings) {
           Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).padding(0).fontSize(30).fontColor(SECONDARY)
             .backgroundColor($r('app.color.surface')).borderRadius(22).accessibilityText('返回').onClick(() => this.changePage())
-          Text(this.computers ? 'PC 管理' : '设置').fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
+          Text('设置').fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
           Blank().width(44)
         } else {
           Blank().width(44)
@@ -184,26 +183,6 @@ export struct SessionListPage {
       if (this.settings) {
         Scroll() {
           Column({ space: 18 }) {
-          if (this.computers) {
-            ForEach(devices(this.sessions), (record: SessionRecord) => {
-              Row({ space: 8 }) {
-                Column({ space: 6 }) {
-                  Text(pcName(record)).fontSize(16).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-                  Text(this.pcStatus(record)).fontSize(12).fontColor(SECONDARY)
-                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                Button('移除', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor($r('app.color.danger')).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => {
-                  AlertDialog.show({ title: '移除此电脑的全部配对？', message: '本机配对与缓存会清除，电脑上的 Claude 会话继续运行。',
-                    primaryButton: { value: '移除', action: () => this.onRemovePC(pcKey(record)) }, secondaryButton: { value: '取消', action: () => {} } })
-                })
-              }.padding(12).width('100%').backgroundColor($r('app.color.surface')).borderRadius(12)
-            }, (record: SessionRecord) => JSON.stringify([pcKey(record), pcName(record), this.pcStatus(record)]))
-            if (this.sessions.length === 0) { Text('暂无已配对电脑').fontSize(14).fontColor(SECONDARY).padding(24) }
-          } else {
-            Row({ space: 12 }) {
-              Text('▣').fontSize(20).fontColor(PRIMARY).width(36).height(36).textAlign(TextAlign.Center).backgroundColor($r('app.color.surface_blue')).borderRadius(10)
-              Text('PC 管理').fontSize(16).layoutWeight(1)
-              Text('›').fontSize(24).fontColor(SECONDARY)
-            }.width('100%').height(60).padding({ left: 16, right: 16 }).backgroundColor($r('app.color.surface')).borderRadius(16).onClick(() => { this.computers = true })
             Row({ space: 12 }) {
               Text('✧').fontSize(20).fontColor(PRIMARY).width(36).height(36).textAlign(TextAlign.Center).backgroundColor($r('app.color.surface_blue')).borderRadius(10)
               Text('体验演示（无需连接电脑）').fontSize(16).layoutWeight(1)
@@ -240,7 +219,6 @@ export struct SessionListPage {
               Text(this.pushStatus).fontSize(12).fontColor(SECONDARY).width('100%')
             }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).alignItems(HorizontalAlign.Start)
 
-          }
           }.padding({ left: 16, right: 16, top: 12, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
         }.layoutWeight(1).width('100%').align(Alignment.TopStart).transition(pageSlide())
       } else {
@@ -252,13 +230,20 @@ export struct SessionListPage {
             ListItem() {
               if (row.kind === 'pc' && row.pc !== undefined) {
                 Row({ space: 12 }) {
-                  Text('▣').fontSize(23).fontColor(Color.White).width(44).height(44).textAlign(TextAlign.Center).backgroundColor($r('app.color.primary_fill')).borderRadius(11)
+                  Stack() { Image($r('app.media.pc_host')).width(32).height(32).fillColor(Color.White) }.width(44).height(44).backgroundColor($r('app.color.primary_fill')).borderRadius(11)
                   Column({ space: 4 }) {
                     Text(row.pc.label).fontSize(16).fontWeight(FontWeight.Medium).width('100%')
-                    Text(`${row.pc.connected}/${row.pc.sessions.length} 个会话已连接`).fontSize(12).fontColor(SECONDARY).width('100%')
+                    Text(this.computerAddress(row.pc)).fontSize(12).fontColor(SECONDARY).maxLines(1)
+                    Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8) } }) {
+                      ForEach(row.pc.sessions, (record: SessionRecord) => {
+                        if (record.pairToken.length > 4) {
+                          Text('••••' + record.pairToken.slice(-4)).fontSize(12).fontColor(SECONDARY)
+                        }
+                      }, (record: SessionRecord) => record.sessionId)
+                      Text(`${row.pc.connected}/${row.pc.sessions.length} 个会话已连接`).fontSize(12).fontColor(SECONDARY)
+                    }.width('100%')
                   }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                  Text('›').fontSize(24).fontColor(SECONDARY)
-                }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).onClick(() => this.openFilter())
+                }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16)
               } else if (row.kind === 'project' && row.pc !== undefined && row.project !== undefined) {
                 Row({ space: 8 }) {
                   Column({ space: 4 }) {

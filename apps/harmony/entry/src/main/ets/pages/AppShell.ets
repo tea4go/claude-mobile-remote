@@ -1,3 +1,4 @@
+import { validPairAddress } from './QuickPairForm'
 import { NetworkMonitor } from '../native/network'
 import { KeyboardAvoidMode, promptAction } from '@kit.ArkUI'
 import { FeedbackFrame } from '../ui/feedbackFrame'
@@ -23,6 +24,7 @@ import type { PairingPayload, QuestionAnswer } from '../protocol/types'
 import {
   createSessionStore,
   type HarmonySessionStore,
+  clonePairingRoute,
 } from '../session/store'
 import {
   ConnectionStage,
@@ -35,6 +37,7 @@ import {
   markSessionRecordRead,
   pairingPayloadFromRecord,
   removeSessionRecord,
+  updateVerifiedSessionRoute,
   renameSessionRecord,
   type SessionRecord,
   upsertSessionRecord,
@@ -46,12 +49,12 @@ import { DemoPage } from './DemoPage'
 import { DebugPanel } from '../components/DebugPanel'
 import { debugLog } from '../debug/log'
 import { SessionPage } from './SessionPage'
-import { groupSessions, sessionPCKey, sessionPreview } from '../session/projectGroups'
+import { groupSessions, sessionPCKey, sessionPreview, replaceComputerHost, validComputerIP, type PCProfile } from '../session/projectGroups'
 import { projectMatches, createdPairingAddress } from '../session/projectPairing'
 import { commitPairingRecords } from '../session/pairingCommit'
 
 type AppView = 'list' | 'pairing' | 'pairingSettings' | 'detail'
-interface DisplayPreferences { selectedPC: string | null; debugEnabled: boolean }
+interface DisplayPreferences { selectedPC: string | null; debugEnabled: boolean; pcProfiles?: Array<PCProfile>; addressHistory?: Array<string> }
 interface ProjectTarget { pcId: string; cwd: string }
 
 function defaultView(records: Array<SessionRecord>): AppView {
@@ -144,6 +147,8 @@ export struct AppShell {
   private demoGeneration: number = 0
   @State private debugOpen: boolean = false
   @State private debugEnabled: boolean = false
+  @State private addressHistory: Array<string> = []
+  @State private pcProfiles: Array<PCProfile> = []
   @State private selectedPC: string = 'all'
   private preferencesReady: boolean = false
   private selectedPCConfigured: boolean = false
@@ -244,7 +249,8 @@ export struct AppShell {
     if (this.storage === null || this.pairingSaving) return
     this.pairingSaving = true
     const verified = this.entryStore
-    const candidate = upsertSessionRecord(this.sessions, pairing)
+    const verifiedPairing = verified.getState().pairing ?? pairing
+    const candidate = upsertSessionRecord(this.sessions, verifiedPairing)
     try {
       const result = await commitPairingRecords(this.storage, candidate, this.sessions, () =>
         this.alive && this.foreground && this.pendingPairing === pairing && this.entryStore === verified && verified.getState().connection === ConnectionStage.READY)
@@ -257,7 +263,7 @@ export struct AppShell {
         return
       }
       this.projectTarget = null; this.createdSource = ''; this.pendingPairing = null
-      this.sessions = upsertSessionRecord(this.sessions, pairing)
+      this.sessions = upsertSessionRecord(this.sessions, verifiedPairing)
       void this.push?.syncSessions(this.sessions).catch(() => { this.pushStatus = '后台推送登记失败，稍后重试' })
       if (!this.selectedPCConfigured) this.reconcileSelectedPC()
       if (this.selectedPC !== 'all') {
@@ -342,6 +348,8 @@ export struct AppShell {
           const prefs = JSON.parse(raw) as DisplayPreferences
           if ((prefs.selectedPC !== null && typeof prefs.selectedPC !== 'string') || typeof prefs.debugEnabled !== 'boolean') throw new Error('invalid preferences')
           this.selectedPC = prefs.selectedPC ?? 'all'; this.selectedPCConfigured = true
+          this.pcProfiles = Array.isArray(prefs.pcProfiles) ? prefs.pcProfiles.filter((profile: PCProfile) => profile !== null && typeof profile.key === 'string' && typeof profile.name === 'string' && typeof profile.ip === 'string' && validComputerIP(profile.ip) && (!profile.ip.includes(':') || profile.ip.startsWith('['))) : []
+          this.addressHistory = Array.isArray(prefs.addressHistory) ? prefs.addressHistory.filter((item: string) => typeof item === 'string' && validPairAddress(item)).slice(0, 10) : []
           debugLog.setEnabled(prefs.debugEnabled)
         }
         this.preferencesReady = true
@@ -606,6 +614,24 @@ export struct AppShell {
       nextState.connection === ConnectionStage.READY &&
       previousState.connection !== ConnectionStage.READY
     ) {
+      const verified = nextState.pairing
+      const saved = this.sessions.find((record: SessionRecord) => record.sessionId === sessionId)
+      if (verified !== null && saved !== undefined && verified.wsUrl.endsWith(':7330/session/v1') &&
+        saved.wsUrl !== verified.wsUrl && saved.pairToken === verified.pairToken && saved.expiresAt === verified.expiresAt) {
+        const oldKey = sessionPCKey(saved)
+        this.sessions = updateVerifiedSessionRoute(this.sessions, verified)
+        if (saved.pcId === undefined) {
+          const oldGroupExists = this.sessions.some((record: SessionRecord) => sessionPCKey(record) === oldKey)
+          const profile = this.pcProfiles.find((item: PCProfile) => item.key === oldKey)
+          if (profile !== undefined && !this.pcProfiles.some((item: PCProfile) => item.key === verified.wsUrl)) {
+            if (!oldGroupExists) this.pcProfiles = this.pcProfiles.filter((item: PCProfile) => item.key !== oldKey)
+            this.pcProfiles = this.pcProfiles.concat([{ key: verified.wsUrl, name: profile.name, ip: profile.ip }])
+          }
+          if (!oldGroupExists && this.selectedPC === oldKey) this.selectedPC = verified.wsUrl
+          this.saveDisplayPreferences()
+        }
+        this.saveRecords()
+      }
       this.sessions = markSessionRecordStatus(
         this.sessions,
         sessionId,
@@ -633,9 +659,14 @@ export struct AppShell {
   }
 
   private connectSession(pairing: PairingPayload, force: boolean = false): HarmonySessionStore {
+    const record = this.sessions.find((item: SessionRecord) => item.sessionId === pairing.sessionId)
+    const profile = record === undefined ? undefined : this.pcProfiles.find((item: PCProfile) => item.key === sessionPCKey(record))
+    if (profile !== undefined) {
+      pairing = clonePairingRoute(pairing, replaceComputerHost(pairing.wsUrl, profile.ip))
+    }
     const existing = this.stores.has(pairing.sessionId)
     const store = this.prepareStore(pairing.sessionId)
-    if ((!existing || force || store.getState().pairing === null) && this.foreground && pairing.pairToken.length > 0 && Date.parse(pairing.expiresAt) > Date.now()) store.connectWithPairing(pairing)
+    if ((!existing || force || store.getState().pairing === null) && this.foreground && pairing.pairToken.length > 0 && Date.parse(pairing.expiresAt) > Date.now()) store.connectWithPairing(pairing, true)
     return store
   }
 
@@ -696,7 +727,7 @@ export struct AppShell {
 
   private saveDisplayPreferences(): void {
     if (!this.preferencesReady || this.storage === null) return
-    const prefs: DisplayPreferences = { selectedPC: this.selectedPC === 'all' ? null : this.selectedPC, debugEnabled: this.debugEnabled }
+    const prefs: DisplayPreferences = { selectedPC: this.selectedPC === 'all' ? null : this.selectedPC, debugEnabled: this.debugEnabled, pcProfiles: this.pcProfiles, addressHistory: this.addressHistory }
     void this.storage.writeDisplayPreferences(JSON.stringify(prefs)).catch(() => { this.nativeError = '设置保存失败' })
   }
   private reconcileSelectedPC(): void {
@@ -773,7 +804,7 @@ export struct AppShell {
     if (existing !== undefined) this.entryStore.restoreDisplay(existing.getState())
     this.pendingPairing = result.payload
     this.pairingTarget = debugLog.target(result.payload.wsUrl)
-    this.entryStore.connectWithPairing(result.payload)
+    this.entryStore.connectWithPairing(result.payload, true)
     this.sessionState = this.entryStore.getState()
   }
 
@@ -1030,7 +1061,29 @@ export struct AppShell {
   @Builder
   private buildPairingView(): void {
     PairingPage({
-      onDemo: () => this.openDemo(),
+      computers: groupSessions(this.sessions),
+      profiles: this.pcProfiles,
+      addressHistory: this.addressHistory,
+      onHistoryChange: (values: Array<string>) => { this.addressHistory = values; this.saveDisplayPreferences() },
+      onSaveComputer: (profile: PCProfile) => {
+        this.pcProfiles = this.pcProfiles.filter((item: PCProfile) => item.key !== profile.key).concat([profile])
+        this.saveDisplayPreferences()
+        for (const record of this.sessions) {
+          if (sessionPCKey(record) === profile.key) this.connectSession(pairingPayloadFromRecord(record), true)
+        }
+      },
+      onRemoveComputer: (key: string) => {
+        this.sessions.filter((record: SessionRecord) => sessionPCKey(record) === key)
+          .forEach((record: SessionRecord) => this.handleRemoveSession(record.sessionId))
+        this.pcProfiles = this.pcProfiles.filter((item: PCProfile) => item.key !== key)
+        this.saveDisplayPreferences()
+      },
+      selectedPC: this.selectedPC,
+      onSelectPC: (key: string) => {
+        this.selectedPC = key
+        this.selectedPCConfigured = true
+        this.saveDisplayPreferences()
+      },
       onSettings: () => { this.pairingBehindSettings = true; this.view = 'pairingSettings' },
       projectCwd: this.projectTarget?.cwd ?? '',
       saving: this.pairingSaving,
@@ -1094,6 +1147,7 @@ export struct AppShell {
       },
       onDebugOpen: () => { this.debugOpen = true },
       sessions: this.sortedSessions(),
+      profiles: this.pcProfiles,
       scrollOffset: this.listOffset,
       onScrollOffset: (value: number) => { this.listOffset = value },
       notificationsEnabled: this.notificationsEnabled,
@@ -1105,10 +1159,6 @@ export struct AppShell {
       },
       onNotifications: () => { void this.toggleNotifications() },
       onClearCache: () => { void this.clearCache() },
-      onRemovePC: (pcKey: string) => {
-        const ids = this.sessions.filter((record: SessionRecord) => (record.pcId ?? record.wsUrl) === pcKey).map((record: SessionRecord) => record.sessionId)
-        ids.forEach((id: string) => this.handleRemoveSession(id))
-      },
       recentlyViewedId: this.recentlyViewedId,
       selfChecks: this.selfChecks,
       selfCheckError: this.selfCheckError,

@@ -51,7 +51,7 @@ interface PendingManagement { operation: 'create_session' | 'stop_session'; comm
 
 export interface HarmonySessionStore {
   connectFromRawPairing(raw: string): boolean
-  connectWithPairing(pairing: PairingPayload): void
+  connectWithPairing(pairing: PairingPayload, allowFallback?: boolean): void
   disconnect(): void
   reset(): void
   networkLost(): void
@@ -83,6 +83,11 @@ let commandCounter = 0
 function nextCommandId(): string {
   commandCounter += 1
   return `harmony-cmd-${Date.now()}-${commandCounter}`
+}
+
+export function clonePairingRoute(pairing: PairingPayload, wsUrl: string): PairingPayload {
+  return { version: pairing.version, wsUrl, sessionId: pairing.sessionId, pairToken: pairing.pairToken,
+    expiresAt: pairing.expiresAt, capabilities: pairing.capabilities, pcId: pairing.pcId, pcName: pairing.pcName }
 }
 
 function makeError(code: string, message: string): ErrorInfo {
@@ -138,6 +143,8 @@ class SessionStoreObserver implements ProtocolClientObserver {
 class SessionStore implements HarmonySessionStore {
   private state: HarmonySessionState = createInitialHarmonySessionState()
   private client: ProtocolClient | null = null
+  private allowFallback: boolean = false
+  private fallbackFrom: PairingPayload | null = null
   private pendingAttachments: Array<Attachment> = []
   private imageQueue: Array<string> = []
   private imagePending: string = ''
@@ -187,10 +194,12 @@ class SessionStore implements HarmonySessionStore {
     return true
   }
 
-  connectWithPairing(pairing: PairingPayload): void {
+  connectWithPairing(pairing: PairingPayload, allowFallback: boolean = false): void {
     if (this.state.pairing !== null && this.state.pairing.sessionId !== pairing.sessionId) {
       this.abandonManagement()
     }
+    this.allowFallback = allowFallback
+    this.fallbackFrom = null
     this.start(pairing)
   }
 
@@ -219,7 +228,9 @@ class SessionStore implements HarmonySessionStore {
       this.dispatch(localError(makeError('not_paired', 'no pairing payload is loaded')))
       return false
     }
-    this.start(this.state.pairing)
+    const pairing = this.fallbackFrom ?? this.state.pairing
+    this.fallbackFrom = null
+    this.start(pairing)
     return true
   }
 
@@ -335,6 +346,7 @@ class SessionStore implements HarmonySessionStore {
   }
 
   handleSnapshot(snapshot: SessionSnapshot): void {
+    this.fallbackFrom = null
     this.dispatch(snapshotReceived(snapshot))
     this.imageQueue = []
     this.imagePending = ''
@@ -428,6 +440,24 @@ class SessionStore implements HarmonySessionStore {
     this.client = null
     if (info.pendingCommandId !== null && (this.pendingManagement === null || info.pendingCommandId !== this.pendingManagement.commandId)) {
       this.dispatch(commandUnknown(info.pendingCommandId))
+    }
+    const original = this.fallbackFrom
+    this.fallbackFrom = null
+    const pairing = this.state.pairing
+    if (original !== null) {
+      this.dispatch(startConnect(original))
+    } else if (this.allowFallback && pairing !== null && pairing.pairToken.length > 0 && Date.parse(pairing.expiresAt) > Date.now() &&
+      (info.reason === 'PAIRING_INVALID' || (this.state.connection === ConnectionStage.CONNECTING && info.reason === 'DISCONNECTED'))) {
+      const host = /^ws:\/\/(\[[^\]]+\]|[^/@:?#]+)(?::\d+)?(?:[/?#]|$)/.exec(pairing.wsUrl)?.[1]
+      if (host) {
+        const wsUrl = `ws://${host}:7330/session/v1`
+        if (pairing.wsUrl !== wsUrl) {
+          this.fallbackFrom = pairing
+          const alternate = clonePairingRoute(pairing, wsUrl)
+          this.start(alternate)
+          return
+        }
+      }
     }
     if (info.reason === 'PAIRING_INVALID') {
       this.dispatch(pairingInvalid(info.error))

@@ -226,3 +226,14 @@ export function pairingPayloadFromRecord(record: SessionRecord): PairingPayload 
     pcName: record.pcName,
   }
 }
+
+
+export function updateVerifiedSessionRoute(records: Array<SessionRecord>, pairing: PairingPayload): Array<SessionRecord> {
+  return records.map((record: SessionRecord) => {
+    if (record.sessionId !== pairing.sessionId || record.pairToken !== pairing.pairToken ||
+      record.expiresAt !== pairing.expiresAt || record.wsUrl === pairing.wsUrl) return record
+    const next = cloneRecord(record)
+    next.wsUrl = pairing.wsUrl
+    return next
+  })
+}

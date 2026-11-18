@@ -43,3 +43,28 @@ export function sessionPreview(text: string): string {
   }
   return result
 }
+
+export interface PCProfile { key: string; name: string; ip: string }
+
+export function replaceComputerHost(wsUrl: string, ip: string): string {
+  return wsUrl.replace(/^(wss?:\/\/)(\[[^\]]+\]|[^/:?#]+)/, (_match: string, scheme: string) => scheme + ip)
+}
+
+export function validComputerIP(ip: string): boolean {
+  if (ip.startsWith('[') !== ip.endsWith(']')) return false
+  if (/^\[?[0-9a-f:]+\]?$/i.test(ip) && ip.includes(':')) {
+    const value = ip.replace(/^\[|\]$/g, '')
+    const parts = value.split('::')
+    if (parts.length > 2) return false
+    let count = 0
+    for (const side of parts) {
+      if (side.length === 0) continue
+      for (const segment of side.split(':')) {
+        if (!/^[0-9a-f]{1,4}$/i.test(segment)) return false
+        count++
+      }
+    }
+    return parts.length === 2 ? count < 8 : count === 8
+  }
+  return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(ip) && ip.split('.').every((part: string) => Number(part) < 256)
+}
