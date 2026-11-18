@@ -92,7 +92,7 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
       const connected = pc.sessions.filter((session) => session.status !== 'needsPairing' && session.runtimeState?.connection === 'connected').length
       return <section key={pc.key} className="project-session-list__pc">
         <div className="project-session-list__pc-card" aria-label={`当前电脑 ${pc.label}`}>
-          <span className="project-session-list__pc-icon"><SessionIcon name="pc" size={36} /></span><span className="project-session-list__pc-text"><strong>{pc.label} <small>{(() => { try { return new URL(pc.sessions[0]!.wsUrl).hostname } catch { return '' } })()}</small></strong><small>Token：{pc.sessions[0]?.pairToken ? '••••' + (pc.sessions[0].pairToken.length > 8 ? pc.sessions[0].pairToken.slice(-4) : '') : '需重新配对'}</small><small>{connected > 0 ? `${connected} / ${pc.sessions.length} 个会话已连接` : '暂未连接'}</small></span></div>
+          <span className="project-session-list__pc-icon"><SessionIcon name="pc" size={36} /></span><span className="project-session-list__pc-text"><strong>{pc.label} <small>{(() => { try { return new URL(pc.sessions[0]!.wsUrl).hostname } catch { return '' } })()}</small></strong><span className="project-session-list__pc-meta"><small>Token：{pc.sessions[0]?.pairToken ? '••••' + (pc.sessions[0].pairToken.length > 8 ? pc.sessions[0].pairToken.slice(-4) : '') : '需重新配对'}</small><small>{connected > 0 ? `${connected} / ${pc.sessions.length} 个会话已连接` : '暂未连接'}</small></span></span></div>
         {projects.map((group) => {
           const key = `${pc.key}:${group.cwd ?? ''}`
           const members = group.ids.map((id) => byId.get(id)!).filter(Boolean)

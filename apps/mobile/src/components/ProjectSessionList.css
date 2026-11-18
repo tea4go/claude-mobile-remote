@@ -4,9 +4,10 @@
 .project-session-list__count { padding: 5px 11px; border-radius: 20px; color: #4f6385; background: #e7eefc; font-size: 12px; white-space: nowrap; }
 .project-session-list__pc { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .project-session-list__pc-card { box-sizing: border-box; width: 100%; min-height: 60px; display: flex; gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid #dfe6f1; border-radius: 18px; background: white; color: #394760; text-align: left; box-shadow: 0 8px 24px rgba(51, 76, 120, .06); font: inherit; }
-.project-session-list__pc-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: white; background: #3376f6; font-size: 23px; }
+.project-session-list__pc-icon { display: grid; place-items: center; width: 44px; height: 44px; align-self: center; flex-shrink: 0; border-radius: 10px; color: white; background: #3376f6; font-size: 23px; }
 .project-session-list__pc-text { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 3px; }
 .project-session-list__pc-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-session-list__pc-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
 .project-session-list__pc-text small { color: #8390a6; font-size: 12px; }
 .project-session-list__filter, .project-session-list__sources { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; background: #fff; border-radius: 12px; }
 .project-session-list__filter button, .project-session-list__sources button, .project-session-list__clear-filter { min-height: 44px; border: 0; background: transparent; color: #3376f6; font: inherit; }
