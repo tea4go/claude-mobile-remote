@@ -1,5 +1,6 @@
 import type {
   TurnProgress,
+  TurnStatus,
   Attachment,
   CommandKind,
   ContentBlock,
@@ -88,6 +89,7 @@ export interface HarmonySessionState {
   createdAt?: string
   lastActivityAt?: string
   sessionStatus: SessionStatus | ''
+  turnStatus: TurnStatus | null
   sessionError: ErrorInfo | null
   seqBase: number
   snapshotStartPending?: string
@@ -110,6 +112,7 @@ export function createInitialHarmonySessionState(): HarmonySessionState {
     connection: ConnectionStage.DISCONNECTED,
     sessionId: '',
     sessionStatus: '',
+    turnStatus: null,
     sessionError: null,
     seqBase: 0,
     queueDepthHint: 0,
@@ -122,4 +125,12 @@ export function createInitialHarmonySessionState(): HarmonySessionState {
     canSend: false,
     canResolveAction: false,
   }
+}
+
+export function sessionTurnStatusLabel(state: HarmonySessionState): string {
+  if (state.turnStatus === null) return ''
+  if (state.sessionStatus === 'failed') return '已中断'
+  if (state.pendingAction !== null || state.turnStatus === 'waiting') return '等待处理'
+  if (state.turnStatus === 'failed' || state.turnStatus === 'cancelled') return '已中断'
+  return state.turnStatus === 'running' ? '进行中' : '已完成'
 }

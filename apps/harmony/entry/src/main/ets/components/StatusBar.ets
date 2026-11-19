@@ -1,6 +1,7 @@
 import type { ErrorInfo } from '../protocol/types'
 import {
   ConnectionStage,
+  createInitialHarmonySessionState,
   type HarmonySessionState,
 } from '../session/model'
 
@@ -38,24 +39,7 @@ function connectionLabel(connection: ConnectionStage): string {
 
 @Component
 export struct StatusBar {
-  @Prop state: HarmonySessionState = {
-    pairing: null,
-    connection: ConnectionStage.DISCONNECTED,
-    sessionId: '',
-    sessionStatus: '',
-    permissionMode: 'default',
-    sessionError: null,
-    seqBase: 0,
-    queueDepthHint: 0,
-    queuedRequests: [],
-    pendingAction: null,
-    pendingCommand: null,
-    messages: [],
-    lastError: null,
-    lastNotice: null,
-    canSend: false,
-    canResolveAction: false,
-  }
+  @Prop state: HarmonySessionState = createInitialHarmonySessionState()
 
   private sessionStatusText(): string {
     return this.state.sessionStatus.length > 0 ? this.state.sessionStatus : 'idle'

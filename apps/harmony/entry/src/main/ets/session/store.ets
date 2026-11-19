@@ -55,7 +55,7 @@ export interface HarmonySessionStore {
   disconnect(): void
   reset(): void
   networkLost(): void
-  checkConnection(): void
+  checkConnection(onPong?: () => void): void
   reconnect(): boolean
   sendText(text: string): boolean
   setPermissionMode(mode: PermissionMode): boolean
@@ -220,7 +220,10 @@ class SessionStore implements HarmonySessionStore {
   }
 
   networkLost(): void { this.client?.networkLost() }
-  checkConnection(): void { this.client?.checkConnection() }
+  checkConnection(onPong?: () => void): void {
+    if (this.client === null) onPong?.()
+    else this.client.checkConnection(onPong)
+  }
 
   reconnect(): boolean {
     debugLog.record('reconnect')

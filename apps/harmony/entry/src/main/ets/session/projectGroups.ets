@@ -68,3 +68,7 @@ export function validComputerIP(ip: string): boolean {
   }
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(ip) && ip.split('.').every((part: string) => Number(part) < 256)
 }
+
+export function maskPairToken(token: string): string {
+  return token.length > 9 ? token.slice(0, 5) + '***' + token.slice(-4) : '***'
+}

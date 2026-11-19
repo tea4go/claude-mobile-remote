@@ -68,3 +68,30 @@
 .project-session-list__pc-tag--connected { color: #188357; background: #e4f5ed; }
 .project-session-list__pc-tag--connecting { color: #996200; background: #fff3d6; }
 .project-session-list__project-toggle > span { white-space: normal; overflow-wrap: anywhere; }
+
+.project-session-list--revised .project-session-list__project-toggle { border-radius: 12px; }
+.project-session-list--revised .project-session-list__project-toggle > .middle-ellipsis-path {
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+.project-session-list--revised .project-session-list__project-add { color: var(--adm-color-primary); }
+.project-session-list--revised .project-session-list__group .adm-list-item-content-main { min-height: 0; padding: 11px 0; }
+.project-session-list--revised .project-session-list__main { gap: 4px; }
+.project-session-list__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 20px; }
+.project-session-list__time { flex: none; color: #748198; font-size: 12px; white-space: nowrap; }
+.project-session-list__dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #d13d43; }
+.project-session-list__dot--connected { background: #31a577; }
+.project-session-list__dot--attention { background: #c88a27; }
+@media (prefers-reduced-motion: no-preference) {
+  .project-session-list__processing img { animation: project-session-processing 1s linear infinite; }
+}
+@keyframes project-session-processing { to { transform: rotate(360deg); } }
+
+.project-session-list__title > button { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
+.project-session-list__title > button > span { color: #748198; font-size: .6em; vertical-align: middle; }
+.project-session-list--revised .project-session-list__project,
+.project-session-list--revised .project-session-list__project .adm-list {
+  background: transparent;
+}

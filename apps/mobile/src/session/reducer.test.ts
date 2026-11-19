@@ -1187,3 +1187,15 @@ test('首次快照按顺序显示已结束的提问和回复，重复快照不�
   ])
   expect(state.messages).toHaveLength(2)
 })
+
+test('tracks the PC turn even when the snapshot has no renderable reply', () => {
+  const initial = snapshot()
+  let state = stateWithSnapshot({ turn: { ...initial.turn, status: 'running', requestId: 'req-1', source: '' } })
+  expect(state.messages).toEqual([])
+  expect(state.turnStatus).toBe('running')
+  state = reducer(state, eventReceived(event('turn_completed', initial.seq + 1, { requestId: 'req-1', turnStatus: 'cancelled' })))
+  expect(state.turnStatus).toBe('cancelled')
+  expect(state.messages).toEqual([])
+  state = reducer(state, snapshotReceived(initial))
+  expect(state.turnStatus).toBe('idle')
+})

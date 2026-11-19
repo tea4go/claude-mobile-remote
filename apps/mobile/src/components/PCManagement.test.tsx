@@ -137,3 +137,40 @@ test('进入配对列表时自动批量检测，只在刷新按钮显示加载',
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(probe).toHaveBeenCalledTimes(1)
 })
+
+test('iOS 目录标签按最近活动排序，窄屏只裁切最后可见标签并外置省略号', () => {
+  let rowWidth = 94
+  const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    if (this.classList.contains('pc-directory-tags__clip')) return 158
+    if (this.classList.contains('pc-directory-tags__ellipsis')) return 12
+    return this.tagName === 'EM' ? 50 : 40
+  })
+  const available = vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(() => rowWidth)
+  const select = vi.fn()
+  const sessions = [
+    ['old', '2026-11-17T09:00:00Z'],
+    ['new', '2026-11-19T09:00:00Z'],
+    ['middle', '2026-11-18T09:00:00Z'],
+  ].map(([name, lastActivityAt]) => ({
+    ...session, sessionId: name!, runtimeState: { ...session.runtimeState, projectCwd: `/work/${name}`, lastActivityAt: lastActivityAt! },
+  }))
+  const props = { pairingHome: true, selectedPC: 'pc:pc', sessions, onSelect: select, onEdit: vi.fn(), onRemove: vi.fn(), onTest: vi.fn() }
+  try {
+    const view = render(<PCList {...props} />)
+    expect(screen.getByRole('button', { name: /^Mac/ })).toHaveAttribute('aria-pressed', 'true')
+    const visibleTags = () => [...view.container.querySelectorAll('.pc-directory-tags > .pc-directory-tags__clip em > span')].map(tag => tag.textContent)
+    const ellipsis = () => view.container.querySelector('.pc-directory-tags > .pc-directory-tags__ellipsis')
+    expect(visibleTags()).toEqual(['new', 'middle'])
+    expect(ellipsis()).toHaveTextContent('...')
+
+    rowWidth = 200
+    view.rerender(<PCList {...props} />)
+    expect(visibleTags()).toEqual(['new', 'middle', 'old'])
+    expect(ellipsis()).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^Mac/ }))
+    expect(select).toHaveBeenCalledWith('pc:pc')
+  } finally {
+    width.mockRestore()
+    available.mockRestore()
+  }
+})

@@ -19,7 +19,7 @@ export class DemoController {
     // ArkUI must receive a fresh state object after each timer callback.
     const previous = this.state
     this.state = { permissionMode: previous.permissionMode, pairing: null, connection: previous.connection,
-      sessionId: previous.sessionId, sessionStatus: previous.sessionStatus, sessionError: null,
+      sessionId: previous.sessionId, sessionStatus: previous.sessionStatus, turnStatus: previous.turnStatus, sessionError: null,
       seqBase: 0, queueDepthHint: 0, queuedRequests: [], pendingAction: previous.pendingAction,
       pendingCommand: null, messages: previous.messages.slice(), lastError: null, lastNotice: null,
       canSend: previous.canSend, canResolveAction: previous.canResolveAction, progress: previous.progress }

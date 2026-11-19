@@ -4,6 +4,8 @@ import App from './App'
 import { parsePairingFragment } from './protocol/pairing'
 import { PROTOCOL_VERSION } from './protocol/types'
 import { Capacitor } from '@capacitor/core'
+import type { ExperiencePort } from './native/experience'
+import { NativePairingLogic } from './native/pairingLogic'
 import { App as CapacitorApp } from '@capacitor/app'
 
 vi.mock('@capacitor/app', async (importOriginal) => {
@@ -104,6 +106,7 @@ beforeEach(() => {
 afterEach(() => {
   window.location.hash = ''
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 function completeHandshake(socket: FakeWebSocket, snapshotMessage: unknown = SNAPSHOT, version = PROTOCOL_VERSION) {
@@ -370,7 +373,8 @@ describe('App：返回列表', () => {
 
 describe('App：多 Session 生命周期', () => {
   test('iOS 目录配对提示在页面内显示，返回设置后保留', async () => {
-    const firstPairing = { ...PAIRING, pcId: '0123456789abcdef0123456789abcdef' }
+    vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios')
+    const firstPairing = { ...PAIRING, pcId: '0123456789abcdef0123456789abcdef', pcName: 'QA Mac' }
     const snapshot = { ...SNAPSHOT, version: 3, payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, projectCwd: '/work/alpha' } } }
     window.location.hash = fragmentOf(firstPairing)
     render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
@@ -378,8 +382,9 @@ describe('App：多 Session 生命周期', () => {
     await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('返回'))
     act(() => FakeWebSocket.instances[0]!.serverClose())
-    vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios')
     fireEvent.click(screen.getByRole('button', { name: '在 alpha 新建会话' }))
+    expect(screen.getByText('目标电脑：QA Mac')).toBeInTheDocument()
+    expect(screen.getByLabelText('返回')).toBeInTheDocument()
     expect(screen.queryByText(/请扫描目标电脑和目录/, { selector: 'p' })).not.toBeInTheDocument()
     expect(screen.getByText(/请扫描目标电脑和目录/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
@@ -1106,7 +1111,7 @@ describe('App attachment transport', () => {
   })
 })
 
-test.each(['ios', 'android'] as const)('%s 首次配对展示最近正文，首页、配对页和关于展示同一构建信息', async (nativePlatform) => {
+test.each(['ios', 'android'] as const)('%s 首次配对展示最近正文及平台对应的构建信息', async (nativePlatform) => {
   const platform = vi.spyOn(Capacitor, 'getPlatform').mockReturnValue(nativePlatform)
   const info = vi.spyOn(CapacitorApp, 'getInfo').mockResolvedValue({ name: 'ccBuddy', id: 'fixture', version: '1.0.9', build: '1' })
   try {
@@ -1136,16 +1141,95 @@ test.each(['ios', 'android'] as const)('%s 首次配对展示最近正文，首�
     expect(await screen.findByText('来自电脑的最近提问')).toBeInTheDocument()
     expect(screen.getByText('来自电脑的最近回复')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('返回'))
-    const footer = await screen.findByText(/版本 1\.0\.9 · 构建号 1 · 构建时间/)
-    expect(footer.closest('footer')).toContainElement(screen.getByRole('button', { name: '新增配对' }))
-    expect(footer.closest('.session-list-scroll')).toBeNull()
-    const label = footer.textContent
-    fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
-    expect(view.container.querySelector('.mobile-entry-page__build')).toHaveTextContent(label!)
+    const label = /版本 1\.0\.9 · 构建号 1 · 构建时间/
+    const list = view.container.querySelector('[data-mobile-page="list"]')!
+    expect(list.querySelector('.mobile-build-footer')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '返回首页' }))
+    const pairingFooter = view.container.querySelector('.mobile-entry-page__build')
+    expect(pairingFooter).toHaveTextContent(/版本 1\.0\.9 · 构建时间/)
+    expect(pairingFooter).not.toHaveTextContent('构建号')
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
-    expect(screen.getByText('关于').closest('.adm-list-item')).toHaveTextContent(label!)
+    expect(screen.getByText('关于').closest('.adm-list-item')).toHaveTextContent(label)
+    fireEvent.click(screen.getByRole('button', { name: '返回首页' }))
+    expect(screen.getByText('连接 Claude 会话')).toBeInTheDocument()
   } finally {
     info.mockRestore()
+    platform.mockRestore()
+  }
+})
+
+test.each([
+  ['ios', false], ['ios', true], ['android', false], ['android', true],
+] as const)('%s 恢复配对后的启动导航，通知直达=%s', async (nativePlatform, fromNotification) => {
+  const platform = vi.spyOn(Capacitor, 'getPlatform').mockReturnValue(nativePlatform)
+  vi.stubGlobal('matchMedia', () => ({ matches: false }))
+  const name = '已保存的会话'
+  const noop = async () => undefined
+  const clearNotifications = vi.fn(noop)
+  const experience: ExperiencePort = {
+    recognize: async () => ({ text: '' }), stopSpeech: noop, cancelSpeech: noop,
+    notificationStatus: async () => ({ enabled: false }),
+    setNotifications: async ({ enabled }) => ({ enabled }),
+    notify: noop, clearNotifications,
+    addListener: async (_event, callback) => {
+      if (fromNotification) callback({ sessionId: PAIRING.sessionId })
+      return { remove: noop }
+    },
+  }
+  const logic = new NativePairingLogic(
+    { read: async () => PAIRING, write: noop, remove: noop },
+    { list: async () => [{ sessionId: PAIRING.sessionId, name, customName: true, lastConnectedAt: null }], upsert: noop, remove: noop },
+  )
+  const native = { logic, scanner: { scan: async () => null }, appState: { onForeground: () => () => {} } }
+  try {
+    const { container } = render(<App native={native} cache={null} experience={experience} socketFactory={url => new FakeWebSocket(url)} />)
+    const activePage = () => container.querySelector('[data-mobile-page-active="true"]')
+    if (fromNotification) {
+      await waitFor(() => expect(activePage()).toHaveAttribute('data-mobile-page', `detail:${PAIRING.sessionId}`))
+      expect(clearNotifications).toHaveBeenCalledWith({ sessionId: PAIRING.sessionId })
+      fireEvent.click(screen.getByRole('button', { name: '返回首页' }))
+    }
+    await waitFor(() => expect(activePage()).toHaveAttribute('data-mobile-page', 'pairing'))
+    expect(activePage()?.querySelector('.mobile-home-logo')).toBeInTheDocument()
+    const allPCs = await screen.findByRole('button', { name: '全部电脑' })
+    fireEvent.click(allPCs)
+    expect(allPCs).toHaveAttribute('aria-expanded', 'false')
+    expect(activePage()).toHaveAttribute('data-mobile-page', 'pairing')
+    expect(screen.queryByRole('button', { name: '查看全部会话' })).not.toBeInTheDocument()
+    fireEvent.click(allPCs)
+    expect(screen.queryByRole('button', { name: '查看全部会话' })).not.toBeInTheDocument()
+    const selectPC = () => screen.getByRole('button', { name: /^127\.0\.0\.1:8765/ })
+    await waitFor(() => expect(selectPC()).toBeEnabled())
+    const probeCount = () => FakeWebSocket.instances.filter(socket => socket.url.endsWith('/quick-pair/v1')).length
+    await waitFor(() => expect(probeCount()).toBe(1))
+    fireEvent.click(selectPC())
+    expect(activePage()).toHaveAttribute('data-mobile-page', 'list')
+    expect(activePage()).toHaveClass('mobile-page--enter-forward')
+    const swipeBack = () => {
+      fireEvent.touchStart(activePage()!, { touches: [{ clientX: 8, clientY: 80 }] })
+      fireEvent.touchEnd(activePage()!, { touches: [], changedTouches: [{ clientX: 132, clientY: 82 }] })
+    }
+    swipeBack()
+    expect(activePage()).toHaveAttribute('data-mobile-page', 'pairing')
+    expect(activePage()).toHaveClass('mobile-page--enter-back')
+    expect(activePage()?.querySelector('.mobile-home-logo')).toBeInTheDocument()
+    expect(probeCount()).toBe(1)
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '刷新电脑状态' })))
+    expect(probeCount()).toBe(2)
+    fireEvent.click(selectPC())
+    fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    expect(activePage()).toHaveAttribute('data-mobile-page', 'pairing')
+    expect(activePage()).toHaveClass('mobile-page--enter-forward')
+    expect(activePage()?.querySelector('.mobile-home-logo')).toBeNull()
+    expect(activePage()?.querySelector('[aria-label="返回"]')).toBeInTheDocument()
+    swipeBack()
+    expect(activePage()).toHaveAttribute('data-mobile-page', 'list')
+    expect(activePage()).toHaveClass('mobile-page--enter-back')
+    const session = activePage()?.querySelector('[data-testid="session-list-item"]')
+    expect(session).toHaveTextContent(name)
+    fireEvent.click(session!)
+    expect(activePage()).toHaveAttribute('data-mobile-page', `detail:${PAIRING.sessionId}`)
+  } finally {
     platform.mockRestore()
   }
 })

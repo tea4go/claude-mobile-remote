@@ -284,3 +284,60 @@ body {
 .pairing-pc-list--compact .pairing-pc-swipe.adm-swipe-action { border: 1px solid #dfe7f5; }
 .pairing-pc-list--compact .pairing-pc-item { border: 0; border-radius: 0; }
 .pairing-code-dialog .session-rename-input { --font-size: 16px; --text-align: left; }
+
+.mobile-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.mobile-icon-button:not(:disabled):active,
+.project-session-list--revised .project-session-list__project-toggle:active,
+.mobile-home-nav .adm-nav-bar-back:active,
+.mobile-safe-area-header:has(.mobile-icon-button) .adm-nav-bar-back:active,
+.mobile-entry-page--home .pc-copy-ip:active {
+  background: #e6effe;
+}
+.mobile-safe-area-header:has(.mobile-icon-button) .adm-nav-bar-back { border-radius: 12px; }
+.mobile-entry-page--home .pc-copy-ip { border-radius: 12px; }
+.mobile-home-nav { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.mobile-home-nav .adm-nav-bar-title { font-size: 24px; font-weight: 800; }
+.mobile-home-nav .adm-nav-bar-right { display: flex; justify-content: flex-end; }
+.mobile-home-logo { display: block; width: 34px; height: 34px; border-radius: 8px; }
+.mobile-entry-page--home .quick-pair-ios__input button:not(:active) { background: transparent; }
+.session-detail-header--home .adm-nav-bar-left { flex-basis: 44px; }
+.session-detail-header--home .adm-nav-bar-right { flex: 0 0 auto; }
+.middle-ellipsis-path { display: block; overflow: hidden; white-space: nowrap; }
+.pairing-pc-list--home .pairing-pc-list__all { color: #202938; font-size: 17px; font-weight: 750; }
+.pairing-pc-list--home .pairing-pc-item__select { align-items: center; }
+.pairing-pc-list--home .pairing-pc-item__select > span:first-child { align-self: center; }
+.pairing-pc-list--home .pairing-pc-item__name { display: flex; gap: 6px; align-items: baseline; white-space: nowrap; }
+.pairing-pc-list--home .pairing-pc-item__name strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pairing-pc-list--home .pairing-pc-item__name small { flex: none; }
+
+.mobile-home-settings { padding-inline: 4px; font-size: 14px; }
+.pairing-pc-list--home .pairing-pc-item--selected,
+.pairing-pc-list--home .pairing-pc-item:has(.pairing-pc-item__select:active) {
+  background: #e3efff;
+  box-shadow: inset 3px 0 #3478f6;
+}
+.pairing-pc-list--home .pairing-pc-item__test { background: #eaf3ff; }
+.pairing-pc-list--home .pairing-pc-item__test:active { background: #d8e9ff; }
+.pairing-pc-list--home .pairing-pc-list__refresh { width: 48px; height: 44px; font-size: 16px; font-weight: 700; }
+.pc-directory-tags { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; color: #748198; font-size: 12px; white-space: nowrap; }
+.pc-directory-tags__clip { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.pc-directory-tags em { display: flex; flex: none; min-width: 0; white-space: nowrap; }
+.pc-directory-tags em:last-child { flex-shrink: 1; }
+.pc-directory-tags em > span { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: clip; }
+.pc-directory-tags__ellipsis { flex: none; white-space: nowrap; }
+.pc-directory-tags__measure { position: absolute; inset-inline-start: 0; top: 0; display: flex; width: max-content; visibility: hidden; pointer-events: none; }
+.pc-directory-tags__measure .pc-directory-tags__clip { flex: none; }

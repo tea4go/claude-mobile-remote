@@ -1,7 +1,9 @@
+import { HomeButton } from '../components/HomeButton'
+import { DirectoryTags } from '../components/DirectoryTags'
 import { PairingInputDialog } from '../components/PairingInputDialog'
 import { PAGE_BACKGROUND } from '../ui/styles'
 import { pageSlide } from '../ui/transitions'
-import { validComputerIP, type PCGroup, type ProjectGroup, type PCProfile } from '../session/projectGroups'
+import { validComputerIP, type PCGroup, type PCProfile } from '../session/projectGroups'
 import { nativeLifecycle } from '../native/lifecycle'
 import { webSocket } from '@kit.NetworkKit'
 import { BusinessError } from '@kit.BasicServicesKit'
@@ -104,6 +106,10 @@ export struct QuickPairForm {
 
   @Prop @Watch('refreshOnEntry') computers: Array<PCGroup> = []
   @Prop selectedPC: string = 'all'
+  @State private computersCollapsed: boolean = false
+  claimInitialRefresh: () => boolean = () => false
+  onHome: () => void = () => {}
+  @Prop projectPC: string = ''
   @Prop projectCwd: string = ''
   onSelectPC: (key: string) => void = () => {}
   onPair: (text: string) => void = () => {}
@@ -114,22 +120,23 @@ export struct QuickPairForm {
   @State code: string = ''
   @State phase: string = 'idle'
   @State error: string = ''
+  @State private pressedPC: string = ''
   @State private refreshing: boolean = false
+  @State private pendingPCs: Array<string> = []
   @State private reachablePCs: Array<string> = []
   @State private unreachablePCs: Array<string> = []
   private refreshQueue: Array<PCGroup> = []
 
-  private refreshedOnEntry: boolean = false
 
   private refreshOnEntry(): void {
-    if (this.refreshedOnEntry || this.disabled || this.editOpen || !nativeLifecycle.foreground ||
+    if (this.disabled || this.editOpen || !nativeLifecycle.foreground ||
       this.computers.length === 0 || this.probe !== null) return
-    this.refreshComputers()
+    if (this.claimInitialRefresh()) this.refreshComputers()
   }
 
   private refreshComputers(): void {
-    this.refreshedOnEntry = true
     this.refreshQueue = this.computers.slice()
+    this.pendingPCs = this.refreshQueue.map((computer: PCGroup) => computer.key)
     this.refreshing = true
     this.refreshNext()
   }
@@ -143,10 +150,16 @@ export struct QuickPairForm {
     this.testComputer(next, true)
   }
 
-  private computerStatus(computer: PCGroup): string {
-    if (this.reachablePCs.includes(computer.key)) return '●  '
-    if (this.unreachablePCs.includes(computer.key)) return '○  '
-    return computer.connected > 0 ? '●  ' : '○  '
+  private computerStatusColor(computer: PCGroup): string {
+    if (this.pendingPCs.includes(computer.key)) return '#e6a23c'
+    if (this.reachablePCs.includes(computer.key)) return '#31a577'
+    if (this.unreachablePCs.includes(computer.key)) return '#d7353e'
+    return computer.connected > 0 ? '#31a577' : '#d7353e'
+  }
+
+  private finishPCRefresh(key: string): void {
+    this.pendingPCs = this.pendingPCs.filter((pending: string) => pending !== key)
+    this.refreshNext()
   }
 
   @State private testingPC: string = ''
@@ -187,7 +200,7 @@ export struct QuickPairForm {
       this.error = ''
     }
     const host = this.computerHost(computer)
-    if (!host) { if (silent) this.refreshNext(); return }
+    if (!host) { if (silent) this.finishPCRefresh(computer.key); return }
     const socket = webSocket.createWebSocket()
     this.probe = socket
     if (!silent) this.testingPC = computer.key
@@ -198,7 +211,7 @@ export struct QuickPairForm {
       this.unreachablePCs = this.unreachablePCs.filter((key: string) => key !== computer.key)
       if (reachable) this.reachablePCs = this.reachablePCs.concat([computer.key])
       else this.unreachablePCs = this.unreachablePCs.concat([computer.key])
-      if (silent) { this.refreshNext(); return }
+      if (silent) { this.finishPCRefresh(computer.key); return }
       this.testedHost = host
       this.testedName = this.computerName(computer)
       this.testResult = result
@@ -224,7 +237,7 @@ export struct QuickPairForm {
   private host: string = ''
   private unsubscribe: (() => void) | null = null
   aboutToAppear(): void { nativeLifecycle.detailBack = this.editorBack; this.unsubscribe = nativeLifecycle.subscribe(() => { if (!nativeLifecycle.foreground) { this.stopRefresh(); this.stop() } else { this.refreshOnEntry() } }) }
-  aboutToDisappear(): void { if (nativeLifecycle.detailBack === this.editorBack) nativeLifecycle.detailBack = null; this.unsubscribe?.(); this.unsubscribe = null; clearTimeout(this.historyTimer); clearTimeout(this.blurTimer); this.cancelProbe(); this.stop() }
+  aboutToDisappear(): void { if (nativeLifecycle.detailBack === this.editorBack) nativeLifecycle.detailBack = null; this.unsubscribe?.(); this.unsubscribe = null; clearTimeout(this.historyTimer); clearTimeout(this.blurTimer); this.stopRefresh(); this.stop() }
   private readonly editorBack: () => boolean = () => {
     if (!this.editOpen) return false
     this.closeEditor()
@@ -233,8 +246,8 @@ export struct QuickPairForm {
   private disabledChanged(): void { if (this.disabled) this.stop(); else this.refreshOnEntry() }
   private stopRefresh(): void {
     this.cancelProbe()
-    if (this.refreshing) this.refreshedOnEntry = false
     this.refreshQueue = []
+    this.pendingPCs = []
     this.refreshing = false
   }
   private stop(): void {
@@ -371,7 +384,7 @@ export struct QuickPairForm {
         }.width(44).height(44).backgroundColor($r('app.color.surface')).borderRadius(22)
           .accessibilityText('返回').onClick(() => this.closeEditor())
         Text('编辑连接').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
-        Blank().width(44)
+        HomeButton({ onOpen: () => { this.closeEditor(); this.onHome() } })
       }.width('100%').height(48).padding({ left: 8, right: 8 })
       Column({ space: 8 }) {
         Column() {
@@ -537,67 +550,65 @@ export struct QuickPairForm {
       if (this.computers.length > 0) {
         Divider().color($r('app.color.border')).margin({ top: 12, bottom: 6 })
         Row() {
-          Button('全部电脑', { type: ButtonType.Normal }).fontWeight(FontWeight.Bold)
-            .height(28).padding({ left: 4, right: 8 }).fontSize(13)
-            .fontColor(PRIMARY).backgroundColor(Color.Transparent)
-            .onClick(() => this.onSelectPC('all'))
+          Button(this.computersCollapsed ? '全部电脑 ▸' : '全部电脑 ▾', { type: ButtonType.Normal }).fontWeight(FontWeight.Bold)
+            .height(44).padding({ left: 0, right: 8 }).fontSize(17)
+            .fontColor('#202938').borderRadius(12).clip(true).stateEffect(false)
+            .stateStyles({ normal: { .backgroundColor('#00000000') }, pressed: { .backgroundColor('#e6effe') } })
+            .onClick(() => { this.computersCollapsed = !this.computersCollapsed })
           Blank()
           Stack() {
             if (this.refreshing) {
               LoadingProgress().width(17).height(17).color(PRIMARY)
             } else {
-              Button('刷新', { type: ButtonType.Normal }).width(40).height(28).padding(0)
-                .fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).accessibilityText('刷新电脑状态')
+              Button('刷新', { type: ButtonType.Normal }).width(48).height(44).padding(0)
+                .fontSize(16).fontWeight(FontWeight.Bold).fontColor(PRIMARY).borderRadius(12).clip(true).stateEffect(false)
+      .stateStyles({ normal: { .backgroundColor('#00000000') }, pressed: { .backgroundColor('#e6effe') } }).accessibilityText('刷新电脑状态')
                 .enabled(this.testingPC.length === 0).onClick(() => this.refreshComputers())
             }
-          }.width(40).height(28)
-        }.width('100%').height(28)
+          }.width(48).height(44)
+        }.width('100%').height(44)
       }
       List({ space: 7 }) {
-          ForEach(this.computers, (computer: PCGroup) => {
+          if (!this.computersCollapsed) { ForEach(this.computers, (computer: PCGroup) => {
             ListItem() {
-              Row({ space: 10 }) {
-                Stack({ alignContent: Alignment.Top }) {
-                  Image($r('app.media.pc_host')).width(38).height(38)
-                    .fillColor(this.computerStatus(computer) === '●  ' ? '#31a577' : '#d7353e')
-                }.width(38).height(38)
-                Column({ space: 6 }) {
-                  Flex({ alignItems: ItemAlign.Center, wrap: FlexWrap.Wrap }) {
-                    Text(this.computerName(computer)).fontSize(14).fontWeight(FontWeight.Bold)
-                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: '100%' })
-                    Text(this.computerHost(computer)).fontSize(11).fontColor(SECONDARY).margin({ left: 5 })
-                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: '95%' })
-                  }.width('100%')
-                  if (computer.projects.length > 0) {
-                    Flex({ wrap: FlexWrap.Wrap }) {
-                      ForEach(computer.projects, (project: ProjectGroup) => {
-                        Text(project.title).fontSize(11).fontColor(SECONDARY).maxLines(1)
-                          .textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: '100%' })
-                          .padding({ left: 8, right: 8, top: 3, bottom: 3 }).margin({ right: 5, bottom: 3 })
-                          .borderRadius(8).backgroundColor($r('app.color.surface_subtle'))
-                          .border({ width: 1, color: $r('app.color.border') })
-                      }, (project: ProjectGroup) => project.key)
-                    }.width('100%')
-                  }
-                }.layoutWeight(1).alignItems(HorizontalAlign.Start).constraintSize({ minHeight: 30 })
-                if (this.testingPC === computer.key) {
-                  Stack() {
+              Row({ space: 8 }) {
+                Row({ space: 10 }) {
+                  Image($r('app.media.pc_host_tight')).width(40).height(24)
+                    .objectFit(ImageFit.Contain)
+                    .fillColor(this.computerStatusColor(computer))
+                  Column({ space: 1 }) {
+                    Row({ space: 6 }) {
+                      Text(this.computerName(computer)).fontSize(14).fontWeight(FontWeight.Bold)
+                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(1)
+                      Text(this.computerHost(computer)).fontSize(12).fontColor(SECONDARY)
+                        .maxLines(1).flexShrink(0)
+                    }.width('100%').height(20)
+                    if (computer.projects.length > 0) {
+                      DirectoryTags({ projects: computer.projects })
+                    }
+                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                }.layoutWeight(1).height(44).onTouch((event: TouchEvent) => {
+                  if (event.type === TouchType.Down) this.pressedPC = computer.key
+                  if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.pressedPC = ''
+                }).onClick(() => this.onSelectPC(computer.key))
+                Button({ type: ButtonType.Normal }) {
+                  if (this.testingPC === computer.key) {
                     LoadingProgress().width(20).height(20).color(PRIMARY)
-                  }.width(40).height(40)
-                } else {
-                  Button({ type: ButtonType.Normal }) {
-                    Image($r('app.media.test_connect')).width(32).height(32)
-                  }.width(40).height(40).padding(0).backgroundColor(Color.Transparent).accessibilityText('测试连接')
-                    .onClick(() => {
-                      if (!this.refreshing && this.testingPC.length === 0) this.testComputer(computer)
-                    })
-                }
-              }.width('100%').alignItems(VerticalAlign.Top).padding({ left: 10, right: 8, top: 5, bottom: 5 })
-                .backgroundColor(this.selectedPC === computer.key ? $r('app.color.surface_blue') : $r('app.color.surface'))
-                .onClick(() => this.onSelectPC(computer.key))
+                  } else {
+                    Image($r('app.media.test_connect_in_button')).width(16).height(16)
+                  }
+                }.width(44).height(44).padding(0).borderRadius(12).clip(true).stateEffect(false)
+      .stateStyles({ normal: { .backgroundColor('#eaf3ff') }, pressed: { .backgroundColor('#d8e9ff') } })
+                  .accessibilityText('测试连接')
+                  .onClick(() => {
+                    if (!this.refreshing && this.testingPC.length === 0) this.testComputer(computer)
+                  })
+              }.width('100%').padding({ left: 7, right: 8, top: 7, bottom: 7 })
+                .backgroundColor(this.selectedPC === computer.key || this.pressedPC === computer.key ? '#e3efff' : $r('app.color.surface'))
+                .border({ width: { left: 3 }, color: this.selectedPC === computer.key || this.pressedPC === computer.key ? '#3478f6' : Color.Transparent })
             }.swipeAction({ end: this.computerActions(computer) }).borderRadius(12)
               .border({ width: 1, color: $r('app.color.border') }).clip(true)
-          }, (computer: PCGroup) => computer.key)
+          }, (computer: PCGroup) => computer.key) }
       }.layoutWeight(1).width('100%').scrollBar(BarState.Auto)
       if (this.error.length > 0 && this.phase === 'idle') {
         Text(this.error).width('100%').padding(10).fontSize(12).fontColor('#a42c26')
@@ -613,14 +624,22 @@ export struct QuickPairForm {
           .backgroundColor(this.testResultOK ? '#effaf2' : '#fff4f3')
           .border({ width: 1, color: this.testResultOK ? '#c8e9d1' : '#ffd2cf' })
       } else if (this.projectCwd.length > 0) {
-        Text('请扫描目标电脑和目录下新会话的配对码：\n' + this.projectCwd)
+        Text('请扫描目标电脑和目录下新会话的配对码：\n' + [this.projectPC, this.projectCwd].filter((value: string) => value.length > 0).join('\n'))
           .fontSize(13).fontColor('#8a5300').backgroundColor('#fff3d6')
           .width('100%').padding(10).borderRadius(10).maxLines(3)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       Button('连接', { type: ButtonType.Normal }).fontColor(Color.White).width('100%').height(46).borderRadius(ACTION_BUTTON_RADIUS).backgroundColor($r('app.color.primary_fill')).enabled(!this.disabled && this.phase === 'idle').onClick(() => this.start())
         .onAreaChange((_previous: Area, current: Area) => this.onDebugActionsTop(Number(current.globalPosition.y)))
-      Button('扫描二维码', { type: ButtonType.Normal }).width('100%').height(46).fontColor(PRIMARY).backgroundColor($r('app.color.surface')).border({ width: 1, color: PRIMARY, radius: ACTION_BUTTON_RADIUS }).enabled(!this.disabled && this.phase === 'idle').onClick(() => { this.dismissAddressInput(); this.clearTestResult(); this.error = ''; this.onScan() })
+      Button({ type: ButtonType.Normal }) {
+        Row({ space: 7 }) {
+          Image($r('app.media.pair_scan')).width(16).height(16)
+          Text('扫描二维码').fontSize(16).fontColor(PRIMARY)
+        }
+      }.width('100%').height(46).backgroundColor($r('app.color.surface'))
+        .border({ width: 1, color: PRIMARY, radius: ACTION_BUTTON_RADIUS })
+        .enabled(!this.disabled && this.phase === 'idle')
+        .onClick(() => { this.dismissAddressInput(); this.clearTestResult(); this.error = ''; this.onScan() })
     }.width('100%').layoutWeight(1)
       .onClick((event: ClickEvent) => {
         if (event.windowY < this.addressTop || event.windowY > this.addressBottom) this.dismissAddressInput()

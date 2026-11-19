@@ -1,12 +1,12 @@
-import { SettingsButton } from '../components/SettingsButton'
+import { formatActivityTime } from '../ui/activityTime'
+import { HomeButton } from '../components/HomeButton'
 import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
 import { PairingInputDialog } from '../components/PairingInputDialog'
-import { BuildFooter } from '../components/BuildFooter'
 import { APP_BUILD_LABEL } from '../common/BuildInfo'
 import { pageSlide } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
 import { defaultSessionName, type SessionRecord } from '../session/records'
-import { groupSessions, type PCGroup, type ProjectGroup, type PCProfile } from '../session/projectGroups'
+import { groupSessions, maskPairToken, type PCGroup, type ProjectGroup, type PCProfile } from '../session/projectGroups'
 import { ProjectListDataSource, projectListRows, type ProjectListRow } from '../ui/projectListDataSource'
 
 function titleOf(record: SessionRecord): string {
@@ -24,16 +24,21 @@ function statusLabel(record: SessionRecord): string {
 function rowKey(record: SessionRecord): string {
   // Never put credentials into render keys; only include the displayed fields.
   return JSON.stringify([record.sessionId, titleOf(record), record.preview, pcName(record), record.projectCwd,
-    statusLabel(record), record.unread, record.lastActivityAt])
+    statusLabel(record), record.runtimeStatus, record.unread, record.lastActivityAt, record.createdAt])
 }
 @Component
 export struct SessionListPage {
+  onHome: () => void = () => {}
+  onCreateDirectory: (pc: PCGroup, project: ProjectGroup) => void = () => {}
+  @Prop projectCreating: boolean = false
+  private beganAtEdge: boolean = false
   @Prop initialSettings: boolean = false
   onExitSettings: () => void = () => {}
   @Prop scrollOffset: number = 0
   onScrollOffset: (value: number) => void = () => {}
   onRefresh: () => void = () => {}
   @State private refreshing: boolean = false
+  @Prop @Watch('updateRows') pendingRefreshSessions: Array<string> = []
   @Prop @Watch('updateGroups') profiles: Array<PCProfile> = []
   @Prop @Watch('updateGroups') sessions: Array<SessionRecord> = []
   @Prop @Watch('updateGroups') selectedPC: string = 'all'
@@ -56,7 +61,7 @@ export struct SessionListPage {
     return this.profiles.find((item: PCProfile) => item.key === computer.key)?.ip ??
       (/^wss?:\/\/(\[[^\]]+\]|[^/:]+)/.exec(computer.sessions[0].wsUrl)?.[1] ?? '')
   }
-  private updateRows(): void { this.listSource.replace(projectListRows(this.groups, this.selectedPC, this.collapsed)) }
+  private updateRows(): void { this.listSource.replace(projectListRows(this.groups, this.selectedPC, this.collapsed, this.pendingRefreshSessions)) }
   aboutToAppear(): void { this.settings = this.initialSettings; this.updateGroups(); nativeLifecycle.detailBack = this.backHandler }
   private readonly backHandler: () => boolean = () => {
     if (this.filterOpen) { this.filterOpen = false; return true }
@@ -139,34 +144,47 @@ export struct SessionListPage {
       this.settings = false
     }
   }
-  private timeOf(record: SessionRecord): string {
-    if (record.lastActivityAt === undefined) return ''
-    const date = new Date(record.lastActivityAt)
-    if (Number.isNaN(date.getTime())) return ''
-    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
+  private turnIcon(status: string): Resource {
+    if (status === '等待处理') return $r('app.media.session_need_check')
+    if (status === '进行中') return $r('app.media.session_processing')
+    if (status === '已完成') return $r('app.media.session_complete')
+    return $r('app.media.session_interrupted')
   }
+
+  private toggleDirectories(): void {
+    const keys = this.groups.filter((pc: PCGroup) => this.selectedPC === 'all' || pc.key === this.selectedPC)
+      .flatMap((pc: PCGroup) => pc.projects.map((project: ProjectGroup) => project.key))
+    this.collapsed = keys.every((key: string) => this.collapsed.includes(key)) ? [] : keys
+    this.updateRows()
+  }
+
   @Builder
   private sessionRow(session: SessionRecord): void {
     Stack({ alignContent: Alignment.Start }) {
       Column() {
-        Row() {
+        Row({ space: 6 }) {
+          Circle().width(7).height(7).fill(session.status === 'connected' ? '#31a577' : '#d13d43')
+            .accessibilityText(session.status === 'connected' ? '已连接' : statusLabel(session))
           Text(titleOf(session)).fontSize(16).fontWeight(FontWeight.Medium).maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).onClick(() => this.onOpen(session.sessionId))
+            .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           if (session.unread) { Circle().width(7).height(7).fill(PRIMARY).accessibilityText('未读') }
-          if (this.recentlyViewedId === session.sessionId) { Text('刚刚查看').fontSize(11).fontColor(PRIMARY).margin({ left: 5 }) }
+          Text(formatActivityTime(session.lastActivityAt ?? session.createdAt ?? '')).fontSize(12)
+            .fontColor('#748198').maxLines(1).flexShrink(0)
         }.width('100%')
-        Text(session.preview ?? '暂无会话内容').fontSize(13).fontColor(SECONDARY).maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').onClick(() => this.onOpen(session.sessionId))
-        Row({ space: 5 }) {
-          Circle().width(7).height(7).fill(session.status === 'connected' ? '#36a574' : '#d34a4a')
-          Text(session.status === 'connected' ? '已连接' : statusLabel(session)).fontSize(12).fontColor(SECONDARY).layoutWeight(1)
-          Text(this.timeOf(session)).fontSize(12).fontColor(SECONDARY)
-        }.width('100%').padding({ top: 12 }).onClick(() => this.onOpen(session.sessionId))
+        Row({ space: 6 }) {
+          Text(session.preview ?? '暂无会话内容').fontSize(13).fontColor(SECONDARY).maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+          if (session.runtimeStatus && session.runtimeStatus !== '空闲' && session.status !== 'needsPairing') {
+            Image(this.turnIcon(session.runtimeStatus)).width(16).height(16)
+              .accessibilityText(session.status === 'connected' ? session.runtimeStatus : `上次同步：${session.runtimeStatus}`)
+          }
+        }.width('100%').padding({ top: 5 })
       }.width('100%').padding({ left: 16, right: 12, top: 12, bottom: 14 }).alignItems(HorizontalAlign.Start)
       if (this.recentlyViewedId === session.sessionId) {
         Column().width(3).height(26).backgroundColor(PRIMARY).borderRadius(3).hitTestBehavior(HitTestMode.None)
       }
     }.id(`session-item-${session.sessionId}`).width('100%')
+      .onClick(() => this.onOpen(session.sessionId))
       .backgroundColor(this.recentlyViewedId === session.sessionId ? $r('app.color.surface_selected') : $r('app.color.surface'))
   }
   build() {
@@ -177,11 +195,13 @@ export struct SessionListPage {
           Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).padding(0).fontSize(30).fontColor(SECONDARY)
             .backgroundColor($r('app.color.surface')).borderRadius(22).accessibilityText('返回').onClick(() => this.changePage())
           Text('设置').fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
-          Blank().width(44)
+          HomeButton({ onOpen: this.onHome })
         } else {
-          Blank().width(68)
-          Text('ccBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
-          SettingsButton({ onOpen: () => this.changePage() })
+          Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }
+            .width(44).height(44).padding(0).backgroundColor($r('app.color.surface')).borderRadius(22)
+            .accessibilityText('返回').onClick(() => this.onHome())
+          Text('ccBuddy').fontSize(24).fontWeight(FontWeight.Bolder).layoutWeight(1).textAlign(TextAlign.Center)
+          HomeButton({ onOpen: this.onHome })
         }
       }.padding({ left: 16, right: 16 }).height(56).width('100%')
       if (this.settings) {
@@ -243,7 +263,7 @@ export struct SessionListPage {
       } else {
         Refresh({ refreshing: $$this.refreshing }) {
         List({ space: 8, scroller: this.scroller }) {
-          ListItem() { Row({ space: 10 }) { Text('会话列表').fontSize(28).fontWeight(FontWeight.Bold); Text(`${this.sessions.length} 个会话`).fontSize(12).fontColor(SECONDARY).padding({ left: 10, right: 10, top: 6, bottom: 6 }).backgroundColor($r('app.color.surface_blue')).borderRadius(16) }.width('100%').padding({ top: 6, bottom: 12 }) }
+          ListItem() { Row({ space: 10 }) { Text('会话列表').fontSize(28).fontWeight(FontWeight.Bold); Text(`${this.sessions.length} 个会话`).fontSize(12).fontColor(SECONDARY).padding({ left: 10, right: 10, top: 6, bottom: 6 }).backgroundColor($r('app.color.surface_blue')).borderRadius(16) }.width('100%').padding({ top: 6, bottom: 12 }).onClick(() => this.toggleDirectories()) }
           if (this.groups.length === 0) { ListItem() { Text('扫码连接电脑上的 Claude 会话').fontSize(14).fontColor(SECONDARY).padding(24) } }
           LazyForEach(this.listSource, (row: ProjectListRow) => {
             if (row.session === undefined) {
@@ -256,32 +276,42 @@ export struct SessionListPage {
                     Column({ space: 4 }) {
                       Text(row.pc.label).fontSize(16).fontWeight(FontWeight.Medium).width('100%')
                         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                      Text(row.pc.sessions[0].pairToken.length > 4 ? 'Token：…' + row.pc.sessions[0].pairToken.slice(-4) : '需重新配对')
+                      Text(row.pc.sessions[0].pairToken ? 'Token：' + maskPairToken(row.pc.sessions[0].pairToken) : '需重新配对')
                         .fontSize(12).fontColor(SECONDARY).width('100%').maxLines(1)
                     }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                     Column({ space: 4 }) {
                       Text(this.computerAddress(row.pc)).fontSize(12).fontColor(SECONDARY).maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: 120 })
                       Row({ space: 4 }) {
-                        Circle().width(5).height(5).fill(row.pc.connected > 0 ? $r('app.color.badge_success_text') : SECONDARY)
-                        Text(row.pc.connected > 0 ? '已连接' : '暂未连接').fontSize(11)
-                          .fontColor(row.pc.connected > 0 ? $r('app.color.badge_success_text') : SECONDARY)
+                        Circle().width(5).height(5).fill(row.connecting ? '#c88a27' : row.pc.connected > 0 ? $r('app.color.badge_success_text') : SECONDARY)
+                        Text(row.connecting ? '连接中' : row.pc.connected > 0 ? '已连接' : '暂未连接').fontSize(11)
+                          .fontColor(row.connecting ? $r('app.color.warning') : row.pc.connected > 0 ? $r('app.color.badge_success_text') : SECONDARY)
                       }.padding({ left: 8, right: 8, top: 3, bottom: 3 })
-                        .backgroundColor(row.pc.connected > 0 ? $r('app.color.badge_success_surface') : $r('app.color.surface_subtle'))
+                        .backgroundColor(row.connecting ? $r('app.color.surface_warning') : row.pc.connected > 0 ? $r('app.color.badge_success_surface') : $r('app.color.surface_subtle'))
                         .borderRadius(12)
                     }.alignItems(HorizontalAlign.End)
                   }.padding({ left: 16, right: 16, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16)
                 } else if (row.kind === 'project' && row.pc !== undefined && row.project !== undefined) {
                   Row({ space: 8 }) {
                     Column({ space: 4 }) {
-                      Row({ space: 6 }) { Image(this.collapsed.indexOf((row.project as ProjectGroup).key) >= 0 ? $r('app.media.folder_closed') : $r('app.media.folder_open')).width(16).height(16); Text((row.project as ProjectGroup).title).fontSize(15).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1) }.width('100%')
+                      Row({ space: 6 }) { Image(this.collapsed.indexOf((row.project as ProjectGroup).key) >= 0 ? $r('app.media.directory_collapse') : $r('app.media.directory_expand')).width(16).height(16); Text((row.project as ProjectGroup).title).fontSize(15).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1) }.width('100%')
                       Text(row.project.cwd.length > 0 ? row.project.cwd : '工作目录未知').fontSize(12)
-                        .fontColor(SECONDARY).wordBreak(WordBreak.BREAK_ALL).width('100%')
+                        .fontColor(SECONDARY).maxLines(1).ellipsisMode(EllipsisMode.CENTER)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                     }.layoutWeight(1).alignItems(HorizontalAlign.Start).onClick(() => {
                       const project = row.project as ProjectGroup
                       this.collapsed = this.collapsed.indexOf(project.key) >= 0 ? this.collapsed.filter((key: string) => key !== project.key) : this.collapsed.concat([project.key])
                       this.updateRows()
                     })
+                    if ((row.project as ProjectGroup).cwd.length > 0 &&
+                      (row.project as ProjectGroup).sessions.some((record: SessionRecord) => record.pcId === (row.pc as PCGroup).key)) {
+                      Button('＋', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(25)
+                        .fontColor(PRIMARY).borderRadius(12).clip(true).stateEffect(false)
+                        .stateStyles({ normal: { .backgroundColor('#00000000') }, pressed: { .backgroundColor('#e6effe') } })
+                        .accessibilityText('在此目录新建会话')
+                        .enabled(!this.projectCreating)
+                        .onClick(() => this.onCreateDirectory(row.pc as PCGroup, row.project as ProjectGroup))
+                    }
                   }.width('100%').padding({ top: 4 })
                 }
               }
@@ -290,7 +320,8 @@ export struct SessionListPage {
                 .swipeAction({ end: this.sessionActions(row.session) })
                 .border({ width: 1, color: $r('app.color.border') }).borderRadius(16).clip(true)
             }
-          }, (row: ProjectListRow) => row.key)
+          }, (row: ProjectListRow) => row.session === undefined ? row.key :
+            JSON.stringify([row.key, row.session.status, row.session.runtimeStatus]))
         }.layoutWeight(1).width('100%').padding({ left: 16, right: 16 }).cachedCount(3).transition(pageSlide(true))
           .onAppear(() => { this.listOffset = this.scrollOffset; this.scroller.scrollTo({ xOffset: 0, yOffset: this.scrollOffset }) })
           .onScroll(() => this.onScrollOffset(this.scroller.currentOffset().yOffset))
@@ -304,7 +335,6 @@ export struct SessionListPage {
           .backgroundColor($r('app.color.primary_fill')).borderRadius(16).onClick(() => this.onAdd()) }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 5 })
           .onAreaChange((_previous: Area, current: Area) => this.onDebugActionsTop(Number(current.globalPosition.y)))
           .onDisAppear(() => this.onDebugActionsTop(0))
-        BuildFooter()
       }
     }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
     if (this.filterOpen) {
@@ -325,6 +355,12 @@ export struct SessionListPage {
           })
       }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius({ topLeft: 24, topRight: 24 })
     }
-    }.width('100%').height('100%')
+    }.width('100%').height('100%').parallelGesture(PanGesture({ direction: PanDirection.Right, distance: 12 })
+      .onActionStart((event: GestureEvent) => {
+        this.beganAtEdge = event.fingerList.length > 0 && event.fingerList[0].localX - event.offsetX <= 24
+      }).onActionEnd((event: GestureEvent) => {
+        if (this.beganAtEdge && event.offsetX >= 65 && !this.backHandler()) this.onHome()
+        this.beganAtEdge = false
+      }))
   }
 }

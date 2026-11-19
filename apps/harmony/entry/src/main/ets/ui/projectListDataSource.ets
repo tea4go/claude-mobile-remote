@@ -5,15 +5,18 @@ export interface ProjectListRow {
   kind: 'pc' | 'project' | 'session'
   key: string
   pc?: PCGroup
+  connecting?: boolean
   project?: ProjectGroup
   session?: SessionRecord
 }
-export function projectListRows(groups: Array<PCGroup>, selectedPC: string, collapsed: Array<string>): Array<ProjectListRow> {
+export function projectListRows(groups: Array<PCGroup>, selectedPC: string, collapsed: Array<string>, pending: Array<string> = []): Array<ProjectListRow> {
   const rows: Array<ProjectListRow> = []
   const closed: Set<string> = new Set(collapsed)
+  const pendingIds: Set<string> = new Set(pending)
   for (const pc of groups) {
     if (selectedPC !== 'all' && selectedPC !== pc.key) continue
-    rows.push({ kind: 'pc', key: 'pc:' + pc.key, pc })
+    const connecting = pc.sessions.some((session: SessionRecord) => pendingIds.has(session.sessionId))
+    rows.push({ kind: 'pc', key: (connecting ? 'refreshing-pc:' : 'pc:') + pc.key, pc, connecting })
     for (const project of pc.projects) {
       rows.push({ kind: 'project', key: 'project:' + project.key, pc, project })
       if (!closed.has(project.key)) {

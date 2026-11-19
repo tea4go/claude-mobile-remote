@@ -3,6 +3,7 @@
 import type {
   Attachment,
   TurnProgress,
+  TurnStatus,
   CommandKind,
   ContentBlock,
   DomainEvent,
@@ -99,6 +100,7 @@ export interface MobileState {
   createdAt: string | null
   lastActivityAt: string | null
   sessionStatus: 'starting' | 'ready' | 'stopped' | 'failed' | null
+  turnStatus: TurnStatus | null
   sessionError: ErrorInfo | null
   permissionMode: PermissionMode
   seqBase: number
@@ -128,6 +130,7 @@ export function createInitialState(): MobileState {
     createdAt: null,
     lastActivityAt: null,
     sessionStatus: null,
+    turnStatus: null,
     sessionError: null,
     permissionMode: 'default',
     seqBase: 0,
@@ -384,6 +387,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     createdAt: snapshot.createdAt ?? null,
     lastActivityAt: snapshot.lastActivityAt ?? null,
     sessionStatus: snapshot.sessionStatus,
+    turnStatus: snapshot.turn.status,
     sessionError: snapshot.sessionError,
     permissionMode: snapshot.permissionMode ?? 'default',
     seqBase: snapshot.seq,
@@ -544,6 +548,7 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       next.queueDepthHint = 0
       break
     case 'session_stopped':
+      if (next.turnStatus === 'running' || next.turnStatus === 'waiting') next.turnStatus = 'cancelled'
       next.progress = null
       next.progressRequestId = ''
       next.sessionStatus = event.sessionStatus as MobileState['sessionStatus']
@@ -552,6 +557,7 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       next.queueDepthHint = 0
       break
     case 'turn_started': {
+      next.turnStatus = 'running'
       next.progress = null
       next.progressRequestId = event.requestId
       if (snapshotStart && next.messages.some((message) => message.kind === 'claude' && message.requestId === event.requestId && message.source === event.source && message.status === 'streaming') && next.messages.some((message) => message.kind === 'input' && message.requestId === event.requestId && message.source === event.source)) {
@@ -610,6 +616,7 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
     }
     case 'turn_completed':
     case 'turn_failed': {
+      next.turnStatus = event.kind === 'turn_failed' ? 'failed' : event.turnStatus === 'cancelled' ? 'cancelled' : 'completed'
       next.progress = null
       next.progressRequestId = ''
       const status: ClaudeMessage['status'] =
@@ -637,9 +644,11 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       }
       break
     case 'action_required':
+      next.turnStatus = 'waiting'
       next.pendingAction = event.pendingAction ?? null
       break
     case 'action_resolved':
+      next.turnStatus = 'running'
       next.pendingAction = null
       // 回答型事项回带已校验答案（D52）；权限决议不带，不记一条空回显。
       if (event.answers !== undefined && event.answers.length > 0) {

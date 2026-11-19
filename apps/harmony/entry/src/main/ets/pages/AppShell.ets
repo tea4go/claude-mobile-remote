@@ -29,6 +29,7 @@ import {
 import {
   ConnectionStage,
   createInitialHarmonySessionState,
+  sessionTurnStatusLabel,
   type HarmonySessionState,
 } from '../session/model'
 import {
@@ -49,7 +50,7 @@ import { DemoPage } from './DemoPage'
 import { DebugPanel } from '../components/DebugPanel'
 import { debugLog } from '../debug/log'
 import { SessionPage } from './SessionPage'
-import { groupSessions, sessionPCKey, sessionPreview, replaceComputerHost, validComputerIP, type PCProfile } from '../session/projectGroups'
+import { groupSessions, sessionPCKey, sessionPreview, replaceComputerHost, validComputerIP, type PCProfile, type PCGroup, type ProjectGroup } from '../session/projectGroups'
 import { projectMatches, createdPairingAddress } from '../session/projectPairing'
 import { commitPairingRecords } from '../session/pairingCommit'
 
@@ -57,10 +58,6 @@ type AppView = 'list' | 'pairing' | 'pairingSettings' | 'detail'
 interface DebugPosition { right: number; bottom: number }
 interface DisplayPreferences { debugPosition?: DebugPosition; selectedPC: string | null; debugEnabled: boolean; pcProfiles?: Array<PCProfile>; addressHistory?: Array<string> }
 interface ProjectTarget { pcId: string; cwd: string }
-
-function defaultView(records: Array<SessionRecord>): AppView {
-  return records.length > 0 ? 'list' : 'pairing'
-}
 
 function cloneAnswers(answers: Array<QuestionAnswer>): Array<QuestionAnswer> {
   const next: Array<QuestionAnswer> = []
@@ -182,6 +179,9 @@ export struct AppShell {
   @State private pairingTarget: string = ''
   private pendingPairing: PairingPayload | null = null
   @State private pairingSaving: boolean = false
+  @State private pairingFromList: boolean = false
+  private initialPCRefresh = false
+  @State private listBack: boolean = false
   private projectTarget: ProjectTarget | null = null
   private createdSource: string = ''
   private debugUnsubscribe: (() => void) | null = null
@@ -197,6 +197,7 @@ export struct AppShell {
 
   @State private sessionState: HarmonySessionState = createInitialHarmonySessionState()
   @State private sessions: Array<SessionRecord> = []
+  @State private pendingRefreshSessions: Array<string> = []
   @State private view: AppView = 'pairing'
   @State private pairingBehindSettings: boolean = false
   @State private currentSessionId: string = ''
@@ -229,11 +230,12 @@ export struct AppShell {
       if (this.demoOpen) { if (nativeLifecycle.detailBack?.()) return true; this.demoOpen = false; return true }
       if (nativeLifecycle.detailBack?.()) return true
       if (this.view === 'detail') { this.handleBackFromDetail(); return true }
-      if (this.view === 'pairing' && this.sessions.length > 0) { this.openListPage(); return true }
+      if (this.view === 'pairing' && this.canBackFromPairing()) { this.openListPage(true); return true }
+      if (this.view === 'list') { this.openPairingPage(false); return true }
       return false
     }
     this.sessionState = this.store.getState()
-    this.view = defaultView(this.sessions)
+    this.view = 'pairing'
     if (!this.initialized) { this.initialized = true; void this.initializeNative() }
     this.watchEntry()
 
@@ -401,7 +403,7 @@ export struct AppShell {
         const store = this.prepareStore(record.sessionId)
         if (cached !== null) store.restoreDisplay(cached)
       }
-      this.view = defaultView(this.sessions)
+      this.view = 'pairing'
       this.nativeReady = true
       this.lifecycleUnsubscribe = nativeLifecycle.subscribe(() => this.handleLifecycle())
       this.foreground = false
@@ -463,20 +465,36 @@ export struct AppShell {
     const id = nativeLifecycle.pendingSessionId
     if (foreground && id.length > 0) {
       nativeLifecycle.pendingSessionId = ''
-      if (this.sessions.some((record: SessionRecord) => record.sessionId === id)) this.handleOpenSession(id)
+      if (this.sessions.some((record: SessionRecord) => record.sessionId === id)) {
+        this.demoGeneration += 1; this.demoOpening = false; this.demoOpen = false
+        this.pendingPairing = null; this.entryStore.disconnect()
+        this.handleOpenSession(id)
+      }
       else this.nativeError = '通知对应的会话已移除，请重新扫码'
     }
   }
 
   private refreshSessions(): void {
     if (!this.foreground) return
-    for (const record of this.sessions) {
-      if (record.pairToken.length === 0 || Date.parse(record.expiresAt) <= Date.now()) continue
-      const store = this.stores.get(record.sessionId)
+    const now = Date.now()
+    const records = this.sessions.filter((record: SessionRecord) =>
+      record.pairToken.length > 0 && Date.parse(record.expiresAt) > now)
+    this.pendingRefreshSessions = records.map((record: SessionRecord) => record.sessionId)
+    for (const record of records) {
+      const id = record.sessionId
+      const store = this.stores.get(id)
+      const connection = store?.getState().connection
       if (store === undefined) this.connectSession(pairingPayloadFromRecord(record))
-      else if (store.getState().connection === ConnectionStage.DISCONNECTED ||
-        store.getState().connection === ConnectionStage.PAIRING_INVALID) store.reconnect()
-      else store.checkConnection()
+      else if (connection === ConnectionStage.DISCONNECTED || connection === ConnectionStage.PAIRING_INVALID) {
+        if (!store.reconnect()) this.finishSessionRefresh(id)
+      } else if (connection === ConnectionStage.READY) store.checkConnection(() => this.finishSessionRefresh(id))
+      else if (connection === ConnectionStage.PROTOCOL_ERROR) this.finishSessionRefresh(id)
+    }
+  }
+
+  private finishSessionRefresh(id: string): void {
+    if (this.pendingRefreshSessions.includes(id)) {
+      this.pendingRefreshSessions = this.pendingRefreshSessions.filter((pending: string) => pending !== id)
     }
   }
 
@@ -606,6 +624,11 @@ export struct AppShell {
   private handleStoreState(sessionId: string, nextState: HarmonySessionState): void {
     const previousState = this.states.get(sessionId) ?? createInitialHarmonySessionState()
     this.states.set(sessionId, nextState)
+    if (previousState.connection !== nextState.connection &&
+      (nextState.connection === ConnectionStage.READY || nextState.connection === ConnectionStage.PAIRING_INVALID ||
+        nextState.connection === ConnectionStage.DISCONNECTED || nextState.connection === ConnectionStage.PROTOCOL_ERROR)) {
+      this.finishSessionRefresh(sessionId)
+    }
     const queueCommand = previousState.pendingCommand?.kind === 'cancel_queued' || previousState.pendingCommand?.kind === 'steer_queued' || (previousState.pendingCommand?.kind === 'resolve_action' && previousState.pendingAction?.kind === 'ask_user_question')
     if (sessionId === this.currentSessionId && this.view === 'detail' && queueCommand && nextState.pendingCommand === null && nextState.lastError !== null) {
       promptAction.showToast({ message: previousState.pendingCommand?.kind === 'resolve_action' ? '操作未成功，请在电脑端取消提问或更新电脑端' : nextState.lastError.message })
@@ -613,12 +636,7 @@ export struct AppShell {
     if (nextState.messages !== previousState.messages || nextState.projectCwd !== previousState.projectCwd || nextState.sessionTitle !== previousState.sessionTitle) this.scheduleCache(sessionId)
     if (nextState.connection === ConnectionStage.READY && previousState.connection !== ConnectionStage.READY) this.notifications?.seed(sessionId, nextState.seqBase)
     const previousRecord = this.sessions.find((record: SessionRecord) => record.sessionId === sessionId)
-    let runtimeStatus = '空闲'
-    if (nextState.sessionStatus === 'failed') runtimeStatus = '会话失败'
-    else if (nextState.sessionStatus === 'stopped') runtimeStatus = '已结束'
-    else if (nextState.pendingAction !== null) runtimeStatus = '等待处理'
-    else if (nextState.messages.some((message) => message.kind === 'claude' && message.status === 'streaming')) runtimeStatus = '进行中'
-    else if (nextState.messages.some((message) => message.kind === 'claude' && message.status === 'done')) runtimeStatus = '已完成'
+    const runtimeStatus = sessionTurnStatusLabel(nextState) || previousRecord?.runtimeStatus || ''
     const currentLast = nextState.messages[nextState.messages.length - 1]
     const previousLast = previousState.messages[previousState.messages.length - 1]
     let changedText = false
@@ -799,9 +817,10 @@ export struct AppShell {
     return null
   }
 
-  private openPairingPage(): void {
+  private openPairingPage(fromList: boolean = true): void {
     if (this.pairingSaving) return
-    this.pairingBehindSettings = false
+    this.pairingBehindSettings = !fromList
+    this.pairingFromList = fromList
     this.projectTarget = null; this.createdSource = ''
     this.pendingPairing = null
     this.entryStore.reset()
@@ -812,13 +831,15 @@ export struct AppShell {
     this.activateDraft()
   }
 
-  private openListPage(): void {
+  private openListPage(back: boolean = this.pairingFromList): void {
     if (this.pairingSaving) return
     this.projectTarget = null; this.createdSource = ''
     this.pendingPairing = null; this.entryStore.disconnect()
     if (this.view === 'detail') this.recentlyViewedId = this.currentSessionId
     this.listOrder = listSessionRecords(this.sessions).map((record: SessionRecord) => record.sessionId)
     this.pairingInput = ''
+    this.listBack = back
+    this.pairingFromList = false
     this.view = 'list'
     this.activateDraft()
   }
@@ -886,6 +907,7 @@ export struct AppShell {
       this.states.delete(sessionId)
       this.managementPendingSessions.delete(sessionId)
     }
+    this.finishSessionRefresh(sessionId)
     this.sessions = removeSessionRecord(this.sessions, sessionId)
     void this.push?.syncSessions(this.sessions).catch(() => { this.pushStatus = '后台推送登记失败，稍后重试' })
     this.reconcileSelectedPC()
@@ -910,8 +932,27 @@ export struct AppShell {
     this.trackedPendingActionId = ''
     this.managementBusy = false
     this.managementFeedback = ''
-    this.view = defaultView(this.sessions)
+    this.listBack = true
+    this.view = this.sessions.length > 0 ? 'list' : 'pairing'
     this.activateDraft()
+  }
+
+  private createInDirectory(pc: PCGroup, project: ProjectGroup): void {
+    if (this.projectCreating || this.pairingSaving || project.cwd.length === 0) return
+    const identity = project.sessions.find((record: SessionRecord) => record.pcId === pc.key)?.pcId
+    if (identity === undefined) return
+    const source = project.sessions.find((record: SessionRecord) =>
+      record.status === 'connected' && (record.capabilities ?? []).includes('create_session') &&
+      this.states.get(record.sessionId)?.sessionStatus !== 'stopped' && this.states.get(record.sessionId)?.sessionStatus !== 'failed')
+    if (source !== undefined) {
+      if (this.stores.get(source.sessionId)?.createSession()) {
+        this.projectCreating = true
+        this.managementPendingSessions.add(source.sessionId)
+      } else promptAction.showToast({ message: '新建失败，请检查连接后重试' })
+      return
+    }
+    this.openPairingPage()
+    this.projectTarget = { pcId: identity, cwd: project.cwd }
   }
 
   private handleCreateSession(): void {
@@ -1013,7 +1054,7 @@ export struct AppShell {
   }
 
   private canBackFromPairing(): boolean {
-    return this.sessions.length > 0
+    return this.pairingFromList && this.sessions.length > 0
   }
 
   private hasActiveRecord(): boolean {
@@ -1053,6 +1094,7 @@ export struct AppShell {
       onBack: () => {
         this.handleBackFromDetail()
       },
+      onHome: () => this.openPairingPage(false),
       onReconnect: () => {
         this.handleReconnect()
       },
@@ -1095,7 +1137,14 @@ export struct AppShell {
   @Builder
   private buildPairingView(): void {
     PairingPage({
-      computers: groupSessions(this.sessions),
+      computers: groupSessions(listSessionRecords(this.sessions)),
+      claimInitialRefresh: () => {
+        if (this.pairingFromList || this.initialPCRefresh) return false
+        this.initialPCRefresh = true
+        return true
+      },
+      projectPC: this.pcProfiles.find((profile: PCProfile) => profile.key === this.projectTarget?.pcId)?.name ??
+        this.sessions.find((record: SessionRecord) => record.pcId === this.projectTarget?.pcId)?.pcName ?? '',
       profiles: this.pcProfiles,
       addressHistory: this.addressHistory,
       onHistoryChange: (values: Array<string>) => { this.addressHistory = values; this.saveDisplayPreferences() },
@@ -1119,6 +1168,7 @@ export struct AppShell {
         this.saveDisplayPreferences()
         this.openListPage()
       },
+      onHome: () => this.openPairingPage(false),
       onSettings: () => { this.pairingBehindSettings = true; this.view = 'pairingSettings' },
       projectCwd: this.projectTarget?.cwd ?? '',
       saving: this.pairingSaving,
@@ -1157,6 +1207,10 @@ export struct AppShell {
   private buildListView(): void {
     SessionListPage({
       onRefresh: () => this.refreshSessions(),
+      pendingRefreshSessions: this.pendingRefreshSessions,
+      onHome: () => this.openPairingPage(false),
+      onCreateDirectory: (pc: PCGroup, project: ProjectGroup) => this.createInDirectory(pc, project),
+      projectCreating: this.projectCreating,
       onDebugActionsTop: (top: number) => { this.debugListActionsTop = top },
       initialSettings: this.view === 'pairingSettings',
       onExitSettings: () => { this.view = 'pairing' },
@@ -1204,7 +1258,7 @@ export struct AppShell {
     } else if (this.view === 'pairing') {
       Column() { this.buildPairingView() }.width('100%').height('100%').transition(pageSlide(this.pairingBehindSettings))
     } else {
-      Column() { this.buildListView() }.width('100%').height('100%').transition(pageSlide(this.view !== 'pairingSettings'))
+      Column() { this.buildListView() }.width('100%').height('100%').transition(pageSlide(this.view === 'list' && this.listBack))
     }
   }
 
@@ -1222,7 +1276,7 @@ export struct AppShell {
           Text('正在打开离线演示…').fontSize(14)
         }.height('100%').width('100%').justifyContent(FlexAlign.Center).transition(pageFade())
       } else if (this.demoOpen) {
-        DemoPage({ onExit: () => { this.demoOpen = false } }).width('100%').height('100%').transition(pageFade())
+        DemoPage({ onHome: () => { this.demoOpen = false; this.openPairingPage(false) }, onExit: () => { this.demoOpen = false } }).width('100%').height('100%').transition(pageFade())
       } else { Stack() { this.buildCurrentView() }.width('100%').height('100%').transition(pageFade()) }
       }.layoutWeight(1).width('100%').clip(true)
     }

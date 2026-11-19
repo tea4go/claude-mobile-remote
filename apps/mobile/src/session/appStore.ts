@@ -45,7 +45,7 @@ export interface AppStoreState {
 
 export type AppStore = StoreApi<AppStoreState>
 
-export function createAppStore(): AppStore {
+export function createAppStore({ adding = false }: { adding?: boolean } = {}): AppStore {
   return createStore<AppStoreState>((set) => ({
     pairings: createInitialSessionStore(),
     sessions: {},
@@ -53,7 +53,7 @@ export function createAppStore(): AppStore {
     pairingInvalid: {},
     view: 'list',
     currentSessionId: null,
-    adding: false,
+    adding,
     pairingError: null,
     upsertPairing: (payload) => set((state) => ({
       pairings: upsertSession(state.pairings, payload),

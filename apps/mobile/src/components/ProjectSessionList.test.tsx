@@ -182,3 +182,55 @@ test('iOS 会话左滑区用图标操作，重命名限长、拒绝空白且取�
   fireEvent.click(await screen.findByText('删除', { selector: 'button span' }))
   await waitFor(() => expect(onRemove).toHaveBeenCalledExactlyOnceWith(session.sessionId))
 })
+
+test('新版会话卡片区分连接与轮次状态，目录仍可创建和折叠', () => {
+  const onCreate = vi.fn()
+  const record: SessionListItem = { ...item('a', '/Users/test/work/alpha', '2026-11-14T00:00:00Z'), capabilities: ['create_session'] }
+  const connected = { ...record.runtimeState!, connection: 'connected' as const, turnStatus: 'idle' as const }
+  const props = { compactPCHeader: true, revisedLayout: true, onCreate, onOpen: vi.fn(), onRemove: vi.fn(), onRename: vi.fn() }
+  const view = render(<ProjectSessionList sessions={[{ ...record, runtimeState: connected }]} {...props} />)
+  expect(screen.getByText('Token：place***lder', { exact: false })).toBeInTheDocument()
+  expect(screen.queryByText(record.pairToken, { exact: false })).not.toBeInTheDocument()
+  expect(screen.getByRole('img', { name: '已连接' })).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: '已完成' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '在 alpha 新建会话' }))
+  expect(onCreate).toHaveBeenCalledExactlyOnceWith('a')
+  const toggle = screen.getByRole('button', { name: /alpha.*Users/ })
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.queryByTestId('session-list-item')).not.toBeInTheDocument()
+  fireEvent.click(toggle)
+  const collapseAll = screen.getByRole('button', { name: '会话列表' })
+  fireEvent.click(collapseAll)
+  expect(collapseAll).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.queryByTestId('session-list-item')).not.toBeInTheDocument()
+  fireEvent.click(collapseAll)
+  expect(screen.getByTestId('session-list-item')).toBeInTheDocument()
+
+  const reply = { kind: 'claude' as const, source: 'terminal' as const, requestId: 'req', text: 'reply', error: null }
+  for (const [status, label] of [['running', '进行中'], ['cancelled', '已中断'], ['failed', '已中断']] as const) {
+    view.rerender(<ProjectSessionList sessions={[{ ...record, runtimeState: { ...connected, turnStatus: status, messages: [] } }]} {...props} />)
+    expect(screen.getByRole('img', { name: label })).toBeInTheDocument()
+  }
+  const pendingAction = { kind: 'tool_approval' as const, actionId: 'approval', requestId: reply.requestId, toolName: 'Read', preview: '', allowSessionAvailable: false }
+  const waiting = { ...connected, pendingAction, turnStatus: 'running' as const }
+  view.rerender(<ProjectSessionList sessions={[{ ...record, runtimeState: waiting }]} {...props} />)
+  expect(screen.getByRole('img', { name: '等待处理' })).toBeInTheDocument()
+  view.rerender(<ProjectSessionList sessions={[{ ...record, runtimeState: { ...waiting, connection: 'disconnected' } }]} {...props} />)
+  expect(screen.getByRole('img', { name: '上次同步：等待处理' })).toBeInTheDocument()
+  view.rerender(<ProjectSessionList sessions={[{ ...record, pairToken: 'tiny', runtimeState: { ...connected, turnStatus: null, connection: 'disconnected' } }]} {...props} />)
+  expect(screen.getByText('Token：***')).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: '已断开' })).toBeInTheDocument()
+  expect(screen.queryByRole('img', { name: '已完成' })).not.toBeInTheDocument()
+})
+
+test('新版目录最近活动顺序按所选 PC 计算，相同目录名不受另一台 PC 的活动影响', () => {
+  const mac = 'mac'
+  const sessions = [
+    { ...item('other', '/work/shared', '2026-11-19T12:00:00Z'), pcId: 'other' },
+    { ...item('old', '/work/shared', '2026-11-17T12:00:00Z'), pcId: mac },
+    { ...item('new', '/work/new', '2026-11-18T12:00:00Z'), pcId: mac },
+  ]
+  const view = render(<ProjectSessionList sessions={sessions} revisedLayout compactPCHeader selectedPC="pc:mac" onOpen={vi.fn()} onRename={vi.fn()} onRemove={vi.fn()} />)
+  expect([...view.container.querySelectorAll('.project-session-list__project-toggle strong')].map(el => el.textContent)).toEqual(['new', 'shared'])
+})

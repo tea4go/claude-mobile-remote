@@ -259,6 +259,7 @@ export class ProtocolClient {
   private deadline: number = -1
   private heartbeat: number = -1
   private pongAt: number = 0
+  private onProbePong: (() => void) | undefined = undefined
   private userClosed = false
   private wireVersion: number = PREFERRED_PROTOCOL_VERSION
   private observer: ProtocolClientObserver | null = null
@@ -376,6 +377,7 @@ export class ProtocolClient {
     if (this.deadline !== -1) clearTimeout(this.deadline)
     if (this.heartbeat !== -1) clearTimeout(this.heartbeat)
     this.deadline = -1; this.heartbeat = -1; this.pongAt = 0
+    this.onProbePong = undefined
   }
   private armDeadline(code: LogCode, ms: number): void {
     if (this.deadline !== -1) clearTimeout(this.deadline)
@@ -388,8 +390,12 @@ export class ProtocolClient {
     debugLog.record('network_lost')
     if (this.socket !== null) this.terminate('DISCONNECTED', makeError('network_lost', '网络连接已断开；配对与消息保留，请恢复网络后重连'))
   }
-  checkConnection(): void {
-    if (this.stage !== 'READY' || this.wireVersion < 6 || this.socket === null) return
+  checkConnection(onPong?: () => void): void {
+    if (this.stage !== 'READY' || this.wireVersion < 6 || this.socket === null) {
+      onPong?.()
+      return
+    }
+    if (onPong !== undefined) this.onProbePong = onPong
     if (this.pongAt > 0) {
       if (Date.now() - this.pongAt >= 5000) { debugLog.record('heartbeat_timeout', 5000); this.terminate('DISCONNECTED', makeError('heartbeat_timeout', '连接探活超时，操作结果未知，请核对电脑端状态')) }
       return
@@ -617,6 +623,9 @@ export class ProtocolClient {
         debugLog.record('pong', Date.now() - this.pongAt)
         this.pongAt = 0
         this.scheduleHeartbeat()
+        const onPong = this.onProbePong
+        this.onProbePong = undefined
+        onPong?.()
         return
       case 'hello_ack': {
         if (this.stage !== 'AUTHENTICATING') {

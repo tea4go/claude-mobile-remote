@@ -1,6 +1,7 @@
 import type { Attachment, AttachmentSendResult } from '../protocol/types'
 import { useEffect, useRef, useState } from 'react'
 import type { ExperiencePort } from '../native/experience'
+import HomeButton from './HomeButton'
 import { Button, NavBar, Popup, Toast } from 'antd-mobile'
 import { LeftOutline } from 'antd-mobile-icons'
 import MessageComposer from './MessageComposer'
@@ -30,6 +31,7 @@ interface SessionDetailProps {
   // 当前可取消 Turn 的 request ID；无可取消 Turn 时为 null。
   cancelTarget: string | null
   onBack: () => void
+  onHome?: () => void
   onReconnect: () => void
   onSendAttachments?: (text: string, attachments: Attachment[]) => Promise<AttachmentSendResult>
   onSend: (text: string) => void
@@ -55,6 +57,7 @@ export default function SessionDetail({
   canRetryPairing = false,
   cancelTarget,
   onBack,
+  onHome,
   onReconnect,
   onSend,
   onSendAttachments,
@@ -150,9 +153,10 @@ export default function SessionDetail({
       }}
     >
       {/* 导航、状态与输入栏固定，中间的详情和消息共用滚动区。 */}
-      <div className={`${topSafeArea ? 'mobile-safe-area-header' : ''} session-detail-header`} style={GLASS_SURFACE_STYLE}>
+      <div className={`${topSafeArea ? 'mobile-safe-area-header' : ''} session-detail-header${onHome ? ' session-detail-header--home' : ''}`} style={GLASS_SURFACE_STYLE}>
         <NavBar back="" backIcon={<LeftOutline aria-label="返回" fontSize={24} />} onBack={onBack} right={<div className="session-detail-header-actions">
           {showReconnect && <Button size="mini" color="primary" onClick={onReconnect}>重新连接</Button>}
+          {onHome && <HomeButton onClick={onHome} />}
         </div>}>
           <div className="session-detail-heading">
             <span className="session-detail-title">{record.name}</span>

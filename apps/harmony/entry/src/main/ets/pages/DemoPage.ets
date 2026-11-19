@@ -6,6 +6,7 @@ import type { QuestionAnswer } from '../protocol/types'
 import { SessionPage } from './SessionPage'
 @Component
 export struct DemoPage {
+  onHome: () => void = () => {}
   onExit: () => void = () => {}
   @State private state: HarmonySessionState = createInitialHarmonySessionState()
   @State private draft: ComposerDraft = emptyDraft()
@@ -32,7 +33,7 @@ export struct DemoPage {
         Button('退出演示').fontSize(12).height(36).onClick(() => this.exit())
       }.padding(4)
       SessionPage({ title: '离线演示', state: this.state, draft: this.draft, textOnly: true,
-        questionAnswers: this.answers, onBack: () => this.exit(),
+        questionAnswers: this.answers, onBack: () => this.exit(), onHome: () => { this.demo.dispose(); this.onHome() },
         onDraft: (text: string) => { this.draft = { text, attachments: [], sending: false, error: '' } },
         onSend: () => this.send(this.draft.text), onCancelTurn: (id: string) => { this.demo.cancel(id); this.answers = [] },
         onAllowOnce: () => this.resolve('allow_once'), onAllowSession: () => this.resolve('allow_session'), onDeny: () => this.resolve('deny'),

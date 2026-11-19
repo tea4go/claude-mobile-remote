@@ -4,7 +4,7 @@ import type { SessionRecord } from '../session/store'
 import { DemoController, initialDemoState } from './controller'
 
 const record: SessionRecord = { sessionId: 'offline-demo', name: '离线演示', wsUrl: '', pairToken: '', expiresAt: '', lastConnectedAt: null, status: 'new' }
-export default function DemoPage({ onExit }: { onExit: () => void }) {
+export default function DemoPage({ onExit, onHome }: { onExit: () => void; onHome?: () => void }) {
   const [state, setState] = useState(initialDemoState)
   const [controller] = useState(() => new DemoController(setState))
   useEffect(() => () => controller.dispose(), [controller])
@@ -24,7 +24,7 @@ export default function DemoPage({ onExit }: { onExit: () => void }) {
     <div style={{ flex: 1, minHeight: 0 }}>
       <SessionDetail textOnly topSafeArea={false} record={record} state={state} experience={null} pairingInvalid={false}
         turnStatus={state.pendingAction ? 'waiting' : target ? 'running' : 'idle'} cancelTarget={target}
-        onBack={onExit} onReconnect={() => undefined} onSend={text => controller.send(text)}
+        onBack={onExit} onHome={onHome} onReconnect={() => undefined} onSend={text => controller.send(text)}
         onResolveAction={r => controller.resolve(r)} onCancelTurn={id => controller.cancel(id)} onCancelQueued={() => false}
         onPermissionModeChange={() => undefined} />
     </div>

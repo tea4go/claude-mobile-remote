@@ -1,3 +1,9 @@
+import expand from '../assets/icons/svgs/expand.svg'
+import collapse from '../assets/icons/svgs/collapse.svg'
+import complete from '../assets/icons/svgs/status/complete.svg'
+import processing from '../assets/icons/svgs/status/processing.svg'
+import needCheck from '../assets/icons/svgs/status/need_check.svg'
+import interrupted from '../assets/icons/svgs/status/interrupted.svg'
 import testConnect from '../assets/icons/svgs/session/test_connect.svg'
 import testConnectButton from '../assets/icons/svgs/session/test_connect_in_button.svg'
 import camera from '../assets/icons/svgs/session/camera.svg'
@@ -25,10 +31,10 @@ import send from '../assets/icons/svgs/session/send.svg'
 import settings from '../assets/icons/svgs/session/setting.svg'
 import target from '../assets/icons/svgs/session/target_pc_ip.svg'
 
-const icons = { testConnect, testConnectButton, camera, image, file, arrow, logo, clear, debug, demo, folder, folderClosed, add, back, steps, microphone, notify, paperclip, pc, pcSettings, permission, scan, send, settings, target }
+const icons = { expand, collapse, complete, processing, needCheck, interrupted, testConnect, testConnectButton, camera, image, file, arrow, logo, clear, debug, demo, folder, folderClosed, add, back, steps, microphone, notify, paperclip, pc, pcSettings, permission, scan, send, settings, target }
 
 export default function SessionIcon({ name, size = 20, style }: { name: keyof typeof icons; size?: number; style?: CSSProperties }) {
-  if (name === 'testConnect' || name === 'testConnectButton') return <img aria-hidden="true" alt="" src={icons[name]} style={{ display: 'inline-block', flexShrink: 0, width: size, height: size, verticalAlign: 'middle', ...style }}/>
+  if (name === 'expand' || name === 'collapse' || name === 'complete' || name === 'processing' || name === 'needCheck' || name === 'interrupted' || name === 'testConnect' || name === 'testConnectButton') return <img aria-hidden="true" alt="" src={icons[name]} style={{ display: 'inline-block', flexShrink: 0, width: size, height: size, verticalAlign: 'middle', ...style }}/>
   const mask = `url("${icons[name]}") center / contain no-repeat`
   return <span aria-hidden="true" style={{ display: 'inline-block', flexShrink: 0, width: size, height: size, backgroundColor: 'currentColor', mask, WebkitMask: mask, verticalAlign: 'middle', ...style }} />
 }

@@ -369,6 +369,7 @@ export function cloneState(state: HarmonySessionState, cloneFeed: boolean = true
     createdAt: state.createdAt,
     lastActivityAt: state.lastActivityAt,
     sessionStatus: state.sessionStatus,
+    turnStatus: state.turnStatus,
     sessionError: cloneErrorInfo(state.sessionError),
     seqBase: state.seqBase,
     snapshotStartPending: state.snapshotStartPending,
@@ -413,6 +414,7 @@ function createResetState(pairing: PairingPayload): HarmonySessionState {
     connection: ConnectionStage.CONNECTING,
     sessionId: '',
     sessionStatus: '',
+    turnStatus: null,
     sessionError: null,
     seqBase: 0,
     queueDepthHint: 0,
@@ -620,6 +622,7 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   next.createdAt = snapshot.createdAt
   next.lastActivityAt = snapshot.lastActivityAt
   next.sessionStatus = snapshot.sessionStatus
+  next.turnStatus = snapshot.turn.status
   next.sessionError = cloneErrorInfo(snapshot.sessionError)
   next.seqBase = snapshot.seq
   next.snapshotStartPending = (snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting') && snapshot.turn.inputText !== undefined ? snapshot.turn.requestId : ''
@@ -744,6 +747,7 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       next.queueDepthHint = 0
       break
     case 'session_stopped':
+      if (next.turnStatus === 'running' || next.turnStatus === 'waiting') next.turnStatus = 'cancelled'
       next.messages.forEach((message: FeedMessage) => { if (message.kind === 'claude' && message.status === 'streaming') message.status = 'cancelled' })
       next.sessionStatus = event.sessionStatus
       next.pendingAction = null
@@ -751,6 +755,7 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       next.queueDepthHint = 0
       break
     case 'turn_started': {
+      next.turnStatus = 'running'
       next.progress = undefined
       next.progressRequestId = event.requestId
       if (snapshotStart && next.messages.some((message: FeedMessage) => message.kind === 'claude' && message.requestId === event.requestId && message.source === event.source && message.status === 'streaming') && next.messages.some((message: FeedMessage) => message.kind === 'input' && message.requestId === event.requestId && message.source === event.source)) {
@@ -791,6 +796,7 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
     }
     case 'turn_completed':
     case 'turn_failed': {
+      next.turnStatus = event.kind === 'turn_failed' ? 'failed' : event.turnStatus === 'cancelled' ? 'cancelled' : 'completed'
       const updated: Array<FeedMessage> = []
       for (let index = 0; index < next.messages.length; index += 1) {
         const message = next.messages[index]
@@ -816,9 +822,11 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       }
       break
     case 'action_required':
+      next.turnStatus = 'waiting'
       next.pendingAction = event.pendingAction !== undefined ? clonePendingAction(event.pendingAction) : null
       break
     case 'action_resolved':
+      next.turnStatus = 'running'
       next.pendingAction = null
       if (event.answers !== undefined && event.answers.length > 0) {
         next.messages.push(createAnswerMessage(event.requestId, event.answers))

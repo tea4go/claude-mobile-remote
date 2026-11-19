@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import MiddleEllipsisPath from './MiddleEllipsisPath'
 import QuickPairForm from './QuickPairForm'
 import SessionIcon from './SessionIcon'
 import { useState } from 'react'
@@ -19,11 +20,13 @@ interface PairingFormProps {
   saving?: boolean
   onCancel?: () => void
   onDismissError?: () => void
+  compactPaths?: boolean
+  projectPC?: string
   projectCwd?: string | null
 }
 
 // 配对页：标题、说明、原始 JSON 多行输入、连接按钮与就地错误（设计 §8）。
-export default function PairingForm({ iosDesign = false, target = null, initialError, onSubmit, onScan, progress = null, saving = false, onCancel, onDismissError, projectCwd = null, pcList, pcFeedback }: PairingFormProps) {
+export default function PairingForm({ iosDesign = false, target = null, initialError, onSubmit, onScan, progress = null, saving = false, onCancel, onDismissError, projectCwd = null, projectPC, compactPaths, pcList, pcFeedback }: PairingFormProps) {
   const [manual, setManual] = useState(false)
   const [json, setJson] = useState('')
   const [emptyError, setEmptyError] = useState(false)
@@ -32,7 +35,7 @@ export default function PairingForm({ iosDesign = false, target = null, initialE
   const parsed = json.trim() === '' ? null : parsePairingInput(json, 0)
   const displayedTarget = parsed?.ok ? safeNetworkTarget(parsed.value.wsUrl) : json.trim() === '' ? target : null
 
-  if (iosDesign) return <div className="pairing-form"><h2 style={{ margin: 0 }}>连接 Claude 会话</h2><QuickPairForm iosDesign externalFeedbackKey={initialError || projectCwd} pcList={pcList} pcFeedback={pcFeedback} onDismissFeedback={onDismissError} disabled={progress !== null || saving} onPair={onSubmit} onScan={onScan} feedback={<>{initialError && <div className="pairing-notice pairing-notice--error" role="alert">{initialError}</div>}{!initialError && projectCwd && <div className="pairing-notice pairing-notice--warning">请扫描目标电脑和目录下新会话的配对码：<div className="pairing-notice__path">{projectCwd}</div></div>}</>}/>{progress && <PairingLoading message={progress} cancelDisabled={saving} onCancel={onCancel}/>}</div>
+  if (iosDesign) return <div className="pairing-form"><h2 style={{ margin: 0 }}>连接 Claude 会话</h2><QuickPairForm iosDesign externalFeedbackKey={initialError || projectCwd} pcList={pcList} pcFeedback={pcFeedback} onDismissFeedback={onDismissError} disabled={progress !== null || saving} onPair={onSubmit} onScan={onScan} feedback={<>{initialError && <div className="pairing-notice pairing-notice--error" role="alert">{initialError}</div>}{!initialError && projectCwd && <div className="pairing-notice pairing-notice--warning">请扫描目标电脑和目录下新会话的配对码：{projectPC && <div>目标电脑：{projectPC}</div>}<div className="pairing-notice__path">{compactPaths ? <MiddleEllipsisPath path={projectCwd} /> : projectCwd}</div></div>}</>}/>{progress && <PairingLoading message={progress} cancelDisabled={saving} onCancel={onCancel}/>}</div>
 
   return (
     <div className="pairing-form">

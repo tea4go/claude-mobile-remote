@@ -518,6 +518,24 @@ test('pong keeps ready, wrong session pong disconnects and close cancels probes'
   const count = socket.frames.length; t.mock.timers.tick(30000); assert.equal(socket.frames.length, count)
   store.disconnect()
 })
+test('manual refresh joins an in-flight heartbeat and completes on pong', t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100000 })
+  const { store, socket } = readyV6()
+  t.mock.timers.tick(10000)
+  let results = 0
+  store.checkConnection(() => { results += 1 })
+  assert.equal(socket.frames.filter(frame => frame.type === 'ping').length, 1)
+  assert.equal(results, 0)
+  socket.wire(envelope('pong', {}, 6))
+  assert.equal(results, 1)
+  t.mock.timers.tick(10000)
+  socket.wire(envelope('pong', {}, 6))
+  assert.equal(results, 1)
+  const legacy = readyStore()
+  legacy.store.checkConnection(() => { results += 1 })
+  assert.equal(results, 2)
+  assert.equal(legacy.socket.frames.some(frame => frame.type === 'ping'), false)
+})
 test('connection phase deadline fails before pairing is accepted', t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100000 })
   const store = load('session/store').createSessionStore(); stores.push(store)
@@ -797,6 +815,10 @@ test('virtual list projection filters PCs and collapses only its exact project',
   const groups = groupSessions([record('a', 'one', '/a'), record('b', 'one', '/b'), record('c', 'two', '/a')])
   assert.deepEqual(projectListRows(groups, 'one', [groups[0].projects[0].key]).map(row => row.key), ['pc:one', 'project:' + groups[0].projects[0].key, 'project:' + groups[0].projects[1].key, 'session:b'])
   assert.equal(projectListRows(groups, 'all', []).filter(row => row.kind === 'session').length, 3)
+  const refreshing = projectListRows(groups, 'all', [], ['b']).filter(row => row.kind === 'pc')
+  assert.deepEqual(refreshing.map(row => [row.key, row.connecting]), [
+    ['refreshing-pc:one', true], ['pc:two', false],
+  ])
 })
 
 test('pairing commit restores previous records after failure or invalidation', async () => {
@@ -812,6 +834,13 @@ test('pairing commit restores previous records after failure or invalidation', a
   assert.equal(writes[1], old)
   assert.equal(await commitPairingRecords({ async saveRecords() { throw Error('disk') } }, next, old, () => true), 'rollback_failed')
   assert.equal(await commitPairingRecords(good, next, old, () => true), 'saved')
+})
+
+test('PC card tokens expose only the approved segments', () => {
+  const { maskPairToken } = load('session/projectGroups')
+  assert.equal(maskPairToken('12345hidden6789'), '12345***6789')
+  assert.equal(maskPairToken('123456789'), '***')
+  assert.equal(maskPairToken(''), '***')
 })
 
 test('session previews normalize whitespace and bound displayed length', () => {
@@ -892,4 +921,31 @@ test('v10 image restore ignores mismatched results and advances after an expired
   socket.wire(envelope('image_result', { ref: 'good:1', image: attachment }, 10))
   assert.equal(store.getState().messages[0].attachments[0].data, '')
   assert.equal(store.getState().messages[0].attachments[1].data, attachment.data)
+})
+
+test('session activity time follows the iOS local calendar format', () => {
+  const { formatActivityTime } = load('ui/activityTime')
+  const now = new Date(2026, 10, 19, 12)
+  const stamp = (day, year = 2026) => new Date(year, 10, day, 9, 5).toISOString()
+  assert.equal(formatActivityTime(stamp(19), now), '09:05')
+  assert.equal(formatActivityTime(stamp(18), now), '昨天09:05')
+  assert.equal(formatActivityTime(stamp(17), now), '星期二')
+  assert.equal(formatActivityTime(stamp(15), now), '11月15日')
+  assert.equal(formatActivityTime(stamp(15, 2025), now), '2025年11月15日')
+  assert.equal(formatActivityTime('', now), '')
+})
+
+test('list turn status follows a snapshot and terminal event even without a reply', () => {
+  const { sessionTurnStatusLabel } = load('session/model')
+  const idle = decodeServerMessage(JSON.stringify(snapshot())).payload.snapshot
+  let state = reducer.reduceHarmonySessionState(createInitialHarmonySessionState(), reducer.snapshotReceived(idle))
+  assert.equal(sessionTurnStatusLabel(state), '已完成')
+  const running = { ...idle, turn: { ...idle.turn, status: 'running', requestId: 'req-1', source: '' } }
+  state = reducer.reduceHarmonySessionState(state, reducer.snapshotReceived(running))
+  assert.equal(state.messages.length, 0)
+  assert.equal(sessionTurnStatusLabel(state), '进行中')
+  state = reducer.reduceHarmonySessionState(state, reducer.eventReceived(event('turn_completed', state.seqBase + 1, {
+    requestId: 'req-1', turnStatus: 'cancelled',
+  })))
+  assert.equal(sessionTurnStatusLabel(state), '已中断')
 })

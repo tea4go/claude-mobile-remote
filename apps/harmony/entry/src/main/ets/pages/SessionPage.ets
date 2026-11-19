@@ -1,3 +1,4 @@
+import { HomeButton } from '../components/HomeButton'
 import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
 import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
 import { curves } from '@kit.ArkUI'
@@ -107,6 +108,7 @@ export struct SessionPage {
   @Prop capabilities: Array<string> = []
   @Prop managementBusy: boolean = false
   @Prop managementFeedback: string = ''
+  onHome: () => void = () => {}
   onBack: () => void = () => {}
   onReconnect: () => void = () => {}
   onDisconnect: () => void = () => {}
@@ -264,6 +266,7 @@ export struct SessionPage {
             StatusBar({ state: this.state })
           }.layoutWeight(1)
           if (this.showReconnect()) { Button('重连', { type: ButtonType.Normal }).height(44).padding(4).fontSize(12).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).onClick(() => this.onReconnect()) }
+          HomeButton({ onOpen: this.onHome })
           if (!this.textOnly) {
           Button('⋯', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(24).fontColor(SECONDARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true).accessibilityText('更多会话操作').onClick(() => {
             this.menuController.open()
