@@ -805,7 +805,7 @@ function decodeTurnSnapshot(value: Object | null, version: number): TurnSnapshot
   }
   if (candidate.inputText !== undefined) {
     const input = readString(candidate.inputText, 'inputText')
-    if (version < 7 || input.length === 0 || utf8ByteLength(input) > MAX_TEXT_BYTES || requestId.length === 0 || ['running', 'waiting'].indexOf(snapshot.status) < 0) fail('invalid current input')
+    if (version < 7 || input.length === 0 || utf8ByteLength(input) > MAX_TEXT_BYTES || requestId.length === 0 || snapshot.status === 'idle' || (version < 11 && ['running', 'waiting'].indexOf(snapshot.status) < 0)) fail('invalid current input')
     snapshot.inputText = input
   }
   if (candidate.progress !== undefined) {
@@ -1072,7 +1072,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
 
   const envelope = requireAllowedObject(parsedValue, 'message', ENVELOPE_KEYS) as EnvelopeCandidate
   const version = readInteger(envelope.version, 'version')
-  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== PREFERRED_PROTOCOL_VERSION) {
+  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10 && version !== PREFERRED_PROTOCOL_VERSION) {
     fail('unsupported protocol version')
   }
 

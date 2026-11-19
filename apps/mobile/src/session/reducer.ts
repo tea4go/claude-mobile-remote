@@ -401,7 +401,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     lastError: null,
     lastNotice: null,
   }
-  if (turnActive && snapshot.turn.inputText && snapshot.turn.source && !next.messages.some((message) => message.kind === 'input' && message.requestId === snapshot.turn.requestId)) {
+  if (snapshot.turn.inputText && snapshot.turn.source && !next.messages.some((message) => message.kind === 'input' && message.requestId === snapshot.turn.requestId)) {
     const input: InputMessage = { kind: 'input', source: snapshot.turn.source, requestId: snapshot.turn.requestId, text: snapshot.turn.inputText, status: 'accepted' }
     const replyIndex = next.messages.findIndex((message) => message.kind === 'claude' && message.requestId === snapshot.turn.requestId)
     if (replyIndex < 0) next.messages = [...next.messages, input]

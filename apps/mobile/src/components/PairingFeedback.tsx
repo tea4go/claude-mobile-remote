@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, Input, Toast, unstableSetRender } from 'antd-mobile'
 import { createRoot } from 'react-dom/client'
@@ -29,6 +29,29 @@ export function PairingToast({ message, onClose }: { message: string; onClose: (
   return null
 }
 
+export function PairingInputDialog({ title, description, children, submitText, submitDisabled, onCancel, onSubmit, preserveInputFocus }: {
+  title: string
+  description: string
+  children: ReactNode
+  submitText: string
+  submitDisabled?: boolean
+  onCancel: () => void
+  onSubmit: () => void
+  preserveInputFocus?: boolean
+}) {
+  return createPortal(<div className="pairing-overlay"><div className="pairing-overlay__dialog pairing-code-dialog" role="dialog" aria-modal="true" aria-label={title}>
+    <h3>{title}</h3><p>{description}</p>
+    {children}
+    <div className="pairing-code-dialog__actions" onMouseDown={preserveInputFocus ? event => event.preventDefault() : undefined}>
+      <Button onClick={onCancel}>取消</Button>
+      <Button color="primary" disabled={submitDisabled} onClick={onSubmit}>{submitText}</Button>
+    </div>
+  </div></div>, document.body)
+}
+
 export function PairingCodeDialog({ code, error, onChange, onCancel, onVerify }: { error?: string; code: string; onChange: (value: string) => void; onCancel: () => void; onVerify: () => void }) {
-  return createPortal(<div className="pairing-overlay"><div className="pairing-overlay__dialog pairing-code-dialog" role="dialog" aria-modal="true" aria-label="输入验证码"><h3>输入验证码</h3><p>请输入 PC 上的六位验证码</p><Input aria-label="六位验证码" type="tel" inputMode="numeric" maxLength={6} value={code} onChange={value => onChange(value.replace(/\D/g, ''))} placeholder="请输入六位验证码"/>{error && <div className="pairing-notice pairing-notice--error" role="alert">{error}</div>}<div className="pairing-code-dialog__actions"><Button onClick={onCancel}>取消</Button><Button color="primary" disabled={code.length !== 6} onClick={onVerify}>验证并连接</Button></div></div></div>, document.body)
+  return <PairingInputDialog title="输入验证码" description="请输入 PC 上的六位验证码" submitText="验证并连接" submitDisabled={code.length !== 6} onCancel={onCancel} onSubmit={onVerify}>
+    <Input aria-label="六位验证码" type="tel" inputMode="numeric" maxLength={6} value={code} onChange={value => onChange(value.replace(/\D/g, ''))} placeholder="请输入六位验证码"/>
+    {error && <div className="pairing-notice pairing-notice--error" role="alert">{error}</div>}
+  </PairingInputDialog>
 }

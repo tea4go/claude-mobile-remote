@@ -325,8 +325,8 @@ describe('decodeServerMessage：非法 JSON 与基础结构', () => {
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 
-  test('version = 11（未来版本）拒绝', () => {
-    const envelope = baseEnvelope({ version: 11 })
+  test('version = 12（未来版本）拒绝', () => {
+    const envelope = baseEnvelope({ version: 12 })
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 
@@ -1525,4 +1525,12 @@ test('v9 快照接受有序片段，旧版本拒绝该字段', () => {
   expect(result.type).toBe('snapshot')
   if (result.type === 'snapshot') expect(result.payload.snapshot.turn.display?.items).toHaveLength(3)
   expect(() => decodeServerMessage(JSON.stringify({ ...envelope, version: 8 }))).toThrow()
+})
+
+test('已结束轮次的提问仅在 v11 快照有效', () => {
+  const payload = snapshotPayload()
+  Object.assign(payload.snapshot.turn, { status: 'completed', requestId: 'finished', inputText: '最近提问', message: '最近回复' })
+  const wire = (version: number) => JSON.stringify(baseEnvelope({ version, type: 'snapshot', seq: 7, payload }))
+  expect(decodeServerMessage(wire(11))).toMatchObject({ payload: { snapshot: { turn: { inputText: '最近提问' } } } })
+  expect(() => decodeServerMessage(wire(10))).toThrow('invalid current input')
 })

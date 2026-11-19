@@ -1,8 +1,26 @@
-// Fixed coordinates use the layout viewport; aim at the lower middle of the
-// visible viewport, then move above any visible input region and keyboard.
-export function debugButtonBottom(layoutHeight: number, viewportBottom: number, inputTops: number[], viewportTop = 0): number {
-  const visibleInputs = inputTops.filter((top) => top > viewportTop && top < viewportBottom)
-  const preferredBottom = viewportTop + (viewportBottom - viewportTop) * 0.68 + 18
-  const boundary = Math.min(preferredBottom, viewportBottom - 8, ...visibleInputs.map((top) => top - 8))
-  return Math.max(12, layoutHeight - boundary)
+type Point = { x: number; y: number }
+
+export function debugButtonPosition(
+  viewport: { left: number; top: number; width: number; height: number },
+  buttonWidth: number,
+  buttonHeight: number,
+  safe: { right: number; bottom: number },
+  preferred: Point | null,
+  inputTop?: number,
+  actionsTop?: number,
+): Point {
+  const margin = 12
+  const minX = viewport.left + margin
+  const minY = viewport.top + margin
+  const right = viewport.left + viewport.width - safe.right - margin
+  const bottom = viewport.top + viewport.height - safe.bottom - margin
+  const boundary = inputTop !== undefined && inputTop > viewport.top && inputTop < bottom ? inputTop - 8 : bottom
+  const maxX = right - buttonWidth
+  const actionsBoundary = preferred === null && actionsTop !== undefined &&
+    actionsTop >= minY + buttonHeight + 8 && actionsTop < boundary ? actionsTop - 8 : boundary
+  const maxY = actionsBoundary - buttonHeight
+  return {
+    x: Math.max(minX, Math.min(maxX, preferred?.x ?? maxX)),
+    y: Math.max(minY, Math.min(maxY, preferred?.y ?? maxY)),
+  }
 }

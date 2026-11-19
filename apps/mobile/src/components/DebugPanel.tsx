@@ -1,21 +1,30 @@
 import SessionIcon from './SessionIcon'
-import { debugButtonBottom } from '../debug/placement'
+import { debugButtonPosition } from '../debug/placement'
 import { Capacitor } from '@capacitor/core'
+import { Preferences } from '@capacitor/preferences'
 import { nativeExperience } from '../native/experience'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { debugLog, observeDebugErrors } from '../debug/log'
 import './DebugPanel.css'
 
-export default function DebugPanel() {
+const positionKey = 'cmr.settings.debugPosition'
+const isNativeMobile = () => ['ios', 'android'].includes(Capacitor.getPlatform())
+
+export default function DebugPanel({ pageKey }: { pageKey?: string }) {
   const { enabled } = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
   useEffect(observeDebugErrors, [])
-  return enabled ? <EnabledDebugPanel /> : null
+  return enabled ? <EnabledDebugPanel pageKey={pageKey} /> : null
 }
 
-function EnabledDebugPanel() {
+function EnabledDebugPanel({ pageKey }: { pageKey?: string }) {
   const { entries } = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
   const floatRef = useRef<HTMLButtonElement>(null)
+  const preferred = useRef<{ x: number; y: number } | null>(null)
+  const drag = useRef<{ id: number; pointerX: number; pointerY: number; x: number; y: number } | null>(null)
+  const didDrag = useRef(false)
+  const moved = useRef(false)
+  const updatePosition = useRef<() => void>(() => {})
   const [open, setOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
   useEffect(() => {
@@ -25,26 +34,30 @@ function EnabledDebugPanel() {
   }, [])
   useEffect(() => {
     let frame = 0
-    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
-    const observed = new Set<Element>()
+    const activePage = document.querySelector('[data-mobile-page-active]')
+    const actions = activePage?.querySelector('[data-debug-bottom-actions]')
+    const buildFooter = activePage?.querySelector('.mobile-entry-page__build')
     function update() {
       const button = floatRef.current
       if (!button) return
       const viewport = window.visualViewport
-      const bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight
-      const inputs = [...document.querySelectorAll<HTMLElement>('[data-debug-input-region], textarea, input:not([type="file"]):not([type="hidden"])')]
-      const tops = inputs.filter((element) => !element.closest('[data-mobile-page-active="false"], .debug-dialog')).map((element) => {
-        if (!observed.has(element)) { resize?.observe(element); observed.add(element) }
-        const rect = element.getBoundingClientRect()
-        return rect.width > 0 && rect.height > 0 ? rect.top : -1
-      })
-      for (const element of observed) if (!element.isConnected) { resize?.unobserve(element); observed.delete(element) }
-      const inset = debugButtonBottom(window.innerHeight, bottom, tops, viewport?.offsetTop ?? 0)
-      button.style.bottom = `max(env(safe-area-inset-bottom, 0px), ${inset}px)`
+      const safeArea = getComputedStyle(button)
+      const focused = document.activeElement?.closest('textarea, input:not([type="file"]):not([type="hidden"])')
+      const position = debugButtonPosition({
+        left: viewport?.offsetLeft ?? 0, top: viewport?.offsetTop ?? 0,
+        width: viewport?.width ?? window.innerWidth, height: viewport?.height ?? window.innerHeight,
+      }, button.offsetWidth, button.offsetHeight, {
+        right: parseFloat(safeArea.getPropertyValue('--debug-safe-right')) || 0,
+        bottom: parseFloat(safeArea.getPropertyValue('--debug-safe-bottom')) || 0,
+      }, preferred.current, focused?.getBoundingClientRect().top, actions?.getBoundingClientRect().top)
+      button.style.left = `${position.x}px`
+      button.style.top = `${position.y}px`
     }
+    updatePosition.current = update
     function schedule() { cancelAnimationFrame(frame); frame = requestAnimationFrame(update) }
-    const mutations = new MutationObserver(schedule)
-    mutations.observe(document.body, { childList: true, subtree: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
+    if (actions) observer?.observe(actions)
+    if (buildFooter) observer?.observe(buildFooter)
     window.addEventListener('resize', schedule)
     window.addEventListener('scroll', schedule, true)
     window.addEventListener('focusin', schedule)
@@ -53,11 +66,25 @@ function EnabledDebugPanel() {
     window.visualViewport?.addEventListener('scroll', schedule)
     schedule()
     return () => {
-      cancelAnimationFrame(frame); resize?.disconnect(); mutations.disconnect()
+      cancelAnimationFrame(frame)
+      observer?.disconnect()
       window.removeEventListener('resize', schedule); window.removeEventListener('scroll', schedule, true)
       window.removeEventListener('focusin', schedule); window.removeEventListener('focusout', schedule)
       window.visualViewport?.removeEventListener('resize', schedule); window.visualViewport?.removeEventListener('scroll', schedule)
     }
+  }, [pageKey])
+  useEffect(() => {
+    if (!isNativeMobile()) return
+    let active = true
+    void Preferences.get({ key: positionKey }).then(({ value }) => {
+      if (!active || moved.current || value === null) return
+      const point = JSON.parse(value)
+      if (Number.isFinite(point?.x) && Number.isFinite(point?.y)) {
+        preferred.current = point
+        updatePosition.current()
+      }
+    }).catch(() => {})
+    return () => { active = false }
   }, [])
   useEffect(() => {
     if (!open) return
@@ -98,7 +125,36 @@ function EnabledDebugPanel() {
     finally { if (url) setTimeout(() => URL.revokeObjectURL(url!), 1000) }
   }
   return createPortal(<>
-    <button ref={floatRef} className="debug-float" aria-label="打开调试日志" onClick={() => { setFeedback(''); setOpen(true) }}><SessionIcon name="debug" size={22} /></button>
+    <button ref={floatRef} className="debug-float" aria-label="打开调试日志"
+      onPointerDown={(event) => {
+        if (!event.isPrimary || event.button !== 0) return
+        const rect = event.currentTarget.getBoundingClientRect()
+        didDrag.current = false
+        drag.current = { id: event.pointerId, pointerX: event.clientX, pointerY: event.clientY, x: rect.left, y: rect.top }
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }}
+      onPointerMove={(event) => {
+        const start = drag.current
+        if (!start || start.id !== event.pointerId) return
+        const dx = event.clientX - start.pointerX
+        const dy = event.clientY - start.pointerY
+        if (!didDrag.current && Math.hypot(dx, dy) < 6) return
+        didDrag.current = true
+        moved.current = true
+        preferred.current = { x: start.x + dx, y: start.y + dy }
+        updatePosition.current()
+      }}
+      onPointerUp={(event) => {
+        if (drag.current?.id !== event.pointerId || !didDrag.current || !isNativeMobile()) return
+        const { left: x, top: y } = event.currentTarget.getBoundingClientRect()
+        preferred.current = { x, y }
+        void Preferences.set({ key: positionKey, value: JSON.stringify(preferred.current) }).catch(() => {})
+      }}
+      onLostPointerCapture={() => { drag.current = null }}
+      onClick={(event) => {
+        if (event.detail !== 0 && didDrag.current) { didDrag.current = false; return }
+        setFeedback(''); setOpen(true)
+      }}><SessionIcon name="debug" size={22} /></button>
     {open && <div className="debug-overlay" onClick={() => setOpen(false)}>
       <section className="debug-dialog" role="dialog" aria-modal="true" aria-labelledby="debug-title" onClick={(event) => event.stopPropagation()}>
         <header><strong id="debug-title">调试日志（{entries.length}/200）</strong><button id="debug-panel-close" onClick={() => setOpen(false)}>关闭</button></header>

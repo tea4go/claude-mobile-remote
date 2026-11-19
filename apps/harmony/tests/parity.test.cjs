@@ -211,10 +211,27 @@ test('v2/v3/v4 snapshots and v3 display metadata are accepted', () => {
     assert.equal(decodeServerMessage(JSON.stringify(wire)).version, version)
   }
 })
-test('client negotiates v10 to v3 to v2 without command replay', () => {
+test('v11 restores a completed input and reply once, including after reconnect', () => {
+  const wire = snapshot()
+  wire.version = 11
+  Object.assign(wire.payload.snapshot.turn, {
+    status: 'completed', requestId: 'recent', source: 'terminal', inputText: '最近提问', message: '最近回复',
+  })
+  assert.throws(() => decodeServerMessage(JSON.stringify({ ...wire, version: 10 })), /invalid current input/)
+  const snap = decodeServerMessage(JSON.stringify(wire)).payload.snapshot
+  const action = reducer.snapshotReceived(snap)
+  let state = reducer.reduceHarmonySessionState(createInitialHarmonySessionState(), action)
+  state = reducer.reduceHarmonySessionState(state, action)
+  assert.deepEqual(state.messages.map(message => [message.kind, message.text]), [['input', '最近提问'], ['claude', '最近回复']])
+  wire.payload.snapshot.turn.status = 'idle'
+  assert.throws(() => decodeServerMessage(JSON.stringify(wire)), /invalid current input/)
+})
+test('client negotiates v11 to v10 to v3 to v2 without command replay', () => {
   const client = new (load('protocol/client').ProtocolClient)(pairing)
   client.connect(); sockets.at(-1).emit('open', {})
-  assert.equal(sockets.at(-1).frames[0].version, 10)
+  assert.equal(sockets.at(-1).frames[0].version, 11)
+  sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 10 }, 10))
+  sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 10)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 3 }, 3))
   sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 3)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 2 }, 2))
@@ -709,6 +726,17 @@ test('project grouping isolates PCs and exact directories while preserving order
   assert.deepEqual(groups[0].projects[0].sessions.map(x => x.sessionId), ['a', 'd'])
   assert.equal(groups[0].connected, 2)
   assert.notEqual(groups[0].projects[0].key, groups[1].projects[0].key)
+})
+
+test('Windows folders show the leaf name while grouping by full path', () => {
+  const { groupSessions } = load('session/projectGroups')
+  const base = { pcId: 'pc', wsUrl: 'ws://example/ws' }
+  const projects = groupSessions([
+    { ...base, sessionId: 'a', projectCwd: 'C:\\work\\demo\\' },
+    { ...base, sessionId: 'b', projectCwd: '//server/share/demo' },
+  ])[0].projects
+  assert.deepEqual(projects.map(project => project.title), ['demo', 'demo'])
+  assert.notEqual(projects[0].key, projects[1].key)
 })
 
 test('project pairing checks exact PC and cwd and rewrites only a validated child host', () => {

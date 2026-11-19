@@ -243,7 +243,7 @@ export default function MessageComposer({
   }))
 
   return (
-    <div data-debug-input-region style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div data-debug-bottom-actions style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {selectedFiles.length > 0 && (
         <div data-testid="composer-attachments" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span>已选 {selectedFiles.length} 个附件（每个最多 4 MiB，合计 8 MiB）</span>

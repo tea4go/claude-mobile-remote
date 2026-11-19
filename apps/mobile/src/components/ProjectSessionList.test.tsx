@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import ProjectSessionList from './ProjectSessionList'
 import { formatActivityTime } from './activityTime'
 import { defaultSessionName } from '../session/store'
@@ -136,4 +136,49 @@ describe('项目分组', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+})
+
+test('首页显示完整 Windows 路径，同名不同路径仍各自分组', () => {
+  const noop = () => {}
+  const first = item('win-a', 'C:\\work\\shared\\', null)
+  const second = item('win-b', 'D:/remote/shared', null)
+  render(<ProjectSessionList compactPCHeader sessions={[first, second]} onOpen={noop} onRemove={noop} onRename={noop} />)
+  expect(screen.getAllByText('shared')).toHaveLength(2)
+  const firstProject = screen.getByText(first.runtimeState!.projectCwd!).closest('button')
+  const secondProject = screen.getByText(second.runtimeState!.projectCwd!).closest('button')
+  expect(firstProject).toHaveTextContent('shared')
+  expect(secondProject).toHaveTextContent('shared')
+  expect(firstProject).not.toBe(secondProject)
+  expect(screen.queryByRole('button', { name: '在 shared 新建会话' })).not.toBeInTheDocument()
+})
+
+test('iOS 会话左滑区用图标操作，重命名限长、拒绝空白且取消不保存', async () => {
+  const session = item('swipe', '/work/alpha', null)
+  const onRename = vi.fn()
+  const onOpen = vi.fn()
+  const onRemove = vi.fn()
+  render(<ProjectSessionList compactPCHeader sessions={[session]} onRename={onRename} onOpen={onOpen} onRemove={onRemove} />)
+  expect(screen.queryByRole('button', { name: /更多操作/ })).toBeNull()
+  fireEvent.click(screen.getByRole('img', { name: '重命名' }))
+  const input = await screen.findByRole('textbox', { name: '会话名称' })
+  expect(input).toHaveValue(session.name)
+  expect(screen.getByRole('dialog', { name: '重命名会话' })).toHaveClass('pairing-code-dialog')
+  expect(input).toHaveFocus()
+  expect((input as HTMLInputElement).selectionStart).toBe(0)
+  expect((input as HTMLInputElement).selectionEnd).toBe(session.name.length)
+  fireEvent.change(input, { target: { value: '   ' } })
+  expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
+  expect(onRename).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('img', { name: '重命名' }))
+  const reopened = await screen.findByRole('textbox', { name: '会话名称' })
+  fireEvent.change(reopened, { target: { value: '名'.repeat(45) } })
+  expect(reopened).toHaveValue('名'.repeat(40))
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  expect(onRename).toHaveBeenCalledExactlyOnceWith(session.sessionId, '名'.repeat(40))
+  expect(onOpen).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('img', { name: '删除' }))
+  expect(onRemove).not.toHaveBeenCalled()
+  fireEvent.click(await screen.findByText('删除', { selector: 'button span' }))
+  await waitFor(() => expect(onRemove).toHaveBeenCalledExactlyOnceWith(session.sessionId))
 })

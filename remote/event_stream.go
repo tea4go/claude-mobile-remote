@@ -98,6 +98,9 @@ func (s *EventStream) UpdateSnapshot(snapshot protocol.Snapshot) error {
 		if snapshot.Turn.RequestID == "" {
 			snapshot.Turn = s.snapshot.Turn
 		} else {
+			if snapshot.Turn.InputText == "" {
+				snapshot.Turn.InputText = s.snapshot.Turn.InputText
+			}
 			snapshot.Turn.Message = s.snapshot.Turn.Message
 			snapshot.Turn.Display = protocol.CloneTurnDisplay(s.snapshot.Turn.Display)
 			if snapshot.Turn.Status == protocol.TurnRunning || snapshot.Turn.Status == protocol.TurnWaiting {
@@ -247,6 +250,8 @@ func applyEvent(snapshot protocol.Snapshot, event protocol.Event) protocol.Snaps
 		snapshot.Turn.Source = event.Source
 	}
 	if event.Kind == protocol.EventTurnStarted {
+		snapshot.Turn.Historical = false
+		snapshot.Turn.InputText = protocol.CurrentInputText(event.Text)
 		snapshot.Turn.Message = ""
 		snapshot.Turn.Error = nil
 	}

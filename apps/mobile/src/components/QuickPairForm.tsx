@@ -126,7 +126,7 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
     {latest === 'pc' && pcFeedback}
     {latest === 'external' && feedback}
     </div>
-    <div className="quick-pair-ios__actions">
+    <div className="quick-pair-ios__actions" data-debug-bottom-actions>
       <Button className="pairing-form__primary" color="primary" disabled={disabled || phase !== 'idle'} onClick={start}>连接</Button>
       {onScan && <Button className="pairing-form__scan" disabled={disabled || phase !== 'idle'} color="primary" fill="outline" onClick={onScan}><SessionIcon name="scan" size={16} style={{ marginRight: 6 }} />扫描二维码</Button>}
     </div>

@@ -1,5 +1,5 @@
 import type { SessionDiagnostic } from '../protocol/types'
-export type LogCode = 'network_lost' | 'network_monitor_failed' | 'target' | 'connect' | 'socket_open' | 'authenticated' | 'subscribed' | 'ready' | 'closed' | 'socket_error' | 'protocol_error' | 'pairing_invalid' | 'connect_timeout' | 'auth_timeout' | 'subscribe_timeout' | 'snapshot_timeout' | 'ping' | 'pong' | 'heartbeat_timeout' | 'legacy' | 'command' | 'command_accepted' | 'command_rejected' | 'command_unknown' | 'reconnect' | 'background' | 'host'
+export type LogCode = 'network_lost' | 'network_monitor_failed' | 'target' | 'connect' | 'socket_open' | 'socket_connect_result' | 'socket_open_error' | 'socket_event_error' | 'hello_send_result' | 'hello_send_error' | 'hello_response' | 'hello_response_error' | 'authenticated' | 'subscribed' | 'ready' | 'closed' | 'socket_error' | 'protocol_error' | 'pairing_invalid' | 'connect_timeout' | 'auth_timeout' | 'subscribe_timeout' | 'snapshot_timeout' | 'ping' | 'pong' | 'heartbeat_timeout' | 'legacy' | 'command' | 'command_accepted' | 'command_rejected' | 'command_unknown' | 'reconnect' | 'background' | 'host'
 export interface LogEntry { time: number; code: LogCode; detail: string }
 export class DebugLog {
   enabled: boolean = false
@@ -34,6 +34,13 @@ export function logDescription(code: LogCode): string {
   switch (code) {
     case 'connect': return '开始连接 WebSocket'
     case 'socket_open': return '传输已建立，开始配对认证'
+    case 'socket_connect_result': return '建连请求结果，1为成功、0为失败，其他值为系统错误码'
+    case 'socket_open_error': return '打开回调报告错误，value为系统错误码'
+    case 'socket_event_error': return '系统 WebSocket error 事件，value为系统错误码'
+    case 'hello_send_result': return '认证首帧发送结果，1为成功、0为失败'
+    case 'hello_send_error': return '认证首帧发送异常，value为系统错误码'
+    case 'hello_response': return '等待认证时收到帧，1为文本、0为二进制'
+    case 'hello_response_error': return '等待认证时接收异常，value为系统错误码'
     case 'authenticated': return '认证成功，等待订阅'
     case 'subscribed': return '订阅成功，等待状态快照'
     case 'ready': return '快照校验通过，连接就绪'

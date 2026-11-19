@@ -4,6 +4,13 @@ import App from './App'
 import { parsePairingFragment } from './protocol/pairing'
 import { PROTOCOL_VERSION } from './protocol/types'
 import { Capacitor } from '@capacitor/core'
+import { App as CapacitorApp } from '@capacitor/app'
+
+vi.mock('@capacitor/app', async (importOriginal) => {
+  const { App } = await importOriginal<typeof import('@capacitor/app')>()
+  return { App: { addListener: App.addListener, getInfo: vi.fn(async () => { throw new Error('native app info unavailable') }) } }
+})
+
 
 // 可编程假 WebSocket（与 client.test 相同形状）。
 class FakeWebSocket {
@@ -1097,4 +1104,48 @@ describe('App attachment transport', () => {
       else expect(screen.getByText(/草稿已保留/)).toBeInTheDocument()
     })
   })
+})
+
+test.each(['ios', 'android'] as const)('%s 首次配对展示最近正文，首页、配对页和关于展示同一构建信息', async (nativePlatform) => {
+  const platform = vi.spyOn(Capacitor, 'getPlatform').mockReturnValue(nativePlatform)
+  const info = vi.spyOn(CapacitorApp, 'getInfo').mockResolvedValue({ name: 'ccBuddy', id: 'fixture', version: '1.0.9', build: '1' })
+  try {
+    window.location.hash = fragmentOf(PAIRING)
+    const view = render(<App cache={null} experience={null} socketFactory={(url) => new FakeWebSocket(url)} />)
+    const socket = FakeWebSocket.instances[0]!
+    const snapshot = {
+      ...SNAPSHOT,
+      version: 11,
+      payload: {
+        ...SNAPSHOT.payload,
+        snapshot: {
+          ...SNAPSHOT.payload.snapshot,
+          turn: {
+            ...SNAPSHOT.payload.snapshot.turn,
+            status: 'completed',
+            requestId: 'completed-turn',
+            source: 'terminal',
+            inputText: '来自电脑的最近提问',
+            message: '来自电脑的最近回复',
+          },
+        },
+      },
+    }
+    act(() => completeHandshake(socket, snapshot, 11))
+    expect(JSON.parse(socket.sent[0]!).version).toBe(11)
+    expect(await screen.findByText('来自电脑的最近提问')).toBeInTheDocument()
+    expect(screen.getByText('来自电脑的最近回复')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('返回'))
+    const footer = await screen.findByText(/版本 1\.0\.9 · 构建号 1 · 构建时间/)
+    expect(footer.closest('footer')).toContainElement(screen.getByRole('button', { name: '新增配对' }))
+    expect(footer.closest('.session-list-scroll')).toBeNull()
+    const label = footer.textContent
+    fireEvent.click(screen.getByRole('button', { name: '新增配对' }))
+    expect(view.container.querySelector('.mobile-entry-page__build')).toHaveTextContent(label!)
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    expect(screen.getByText('关于').closest('.adm-list-item')).toHaveTextContent(label!)
+  } finally {
+    info.mockRestore()
+    platform.mockRestore()
+  }
 })

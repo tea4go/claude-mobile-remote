@@ -12,3 +12,5 @@
 /.appanalyzer
 # Command line ArkUI preview artifacts
 **/.preview
+
+/entry/src/main/ets/common/BuildInfo.ets

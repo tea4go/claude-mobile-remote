@@ -30,7 +30,7 @@ import {
   PAIRING_PAYLOAD_VERSION,
   type PairingPayload,
 } from './protocol/pairing'
-import type { PermissionMode } from './protocol/types'
+import { LATEST_INPUT_PROTOCOL_VERSION, type PermissionMode } from './protocol/types'
 import { createAppStore } from './session/appStore'
 import { createInitialState, type MobileState } from './session/reducer'
 import { SessionRuntimeManager } from './session/runtime'
@@ -50,6 +50,13 @@ const defaultSocketFactory: SocketFactory = (url) =>
 const defaultNow = () => Date.now()
 const EMPTY_STATE = createInitialState()
 const appDisplayName = 'ccBuddy'
+declare const __APP_BUILD_TIME__: string
+
+function formatBuildTime() {
+  const date = new Date(__APP_BUILD_TIME__)
+  const twoDigits = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())} ${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`
+}
 
 function turnStatusOf(state: MobileState) {
   if (state.cachedAt != null) return 'unknown' as const
@@ -68,6 +75,18 @@ function cancelTargetOf(state: MobileState): string | null {
 }
 
 function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = defaultSocketFactory, native = null, experience = nativeExperience }: AppProps = {}) {
+  const isNativeMobile = ['ios', 'android'].includes(Capacitor.getPlatform())
+  const preferredVersion = isNativeMobile ? LATEST_INPUT_PROTOCOL_VERSION : undefined
+  const [buildInfo, setBuildInfo] = useState('')
+  useEffect(() => {
+    if (!isNativeMobile) return
+    let active = true
+    void CapacitorApp.getInfo().then(({ version, build }) => {
+      if (active) setBuildInfo(`版本 ${version} · 构建号 ${build} · 构建时间 ${formatBuildTime()}`)
+    }).catch(() => {})
+    return () => { active = false }
+  }, [isNativeMobile])
+  const buildFooter = buildInfo && <small className="mobile-build-footer">{buildInfo}</small>
   const [pcProfiles, setPCProfiles] = useState<PCProfiles>({})
   const [profilesReady, setProfilesReady] = useState(false)
   const [editingPC, setEditingPC] = useState<string | null>(null)
@@ -85,7 +104,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   }, [toast])
   const debugState = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
   const [appStore] = useState(createAppStore)
-  const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now, native !== null))
+  const [runtime] = useState(() => new SessionRuntimeManager(appStore, socketFactory, now, native !== null, preferredVersion))
   const [managementBusy, setManagementBusy] = useState<Record<string, boolean>>({})
   const [managementFeedback, setManagementFeedback] = useState<Record<string, string | null>>({})
   const [recentlyViewedId, setRecentlyViewedId] = useState<string | null>(null)
@@ -222,7 +241,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     }
     recordAction('pairing')
     setPairingTarget(safeNetworkTarget(payload.wsUrl))
-    const client = new ProtocolClient(payload, socketFactory)
+    const client = new ProtocolClient(payload, socketFactory, preferredVersion)
     candidate.current = client
     const bufferedEvents: import('./protocol/client').ClientEvent[] = []
     const current = () => generation === pairingGeneration.current && candidate.current === client
@@ -579,6 +598,15 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     if (page !== null) page.scrollTop = listScrollY.current
   }, [pageKey])
 
+  const showPairingPage = () => {
+    setPairingDirection('forward')
+    projectPairing.current = null
+    setProjectPairingCwd(null)
+    setPairingTarget(null)
+    appStore.getState().setAdding(true)
+    appStore.getState().setPairingError(null)
+  }
+
   let pageContent
   if (pageKey.startsWith('detail:') && currentRecord !== undefined && currentSessionId !== null) {
     pageContent = (
@@ -613,7 +641,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     )
   } else if (editingPC && groupPCs(sessions).some(pc => pc.key === editingPC)) {
     const pc = groupPCs(sessions).find(pc => pc.key === editingPC)!
-    pageContent = <PCEditor key={editingPC} pc={pc} onBack={() => setEditingPC(null)} onTest={testPC} onSave={async profile => {
+    pageContent = <PCEditor compactFeedback={isNativeMobile} key={editingPC} pc={pc} onBack={() => setEditingPC(null)} onTest={testPC} onSave={async profile => {
       const next = { ...pcProfiles, [pc.key]: profile }
       await writePCProfiles(next)
       profilesRef.current = next
@@ -625,7 +653,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     pageContent = <div className="mobile-safe-area-content" style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>正在恢复已配对会话…</div>
   } else if ((adding && settingsPage === null) || (sessions.length === 0 && settingsPage === null)) {
     pageContent = (
-      <div className={`mobile-entry-page${['ios', 'android'].includes(Capacitor.getPlatform()) ? ' mobile-entry-page--native' : ''}`} style={{ background: PAGE_BACKGROUND }}>
+      <div className={`mobile-entry-page${isNativeMobile ? ' mobile-entry-page--native' : ''}${isNativeMobile ? ' native-mobile' : ''}`} style={{ background: PAGE_BACKGROUND }}>
         <div className="mobile-safe-area-header">
           <NavBar
             back={sessions.length === 0 ? null : ''}
@@ -646,7 +674,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         </div>
 
         {projectPairingCwd && !['ios', 'android'].includes(Capacitor.getPlatform()) && <p>请扫描目标电脑和目录下新会话的配对码：{projectPairingCwd}</p>}
-        <PairingForm pcFeedback={<PCConnectionFeedback feedback={pcFeedback}/>} pcList={<PCList onFeedback={setPCFeedback} sessions={sessions} disabled={!profilesReady || pairingProgress !== null || pairingSaving} onTest={testPC} onEdit={key => { setPairingDirection('back'); setEditingPC(key) }} onSelect={pc => { cancelPairing(); selectedChanged.current = true; setSelectedPC(pc); projectPairing.current = null; setProjectPairingCwd(null); appStore.getState().setAdding(false); appStore.getState().setPairingError(null) }} onRemove={async pc => {
+        <PairingForm pcFeedback={<PCConnectionFeedback feedback={pcFeedback}/>} pcList={<PCList refreshOnEntry={isNativeMobile} onFeedback={setPCFeedback} sessions={sessions} disabled={!profilesReady || pairingProgress !== null || pairingSaving} onTest={testPC} onEdit={key => { setPairingDirection('back'); setEditingPC(key) }} onSelect={pc => { cancelPairing(); selectedChanged.current = true; setSelectedPC(pc); projectPairing.current = null; setProjectPairingCwd(null); appStore.getState().setAdding(false); appStore.getState().setPairingError(null) }} onRemove={async pc => {
           for (const record of pc.sessions) { if (!await removePairing(record.sessionId)) return }
           const next = { ...pcProfiles }; delete next[pc.key]
           try { await writePCProfiles(next); setPCProfiles(next) } catch { showToast('电脑配置清理失败') }
@@ -665,6 +693,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
             appStore.getState().setPairingError('扫码暂不可用，请检查相机权限')
           })
         }} />
+        {buildInfo && <footer className="mobile-entry-page__build">{buildFooter}</footer>}
       </div>
     )
   } else if (settingsPage === 'settings') {
@@ -683,11 +712,12 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         }}>清除</Button>}><SessionIcon name="clear" size={32} style={{ color: "#3478f6", marginRight: 8 }} />清除离线缓存</List.Item>}
       </List>
       {experience !== null && <NotificationSettings port={experience} />}
+      {buildInfo && <List><List.Item description={buildInfo}>关于</List.Item></List>}
       </div>
     </div>
   } else {
     pageContent = (
-    <div className="session-list-page">
+    <div className={`session-list-page${isNativeMobile ? " session-list-page--fixed-footer" : ""}`}>
       <div className="mobile-safe-area-header">
         <NavBar back={null} right={<button className="mobile-settings-button" onClick={() => { setSettingsDirection('forward'); setSettingsPage('settings') }}><SessionIcon name="settings" size={16} style={{ marginRight: 5 }} />设置</button>}>{appDisplayName}</NavBar>
       </div>
@@ -696,6 +726,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <ProjectSessionList
         sessions={sessions}
+        compactPCHeader={isNativeMobile}
         recentlyViewedId={recentlyViewedId}
         selectedPC={selectedPC ?? null}
         managementBusy={managementBusy}
@@ -718,14 +749,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
           appStore.getState().setPairingError(null)
           appStore.getState().setAdding(true)
         }}
-        onAdd={() => {
-          setPairingDirection('forward')
-          projectPairing.current = null
-          setProjectPairingCwd(null)
-          setPairingTarget(null)
-          appStore.getState().setAdding(true)
-          appStore.getState().setPairingError(null)
-        }}
+        onAdd={isNativeMobile ? undefined : showPairingPage}
         onOpen={openSession}
         onRemove={(sessionId) => { void removePairing(sessionId) }}
         onRename={(sessionId, name) => {
@@ -739,13 +763,14 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       />
       </PullToRefresh>
       </div>
+      {isNativeMobile && <footer className="project-session-list__add" data-debug-bottom-actions><Button color="primary" block aria-label="新增配对" onClick={showPairingPage}>＋ 新会话</Button>{buildFooter}</footer>}
     </div>
     )
   }
 
   if (demoOpen) return <DemoPage onExit={() => setDemoOpen(false)} />
 
-  return <>{toast && <div role="alert" style={{ position: 'fixed', zIndex: 3000, left: '50%', top: '45%', transform: 'translate(-50%, -50%)', maxWidth: '85%', padding: '10px 16px', borderRadius: 8, background: 'rgba(0,0,0,.8)', color: '#fff', textAlign: 'center', pointerEvents: 'none' }}>{toast.message}</div>}<DebugPanel /><PageTransition
+  return <>{toast && <div role="alert" style={{ position: 'fixed', zIndex: 3000, left: '50%', top: '45%', transform: 'translate(-50%, -50%)', maxWidth: '85%', padding: '10px 16px', borderRadius: 8, background: 'rgba(0,0,0,.8)', color: '#fff', textAlign: 'center', pointerEvents: 'none' }}>{toast.message}</div>}<DebugPanel pageKey={pageKey} /><PageTransition
     pageKey={pageKey}
     direction={pageKey === 'list' ? 'back' : pageKey === 'pairing' ? pairingDirection : pageKey === 'settings' ? settingsDirection : 'forward'}
     onEdgeBack={editingPC ? () => setEditingPC(null) : pageKey.startsWith('detail:') ? backToList : pageKey === 'pairing' && sessions.length > 0 ? () => { if (pairingSavingRef.current) return; cancelPairing(); projectPairing.current = null; setProjectPairingCwd(null); setPairingTarget(null); appStore.getState().setAdding(false); appStore.getState().setPairingError(null) } : pageKey === 'settings' ? () => { setPairingDirection('back'); setSettingsPage(null) } : undefined}

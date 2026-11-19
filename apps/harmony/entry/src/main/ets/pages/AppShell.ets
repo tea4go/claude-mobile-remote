@@ -54,7 +54,8 @@ import { projectMatches, createdPairingAddress } from '../session/projectPairing
 import { commitPairingRecords } from '../session/pairingCommit'
 
 type AppView = 'list' | 'pairing' | 'pairingSettings' | 'detail'
-interface DisplayPreferences { selectedPC: string | null; debugEnabled: boolean; pcProfiles?: Array<PCProfile>; addressHistory?: Array<string> }
+interface DebugPosition { right: number; bottom: number }
+interface DisplayPreferences { debugPosition?: DebugPosition; selectedPC: string | null; debugEnabled: boolean; pcProfiles?: Array<PCProfile>; addressHistory?: Array<string> }
 interface ProjectTarget { pcId: string; cwd: string }
 
 function defaultView(records: Array<SessionRecord>): AppView {
@@ -145,6 +146,32 @@ export struct AppShell {
   @State private demoOpen: boolean = false
   @State private demoOpening: boolean = false
   private demoGeneration: number = 0
+  @State private debugRight: number = 12
+  @State private debugBottom: number = 12
+  private debugDragRight: number = 12
+  private debugDragBottom: number = 12
+  private debugAreaWidth: number = 0
+  @State private debugAreaHeight: number = 0
+  @State private debugAreaTop: number = 0
+  @State private debugListActionsTop: number = 0
+  @State private debugPairingActionsTop: number = 0
+  @State private debugDetailActionsTop: number = 0
+  @State private debugMoved: boolean = false
+  private savedDebugPosition?: DebugPosition
+
+  private defaultDebugBottom(): number {
+    const actionsTop = this.view === 'list' ? this.debugListActionsTop :
+      this.view === 'pairing' ? this.debugPairingActionsTop :
+      this.view === 'detail' ? this.debugDetailActionsTop : 0
+    if (actionsTop < this.debugAreaTop + 60) return 12
+    return Math.max(12, this.debugAreaTop + this.debugAreaHeight - actionsTop + 8)
+  }
+
+  private positionDebug(right: number, bottom: number): void {
+    this.debugRight = Math.min(Math.max(12, right), Math.max(12, this.debugAreaWidth - 52))
+    this.debugBottom = Math.min(Math.max(12, bottom), Math.max(12, this.debugAreaHeight - 52))
+  }
+
   @State private debugOpen: boolean = false
   @State private debugEnabled: boolean = false
   @State private addressHistory: Array<string> = []
@@ -350,6 +377,12 @@ export struct AppShell {
           this.selectedPC = prefs.selectedPC ?? 'all'; this.selectedPCConfigured = true
           this.pcProfiles = Array.isArray(prefs.pcProfiles) ? prefs.pcProfiles.filter((profile: PCProfile) => profile !== null && typeof profile.key === 'string' && typeof profile.name === 'string' && typeof profile.ip === 'string' && validComputerIP(profile.ip) && (!profile.ip.includes(':') || profile.ip.startsWith('['))) : []
           this.addressHistory = Array.isArray(prefs.addressHistory) ? prefs.addressHistory.filter((item: string) => typeof item === 'string' && validPairAddress(item)).slice(0, 10) : []
+          const position = prefs.debugPosition
+          if (position && Number.isFinite(position.right) && Number.isFinite(position.bottom)) {
+            this.savedDebugPosition = position
+            this.debugMoved = true
+            if (this.debugAreaWidth > 0 && this.debugAreaHeight > 0) this.positionDebug(position.right, position.bottom)
+          }
           debugLog.setEnabled(prefs.debugEnabled)
         }
         this.preferencesReady = true
@@ -727,7 +760,7 @@ export struct AppShell {
 
   private saveDisplayPreferences(): void {
     if (!this.preferencesReady || this.storage === null) return
-    const prefs: DisplayPreferences = { selectedPC: this.selectedPC === 'all' ? null : this.selectedPC, debugEnabled: this.debugEnabled, pcProfiles: this.pcProfiles, addressHistory: this.addressHistory }
+    const prefs: DisplayPreferences = { debugPosition: this.savedDebugPosition, selectedPC: this.selectedPC === 'all' ? null : this.selectedPC, debugEnabled: this.debugEnabled, pcProfiles: this.pcProfiles, addressHistory: this.addressHistory }
     void this.storage.writeDisplayPreferences(JSON.stringify(prefs)).catch(() => { this.nativeError = '设置保存失败' })
   }
   private reconcileSelectedPC(): void {
@@ -783,7 +816,7 @@ export struct AppShell {
     if (this.pairingSaving) return
     this.projectTarget = null; this.createdSource = ''
     this.pendingPairing = null; this.entryStore.disconnect()
-    this.recentlyViewedId = this.currentSessionId
+    if (this.view === 'detail') this.recentlyViewedId = this.currentSessionId
     this.listOrder = listSessionRecords(this.sessions).map((record: SessionRecord) => record.sessionId)
     this.pairingInput = ''
     this.view = 'list'
@@ -998,6 +1031,7 @@ export struct AppShell {
       title: this.activeRecordTitle(),
       state: this.sessionState,
       draft: this.draft,
+      onDebugActionsTop: (top: number) => { this.debugDetailActionsTop = top },
       speechActive: this.speechActive,
       speechFinishing: this.speechFinishing,
       debugEnabled: this.debugEnabled,
@@ -1083,6 +1117,7 @@ export struct AppShell {
         this.selectedPC = key
         this.selectedPCConfigured = true
         this.saveDisplayPreferences()
+        this.openListPage()
       },
       onSettings: () => { this.pairingBehindSettings = true; this.view = 'pairingSettings' },
       projectCwd: this.projectTarget?.cwd ?? '',
@@ -1093,6 +1128,7 @@ export struct AppShell {
       nativeReady: this.nativeReady && !this.pairingSaving,
       scanning: this.scanning,
       onScan: () => { void this.scan() },
+      onDebugActionsTop: (top: number) => { this.debugPairingActionsTop = top },
       connection: this.sessionState.connection,
       lastError: this.sessionState.lastError,
       selfChecks: this.selfChecks,
@@ -1121,30 +1157,14 @@ export struct AppShell {
   private buildListView(): void {
     SessionListPage({
       onRefresh: () => this.refreshSessions(),
+      onDebugActionsTop: (top: number) => { this.debugListActionsTop = top },
       initialSettings: this.view === 'pairingSettings',
       onExitSettings: () => { this.view = 'pairing' },
       onDemo: () => this.openDemo(),
       debugEnabled: this.debugEnabled,
       onDebug: (value: boolean) => { debugLog.setEnabled(value); this.saveDisplayPreferences() },
       selectedPC: this.selectedPC,
-      projectCreating: this.projectCreating,
       onSelectPC: (key: string) => { this.selectedPC = key; this.selectedPCConfigured = true; this.saveDisplayPreferences() },
-      onCreateProject: (pcKey: string, cwd: string, sourceId: string) => {
-        if (cwd.length === 0 || !/^[0-9a-f]{32}$/.test(pcKey)) {
-          promptAction.showToast({ message: '无法验证电脑或工作目录，请重新配对后重试' }); return
-        }
-        if (sourceId.length === 0) {
-          const hasConnected = this.sessions.some((record: SessionRecord) => sessionPCKey(record) === pcKey && record.projectCwd === cwd && record.status === 'connected')
-          if (hasConnected) { promptAction.showToast({ message: '当前会话不支持新建' }); return }
-          this.openPairingPage(); this.projectTarget = { pcId: pcKey, cwd }
-          promptAction.showToast({ message: '请扫描目标电脑和目录的新会话配对码' }); return
-        }
-        const source = this.stores.get(sourceId)
-        if (source === undefined || this.projectCreating || this.pendingPairing !== null || this.managementPendingSessions.has(sourceId) || !source.createSession()) {
-          promptAction.showToast({ message: '暂时无法新建会话，请检查连接后重试' }); return
-        }
-        this.managementPendingSessions.add(sourceId); this.projectCreating = true
-      },
       onDebugOpen: () => { this.debugOpen = true },
       sessions: this.sortedSessions(),
       profiles: this.pcProfiles,
@@ -1209,12 +1229,41 @@ export struct AppShell {
     .width('100%')
     .height('100%')
     if (this.debugEnabled && !this.debugOpen && !this.demoOpen && !this.demoOpening) {
-      Row() { Blank(); Button('⌘', { type: ButtonType.Normal }).width(36).height(36).padding(0).fontSize(18).accessibilityText('查看调试日志').onClick(() => { this.debugOpen = true }) }.width('100%').position({ x: 0, y: '60%' })
+      Button({ type: ButtonType.Circle }) {
+        Image($r('app.media.debug_bug')).width(22).height(22).draggable(false)
+      }.width(40).height(40).padding(0).backgroundColor('#f5f8fb')
+        .border({ width: 1, color: '#cbd5df' }).accessibilityText('打开调试日志')
+        .position({ right: this.debugRight, bottom: this.debugMoved ? this.debugBottom : this.defaultDebugBottom() })
+        .onClick(() => { this.debugOpen = true })
+        .gesture(PanGesture({ fingers: 1, direction: PanDirection.All, distance: 6 })
+          .onActionStart((event: GestureEvent) => {
+            this.debugDragRight = this.debugRight
+            this.debugDragBottom = this.debugMoved ? this.debugBottom : this.defaultDebugBottom()
+            this.debugMoved = true
+            this.positionDebug(this.debugDragRight - event.offsetX, this.debugDragBottom - event.offsetY)
+          })
+          .onActionUpdate((event: GestureEvent) => {
+            this.positionDebug(this.debugDragRight - event.offsetX, this.debugDragBottom - event.offsetY)
+          })
+          .onActionEnd(() => {
+            this.savedDebugPosition = { right: this.debugRight, bottom: this.debugBottom }
+            this.saveDisplayPreferences()
+          }))
     }
     if (this.debugOpen) {
-      Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.debugOpen = false }).transition(pageFade())
-      DebugPanel({ onClose: () => { this.debugOpen = false }, onEnabledChange: (value: boolean) => { debugLog.setEnabled(value); this.saveDisplayPreferences() } }).transition(pageFade())
+      Stack({ alignContent: Alignment.Center }) {
+        Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.debugOpen = false })
+        DebugPanel({ onClose: () => { this.debugOpen = false } }).width('96%').constraintSize({ maxWidth: 680 }).zIndex(1)
+      }.width('100%').height('100%').zIndex(1).transition(pageFade())
     }
-    }.width('100%').height('100%')
+    }.width('100%').height('100%').onAreaChange((_previous: Area, current: Area) => {
+      this.debugAreaWidth = Number(current.width)
+      this.debugAreaHeight = Number(current.height)
+      this.debugAreaTop = Number(current.globalPosition.y)
+      if (this.debugAreaWidth > 0 && this.debugAreaHeight > 0) {
+        this.positionDebug(this.savedDebugPosition?.right ?? this.debugRight,
+          this.savedDebugPosition?.bottom ?? this.debugBottom)
+      }
+    })
   }
 }

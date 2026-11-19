@@ -636,7 +636,7 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   next.lastNotice = null
 
   const turnActive = snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting'
-  if (turnActive && snapshot.turn.inputText !== undefined && snapshot.turn.source !== '') {
+  if (snapshot.turn.inputText !== undefined && snapshot.turn.source !== '') {
     let hasInput = false
     let replyIndex = -1
     for (let index = 0; index < next.messages.length; index += 1) {

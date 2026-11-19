@@ -5,6 +5,9 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   // 当前工作区从 C: 入口访问、真实目录落在 D:；Windows junction 下若把 root 归一到真实路径，
   // Vitest 的 setupFiles 会被错误解析成 /src/...。这里显式保留入口路径。
   resolve: {

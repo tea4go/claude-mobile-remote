@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core'
 import SessionIcon from './SessionIcon'
 import { useEffect, useState } from 'react'
 import { Button } from 'antd-mobile'
@@ -20,6 +21,7 @@ export default function NotificationSettings({ port }: { port: ExperiencePort })
     return () => { mounted = false; window.clearInterval(timer) }
   }, [port])
   const { enabled, remoteConfigured, remoteEnabled, remoteReady, pushError, vendorConfigured } = status
+  const isIOS = Capacitor.getPlatform() === 'ios'
   if (status.available === false) return <div style={{ padding: 16 }}>
     <p role="status">当前测试版本暂未开放系统通知。请打开应用查看会话进展和待处理事项。</p>
   </div>
@@ -37,13 +39,13 @@ export default function NotificationSettings({ port }: { port: ExperiencePort })
     {remoteConfigured === undefined
       ? <p>App 在线并收到会话事件时可显示本地提醒。</p>
       : <>
-        <p>远程通知使用极光推送；启用后会向 edo 登记匿名会话标识与本机推送 ID，用于 App 在后台或退出后的系统提醒。电脑端需启用通知服务，点击后需能连接电脑。</p>
+        {!isIOS && <p>远程通知使用极光推送；启用后会向 edo 登记匿名会话标识与本机推送 ID，用于 App 在后台或退出后的系统提醒。电脑端需启用通知服务，点击后需能连接电脑。</p>}
         {enabled && remoteConfigured && remoteEnabled === false && <Button disabled={busy} onClick={() => {
           setBusy(true)
           void port.setNotifications({ enabled: true }).then(() => port.notificationStatus()).then(setStatus)
             .catch(() => setNotice('无法启用后台通知')).finally(() => setBusy(false))
         }}>启用后台通知（极光）</Button>}
-        {enabled && vendorConfigured === false && <p>当前手机的离线通知通道尚未配置，应用退出后可能收不到提醒。</p>}
+        {!isIOS && enabled && vendorConfigured === false && <p>当前手机的离线通知通道尚未配置，应用退出后可能收不到提醒。</p>}
         <p role="status">{!remoteConfigured ? '远程通知尚未配置，当前仅提供在线提醒。'
           : !enabled ? '远程通知已关闭。'
           : remoteEnabled === false ? '后台通知尚未启用，当前仅提供在线提醒。'

@@ -3,7 +3,7 @@ import { expect, test, vi } from 'vitest'
 import { Capacitor } from '@capacitor/core'
 
 const back = vi.hoisted(() => ({ handler: null as (() => void) | null }))
-vi.mock('@capacitor/app', () => ({ App: { addListener: vi.fn(async (_event: string, handler: () => void) => {
+vi.mock('@capacitor/app', () => ({ App: { getInfo: vi.fn(async () => ({ version: '1.0.5' })), addListener: vi.fn(async (_event: string, handler: () => void) => {
   back.handler = handler
   return { remove: async () => { if (back.handler === handler) back.handler = null } }
 }) } }))

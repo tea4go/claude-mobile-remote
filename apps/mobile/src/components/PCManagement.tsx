@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Dialog, Input, NavBar, Popup, SwipeAction } from 'antd-mobile'
 import SessionIcon from './SessionIcon'
 import { DeleteOutline, MoreOutline, RedoOutline } from 'antd-mobile-icons'
@@ -39,29 +39,60 @@ export function PCConnectionFeedback({ feedback }: { feedback: PCFeedback | null
     </Popup>
   </div>
 }
-export function PCList({ sessions, disabled, onSelect, onEdit, onRemove, onTest, onFeedback }: { sessions: SessionListItem[]; disabled?: boolean; onSelect: (key: string | null) => void; onEdit: (key: string) => void; onRemove: (pc: PCGroup<SessionListItem>) => Promise<void>; onTest: TestPC; onFeedback?: (feedback: PCFeedback | null) => void }) {
+export function PCList({ sessions, disabled, refreshOnEntry, onSelect, onEdit, onRemove, onTest, onFeedback }: { sessions: SessionListItem[]; disabled?: boolean; refreshOnEntry?: boolean; onSelect: (key: string | null) => void; onEdit: (key: string) => void; onRemove: (pc: PCGroup<SessionListItem>) => Promise<void>; onTest: TestPC; onFeedback?: (feedback: PCFeedback | null) => void }) {
   const [testing, setTesting] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [feedback, setFeedback] = useState<PCFeedback | null>(null)
   const [testStates, setTestStates] = useState<Record<string, { ip: string; ok: boolean }>>({})
   function publishFeedback(value: PCFeedback | null) { setFeedback(value); onFeedback?.(value) }
   const controller = useRef<AbortController | null>(null)
-  useEffect(() => () => { controller.current?.abort(); onFeedback?.(null) }, [onFeedback])
+  const list = useRef<HTMLDivElement>(null)
+  const refreshedOnEntry = useRef(false)
+  useEffect(() => () => {
+    controller.current?.abort()
+    controller.current = null
+    refreshedOnEntry.current = false
+    onFeedback?.(null)
+  }, [onFeedback])
   useEffect(() => { if (disabled) { controller.current?.abort(); setTesting(null); setRefreshing(false); setFeedback(null); onFeedback?.(null) } }, [disabled, onFeedback])
   const pcs = groupPCs(sessions)
-  return <div className="pairing-pc-list" aria-label="已配对电脑">
-    {pcs.length > 0 && <div className="pairing-pc-list__header"><button className="pairing-pc-list__all" disabled={disabled} onClick={() => onSelect(null)}>全部电脑</button><button className="pairing-pc-list__refresh" type="button" aria-label="刷新电脑状态" disabled={disabled || testing !== null || refreshing} onClick={async () => {
-      const current = new AbortController(); controller.current?.abort(); controller.current = current; setRefreshing(true)
-      try { await Promise.all(pcs.map(async pc => { try { const results = await onTest(pc, pcIP(pc), current.signal); if (!current.signal.aborted) setTestStates(previous => ({ ...previous, [pc.key]: { ip: pcIP(pc), ok: results.length > 0 && results.every(result => result.ok) } })) } catch { if (!current.signal.aborted) setTestStates(previous => ({ ...previous, [pc.key]: { ip: pcIP(pc), ok: false } })) } })) } finally { if (!current.signal.aborted) setRefreshing(false) }
-    }}>{refreshing ? <span className="pc-testing"/> : <RedoOutline aria-hidden="true"/>}</button></div>}
+  const refresh = useCallback(async (targets: typeof pcs, test: TestPC) => {
+    const current = new AbortController()
+    controller.current?.abort()
+    controller.current = current
+    setRefreshing(true)
+    try {
+      await Promise.all(targets.map(async pc => {
+        const ip = pcIP(pc)
+        const results = await test(pc, ip, current.signal).catch(() => [])
+        if (!current.signal.aborted) {
+          setTestStates(previous => ({ ...previous, [pc.key]: { ip, ok: results.length > 0 && results.every(result => result.ok) } }))
+        }
+      }))
+    } finally {
+      if (!current.signal.aborted) setRefreshing(false)
+    }
+  }, [])
+  useEffect(() => {
+    if (!refreshOnEntry || disabled || pcs.length === 0 || refreshedOnEntry.current || list.current?.closest('[inert]')) return
+    refreshedOnEntry.current = true
+    void refresh(pcs, onTest)
+  }, [refreshOnEntry, disabled, pcs, onTest, refresh])
+  return <div ref={list} className={`pairing-pc-list${refreshOnEntry ? ' pairing-pc-list--compact' : ''}`} aria-label="已配对电脑">
+    {pcs.length > 0 && <div className="pairing-pc-list__header">
+      <button className="pairing-pc-list__all" disabled={disabled} onClick={() => onSelect(null)}>全部电脑</button>
+      <button className="pairing-pc-list__refresh" type="button" aria-label="刷新电脑状态" disabled={disabled || testing !== null || refreshing} onClick={() => void refresh(pcs, onTest)}>
+        {refreshing ? <span className="pc-testing"/> : refreshOnEntry ? '刷新' : <RedoOutline aria-hidden="true"/>}
+      </button>
+    </div>}
     {pcs.map(pc => {
       const tested = testStates[pc.key]?.ip === pcIP(pc) ? testStates[pc.key] : undefined
       const connected = tested ? tested.ok : pc.sessions.some(s => s.status !== 'needsPairing' && s.runtimeState?.connection === 'connected')
       const pending = !tested && pc.sessions.some(s => ['connecting', 'authenticating', 'subscribing'].includes(s.runtimeState?.connection ?? ''))
       const projects = [...new Set(pc.sessions.map(s => s.runtimeState?.projectCwd).filter(Boolean))]
       return <SwipeAction key={pc.key} className="pairing-pc-swipe" rightActions={disabled ? [] : [
-        { key: 'edit', text: <span role="img" aria-label="编辑" className="pairing-pc-action-icon"><MoreOutline aria-hidden="true"/></span>, color: '#ff8a30', onClick: () => { controller.current?.abort(); onEdit(pc.key) } },
-        { key: 'delete', text: <span role="img" aria-label="删除" className="pairing-pc-action-icon"><DeleteOutline aria-hidden="true"/></span>, color: 'danger', onClick: async () => { if (await Dialog.confirm({ content: `删除 ${pc.label} 的全部本机配对？`, confirmText: '删除', cancelText: '取消' })) { controller.current?.abort(); setTesting(null); publishFeedback(null); await onRemove(pc) } } },
+        { key: 'edit', text: <span role="img" aria-label="编辑" className="pairing-pc-action-icon"><MoreOutline aria-hidden="true"/></span>, color: '#ff8a30', onClick: () => { controller.current?.abort(); setTesting(null); setRefreshing(false); onEdit(pc.key) } },
+        { key: 'delete', text: <span role="img" aria-label="删除" className="pairing-pc-action-icon"><DeleteOutline aria-hidden="true"/></span>, color: 'danger', onClick: async () => { if (await Dialog.confirm({ content: `删除 ${pc.label} 的全部本机配对？`, confirmText: '删除', cancelText: '取消' })) { controller.current?.abort(); setTesting(null); setRefreshing(false); publishFeedback(null); await onRemove(pc) } } },
       ]}><div className="pairing-pc-item">
         <button type="button" className="pairing-pc-item__select" disabled={disabled} onClick={() => onSelect(pc.key)}>
           <SessionIcon name="pc" size={40} style={{ color: connected ? '#31a577' : pending ? '#e6a23c' : '#d7353e' }}/>
@@ -82,7 +113,7 @@ export function PCList({ sessions, disabled, onSelect, onEdit, onRemove, onTest,
     {!onFeedback && <PCConnectionFeedback feedback={feedback}/>}
   </div>
 }
-export function PCEditor({ pc, onBack, onSave, onTest }: { pc: PCGroup<SessionListItem>; onBack: () => void; onSave: (profile: PCProfile) => Promise<void>; onTest: TestPC }) {
+export function PCEditor({ pc, onBack, onSave, onTest, compactFeedback }: { compactFeedback?: boolean; pc: PCGroup<SessionListItem>; onBack: () => void; onSave: (profile: PCProfile) => Promise<void>; onTest: TestPC }) {
   const [name, setName] = useState(pc.label)
   const [ip, setIP] = useState(pcIP(pc))
   const [busy, setBusy] = useState(false)
@@ -93,13 +124,13 @@ export function PCEditor({ pc, onBack, onSave, onTest }: { pc: PCGroup<SessionLi
   useEffect(() => () => controller.current?.abort(), [])
   const edit = (setter: (value: string) => void) => (value: string) => { controller.current?.abort(); setter(value); setError(''); setResults([]); setBusy(false) }
   function valid() { if (!name.trim()) { setError('请输入 PC 名称'); return false } try { replacePCIP('ws://127.0.0.1:7330/session/v1', ip.trim()); return true } catch { setError('请输入有效 IP，不含端口'); return false } }
-  return <div className="pc-editor mobile-settings-page">
+  return <div className={`pc-editor mobile-settings-page${compactFeedback ? " native-mobile" : ""}`}>
     <div className="mobile-safe-area-header"><NavBar onBack={onBack}>编辑连接</NavBar></div>
     <div className="pc-editor__body"><div className="pc-editor__fields">
       <label><strong>名称</strong><Input aria-label="PC 名称" placeholder="请输入 PC 名称" maxLength={255} value={name} onChange={edit(setName)} disabled={busy}/></label>
       <label><strong>IP地址</strong><Input aria-label="PC IP地址" placeholder="请输入 IP 地址" value={ip} onChange={edit(setIP)} disabled={busy}/></label>
     </div></div>
-    <div className="pc-editor__footer">{error && <div role="alert" className="pairing-notice pairing-notice--error">{error}</div>}<Results results={results} ip={ip.trim()}/>
+    <div className="pc-editor__footer" data-debug-bottom-actions>{error && <div role="alert" className="pairing-notice pairing-notice--error">{error}</div>}<Results results={results} ip={ip.trim()}/>
       <Button block color="primary" fill="outline" disabled={busy} onClick={async () => { if (!valid()) return; const current = new AbortController(); controller.current = current; setBusy(true); setTesting(true); setResults([]); const started = Date.now(); try { const result = await onTest(pc, ip.trim(), current.signal); if (result.every(item => item.ok)) await new Promise(resolve => setTimeout(resolve, Math.max(0, 600 - (Date.now() - started)))); if (!current.signal.aborted) setResults(result) } catch { if (!current.signal.aborted) setResults([{ sessionId: '', ok: false, port: '', token: '', message: '测试未完成，请重试' }]) } finally { if (!current.signal.aborted) { setBusy(false); setTesting(false) } } }}><SessionIcon name="testConnectButton" size={24}/> {busy ? '正在处理…' : '测试连接'}</Button>
       <Button block color="primary" disabled={busy} onClick={async () => { if (!valid()) return; setBusy(true); try { await onSave({ name: name.trim(), ip: ip.trim() }) } catch { setError('保存失败，请重试'); setBusy(false) } }}>确认</Button>
     </div>

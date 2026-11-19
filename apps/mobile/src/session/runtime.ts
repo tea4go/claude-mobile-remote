@@ -118,16 +118,20 @@ export class SessionRuntimeManager {
     this.viewedSession = viewedSession
   }
 
+  private readonly preferredVersion?: number
+
   constructor(
     store: AppStore,
     socketFactory: SocketFactory,
     now: () => number,
     enableStableRoute = false,
+    preferredVersion?: number,
   ) {
     this.store = store
     this.socketFactory = socketFactory
     this.now = now
     this.enableStableRoute = enableStableRoute
+    this.preferredVersion = preferredVersion
   }
 
   resolveRoute: ((payload: PairingPayload) => PairingPayload) | null = null
@@ -145,7 +149,7 @@ export class SessionRuntimeManager {
 
     const generation = (this.generations.get(payload.sessionId) ?? 0) + 1
     this.generations.set(payload.sessionId, generation)
-    const client = verified ?? new ProtocolClient(payload, this.socketFactory)
+    const client = verified ?? new ProtocolClient(payload, this.socketFactory, this.preferredVersion)
     const entry: RuntimeEntry = { payloadKey: key, generation, client, payload, fallbackFrom, ready: false }
     this.entries.set(payload.sessionId, entry)
     const current = this.store.getState().sessions[payload.sessionId] ?? null

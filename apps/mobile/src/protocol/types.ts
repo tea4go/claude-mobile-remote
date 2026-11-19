@@ -3,6 +3,7 @@
 
 export const PROTOCOL_VERSION = 2
 export const PREFERRED_PROTOCOL_VERSION = 10
+export const LATEST_INPUT_PROTOCOL_VERSION = 11
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 

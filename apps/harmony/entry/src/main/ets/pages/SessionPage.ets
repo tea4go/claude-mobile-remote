@@ -81,6 +81,7 @@ export struct SessionPage {
   @Prop speechFinishing: boolean = false
   @Prop debugEnabled: boolean = false
   onDebugOpen: () => void = () => {}
+  onDebugActionsTop: (top: number) => void = () => {}
   @Prop selecting: boolean = false
   onDraft: (text: string) => void = () => {}
   onSelect: (kind: string) => void = () => {}
@@ -307,6 +308,7 @@ export struct SessionPage {
             onSpeech: this.onSpeech, onStopSpeech: this.onStopSpeech, onCancelSpeech: this.onCancelSpeech,
             onSend: this.onSend, onCreateSession: this.onCreateSession, onCancel: () => this.onCancelTurn(this.cancelTarget()) })
         }.padding({ left: 12, right: 12, top: 6, bottom: 12 }).width('100%')
+          .onAreaChange((_previous: Area, current: Area) => this.onDebugActionsTop(Number(current.globalPosition.y)))
       }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
       if (this.selectedActivity !== null) {
         ActivityOverlay({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: this.state.messages, pageHeight: this.pageHeight, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen })

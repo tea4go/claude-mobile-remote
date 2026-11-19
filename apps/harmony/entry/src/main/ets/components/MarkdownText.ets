@@ -9,6 +9,7 @@ import { TextSelectionLayout, emptySelectionView, type MessageSelectionView, typ
 export struct MarkdownText {
   @Prop @Watch('parse') text: string = ''
   @Prop plain: boolean = false
+  @Prop onAccent: boolean = false
   scrollController: Scroller = new Scroller()
   @State private blocks: Array<MarkdownBlock> = []
   @State private selectionOpen: boolean = false
@@ -183,7 +184,7 @@ export struct MarkdownText {
     Text(undefined, { controller: this.selection.controller(block, row, column, row >= 0) }) {
       ForEach(inlineMarkdown(text), (part: InlineText) => {
         if (part.url.length > 0) {
-          Span(part.text).fontColor($r('app.color.primary')).fontWeight(strong || part.bold ? FontWeight.Bold : FontWeight.Normal)
+          Span(part.text).fontColor(this.onAccent ? Color.White : $r('app.color.primary')).fontWeight(strong || part.bold ? FontWeight.Bold : FontWeight.Normal)
             .fontStyle(part.italic ? FontStyle.Italic : FontStyle.Normal)
             .fontFamily(part.code ? 'monospace' : 'sans-serif')
             .decoration({ type: part.strike ? TextDecorationType.LineThrough : TextDecorationType.Underline })
@@ -192,8 +193,8 @@ export struct MarkdownText {
           Span(part.text).fontWeight(strong || part.bold ? FontWeight.Bold : FontWeight.Normal)
             .fontStyle(part.italic ? FontStyle.Italic : FontStyle.Normal)
             .fontFamily(part.code ? 'monospace' : 'sans-serif').fontSize(part.code ? 14 : size)
-            .fontColor($r('app.color.text'))
-            .textBackgroundStyle({ color: part.code ? $r('app.color.surface_subtle') : Color.Transparent, radius: 4 })
+            .fontColor(this.onAccent ? Color.White : $r('app.color.text'))
+            .textBackgroundStyle({ color: part.code ? (this.onAccent ? '#153e85' : $r('app.color.surface_subtle')) : Color.Transparent, radius: 4 })
             .decoration({ type: part.strike ? TextDecorationType.LineThrough : TextDecorationType.None })
         }
       }, (part: InlineText, index: number) => `${index}-${JSON.stringify(part)}`)
@@ -204,16 +205,16 @@ export struct MarkdownText {
     if (block.kind === 'code') {
       Column() {
         if (block.language.length > 0) {
-          Text(block.language).fontSize(11).fontColor($r('app.color.text_secondary')).padding({ left: 10, top: 6 }).width('100%')
+          Text(block.language).fontSize(11).fontColor(this.onAccent ? Color.White : $r('app.color.text_secondary')).padding({ left: 10, top: 6 }).width('100%')
         }
         Scroll(this.scrollFor(index)) {
           Column() {
             Text(block.text, { controller: this.selection.controller(index, -1, -1, true) }).id(this.selection.nodeId(index))
-              .fontSize(14).lineHeight(21).fontFamily('monospace').copyOption(CopyOptions.None).textAlign(TextAlign.Start)
+              .fontSize(14).fontColor(this.onAccent ? Color.White : $r('app.color.text')).lineHeight(21).fontFamily('monospace').copyOption(CopyOptions.None).textAlign(TextAlign.Start)
           }.padding(10)
         }.id(this.selection.clipId(index)).scrollable(ScrollDirection.Horizontal).width('100%').align(Alignment.TopStart)
           .onScroll(() => messageSelection.refresh())
-      }.width('100%').backgroundColor($r('app.color.surface_subtle')).border({ width: 1, color: $r('app.color.border') }).borderRadius(6).clip(true)
+      }.width('100%').backgroundColor(this.onAccent ? '#153e85' : $r('app.color.surface_subtle')).border({ width: 1, color: $r('app.color.border') }).borderRadius(6).clip(true)
     } else if (block.kind === 'table') {
       Scroll(this.scrollFor(index)) {
         Column() {
@@ -222,7 +223,7 @@ export struct MarkdownText {
               ForEach(row, (cell: string, column: number) => {
                 Column() { this.inline(cell, index, 16, rowIndex === 0, block.alignments[column], rowIndex, column) }
                   .width(this.tableWidths.get(block)?.[column] ?? 180).padding({ left: 8, right: 8, top: 5, bottom: 5 }).border({ width: 0.5, color: $r('app.color.border') })
-                  .backgroundColor(rowIndex === 0 ? $r('app.color.surface_subtle') : $r('app.color.surface'))
+                  .backgroundColor(this.onAccent ? (rowIndex === 0 ? '#153e85' : Color.Transparent) : (rowIndex === 0 ? $r('app.color.surface_subtle') : $r('app.color.surface')))
               }, (cell: string, index: number) => `${index}-${cell}`)
             }.alignItems(VerticalAlign.Top)
           }, (row: Array<string>, index: number) => `${index}-${JSON.stringify(row)}`)
@@ -261,7 +262,7 @@ export struct MarkdownText {
         Row({ space: 6 }) {
           if (block.marker.length > 0) {
             Text(block.marker, { controller: this.selection.controller(index, -2, -2) }).id(this.selection.nodeId(index, -2, -2))
-              .fontSize(16).lineHeight(24).fontColor($r('app.color.text_secondary')).constraintSize({ minWidth: 18 }).copyOption(CopyOptions.None)
+              .fontSize(16).lineHeight(24).fontColor(this.onAccent ? Color.White : $r('app.color.text_secondary')).constraintSize({ minWidth: 18 }).copyOption(CopyOptions.None)
               .accessibilityText(block.marker === '☑' ? '已完成' : block.marker === '☐' ? '未完成' : block.marker)
           }
           Column() { this.content(block, index) }.layoutWeight(1).alignItems(HorizontalAlign.Start)

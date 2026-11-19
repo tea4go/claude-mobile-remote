@@ -144,10 +144,10 @@ export struct MessageList {
                         Image(`data:${attachment.mediaType};base64,${attachment.data}`).height(140).width('100%').objectFit(ImageFit.Contain)
                           .onClick(() => this.onPreviewImage(`data:${attachment.mediaType};base64,${attachment.data}`))
                       }
-                      Text(attachment.name).fontSize(12)
+                      Text(attachment.name).fontSize(12).fontColor(Color.White)
                     }, (attachment: Attachment, itemIndex: number) => `${itemIndex}-${attachment.name}`)
                   }
-                  MarkdownText({ text: inputDisplayText(message.text), scrollController: this.scroller })
+                  MarkdownText({ text: inputDisplayText(message.text), onAccent: true, scrollController: this.scroller })
                 }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.primary_fill')).borderRadius(16)
                 Text(`${message.source === 'terminal' ? '电脑端' : '手机端'}${inputStatusLabel(message.status)}`)
                   .fontSize(12).fontColor($r('app.color.text_secondary')).width('100%').textAlign(TextAlign.End)

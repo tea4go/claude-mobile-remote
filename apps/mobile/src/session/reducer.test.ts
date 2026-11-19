@@ -1176,3 +1176,14 @@ test('queued mixed input retains server image reference without changing ordinar
   expect(state.messages.find(m => m.kind === 'input')).toMatchObject({ requestId: 'queued', attachments: [{ ...attachments[0], ref: 'upload-123:0' }, attachments[1]] })
   expect(state.queuedRequests.map(q => q.requestId)).toContain('queued')
 })
+
+test('首次快照按顺序显示已结束的提问和回复，重复快照不重复插入', () => {
+  const turn = { status: 'completed' as const, requestId: 'finished', source: 'terminal' as const, inputText: '最近提问', message: '最近回复', error: null, pendingAction: null }
+  const action = snapshotReceived(snapshot({ turn }))
+  const state = reducer(reducer(createInitialState(), action), action)
+  expect(state.messages).toMatchObject([
+    { kind: 'input', text: '最近提问', status: 'accepted' },
+    { kind: 'claude', text: '最近回复', status: 'done' },
+  ])
+  expect(state.messages).toHaveLength(2)
+})

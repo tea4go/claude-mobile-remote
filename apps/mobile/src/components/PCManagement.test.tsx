@@ -121,3 +121,19 @@ test('刷新期间显示 loading，完成后只更新电脑状态', async () => 
   expect(screen.getByText('可用')).toBeInTheDocument()
   expect(onFeedback).not.toHaveBeenCalled()
 })
+
+test('进入配对列表时自动批量检测，只在刷新按钮显示加载', async () => {
+  let finish!: (results: { sessionId: string; ok: boolean; message: string; port: string; token: string }[]) => void
+  const probe = vi.fn(() => new Promise<Parameters<typeof finish>[0]>(resolve => { finish = resolve }))
+  const props = { refreshOnEntry: true, sessions: [session], onSelect: vi.fn(), onEdit: vi.fn(), onRemove: vi.fn(), onTest: probe }
+  const view = render(<PCList {...props} disabled/>)
+  expect(probe).not.toHaveBeenCalled()
+  view.rerender(<PCList {...props}/>)
+  expect(probe).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('button', { name: '刷新电脑状态' }).querySelector('.pc-testing')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '测试连接 Mac' }).querySelector('.pc-testing')).toBeNull()
+  finish([{ sessionId: '', ok: true, message: '连接成功', port: '7330', token: '' }])
+  expect(await screen.findByText('可用')).toBeInTheDocument()
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(probe).toHaveBeenCalledTimes(1)
+})

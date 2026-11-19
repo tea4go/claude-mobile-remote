@@ -297,6 +297,7 @@ export class ProtocolClient {
         return
       }
       if (err !== null && err !== undefined) {
+        debugLog.record('socket_open_error', err.code)
         this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket open failed'))
         return
       }
@@ -307,12 +308,19 @@ export class ProtocolClient {
         this.observer.onSocketOpened()
       }
       const payload = createHelloPayload(this.pairing.pairToken)
-      this.sendFrame(encodeEnvelope(this.wireVersion, 'hello', this.pairing.sessionId, '', '', 0, payload as Object))
+      this.sendFrame(encodeEnvelope(this.wireVersion, 'hello', this.pairing.sessionId, '', '', 0, payload as Object), true)
     })
 
     socket.on('message', (err: BusinessError, value: string | ArrayBuffer) => {
       if (generation !== this.generation || this.socket !== socket) {
         return
+      }
+      if (this.stage === 'AUTHENTICATING') {
+        if (err !== null && err !== undefined) {
+          debugLog.record('hello_response_error', err.code)
+        } else {
+          debugLog.record('hello_response', typeof value === 'string' ? 1 : 0)
+        }
       }
       if (err !== null && err !== undefined) {
         this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket message failed'))
@@ -349,6 +357,7 @@ export class ProtocolClient {
       if (generation !== this.generation || this.socket !== socket) {
         return
       }
+      debugLog.record('socket_event_error', err?.code ?? 0)
       this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket error'))
     })
 
@@ -356,6 +365,7 @@ export class ProtocolClient {
       if (generation !== this.generation || this.socket !== socket) {
         return
       }
+      debugLog.record('socket_connect_result', err?.code ?? (value === true ? 1 : 0))
       if ((err !== null && err !== undefined) || value !== true) {
         this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket connect request failed'))
       }
@@ -497,7 +507,7 @@ export class ProtocolClient {
     return result
   }
 
-  private sendFrame(frame: string): void {
+  private sendFrame(frame: string, isHello: boolean = false): void {
     if (this.socket === null || this.stage === 'CONNECTING') {
       this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'send called before socket open'))
       return
@@ -506,11 +516,13 @@ export class ProtocolClient {
     const socket = this.socket
     socket.send(frame).then((value: boolean) => {
       if (generation !== this.generation || this.socket !== socket) return
+      if (isHello) debugLog.record('hello_send_result', value ? 1 : 0)
       if (!value) {
         this.terminate('DISCONNECTED', makeError('socket_error', 'socket send request failed'))
       }
     }).catch((err: BusinessError) => {
       if (generation !== this.generation || this.socket !== socket) return
+      if (isHello) debugLog.record('hello_send_error', err?.code ?? 0)
       this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket send failed'))
     })
   }
@@ -566,13 +578,13 @@ export class ProtocolClient {
       return
     }
 
-    const legacy = message.version >= 2 && message.version <= 9
+    const legacy = message.version >= 2 && message.version < PREFERRED_PROTOCOL_VERSION
     if (legacy && message.version < this.wireVersion && this.stage === 'AUTHENTICATING' && message.type === 'hello_ack') {
       this.wireVersion = message.version
     }
     const fallbackError = message.type === 'error' && this.stage === 'AUTHENTICATING' && legacy &&
       message.payload.code === 'unsupported_version' &&
-      (message.payload.expectedVersion !== undefined && message.payload.expectedVersion >= 2 && message.payload.expectedVersion <= 9) &&
+      (message.payload.expectedVersion !== undefined && message.payload.expectedVersion >= 2 && message.payload.expectedVersion < PREFERRED_PROTOCOL_VERSION) &&
       message.payload.expectedVersion < this.wireVersion
     const legacyUnauthorized = message.type === 'error' && this.stage === 'AUTHENTICATING' && legacy &&
       message.payload.code === 'unauthorized'

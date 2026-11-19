@@ -1,3 +1,5 @@
+import { BuildFooter } from '../components/BuildFooter'
+import { SettingsButton } from '../components/SettingsButton'
 import { nativeLifecycle } from '../native/lifecycle'
 import type { PCGroup, PCProfile } from '../session/projectGroups'
 import { QuickPairForm } from './QuickPairForm'
@@ -50,6 +52,7 @@ export struct PairingPage {
   onSettings: () => void = () => {}
   onPairingInputChange: (value: string) => void = () => {}
   onConnect: () => void = () => {}
+  onDebugActionsTop: (top: number) => void = () => {}
   onCancel: () => void = () => {}
   @Prop projectCwd: string = ''
 
@@ -63,19 +66,20 @@ export struct PairingPage {
     Column() {
       if (!this.editOpen) {
       Row() {
-        if (this.canBack) { Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).fontSize(30).fontColor(SECONDARY).backgroundColor($r('app.color.surface')).borderRadius(22).accessibilityText('返回').onClick(() => this.onBack()) }
-        if (!this.canBack) { Blank().width(44) }
+        if (this.canBack) { Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(24).height(24) }.width(44).height(44).margin({ right: 24 }).fontSize(30).fontColor(SECONDARY).backgroundColor($r('app.color.surface')).borderRadius(22).accessibilityText('返回').onClick(() => this.onBack()) }
+        if (!this.canBack) { Blank().width(68) }
         Text('ccBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
-        Button('设置', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => this.onSettings())
-      }.width('100%').height(48).padding({ left: 8, right: 8 })
+        SettingsButton({ onOpen: () => this.onSettings() })
+      }.width('100%').height(56).padding({ left: 16, right: 16 })
       }
         Column({ space: 8 }) {
           if (!this.editOpen) Text('连接 Claude 会话').fontSize(26).fontWeight(FontWeight.Bold).width('100%')
             .onClick(() => this.getUIContext().getFocusController().clearFocus())
           QuickPairForm({ editOpen: $editOpen, editTesting: $editingTest, pairingError: this.lastError === null ? '' : buildPairingHint(this.connection, this.lastError), addressHistory: this.addressHistory, onHistoryChange: this.onHistoryChange, profiles: this.profiles, onSaveComputer: this.onSaveComputer, onRemoveComputer: this.onRemoveComputer, computers: this.computers, selectedPC: this.selectedPC, onSelectPC: this.onSelectPC, projectCwd: this.projectCwd, disabled: !this.nativeReady || this.scanning || this.connecting() || this.saving,
-            onPair: (text: string) => { this.onPairingInputChange(text); this.onConnect() }, onScan: () => this.onScan() })
+            onPair: (text: string) => { this.onPairingInputChange(text); this.onConnect() }, onScan: () => this.onScan(), onDebugActionsTop: this.onDebugActionsTop })
         }.padding({ left: this.editOpen ? 0 : 20, right: this.editOpen ? 0 : 20,
-          top: this.editOpen ? 0 : 6, bottom: this.editOpen ? 0 : 12 }).width('100%').layoutWeight(1).alignItems(HorizontalAlign.Start)
+          top: this.editOpen ? 0 : 6, bottom: this.editOpen ? 0 : 1 }).width('100%').layoutWeight(1).alignItems(HorizontalAlign.Start)
+      if (!this.editOpen) { BuildFooter() }
     }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
     if (this.editingTest) {
       Stack() {

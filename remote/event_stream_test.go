@@ -166,13 +166,13 @@ func TestSnapshotRetainsWholeReplyAfterHostRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, _, err := stream.Subscribe(context.Background(), 1)
-	if err != nil || snapshot.Turn.Message != "first second" || snapshot.Turn.Status != protocol.TurnCompleted || snapshot.Turn.RequestID != "r" {
+	if err != nil || snapshot.Turn.InputText != "question" || snapshot.Turn.Message != "first second" || snapshot.Turn.Status != protocol.TurnCompleted || snapshot.Turn.RequestID != "r" {
 		t.Fatalf("recovery = %+v, %v", snapshot, err)
 	}
 	_ = stream.Publish(protocol.Event{Kind: protocol.EventTurnStarted, RequestID: "r2", Text: "next", TurnStatus: protocol.TurnRunning})
 	snapshot, _ = stream.Snapshot(context.Background())
-	if snapshot.Turn.Message != "" {
-		t.Fatal("new turn retained previous reply")
+	if snapshot.Turn.Message != "" || snapshot.Turn.InputText != "next" {
+		t.Fatal("new turn did not replace previous messages")
 	}
 }
 

@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { Button, Input, List, Popover } from 'antd-mobile'
+import { useLayoutEffect, useRef, useState } from 'react'
+import { Button, Dialog, Input, List, Popover, SwipeAction, type InputRef } from 'antd-mobile'
 import SessionIcon from './SessionIcon'
-import { MoreOutline } from 'antd-mobile-icons'
+import { PairingInputDialog } from './PairingFeedback'
+import { DeleteOutline, EditSOutline, MoreOutline } from 'antd-mobile-icons'
 import { defaultSessionName, type SessionRecord } from '../session/store'
 import type { MobileState } from '../session/reducer'
 import { projectGroups } from './projectGroups'
@@ -16,6 +17,7 @@ export interface SessionListItem extends SessionRecord {
 
 interface Props {
   sessions: SessionListItem[]
+  compactPCHeader?: boolean
   recentlyViewedId?: string | null
   selectedPC?: string | null
   managementBusy?: Record<string, boolean>
@@ -23,10 +25,16 @@ interface Props {
   onCreate?(sessionId: string): void
   onPairProject?(pcId: string, cwd: string): void
   onError?(message: string): void
-  onAdd(): void
+  onAdd?(): void
   onOpen(sessionId: string): void
   onRemove(sessionId: string): void
   onRename(sessionId: string, name: string): void
+}
+
+const MAX_SESSION_NAME_LENGTH = 40
+
+function limitSessionName(name: string): string {
+  return Array.from(name).slice(0, MAX_SESSION_NAME_LENGTH).join('')
 }
 
 function displayTitle(session: SessionListItem): string {
@@ -69,7 +77,7 @@ function activityTime(session: SessionListItem): string {
   return formatActivityTime(value)
 }
 
-export default function ProjectSessionList({ sessions, recentlyViewedId, selectedPC = null, managementBusy = {}, managementFeedback = {}, onCreate, onPairProject, onError, onAdd, onOpen, onRemove, onRename }: Props) {
+export default function ProjectSessionList({ sessions, compactPCHeader, recentlyViewedId, selectedPC = null, managementBusy = {}, managementFeedback = {}, onCreate, onPairProject, onError, onAdd, onOpen, onRemove, onRename }: Props) {
   // Keep the initial display order while the list is visible; add newly paired sessions at the end.
   const [initialOrder] = useState(() => projectGroups(sessions).flatMap((group) => group.ids))
   const order = [...initialOrder, ...sessions.map((session) => session.sessionId).filter((id) => !initialOrder.includes(id))]
@@ -78,11 +86,45 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
   const visible = selectedPC === null ? pcs : pcs.filter((pc) => pc.key === selectedPC)
   const count = visible.reduce((sum, pc) => sum + pc.sessions.length, 0)
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [menuId, setMenuId] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
+  const trimmedName = name.trim()
+  const renameInput = useRef<InputRef>(null)
+  useLayoutEffect(() => {
+    if (!compactPCHeader || renamingId === null) return
+    const input = renameInput.current?.nativeElement
+    input?.focus()
+    input?.select()
+  }, [compactPCHeader, renamingId])
+
   return <div className="project-session-list">
+    {compactPCHeader && renamingId !== null && <PairingInputDialog
+      title="重命名会话"
+      description="请输入本地名称，最多 40 个字符"
+      submitText="保存"
+      submitDisabled={trimmedName === ''}
+      preserveInputFocus
+      onCancel={() => setRenamingId(null)}
+      onSubmit={() => {
+        if (trimmedName !== '') onRename(renamingId, trimmedName)
+        setRenamingId(null)
+      }}
+    >
+      <Input ref={renameInput} className="session-rename-input" aria-label="会话名称" value={name} onChange={value => setName(limitSessionName(value))} placeholder="输入本地名称" />
+    </PairingInputDialog>}
+    {compactPCHeader && <Dialog
+      visible={removingId !== null}
+      content="删除此会话的本机配对？"
+      destroyOnClose
+      actions={[[{ key: 'cancel', text: '取消' }, { key: 'remove', text: '删除', danger: true }]]}
+      onAction={action => {
+        if (action.key === 'remove' && removingId !== null) onRemove(removingId)
+        setRemovingId(null)
+      }}
+    />}
     <div className="project-session-list__heading-row"><h2 className="project-session-list__title">会话列表</h2><span className="project-session-list__count">{count} 个会话</span></div>
     {sessions.length === 0 && <p>还没有已配对的会话，请扫描或粘贴配对信息。</p>}
     {visible.map((pc) => {
@@ -90,9 +132,21 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
       // Preserve the order established above instead of re-sorting on each streamed event.
       const projects = projectGroups(pc.sessions.map((session) => ({ ...session, runtimeState: session.runtimeState ? { ...session.runtimeState, lastActivityAt: null, createdAt: null } : undefined })))
       const connected = pc.sessions.filter((session) => session.status !== 'needsPairing' && session.runtimeState?.connection === 'connected').length
+      const connecting = pc.sessions.some((session) => session.status !== 'needsPairing' &&
+        ['connecting', 'authenticating', 'subscribing'].includes(session.runtimeState?.connection ?? ''))
+      const pcStatus = connected > 0 ? 'connected' : connecting ? 'connecting' : 'disconnected'
       return <section key={pc.key} className="project-session-list__pc">
         <div className="project-session-list__pc-card" aria-label={`当前电脑 ${pc.label}`}>
-          <span className="project-session-list__pc-icon"><SessionIcon name="pc" size={36} /></span><span className="project-session-list__pc-text"><strong>{pc.label} <small>{(() => { try { return new URL(pc.sessions[0]!.wsUrl).hostname } catch { return '' } })()}</small></strong><span className="project-session-list__pc-meta"><small>Token：{pc.sessions[0]?.pairToken ? '••••' + (pc.sessions[0].pairToken.length > 8 ? pc.sessions[0].pairToken.slice(-4) : '') : '需重新配对'}</small><small>{connected > 0 ? `${connected} / ${pc.sessions.length} 个会话已连接` : '暂未连接'}</small></span></span></div>
+          <span className="project-session-list__pc-icon"><SessionIcon name="pc" size={36} /></span>
+          <span className="project-session-list__pc-text">
+            <strong>{pc.label}</strong>
+            <small>Token：{pc.sessions[0]?.pairToken ? '••••' + (pc.sessions[0].pairToken.length > 8 ? pc.sessions[0].pairToken.slice(-4) : '') : '需重新配对'}</small>
+          </span>
+          <span className="project-session-list__pc-status">
+            <small>{(() => { try { return new URL(pc.sessions[0]!.wsUrl).hostname } catch { return '' } })()}</small>
+            <span className={`project-session-list__pc-tag project-session-list__pc-tag--${pcStatus}`}>{connected > 0 ? '已连接' : connecting ? '连接中' : '暂未连接'}</span>
+          </span>
+        </div>
         {projects.map((group) => {
           const key = `${pc.key}:${group.cwd ?? ''}`
           const members = group.ids.map((id) => byId.get(id)!).filter(Boolean)
@@ -102,7 +156,7 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
           const hasConnection = members.some((session) => session.status !== 'needsPairing' && session.runtimeState?.connection === 'connected')
           return <section className="project-session-list__project" key={key}>
             <div className="project-session-list__project-heading"><button className="project-session-list__project-toggle" aria-expanded={!collapsed[key]} onClick={() => setCollapsed((current) => ({ ...current, [key]: !current[key] }))}><strong><SessionIcon name={collapsed[key] ? "folderClosed" : "folder"} size={16} style={{ color: "#8e9cb0", marginRight: 6 }} />{group.title}</strong><span title={group.cwd ?? undefined}>{group.cwd ?? '工作目录未知'}</span></button>
-              <button className="project-session-list__project-add" aria-label={`在 ${group.title} 新建会话`} onClick={() => {
+              {!compactPCHeader && <button className="project-session-list__project-add" aria-label={`在 ${group.title} 新建会话`} onClick={() => {
                 if (group.cwd === null) { onError?.('工作目录未知，无法验证'); return }
                 if (busy) { onError?.('正在新建会话，请稍候'); return }
                 if (!hasConnection) {
@@ -113,7 +167,7 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
                 }
                 if (!canCreate) { onError?.('当前连接暂不支持新建会话'); return }
                 onCreate(sources[0]!.sessionId)
-              }}><SessionIcon name="add" size={14} /></button>
+              }}><SessionIcon name="add" size={14} /></button>}
             </div>
             {members.map((session) => managementFeedback[session.sessionId] && <p role="status" key={`feedback-${session.sessionId}`}>{managementFeedback[session.sessionId]}</p>)}
             {!collapsed[key] && <List className="project-session-list__group">
@@ -122,25 +176,33 @@ export default function ProjectSessionList({ sessions, recentlyViewedId, selecte
               const status = statusLabel(session)
               const time = activityTime(session)
               const isRecent = recentlyViewedId === id
-              return <List.Item key={id} className={`project-session-list__item${isRecent ? ' project-session-list__item--recent' : ''}`} onClick={() => onOpen(id)} arrowIcon={false} aria-label={`进入 ${displayTitle(session)}`}
-                extra={<span onClick={(event) => event.stopPropagation()}><Popover.Menu trigger="click" placement="bottom-end" visible={menuId === id} onVisibleChange={(visible) => setMenuId(visible ? id : null)} actions={[
+              const item = <List.Item key={id} className={`project-session-list__item${isRecent ? ' project-session-list__item--recent' : ''}`} onClick={() => onOpen(id)} arrowIcon={false} aria-label={`进入 ${displayTitle(session)}`}
+                extra={!compactPCHeader && <span onClick={(event) => event.stopPropagation()}><Popover.Menu trigger="click" placement="bottom-end" visible={menuId === id} onVisibleChange={(visible) => setMenuId(visible ? id : null)} actions={[
                   { key: 'rename', text: '重命名', onClick: () => { setName(session.customName ? session.name : displayTitle(session)); setRenamingId(id); setMenuId(null) } },
                   { key: 'remove', text: '删除', onClick: () => { onRemove(id); setMenuId(null) } },
                 ]}><Button size="mini" fill="none" className="project-session-list__more" aria-label={`更多操作 ${displayTitle(session)}`}><MoreOutline aria-hidden="true" /></Button></Popover.Menu></span>}>
                 <div data-testid="session-list-item" data-session-id={id} className="project-session-list__main">
-                  {renamingId === id ? <div className="project-session-list__rename" onClick={(event) => event.stopPropagation()}><Input data-testid="rename-input" value={name} onChange={setName} placeholder="输入本地名称" /><Button size="mini" onClick={() => { onRename(id, name); setRenamingId(null) }}>保存</Button><Button size="mini" onClick={() => setRenamingId(null)}>取消</Button></div> : <>
+                  {!compactPCHeader && renamingId === id ? <div className="project-session-list__rename" onClick={(event) => event.stopPropagation()}><Input data-testid="rename-input" value={name} onChange={setName} placeholder="输入本地名称" /><Button size="mini" onClick={() => { onRename(id, name); setRenamingId(null) }}>保存</Button><Button size="mini" onClick={() => setRenamingId(null)}>取消</Button></div> : <>
                     <div className="project-session-list__heading"><strong className="project-session-list__session-title">{displayTitle(session)}</strong>{session.unread && <span className="project-session-list__unread" aria-label="未读" title="未读" />}{isRecent && <span className="project-session-list__recent">刚刚查看</span>}</div>
                     <span className="project-session-list__preview">{preview(session)}</span>
                     <div className="project-session-list__meta"><span className={`project-session-list__status${status === '已连接' || status === '进行中' ? ' project-session-list__status--connected' : status === '等待处理' || status === '需要重新配对' || status === '连接中' || status === '认证中' || status === '同步中' ? ' project-session-list__status--attention' : ''}`}>{status}</span><span>{time}</span></div>
                   </>}
                 </div>
               </List.Item>
+              if (!compactPCHeader) return item
+              return <SwipeAction key={id} className="pairing-pc-swipe project-session-list__swipe" rightActions={[
+                { key: 'rename', text: <span role="img" aria-label="重命名" className="pairing-pc-action-icon"><EditSOutline aria-hidden="true" /></span>, color: '#ff8a30', onClick: () => {
+                  setName(limitSessionName(displayTitle(session)))
+                  setRenamingId(id)
+                } },
+                { key: 'remove', text: <span role="img" aria-label="删除" className="pairing-pc-action-icon"><DeleteOutline aria-hidden="true" /></span>, color: 'danger', onClick: () => setRemovingId(id) },
+              ]}>{item}</SwipeAction>
             })}
             </List>}
           </section>
         })}
       </section>
     })}
-    <div className="project-session-list__add"><Button color="primary" block aria-label="新增配对" onClick={onAdd}>＋ 新会话</Button></div>
+    {onAdd && <div className="project-session-list__add"><Button color="primary" block aria-label="新增配对" onClick={onAdd}>＋ 新会话</Button></div>}
   </div>
 }

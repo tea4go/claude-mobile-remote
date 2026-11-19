@@ -267,3 +267,20 @@ body {
 .pairing-pc-item__select > span:first-child { align-self: flex-start; }
 
 .pairing-pc-action-icon { display: grid; place-items: center; font-size: 24px; }
+
+.mobile-build-footer { display: block; margin-top: 12px; color: #65738a; font-size: 12px; text-align: center; }
+.mobile-entry-page__build { flex-shrink: 0; padding: 0 16px calc(12px + env(safe-area-inset-bottom, 0px)); }
+.mobile-entry-page__build > .mobile-build-footer { margin-top: 0; }
+.mobile-entry-page:has(> .mobile-entry-page__build) .quick-pair-ios__actions { padding-bottom: 12px; }
+
+
+.pairing-pc-list--compact .pairing-pc-list__header { padding-top: 4px; margin-bottom: -6px; border-top: 1px solid #e2e8f2; }
+.pairing-pc-list--compact .pairing-pc-list__all { color: #65738a; font-size: 12px; font-weight: 600; }
+.pairing-pc-list--compact .pairing-pc-list__refresh { height: 32px; font-size: 12px; font-weight: 600; }
+.pairing-pc-list--compact .pairing-pc-item { min-height: 0; padding-block: 7px; }
+.pairing-pc-list--compact .pairing-pc-item__select { padding-block: 0; }
+.native-mobile .pairing-notice { font-size: 13px; padding: 10px 12px; }
+
+.pairing-pc-list--compact .pairing-pc-swipe.adm-swipe-action { border: 1px solid #dfe7f5; }
+.pairing-pc-list--compact .pairing-pc-item { border: 0; border-radius: 0; }
+.pairing-code-dialog .session-rename-input { --font-size: 16px; --text-align: left; }

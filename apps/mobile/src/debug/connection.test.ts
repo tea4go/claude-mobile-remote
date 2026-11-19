@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import { ProtocolClient, type SocketLike } from '../protocol/client'
 import { debugLog } from './log'
-import { debugButtonBottom } from './placement'
+import { debugButtonPosition } from './placement'
 afterEach(() => { debugLog.setEnabled(false); debugLog.clear(); vi.useRealTimers() })
 function setup() {
   debugLog.setEnabled(true)
@@ -41,11 +41,14 @@ test('timeout includes event code, stage, elapsed and deadline; local close reco
   client.reconnect(); client.close()
   expect(debugLog.getSnapshot().entries.at(-1)?.code).toBe('cancelled')
 })
-test('floating entry avoids input region and keyboard viewport', () => {
-  expect(debugButtonBottom(800, 800, [])).toBeCloseTo(238)
-  expect(debugButtonBottom(800, 800, [680])).toBeCloseTo(238)
-  expect(debugButtonBottom(800, 480, [380])).toBeCloseTo(455.6)
-  expect(debugButtonBottom(800, 480, [-1, 700])).toBeCloseTo(455.6)
-  expect(debugButtonBottom(800, 800, [500])).toBe(308)
-  expect(debugButtonBottom(800, 580, [], 100)).toBeCloseTo(355.6)
+test('floating entry starts at lower right and clamps drags to the visible viewport', () => {
+  const viewport = { left: 0, top: 0, width: 400, height: 800 }
+  const safe = { right: 4, bottom: 20 }
+  expect(debugButtonPosition(viewport, 40, 40, safe, null)).toEqual({ x: 344, y: 728 })
+  expect(debugButtonPosition(viewport, 40, 40, safe, null, undefined, 650)).toEqual({ x: 344, y: 602 })
+  expect(debugButtonPosition(viewport, 40, 40, safe, { x: 300, y: 690 }, undefined, 650))
+    .toEqual({ x: 300, y: 690 })
+  expect(debugButtonPosition(viewport, 40, 40, safe, { x: -20, y: 90 })).toEqual({ x: 12, y: 90 })
+  expect(debugButtonPosition({ ...viewport, top: 100, height: 480 }, 40, 40, safe, { x: 200, y: 700 }, 500))
+    .toEqual({ x: 200, y: 452 })
 })

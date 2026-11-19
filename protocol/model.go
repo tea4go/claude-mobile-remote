@@ -184,6 +184,8 @@ type QueuedRequest struct {
 }
 
 type TurnSnapshot struct {
+	// Historical is a local projection of the desktop transcript for v11 peers.
+	Historical    bool           `json:"-"`
 	Display       *TurnDisplay   `json:"display,omitempty"`
 	InputText     string         `json:"inputText,omitempty"`
 	Progress      *TurnProgress  `json:"progress,omitempty"`

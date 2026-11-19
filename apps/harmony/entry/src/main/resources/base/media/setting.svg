@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 14 14" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>sliders-horizontal</title>
+    <g id="Claude-Mobile-Remote" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round">
+        <g id="01-会话列表" transform="translate(-321, -69)" stroke="currentColor" stroke-width="1.7">
+            <g id="设置按钮" transform="translate(311, 60)">
+                <g id="sliders-horizontal" transform="translate(10, 9)">
+                    <line x1="12.249999" y1="2.33333333" x2="8.16666762" y2="2.33333333" id="sliders-horizontal-1"></line>
+                    <line x1="5.83333238" y1="2.33333333" x2="1.75000095" y2="2.33333333" id="sliders-horizontal-2"></line>
+                    <line x1="12.2499982" y1="7" x2="7.00000182" y2="7" id="sliders-horizontal-3"></line>
+                    <line x1="4.66666605" y1="7" x2="1.75000061" y2="7" id="sliders-horizontal-4"></line>
+                    <line x1="12.2499994" y1="11.6666667" x2="9.33333395" y2="11.6666667" id="sliders-horizontal-5"></line>
+                    <line x1="6.99999818" y1="11.6666667" x2="1.75000182" y2="11.6666667" id="sliders-horizontal-6"></line>
+                    <line x1="8.16666667" y1="1.16666603" x2="8.16666667" y2="3.50000064" id="sliders-horizontal-7"></line>
+                    <line x1="4.66666667" y1="5.83333269" x2="4.66666667" y2="8.16666731" id="sliders-horizontal-8"></line>
+                    <line x1="9.33333333" y1="10.4999994" x2="9.33333333" y2="12.833334" id="sliders-horizontal-9"></line>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

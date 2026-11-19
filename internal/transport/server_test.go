@@ -1767,3 +1767,57 @@ func TestSnapshotTurnDisplayVersionIsolation(t *testing.T) {
 		connection.Close()
 	}
 }
+
+func TestCompletedInputSentToV11Clients(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	fixture.controller.snapshot.Turn = projectsession.TurnSnapshot{
+		Status: projectsession.TurnCompleted, RequestID: "finished",
+		Source: projectsession.InputTerminal, InputText: "最近提问", Message: "最近回复",
+	}
+	for _, version := range []int{7, 10, 11} {
+		socket := fixture.dial(t)
+		writeVersionedTestEnvelope(t, socket, version, TypeHello, "session-1", HelloPayload{PairToken: fixture.token})
+		_ = readTestEnvelope(t, socket)
+		writeVersionedTestEnvelope(t, socket, version, TypeSubscribe, "session-1", struct{}{})
+		_ = readTestEnvelope(t, socket)
+		var payload SnapshotPayload
+		if err := DecodePayload(readTestEnvelope(t, socket), &payload); err != nil {
+			t.Fatal(err)
+		}
+		want := ""
+		if version == 11 {
+			want = "最近提问"
+		}
+		if payload.Snapshot.Turn.InputText != want || payload.Snapshot.Turn.Message != "最近回复" {
+			t.Fatalf("version %d got %+v", version, payload.Snapshot.Turn)
+		}
+		_ = socket.Close()
+	}
+}
+
+func TestInitialDesktopTurnOnlySentToV11Clients(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	fixture.controller.snapshot.Turn = projectsession.TurnSnapshot{
+		Status: projectsession.TurnCompleted, RequestID: "historical", Historical: true,
+		Source: projectsession.InputTerminal, InputText: "最近提问", Message: "最近回复",
+	}
+	for _, version := range []int{10, 11} {
+		socket := fixture.dial(t)
+		writeVersionedTestEnvelope(t, socket, version, TypeHello, "session-1", HelloPayload{PairToken: fixture.token})
+		_ = readTestEnvelope(t, socket)
+		writeVersionedTestEnvelope(t, socket, version, TypeSubscribe, "session-1", struct{}{})
+		_ = readTestEnvelope(t, socket)
+		var payload SnapshotPayload
+		if err := DecodePayload(readTestEnvelope(t, socket), &payload); err != nil {
+			t.Fatal(err)
+		}
+		turn := payload.Snapshot.Turn
+		if version == 10 && (turn.Status != projectsession.TurnIdle || turn.Message != "" || turn.InputText != "") {
+			t.Fatalf("old client got historical turn: %+v", turn)
+		}
+		if version == 11 && (turn.Message != "最近回复" || turn.InputText != "最近提问") {
+			t.Fatalf("new client did not get historical messages: %+v", turn)
+		}
+		_ = socket.Close()
+	}
+}

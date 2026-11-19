@@ -107,7 +107,7 @@ export class ProtocolClient {
   private pendingKind: 'command' | 'create_session' | 'stop_session' | null = null
   private closedByUser = false
   private generation = 0
-  private wireVersion = PREFERRED_PROTOCOL_VERSION
+  private wireVersion: number
   private stageTimer: ReturnType<typeof setTimeout> | null = null
   private attemptTimer: ReturnType<typeof setTimeout> | null = null
   private commandTimer: ReturnType<typeof setTimeout> | null = null
@@ -212,7 +212,8 @@ export class ProtocolClient {
   onEvent: ((event: ClientEvent) => void) | null = null
   onClose: ((info: CloseInfo) => void) | null = null
 
-  constructor(payload: PairingPayload, socketFactory: SocketFactory) {
+  constructor(payload: PairingPayload, socketFactory: SocketFactory, preferredVersion = PREFERRED_PROTOCOL_VERSION) {
+    this.wireVersion = preferredVersion
     this.payload = payload
     this.socketFactory = socketFactory
   }
@@ -443,7 +444,7 @@ export class ProtocolClient {
       return
     }
 
-    const legacyVersion = message.version >= 2 && message.version <= 9
+    const legacyVersion = message.version >= 2 && message.version < this.wireVersion
     if (legacyVersion && message.version < this.wireVersion && this.stage === 'authenticating' && message.type === 'hello_ack') {
       this.wireVersion = message.version
     }

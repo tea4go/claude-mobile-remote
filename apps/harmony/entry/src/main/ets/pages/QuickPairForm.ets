@@ -1,3 +1,4 @@
+import { PairingInputDialog } from '../components/PairingInputDialog'
 import { PAGE_BACKGROUND } from '../ui/styles'
 import { pageSlide } from '../ui/transitions'
 import { validComputerIP, type PCGroup, type ProjectGroup, type PCProfile } from '../session/projectGroups'
@@ -27,31 +28,6 @@ class QuickFrame {
   requestId: string = ''
   payload: QuickPayload = new QuickPayload()
 }
-@CustomDialog
-struct VerifyDialog {
-  controller?: CustomDialogController
-  @Link code: string
-  @Link error: string
-  onCancel: () => void = () => {}
-  onVerify: () => void = () => {}
-  build() {
-    Column({ space: 16 }) {
-      Text('输入验证码').fontSize(18).fontWeight(FontWeight.Bold)
-      Text('请输入 PC 上的六位验证码').fontSize(14)
-      TextInput({ text: this.code, placeholder: '请输入六位验证码' }).type(InputType.Number).maxLength(6)
-        .onChange((v: string) => { this.code = v.replace(/\D/g, '') }).height(52).width('100%')
-      if (this.error.length > 0) {
-        Text(this.error).width('100%').padding(12).fontSize(14).fontColor('#a42c26')
-          .backgroundColor('#fff4f3').borderRadius(12)
-      }
-      Row({ space: 12 }) {
-        Button('取消').layoutWeight(1).onClick(() => this.onCancel())
-        Button('验证并连接').layoutWeight(1).enabled(this.code.length === 6).onClick(() => this.onVerify())
-      }.width('100%')
-    }.padding(24).width('90%').backgroundColor($r('app.color.surface')).borderRadius(18)
-  }
-}
-
 @CustomDialog
 struct LoadingDialog {
   controller?: CustomDialogController
@@ -126,32 +102,33 @@ export struct QuickPairForm {
     return this.profiles.find((profile: PCProfile) => profile.key === computer.key)?.name ?? computer.label
   }
 
-  @Prop computers: Array<PCGroup> = []
+  @Prop @Watch('refreshOnEntry') computers: Array<PCGroup> = []
   @Prop selectedPC: string = 'all'
   @Prop projectCwd: string = ''
   onSelectPC: (key: string) => void = () => {}
   onPair: (text: string) => void = () => {}
   onScan: () => void = () => {}
+  onDebugActionsTop: (top: number) => void = () => {}
   @Prop @Watch('disabledChanged') disabled: boolean = false
   @State ip: string = ''
   @State code: string = ''
   @State phase: string = 'idle'
   @State error: string = ''
   @State private refreshing: boolean = false
-  @State private computerTextHeights: Map<string, number> = new Map<string, number>()
   @State private reachablePCs: Array<string> = []
   @State private unreachablePCs: Array<string> = []
   private refreshQueue: Array<PCGroup> = []
 
-  private measureComputerText(key: string, height: number): void {
-    const side = Math.round(height * 10) / 10
-    if (!Number.isFinite(side) || side <= 0 || this.computerTextHeights.get(key) === side) return
-    const heights = new Map<string, number>(this.computerTextHeights)
-    heights.set(key, side)
-    this.computerTextHeights = heights
+  private refreshedOnEntry: boolean = false
+
+  private refreshOnEntry(): void {
+    if (this.refreshedOnEntry || this.disabled || this.editOpen || !nativeLifecycle.foreground ||
+      this.computers.length === 0 || this.probe !== null) return
+    this.refreshComputers()
   }
 
   private refreshComputers(): void {
+    this.refreshedOnEntry = true
     this.refreshQueue = this.computers.slice()
     this.refreshing = true
     this.refreshNext()
@@ -237,7 +214,7 @@ export struct QuickPairForm {
 
   private legacy: string = ''
   private verifyDialog: CustomDialogController = new CustomDialogController({
-    builder: VerifyDialog({ code: $code, error: $error, onCancel: () => { this.error = ''; this.stop() }, onVerify: () => { this.error = ''; this.verifyDialog.close(); this.phase = 'verifying'; this.loadingDialog.open(); this.send('verify') } }),
+    builder: PairingInputDialog({ value: $code, error: $error, onCancel: () => { this.error = ''; this.stop() }, onVerify: () => { this.error = ''; this.verifyDialog.close(); this.phase = 'verifying'; this.loadingDialog.open(); this.send('verify') } }),
     autoCancel: false, customStyle: true
   })
   private loadingDialog: CustomDialogController = new CustomDialogController({ builder: LoadingDialog({ onCancel: () => this.stop() }), autoCancel: false, customStyle: true })
@@ -246,14 +223,20 @@ export struct QuickPairForm {
   private requestId: string = ''
   private host: string = ''
   private unsubscribe: (() => void) | null = null
-  aboutToAppear(): void { nativeLifecycle.detailBack = this.editorBack; this.unsubscribe = nativeLifecycle.subscribe(() => { if (!nativeLifecycle.foreground) { this.cancelProbe(); this.stop() } }) }
+  aboutToAppear(): void { nativeLifecycle.detailBack = this.editorBack; this.unsubscribe = nativeLifecycle.subscribe(() => { if (!nativeLifecycle.foreground) { this.stopRefresh(); this.stop() } else { this.refreshOnEntry() } }) }
   aboutToDisappear(): void { if (nativeLifecycle.detailBack === this.editorBack) nativeLifecycle.detailBack = null; this.unsubscribe?.(); this.unsubscribe = null; clearTimeout(this.historyTimer); clearTimeout(this.blurTimer); this.cancelProbe(); this.stop() }
   private readonly editorBack: () => boolean = () => {
     if (!this.editOpen) return false
     this.closeEditor()
     return true
   }
-  private disabledChanged(): void { if (this.disabled) this.stop() }
+  private disabledChanged(): void { if (this.disabled) this.stop(); else this.refreshOnEntry() }
+  private stopRefresh(): void {
+    this.cancelProbe()
+    if (this.refreshing) this.refreshedOnEntry = false
+    this.refreshQueue = []
+    this.refreshing = false
+  }
   private stop(): void {
     if (this.timer >= 0) clearTimeout(this.timer)
     this.timer = -1
@@ -421,6 +404,7 @@ export struct QuickPairForm {
         }.width('100%').height(48).border({ width: 1, color: PRIMARY, radius: ACTION_BUTTON_RADIUS })
           .backgroundColor($r('app.color.surface')).enabled(!this.refreshing && !this.editTesting && validComputerIP(this.editIP.trim()))
           .onClick(() => this.testEditedAddress())
+          .onAreaChange((_previous: Area, current: Area) => this.onDebugActionsTop(Number(current.globalPosition.y)))
         Button('确认', { type: ButtonType.Normal }).width('100%').height(48).borderRadius(ACTION_BUTTON_RADIUS).fontSize(14)
           .backgroundColor($r('app.color.primary_fill')).fontColor(Color.White)
           .enabled(!this.editTesting && this.editName.trim().length > 0 && validComputerIP(this.editIP.trim())).onClick(() => {
@@ -438,10 +422,8 @@ export struct QuickPairForm {
     Row() {
       Button({ type: ButtonType.Normal }) {
         Image($r('app.media.pc_action_more')).width(18).height(18)
-      }.width(54).height('100%').padding(0).backgroundColor('#ff8a30').accessibilityText('编辑电脑').onClick(() => {
-        this.cancelProbe()
-        this.refreshQueue = []
-        this.refreshing = false
+      }.width(54).height('100%').padding(0).borderRadius(0).backgroundColor('#ff8a30').accessibilityText('编辑电脑').onClick(() => {
+        this.stopRefresh()
         this.resultOpen = false
         this.editResult = ''
         this.editName = this.computerName(computer)
@@ -451,14 +433,14 @@ export struct QuickPairForm {
       })
       Button({ type: ButtonType.Normal }) {
         Image($r('app.media.pc_action_delete')).width(18).height(18)
-      }.width(54).height('100%').padding(0).backgroundColor('#ff3141').accessibilityText('删除电脑')
+      }.width(54).height('100%').padding(0).borderRadius(0).backgroundColor('#ff3141').accessibilityText('删除电脑')
         .onClick(() => AlertDialog.show({
           title: '删除本地配对',
           message: '删除后需重新配对此电脑下的会话。',
           primaryButton: { value: '取消', action: () => {} },
           secondaryButton: { value: '删除', action: () => this.onRemoveComputer(computer.key) }
         }))
-    }.borderRadius(12).clip(true)
+    }
   }
 
   private copyIP(host: string): void {
@@ -471,7 +453,7 @@ export struct QuickPairForm {
   @Builder
   private resultCard(message: string, host: string, ok: boolean): void {
     Column({ space: 4 }) {
-      Text(message).width('100%').fontSize(14).fontWeight(FontWeight.Bold)
+      Text(message).width('100%').fontSize(12).fontWeight(FontWeight.Bold)
         .fontColor(ok ? '#247443' : '#a42c26')
       Row({ space: 6 }) {
         Text('IP：' + host).fontSize(14).fontColor(ok ? '#247443' : '#a42c26')
@@ -491,7 +473,7 @@ export struct QuickPairForm {
     Column({ space: 16 }) {
       Row({ space: 12 }) {
         Text(this.testedName + ' · 连接测试').fontSize(18).fontWeight(FontWeight.Bold)
-          .layoutWeight(1).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         Button('关闭', { type: ButtonType.Normal }).padding(0).height(44).fontSize(14)
           .fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.resultOpen = false })
       }.width('100%')
@@ -506,7 +488,7 @@ export struct QuickPairForm {
     if (this.editOpen) {
       this.editComputer()
     } else {
-    Column({ space: 8 }) {
+    Column({ space: 4 }) {
       Column({ space: 6 }) {
       Row() {
         TextInput({ text: this.ip, placeholder: '请输入IP' }).layoutWeight(1).height(44).backgroundColor($r('app.color.surface'))
@@ -547,15 +529,16 @@ export struct QuickPairForm {
         }.width('100%').alignItems(HorizontalAlign.End).borderRadius(12)
           .border({ width: 1, color: $r('app.color.border') }).backgroundColor($r('app.color.surface')).clip(true)
         }
-      }.width('100%').onAreaChange((_previous: Area, current: Area) => {
+      }.width('100%').margin({ top: 5, bottom: 6 }).onAreaChange((_previous: Area, current: Area) => {
         this.addressTop = Number(current.globalPosition.y)
         this.addressBottom = this.addressTop + Number(current.height)
       })
-      Text('请与 PC 配对窗口核对；手机所在网络需要能访问此地址。不同路由器共用宽带不代表设备能够互通。').fontSize(12).fontColor(SECONDARY).width('100%')
+      Text('请与 PC 配对窗口核对；手机所在网络需要能访问此地址。不同路由器共用宽带不代表设备能够互通。').fontSize(11).fontColor(SECONDARY).width('100%')
       if (this.computers.length > 0) {
+        Divider().color($r('app.color.border')).margin({ top: 12, bottom: 6 })
         Row() {
-          Button('全部电脑', { type: ButtonType.Normal })
-            .height(34).padding({ left: 4, right: 8 }).fontSize(13)
+          Button('全部电脑', { type: ButtonType.Normal }).fontWeight(FontWeight.Bold)
+            .height(28).padding({ left: 4, right: 8 }).fontSize(13)
             .fontColor(PRIMARY).backgroundColor(Color.Transparent)
             .onClick(() => this.onSelectPC('all'))
           Blank()
@@ -563,22 +546,21 @@ export struct QuickPairForm {
             if (this.refreshing) {
               LoadingProgress().width(17).height(17).color(PRIMARY)
             } else {
-              Button('↻', { type: ButtonType.Normal }).width(40).height(34).padding(0)
-                .fontSize(19).fontColor(PRIMARY).backgroundColor(Color.Transparent).accessibilityText('刷新电脑状态')
+              Button('刷新', { type: ButtonType.Normal }).width(40).height(28).padding(0)
+                .fontSize(13).fontColor(PRIMARY).backgroundColor(Color.Transparent).accessibilityText('刷新电脑状态')
                 .enabled(this.testingPC.length === 0).onClick(() => this.refreshComputers())
             }
-          }.width(40).height(34)
-        }.width('100%').height(34)
+          }.width(40).height(28)
+        }.width('100%').height(28)
       }
       List({ space: 7 }) {
           ForEach(this.computers, (computer: PCGroup) => {
             ListItem() {
               Row({ space: 10 }) {
-                Stack() {
-                  Image($r('app.media.pc_host')).width(24).height(24)
+                Stack({ alignContent: Alignment.Top }) {
+                  Image($r('app.media.pc_host')).width(38).height(38)
                     .fillColor(this.computerStatus(computer) === '●  ' ? '#31a577' : '#d7353e')
-                }.width(this.computerTextHeights.get(computer.key) ?? 42).aspectRatio(1)
-                  .borderRadius(9).backgroundColor($r('app.color.surface'))
+                }.width(38).height(38)
                 Column({ space: 6 }) {
                   Flex({ alignItems: ItemAlign.Center, wrap: FlexWrap.Wrap }) {
                     Text(this.computerName(computer)).fontSize(14).fontWeight(FontWeight.Bold)
@@ -598,9 +580,6 @@ export struct QuickPairForm {
                     }.width('100%')
                   }
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start).constraintSize({ minHeight: 30 })
-                  .onAreaChange((_previous: Area, current: Area) => {
-                    this.measureComputerText(computer.key, Number(current.height))
-                  })
                 if (this.testingPC === computer.key) {
                   Stack() {
                     LoadingProgress().width(20).height(20).color(PRIMARY)
@@ -613,21 +592,21 @@ export struct QuickPairForm {
                       if (!this.refreshing && this.testingPC.length === 0) this.testComputer(computer)
                     })
                 }
-              }.width('100%').padding({ left: 10, right: 8, top: 9, bottom: 9 })
+              }.width('100%').alignItems(VerticalAlign.Top).padding({ left: 10, right: 8, top: 5, bottom: 5 })
                 .backgroundColor(this.selectedPC === computer.key ? $r('app.color.surface_blue') : $r('app.color.surface'))
-                .border({ width: 1, color: $r('app.color.border') }).borderRadius(12).clip(true)
                 .onClick(() => this.onSelectPC(computer.key))
-            }.swipeAction({ end: this.computerActions(computer) })
+            }.swipeAction({ end: this.computerActions(computer) }).borderRadius(12)
+              .border({ width: 1, color: $r('app.color.border') }).clip(true)
           }, (computer: PCGroup) => computer.key)
       }.layoutWeight(1).width('100%').scrollBar(BarState.Auto)
       if (this.error.length > 0 && this.phase === 'idle') {
-        Text(this.error).width('100%').padding(14).fontSize(14).fontColor('#a42c26')
+        Text(this.error).width('100%').padding(10).fontSize(12).fontColor('#a42c26')
           .borderRadius(15).backgroundColor('#fff4f3').border({ width: 1, color: '#ffd2cf' })
       } else if (this.testResult.length > 0) {
         Row({ space: 8 }) {
           Text(this.testedName + '：' + (this.testResultOK ? '连接成功' : '连接失败'))
-            .fontSize(14).fontColor(this.testResultOK ? '#247443' : '#a42c26').layoutWeight(1)
-            .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+            .fontSize(12).fontColor(this.testResultOK ? '#247443' : '#a42c26').layoutWeight(1)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           Button('查看详情', { type: ButtonType.Normal }).padding(0).height(44).fontSize(14)
             .fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.resultOpen = true })
         }.width('100%').padding({ left: 16, right: 16 }).borderRadius(15)
@@ -640,11 +619,13 @@ export struct QuickPairForm {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       Button('连接', { type: ButtonType.Normal }).fontColor(Color.White).width('100%').height(46).borderRadius(ACTION_BUTTON_RADIUS).backgroundColor($r('app.color.primary_fill')).enabled(!this.disabled && this.phase === 'idle').onClick(() => this.start())
+        .onAreaChange((_previous: Area, current: Area) => this.onDebugActionsTop(Number(current.globalPosition.y)))
       Button('扫描二维码', { type: ButtonType.Normal }).width('100%').height(46).fontColor(PRIMARY).backgroundColor($r('app.color.surface')).border({ width: 1, color: PRIMARY, radius: ACTION_BUTTON_RADIUS }).enabled(!this.disabled && this.phase === 'idle').onClick(() => { this.dismissAddressInput(); this.clearTestResult(); this.error = ''; this.onScan() })
     }.width('100%').layoutWeight(1)
       .onClick((event: ClickEvent) => {
         if (event.windowY < this.addressTop || event.windowY > this.addressBottom) this.dismissAddressInput()
       })
+      .onAppear(() => this.refreshOnEntry())
       .bindSheet($$this.resultOpen, this.connectionDetails(), { height: SheetSize.FIT_CONTENT, showClose: false, dragBar: false })
     }
     }.width('100%').layoutWeight(1)

@@ -71,6 +71,14 @@
     {
       "name": "badge_warning",
       "value": "#835200"
+    },
+    {
+      "name": "badge_success_text",
+      "value": "#84E0B6"
+    },
+    {
+      "name": "badge_success_surface",
+      "value": "#153A2D"
     }
   ]
 }

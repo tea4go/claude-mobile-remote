@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import NotificationSettings from './NotificationSettings'
@@ -52,4 +53,14 @@ test('暂停通知的测试版本不显示启用入口或发起授权', async ()
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('暂未开放系统通知'))
   expect(screen.queryByRole('button')).not.toBeInTheDocument()
   expect(port.setNotifications).not.toHaveBeenCalled()
+})
+
+test('iOS 只展示本机远程通知状态，隐藏登记说明', async () => {
+  const platform = vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios')
+  try {
+    const port = { notificationStatus: vi.fn(async () => ({ enabled: true, remoteConfigured: true, remoteReady: true })) } as unknown as ExperiencePort
+    render(<NotificationSettings port={port} />)
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('本机远程通知已就绪'))
+    expect(screen.queryByText(/edo|匿名会话标识/)).not.toBeInTheDocument()
+  } finally { platform.mockRestore() }
 })

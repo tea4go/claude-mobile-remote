@@ -1,6 +1,8 @@
+import { SettingsButton } from '../components/SettingsButton'
 import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
-import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
-import { curves, LengthMetrics } from '@kit.ArkUI'
+import { PairingInputDialog } from '../components/PairingInputDialog'
+import { BuildFooter } from '../components/BuildFooter'
+import { APP_BUILD_LABEL } from '../common/BuildInfo'
 import { pageSlide } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
 import { defaultSessionName, type SessionRecord } from '../session/records'
@@ -35,9 +37,7 @@ export struct SessionListPage {
   @Prop @Watch('updateGroups') profiles: Array<PCProfile> = []
   @Prop @Watch('updateGroups') sessions: Array<SessionRecord> = []
   @Prop @Watch('updateGroups') selectedPC: string = 'all'
-  @Prop projectCreating: boolean = false
   onSelectPC: (key: string) => void = () => {}
-  onCreateProject: (pcKey: string, cwd: string, sourceId: string) => void = () => {}
   @State private groups: Array<PCGroup> = []
   @State private collapsed: Array<string> = []
   @State private filterOpen: boolean = false
@@ -79,40 +79,50 @@ export struct SessionListPage {
   @Prop debugEnabled: boolean = false
   onDebug: (value: boolean) => void = () => {}
   onDebugOpen: () => void = () => {}
+  onDebugActionsTop: (top: number) => void = () => {}
   onClearCache: () => void = () => {}
   @State private settings: boolean = false
-  private createProject(pcKey: string, project: ProjectGroup): void {
-    const available = project.sessions.filter((record: SessionRecord) => record.status === 'connected' && (record.capabilities ?? []).indexOf('create_session') >= 0)
-    this.onCreateProject(pcKey, project.cwd, available.length > 0 ? available[0].sessionId : '')
-  }
   private openFilter(): void {
     const index = this.groups.findIndex((pc: PCGroup) => pc.key === this.selectedPC)
     this.filterIndex = index < 0 ? 0 : index + 1
     this.filterOpen = true
   }
-  private menuSession: SessionRecord | null = null
-  private menuController: CustomDialogController = new CustomDialogController({
-    builder: ActionMenu({ title: this.menuSession === null ? '会话操作' : titleOf(this.menuSession),
-      items: this.menuItems(), onClose: (): void => { this.menuController.close() } }),
-    customStyle: true, alignment: DialogAlignment.Bottom, autoCancel: true,
-    openAnimation: { curve: curves.springMotion(0.25, 1) },
-    closeAnimation: { curve: curves.springMotion(0.25, 1) },
-  })
   private listOffset: number = 0
-  @State private renamingId: string = ''
+  private renamingId: string = ''
   @State private draftName: string = ''
+  @State private renameError: string = ''
   private readonly scroller: Scroller = new Scroller()
+  private readonly renameDialog: CustomDialogController = new CustomDialogController({
+    builder: PairingInputDialog({ rename: true, value: $draftName, error: $renameError,
+      onCancel: (): void => this.renameDialog.close(),
+      onVerify: (): void => {
+        const name = Array.from(this.draftName).slice(0, 40).join('').trim()
+        if (name.length === 0) return
+        this.renameDialog.close()
+        this.onRename(this.renamingId, name)
+      } }),
+    customStyle: true, alignment: DialogAlignment.Center,
+    closeAnimation: { duration: 0 },
+  })
 
-  private menuItems(): Array<ActionMenuItem> {
-    const session = this.menuSession
-    if (session === null) return []
-    return [
-      { title: '进入', action: () => this.onOpen(session.sessionId) },
-      { title: '重命名', action: () => { this.renamingId = session.sessionId; this.draftName = titleOf(session) } },
-      { title: '移除配对', danger: true, action: () => this.remove(session) },
-    ]
+  aboutToDisappear(): void { this.renameDialog.close(); if (nativeLifecycle.detailBack === this.backHandler) nativeLifecycle.detailBack = null }
+
+  @Builder
+  private sessionActions(session: SessionRecord): void {
+    Row() {
+      Button({ type: ButtonType.Normal }) {
+        Image($r('app.media.pc_action_more')).width(18).height(18)
+      }.width(54).height('100%').padding(0).borderRadius(0).backgroundColor('#ff8a30').accessibilityText('重命名').onClick(() => {
+        this.renamingId = session.sessionId
+        this.draftName = Array.from(titleOf(session)).slice(0, 40).join('')
+        this.renameDialog.open()
+      })
+      Button({ type: ButtonType.Normal }) {
+        Image($r('app.media.pc_action_delete')).width(18).height(18)
+      }.width(54).height('100%').padding(0).borderRadius(0).backgroundColor('#ff3141').accessibilityText('删除会话')
+        .onClick(() => this.remove(session))
+    }
   }
-  aboutToDisappear(): void { this.menuController.close(); if (nativeLifecycle.detailBack === this.backHandler) nativeLifecycle.detailBack = null }
 
   private remove(record: SessionRecord): void {
     AlertDialog.show({ title: '移除此配对？', message: '同时清除本机凭证、缓存与提醒，电脑端会话继续运行。',
@@ -136,33 +146,28 @@ export struct SessionListPage {
     return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
   }
   @Builder
-  private sessionRow(session: SessionRecord) {
-    Column() {
-      Row() {
-        Text(titleOf(session)).fontSize(16).fontWeight(FontWeight.Medium).maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).onClick(() => this.onOpen(session.sessionId))
-        if (session.unread) { Circle().width(7).height(7).fill(PRIMARY).accessibilityText('未读') }
-        Button('⋯', { type: ButtonType.Normal }).width(44).height(44).fontSize(22).fontColor(SECONDARY).backgroundColor(Color.Transparent)
-          .accessibilityText('会话操作').onClick(() => { this.menuSession = session; this.menuController.open() })
-      }.width('100%')
-      Text(session.preview ?? '暂无会话内容').fontSize(13).fontColor(SECONDARY).maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').onClick(() => this.onOpen(session.sessionId))
-      Row({ space: 5 }) {
-        Circle().width(7).height(7).fill(session.status === 'connected' ? '#36a574' : '#d34a4a')
-        Text(session.status === 'connected' ? '已连接' : statusLabel(session)).fontSize(12).fontColor(SECONDARY).layoutWeight(1)
-        Text(this.timeOf(session)).fontSize(12).fontColor(SECONDARY)
-      }.width('100%').padding({ top: 12 }).onClick(() => this.onOpen(session.sessionId))
-      if (this.renamingId === session.sessionId) {
-        Row({ space: 4 }) {
-          TextInput({ text: this.draftName, placeholder: '本地名称' }).maxLength(255).layoutWeight(1).onChange((text: string) => { this.draftName = text })
-          Button('保存', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(PRIMARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
-            .onClick(() => { this.onRename(session.sessionId, this.draftName); this.renamingId = '' })
-          Button('取消', { type: ButtonType.Normal }).height(44).fontSize(14).fontColor(SECONDARY).backgroundColor(Color.Transparent).borderRadius(8).hoverEffect(HoverEffect.Highlight).clip(true)
-            .onClick(() => { this.renamingId = '' })
-        }.padding(8)
+  private sessionRow(session: SessionRecord): void {
+    Stack({ alignContent: Alignment.Start }) {
+      Column() {
+        Row() {
+          Text(titleOf(session)).fontSize(16).fontWeight(FontWeight.Medium).maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).onClick(() => this.onOpen(session.sessionId))
+          if (session.unread) { Circle().width(7).height(7).fill(PRIMARY).accessibilityText('未读') }
+          if (this.recentlyViewedId === session.sessionId) { Text('刚刚查看').fontSize(11).fontColor(PRIMARY).margin({ left: 5 }) }
+        }.width('100%')
+        Text(session.preview ?? '暂无会话内容').fontSize(13).fontColor(SECONDARY).maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').onClick(() => this.onOpen(session.sessionId))
+        Row({ space: 5 }) {
+          Circle().width(7).height(7).fill(session.status === 'connected' ? '#36a574' : '#d34a4a')
+          Text(session.status === 'connected' ? '已连接' : statusLabel(session)).fontSize(12).fontColor(SECONDARY).layoutWeight(1)
+          Text(this.timeOf(session)).fontSize(12).fontColor(SECONDARY)
+        }.width('100%').padding({ top: 12 }).onClick(() => this.onOpen(session.sessionId))
+      }.width('100%').padding({ left: 16, right: 12, top: 12, bottom: 14 }).alignItems(HorizontalAlign.Start)
+      if (this.recentlyViewedId === session.sessionId) {
+        Column().width(3).height(26).backgroundColor(PRIMARY).borderRadius(3).hitTestBehavior(HitTestMode.None)
       }
-    }.id(`session-item-${session.sessionId}`).width('100%').padding({ left: 16, right: 12, top: 6, bottom: 14 }).alignItems(HorizontalAlign.Start)
-      .backgroundColor(this.recentlyViewedId === session.sessionId ? $r('app.color.surface_selected') : $r('app.color.surface')).border({ width: 1, color: $r('app.color.border') }).borderRadius(16)
+    }.id(`session-item-${session.sessionId}`).width('100%')
+      .backgroundColor(this.recentlyViewedId === session.sessionId ? $r('app.color.surface_selected') : $r('app.color.surface'))
   }
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -174,39 +179,48 @@ export struct SessionListPage {
           Text('设置').fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
           Blank().width(44)
         } else {
-          Blank().width(44)
+          Blank().width(68)
           Text('ccBuddy').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Center)
-          Button('设置', { type: ButtonType.Normal }).height(40).fontSize(14).fontColor($r('app.color.text'))
-            .backgroundColor($r('app.color.surface')).borderRadius(20).onClick(() => this.changePage())
+          SettingsButton({ onOpen: () => this.changePage() })
         }
-      }.padding({ left: 16, right: 16, top: 8, bottom: 8 }).width('100%')
+      }.padding({ left: 16, right: 16 }).height(56).width('100%')
       if (this.settings) {
         Scroll() {
-          Column({ space: 18 }) {
+          Column({ space: 12 }) {
             Row({ space: 12 }) {
-              Text('✧').fontSize(20).fontColor(PRIMARY).width(36).height(36).textAlign(TextAlign.Center).backgroundColor($r('app.color.surface_blue')).borderRadius(10)
+              Image($r('app.media.demo_introduce')).width(24).height(24)
               Text('体验演示（无需连接电脑）').fontSize(16).layoutWeight(1)
               Text('›').fontSize(24).fontColor(SECONDARY)
-            }.width('100%').height(60).padding({ left: 16, right: 16 }).backgroundColor($r('app.color.surface')).borderRadius(16).onClick(() => this.onDemo())
-            Column({ space: 8 }) {
-              Row() {
-                Text('调试日志').fontSize(16).layoutWeight(1)
-                Toggle({ type: ToggleType.Switch, isOn: this.debugEnabled }).onChange((value: boolean) => this.onDebug(value))
-              }.width('100%')
-              Text('开启后显示悬浮入口；日志始终在本次运行中记录，最多保留 200 条。').fontSize(12).fontColor(SECONDARY).width('100%')
-            }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).alignItems(HorizontalAlign.Start)
-            Column({ space: 10 }) {
-              Text('本地保存说明').fontSize(16).fontWeight(FontWeight.Medium).width('100%')
-              Text('配对凭证保存在系统安全存储；移除配对不会关闭电脑上的会话。').fontSize(13).fontColor(SECONDARY).width('100%')
-              Text('保存最近已收到的消息和目录；每会话最多 200 项/2 MiB，总计 20 MiB，保留 30 天。不缓存图片原件，不支持离线发送。').fontSize(13).fontColor(SECONDARY).width('100%')
-              Row() {
-                Text('清除离线缓存').fontSize(15).layoutWeight(1)
-                Button('清除', { type: ButtonType.Normal }).height(44).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => {
-                  AlertDialog.show({ title: '清除本机消息缓存？', message: '配对仍保留；未缓存的历史无法从电脑补回。', primaryButton: { value: '清除', action: () => this.onClearCache() }, secondaryButton: { value: '取消', action: () => {} } })
-                })
-              }.width('100%')
-            }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).alignItems(HorizontalAlign.Start)
-            Column({ space: 8 }) {
+            }.width('100%').constraintSize({ minHeight: 46 }).padding({ left: 12, right: 12, top: 4, bottom: 4 }).backgroundColor($r('app.color.surface')).borderRadius(16).onClick(() => this.onDemo())
+            Column({ space: 6 }) {
+              Text('调试').fontSize(12).fontColor(SECONDARY).width('100%')
+              Column({ space: 4 }) {
+                Row() {
+                  Text('调试日志').fontSize(16).layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.debugEnabled }).onChange((value: boolean) => this.onDebug(value))
+                }.width('100%')
+                Text('开启后显示悬浮入口；日志始终在本次运行中记录，最多保留 200 条。').fontSize(12).fontColor(SECONDARY).width('100%')
+              }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).alignItems(HorizontalAlign.Start)
+            }.width('100%')
+            Column({ space: 6 }) {
+              Text('本地保存说明').fontSize(12).fontColor(SECONDARY).width('100%')
+              Column({ space: 6 }) {
+                Text('配对与设备').fontSize(15).fontWeight(FontWeight.Medium).width('100%')
+                Text('配对凭证保存在系统安全存储；移除配对不会关闭电脑上的会话。').fontSize(13).fontColor(SECONDARY).width('100%')
+                Divider().color($r('app.color.border'))
+                Text('消息与状态').fontSize(15).fontWeight(FontWeight.Medium).width('100%')
+                Text('保存最近已收到的消息和目录；每会话最多 200 项/2 MiB，总计 20 MiB，保留 30 天。不缓存图片原件，不支持离线发送。').fontSize(13).fontColor(SECONDARY).width('100%')
+                Divider().color($r('app.color.border'))
+                Row({ space: 8 }) {
+                  Image($r('app.media.clear_cache')).width(24).height(24)
+                  Text('清除离线缓存').fontSize(15).layoutWeight(1)
+                  Button('清除', { type: ButtonType.Normal }).height(44).fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => {
+                    AlertDialog.show({ title: '清除本机消息缓存？', message: '配对仍保留；未缓存的历史无法从电脑补回。', primaryButton: { value: '清除', action: () => this.onClearCache() }, secondaryButton: { value: '取消', action: () => {} } })
+                  })
+                }.width('100%')
+              }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).alignItems(HorizontalAlign.Start)
+            }.width('100%')
+            Column({ space: 4 }) {
               Row() {
                 Text('在线会话提醒').fontSize(16).layoutWeight(1)
                 Toggle({ type: ToggleType.Switch, isOn: this.notificationsEnabled }).selectedColor(PRIMARY).onChange((enabled: boolean) => { if (enabled !== this.notificationsEnabled) this.onNotifications() })
@@ -217,48 +231,64 @@ export struct SessionListPage {
                 Toggle({ type: ToggleType.Switch, isOn: this.pushConsent }).selectedColor(PRIMARY).onChange((enabled: boolean) => { if (enabled !== this.pushConsent) this.onEnablePush() })
               }.width('100%')
               Text(this.pushStatus).fontSize(12).fontColor(SECONDARY).width('100%')
-            }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).alignItems(HorizontalAlign.Start)
+            }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16).alignItems(HorizontalAlign.Start)
 
+            Column({ space: 4 }) {
+              Text('关于').fontSize(15).fontWeight(FontWeight.Medium).width('100%')
+              Text(APP_BUILD_LABEL).fontSize(12).fontColor(SECONDARY).width('100%')
+            }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%')
+              .backgroundColor($r('app.color.surface')).borderRadius(16)
           }.padding({ left: 16, right: 16, top: 12, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
         }.layoutWeight(1).width('100%').align(Alignment.TopStart).transition(pageSlide())
       } else {
         Refresh({ refreshing: $$this.refreshing }) {
         List({ space: 8, scroller: this.scroller }) {
-          ListItem() { Row({ space: 10 }) { Text('会话列表').fontSize(28).fontWeight(FontWeight.Bold); Text(`${this.sessions.length} 个会话`).fontSize(12).fontColor(SECONDARY).padding({ left: 10, right: 10, top: 6, bottom: 6 }).backgroundColor($r('app.color.surface_blue')).borderRadius(16) }.width('100%').padding({ top: 18, bottom: 12 }) }
+          ListItem() { Row({ space: 10 }) { Text('会话列表').fontSize(28).fontWeight(FontWeight.Bold); Text(`${this.sessions.length} 个会话`).fontSize(12).fontColor(SECONDARY).padding({ left: 10, right: 10, top: 6, bottom: 6 }).backgroundColor($r('app.color.surface_blue')).borderRadius(16) }.width('100%').padding({ top: 6, bottom: 12 }) }
           if (this.groups.length === 0) { ListItem() { Text('扫码连接电脑上的 Claude 会话').fontSize(14).fontColor(SECONDARY).padding(24) } }
           LazyForEach(this.listSource, (row: ProjectListRow) => {
-            ListItem() {
-              if (row.kind === 'pc' && row.pc !== undefined) {
-                Row({ space: 12 }) {
-                  Stack() { Image($r('app.media.pc_host')).width(32).height(32).fillColor(Color.White) }.width(44).height(44).backgroundColor($r('app.color.primary_fill')).borderRadius(11)
-                  Column({ space: 4 }) {
-                    Text(row.pc.label).fontSize(16).fontWeight(FontWeight.Medium).width('100%')
-                    Text(this.computerAddress(row.pc)).fontSize(12).fontColor(SECONDARY).maxLines(1)
-                    Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(8) } }) {
-                      ForEach(row.pc.sessions, (record: SessionRecord) => {
-                        if (record.pairToken.length > 4) {
-                          Text('••••' + record.pairToken.slice(-4)).fontSize(12).fontColor(SECONDARY)
-                        }
-                      }, (record: SessionRecord) => record.sessionId)
-                      Text(`${row.pc.connected}/${row.pc.sessions.length} 个会话已连接`).fontSize(12).fontColor(SECONDARY)
-                    }.width('100%')
-                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                }.padding(16).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16)
-              } else if (row.kind === 'project' && row.pc !== undefined && row.project !== undefined) {
-                Row({ space: 8 }) {
-                  Column({ space: 4 }) {
-                    Row({ space: 6 }) { Image(this.collapsed.indexOf((row.project as ProjectGroup).key) >= 0 ? $r('app.media.folder_closed') : $r('app.media.folder_open')).width(16).height(16); Text((row.project as ProjectGroup).title).fontSize(15).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1) }.width('100%')
-                    Text(row.project.cwd.length > 0 ? row.project.cwd : '工作目录未知').fontSize(12).fontColor(SECONDARY).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-                  }.layoutWeight(1).alignItems(HorizontalAlign.Start).onClick(() => {
-                    const project = row.project as ProjectGroup
-                    this.collapsed = this.collapsed.indexOf(project.key) >= 0 ? this.collapsed.filter((key: string) => key !== project.key) : this.collapsed.concat([project.key])
-                    this.updateRows()
-                  })
-                  Button(this.projectCreating ? '…' : '+', { type: ButtonType.Normal }).width(44).height(44).fontSize(24).fontColor(PRIMARY).backgroundColor(Color.Transparent).enabled(!this.projectCreating).accessibilityText(`在 ${row.project.title} 新建会话`).onClick(() => this.createProject((row.pc as PCGroup).key, row.project as ProjectGroup))
-                }.width('100%').padding({ top: 4 })
-              } else if (row.session !== undefined) {
-                this.sessionRow(row.session)
+            if (row.session === undefined) {
+              ListItem() {
+                if (row.kind === 'pc' && row.pc !== undefined) {
+                  Row({ space: 12 }) {
+                    Stack() { Image($r('app.media.pc_host')).width(36).height(36).fillColor(Color.White) }
+                      .width(44).height(44).borderRadius(10)
+                      .linearGradient({ angle: 145, colors: [['#4854df', 0], ['#126ded', 1]] })
+                    Column({ space: 4 }) {
+                      Text(row.pc.label).fontSize(16).fontWeight(FontWeight.Medium).width('100%')
+                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                      Text(row.pc.sessions[0].pairToken.length > 4 ? 'Token：…' + row.pc.sessions[0].pairToken.slice(-4) : '需重新配对')
+                        .fontSize(12).fontColor(SECONDARY).width('100%').maxLines(1)
+                    }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                    Column({ space: 4 }) {
+                      Text(this.computerAddress(row.pc)).fontSize(12).fontColor(SECONDARY).maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: 120 })
+                      Row({ space: 4 }) {
+                        Circle().width(5).height(5).fill(row.pc.connected > 0 ? $r('app.color.badge_success_text') : SECONDARY)
+                        Text(row.pc.connected > 0 ? '已连接' : '暂未连接').fontSize(11)
+                          .fontColor(row.pc.connected > 0 ? $r('app.color.badge_success_text') : SECONDARY)
+                      }.padding({ left: 8, right: 8, top: 3, bottom: 3 })
+                        .backgroundColor(row.pc.connected > 0 ? $r('app.color.badge_success_surface') : $r('app.color.surface_subtle'))
+                        .borderRadius(12)
+                    }.alignItems(HorizontalAlign.End)
+                  }.padding({ left: 16, right: 16, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16)
+                } else if (row.kind === 'project' && row.pc !== undefined && row.project !== undefined) {
+                  Row({ space: 8 }) {
+                    Column({ space: 4 }) {
+                      Row({ space: 6 }) { Image(this.collapsed.indexOf((row.project as ProjectGroup).key) >= 0 ? $r('app.media.folder_closed') : $r('app.media.folder_open')).width(16).height(16); Text((row.project as ProjectGroup).title).fontSize(15).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1) }.width('100%')
+                      Text(row.project.cwd.length > 0 ? row.project.cwd : '工作目录未知').fontSize(12)
+                        .fontColor(SECONDARY).wordBreak(WordBreak.BREAK_ALL).width('100%')
+                    }.layoutWeight(1).alignItems(HorizontalAlign.Start).onClick(() => {
+                      const project = row.project as ProjectGroup
+                      this.collapsed = this.collapsed.indexOf(project.key) >= 0 ? this.collapsed.filter((key: string) => key !== project.key) : this.collapsed.concat([project.key])
+                      this.updateRows()
+                    })
+                  }.width('100%').padding({ top: 4 })
+                }
               }
+            } else {
+              ListItem() { this.sessionRow(row.session) }
+                .swipeAction({ end: this.sessionActions(row.session) })
+                .border({ width: 1, color: $r('app.color.border') }).borderRadius(16).clip(true)
             }
           }, (row: ProjectListRow) => row.key)
         }.layoutWeight(1).width('100%').padding({ left: 16, right: 16 }).cachedCount(3).transition(pageSlide(true))
@@ -271,7 +301,10 @@ export struct SessionListPage {
       }
       if (!this.settings) {
         Row() { Button('＋ 新会话', { type: ButtonType.Normal }).height(52).width('100%').fontSize(16).fontColor(Color.White)
-          .backgroundColor($r('app.color.primary_fill')).borderRadius(16).onClick(() => this.onAdd()) }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
+          .backgroundColor($r('app.color.primary_fill')).borderRadius(16).onClick(() => this.onAdd()) }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 5 })
+          .onAreaChange((_previous: Area, current: Area) => this.onDebugActionsTop(Number(current.globalPosition.y)))
+          .onDisAppear(() => this.onDebugActionsTop(0))
+        BuildFooter()
       }
     }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
     if (this.filterOpen) {

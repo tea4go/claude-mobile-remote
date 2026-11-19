@@ -33,7 +33,7 @@ import {
   ASK_USER_QUESTION_TOOL_NAME,
   MAX_TEXT_BYTES,
   PROTOCOL_VERSION,
-  PREFERRED_PROTOCOL_VERSION,
+  LATEST_INPUT_PROTOCOL_VERSION,
   SERVER_TO_CLIENT_TYPES,
 } from './types'
 
@@ -528,7 +528,7 @@ function decodeSessionSnapshot(value: unknown, version: number): SessionSnapshot
     snapshot.turn.display = { items, truncated: display.truncated }
   }
   if (rawTurn.inputText !== undefined) {
-    if (version < 7 || typeof rawTurn.inputText !== 'string' || rawTurn.inputText === '' || new TextEncoder().encode(rawTurn.inputText).length > MAX_TEXT_BYTES || !snapshot.turn.requestId || !['running', 'waiting'].includes(snapshot.turn.status)) fail('invalid current input')
+    if (version < 7 || typeof rawTurn.inputText !== 'string' || rawTurn.inputText === '' || new TextEncoder().encode(rawTurn.inputText).length > MAX_TEXT_BYTES || !snapshot.turn.requestId || snapshot.turn.status === 'idle' || (version < LATEST_INPUT_PROTOCOL_VERSION && !['running', 'waiting'].includes(snapshot.turn.status))) fail('invalid current input')
     snapshot.turn.inputText = rawTurn.inputText
   }
   if (rawTurn.progress !== undefined) {
@@ -757,7 +757,7 @@ export function decodeServerMessage(text: string): ServerMessage {
   if (typeof version !== 'number' || !Number.isSafeInteger(version)) {
     fail('field version must be an integer')
   }
-  if (version < PROTOCOL_VERSION || version > PREFERRED_PROTOCOL_VERSION) fail('unsupported protocol version')
+  if (version < PROTOCOL_VERSION || version > LATEST_INPUT_PROTOCOL_VERSION) fail('unsupported protocol version')
 
   const type = requireString(parsed, 'type') as MessageType
   if (!SERVER_TO_CLIENT_TYPES.has(type)) {
