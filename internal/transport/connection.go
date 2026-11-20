@@ -168,7 +168,9 @@ func (c *connection) readLoop() {
 			}
 		case stateSubscribed:
 			if envelope.Type == TypePing && envelope.SessionID == c.sessionID {
+				c.server.recordConnectionEvent(c.sessionID, "ping_received")
 				if c.enqueue(TypePong, "", "", 0, struct{}{}) != nil {
+					c.server.recordConnectionEvent(c.sessionID, "pong_queue_failed")
 					return
 				}
 				continue
@@ -681,6 +683,9 @@ func (c *connection) enqueue(messageType MessageType, commandID, requestID strin
 	if messageType == TypeSnapshot || messageType == TypeImageResult {
 		return c.outbox.EnqueueSnapshot(data)
 	}
+	if messageType == TypePong {
+		return c.outbox.enqueue(data, false, envelope.SessionID)
+	}
 	return c.outbox.Enqueue(data)
 }
 
@@ -691,11 +696,19 @@ func (c *connection) fail(code, message string) {
 func (c *connection) writeLoop() {
 	defer close(c.writerDone)
 	for {
-		data, ok := c.outbox.Next()
+		item, ok := c.outbox.Next()
 		if !ok {
 			return
 		}
-		if err := c.socket.WriteMessage(websocket.TextMessage, data); err != nil {
+		err := c.socket.WriteMessage(websocket.TextMessage, item.data)
+		if item.pongSession != "" {
+			code := "pong_written"
+			if err != nil {
+				code = "pong_write_failed"
+			}
+			c.server.recordConnectionEvent(item.pongSession, code)
+		}
+		if err != nil {
 			return
 		}
 	}

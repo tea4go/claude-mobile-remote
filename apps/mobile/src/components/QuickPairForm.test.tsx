@@ -151,3 +151,15 @@ test('清空历史后失焦不会重新保存当前地址', async () => {
  expect(write).not.toHaveBeenCalled()
  read.mockRestore(); clear.mockRestore(); write.mockRestore()
 })
+
+test('six digit pairing distinguishes a dropped connection before and after opening', async () => {
+ vi.stubGlobal('WebSocket', Socket)
+ render(<QuickPairForm iosDesign onPair={vi.fn()}/>)
+ fireEvent.change(screen.getByRole('textbox', { name: 'PC IP' }), { target: { value: '10.0.0.2' } })
+ fireEvent.click(screen.getByText('连接'))
+ act(() => Socket.last.onerror?.())
+ expect(await screen.findByRole('alert')).toHaveTextContent('10.0.0.2:7330')
+ fireEvent.click(screen.getByText('连接'))
+ act(() => { Socket.last.onopen?.(); Socket.last.onclose?.() })
+ expect(await screen.findByRole('alert')).toHaveTextContent('已连接电脑，但未能获取验证码')
+})

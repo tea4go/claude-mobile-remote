@@ -12,10 +12,15 @@ var (
 	errCommandInFlight     = errors.New("command already in flight")
 )
 
+type outboxItem struct {
+	data        []byte
+	pongSession string
+}
+
 type outbox struct {
 	mu         sync.Mutex
 	cond       *sync.Cond
-	items      [][]byte
+	items      []outboxItem
 	bytes      int
 	largeBytes int
 	maxItems   int
@@ -29,11 +34,11 @@ func newOutbox(maxItems, maxBytes int) *outbox {
 	return queue
 }
 
-func (q *outbox) Enqueue(data []byte) error { return q.enqueue(data, false) }
+func (q *outbox) Enqueue(data []byte) error { return q.enqueue(data, false, "") }
 
-func (q *outbox) EnqueueSnapshot(data []byte) error { return q.enqueue(data, true) }
+func (q *outbox) EnqueueSnapshot(data []byte) error { return q.enqueue(data, true, "") }
 
-func (q *outbox) enqueue(data []byte, allowLargeSnapshot bool) error {
+func (q *outbox) enqueue(data []byte, allowLargeSnapshot bool, pongSession string) error {
 	copyOfData := append([]byte(nil), data...)
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -54,26 +59,26 @@ func (q *outbox) enqueue(data []byte, allowLargeSnapshot bool) error {
 	} else if q.bytes-q.largeBytes+len(copyOfData) > q.maxBytes {
 		return errOutboxOverflow
 	}
-	q.items = append(q.items, copyOfData)
+	q.items = append(q.items, outboxItem{data: copyOfData, pongSession: pongSession})
 	q.bytes += len(copyOfData)
 	q.cond.Signal()
 	return nil
 }
 
-func (q *outbox) Next() ([]byte, bool) {
+func (q *outbox) Next() (outboxItem, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	for len(q.items) == 0 && !q.closed {
 		q.cond.Wait()
 	}
 	if len(q.items) == 0 {
-		return nil, false
+		return outboxItem{}, false
 	}
 	item := q.items[0]
-	q.items[0] = nil
+	q.items[0] = outboxItem{}
 	q.items = q.items[1:]
-	q.bytes -= len(item)
-	if len(item) == q.largeBytes {
+	q.bytes -= len(item.data)
+	if len(item.data) == q.largeBytes {
 		q.largeBytes = 0
 	}
 	return item, true

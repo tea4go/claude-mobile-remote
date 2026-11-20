@@ -58,11 +58,13 @@ function readyStore() {
   return { store, socket }
 }
 test('pairing retries once via the same PC and uses the route that returned a valid snapshot', () => {
+  const log = load('debug/log').debugLog
+  log.clear()
   const store = load('session/store').createSessionStore()
   stores.push(store)
   store.connectWithPairing(pairing, true)
   const original = sockets.at(-1)
-  original.callbacks.error({ code: 2302001, message: 'test failure' })
+  original.callbacks.error({ code: 2302001, message: `test failure ${pairing.pairToken}` })
 
   const alternate = sockets.at(-1)
   assert.notEqual(alternate, original)
@@ -75,6 +77,27 @@ test('pairing retries once via the same PC and uses the route that returned a va
   alternate.wire(snapshot())
   assert.equal(store.getState().connection, ConnectionStage.READY)
   assert.equal(store.getState().pairing.wsUrl, alternate.url)
+  const failure = log.list().find(entry => entry.code === 'socket_event_error')
+  const fallback = log.list().find(entry => entry.code === 'socket_open')
+  assert.ok(failure.detail.includes('ws://example.test:80/ws'))
+  assert.match(failure.detail, /阶段=CONNECTING .*系统错误码=2302001 .*test failure/)
+  assert.ok(fallback.detail.includes(alternate.url))
+  assert.match(fallback.detail, /阶段=AUTHENTICATING/)
+  assert.notEqual(failure.detail.split(' ')[1], fallback.detail.split(' ')[1])
+  assert.ok(!log.text().includes(pairing.pairToken))
+})
+test('pairing reports the actual failed stage on the fallback route without exposing the system error', () => {
+  const store = load('session/store').createSessionStore()
+  stores.push(store)
+  store.connectWithPairing(pairing, true)
+  sockets.at(-1).callbacks.error({ code: 200, message: 'socket error' })
+  const alternate = sockets.at(-1)
+  alternate.emit('open', {})
+  alternate.callbacks.error({ code: 200, message: 'socket error' })
+  const error = store.getState().lastError
+  assert.equal(error.code, '200')
+  assert.match(error.message, /ws:\/\/example.test:7330.*配对验证未完成/)
+  assert.doesNotMatch(error.message, /socket error|synthetic-test-only/)
 })
 test('existing self checks remain valid', () => assert.equal(load('debug/selfCheck').runSelfChecks().length, 8))
 test('whole Markdown copy uses visible text and keeps code and table content', () => {
@@ -497,12 +520,18 @@ function readyV6() {
   const snap = snapshot(); snap.version = 6; socket.wire(snap)
   return { store, socket }
 }
-test('heartbeat timeout marks disconnected without sending a user command', t => {
+test('heartbeat timeout marks disconnected without sending a user command', async t => {
+  debugLog.clear()
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100000 })
   const { store, socket } = readyV6()
   t.mock.timers.tick(10000)
   assert.equal(socket.frames.at(-1).type, 'ping')
+  await Promise.resolve()
   t.mock.timers.tick(5000)
+  assert.match(debugLog.text(), /ping_send_result .*发送回调=成功/)
+  assert.match(debugLog.text(), /heartbeat_timeout .*等待上限=5000ms/)
+  assert.match(debugLog.text(), /socket_error .*错误=heartbeat_timeout/)
+  assert.doesNotMatch(debugLog.text(), /value=0/)
   assert.equal(store.getState().connection, ConnectionStage.DISCONNECTED)
   assert.equal(store.getState().lastError.code, 'heartbeat_timeout')
   assert.equal(socket.frames.some(frame => frame.type === 'command'), false)
@@ -560,7 +589,7 @@ test('logs remain bounded when hidden and target strips secret paths and userinf
   debugLog.setEnabled(true); debugLog.clear()
   for (let i = 0; i < 210; i++) debugLog.record('ping', i)
   assert.equal(debugLog.list().length, 200)
-  assert.equal(debugLog.list()[0].detail, 'value=209')
+  assert.equal(debugLog.list()[0].detail, '等待上限=209ms')
   assert.equal(debugLog.target('wss://example.test:443/private?token=secret'), 'wss://example.test:443')
   assert.equal(debugLog.target('wss://user:secret@example.test/ws'), '目标地址不可显示')
   debugLog.setEnabled(false); debugLog.record('ready'); assert.equal(debugLog.list()[0].code, 'ready'); assert.equal(debugLog.list().length, 200)

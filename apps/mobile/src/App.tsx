@@ -10,7 +10,7 @@ import { nativeSessionCache, decodeSessionCache, SessionCacheWriter, type Sessio
 import { nativeExperience, type ExperiencePort } from './native/experience'
 import NotificationSettings from './components/NotificationSettings'
 import { ProtocolClient } from './protocol/client'
-import { networkDiagnostics, networkCodeText, safeNetworkTarget } from './protocol/diagnostics'
+import { pairingFailureText, safeNetworkTarget } from './protocol/diagnostics'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Button, List, NavBar, PullToRefresh, SpinLoading, Switch } from 'antd-mobile'
 import { useStore } from 'zustand'
@@ -262,8 +262,8 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     client.onClose = () => {
       if (!current()) return
       candidate.current = null
-      const diagnostic = networkDiagnostics.getSnapshot().filter((item) => item.sessionId === payload.sessionId).at(-1)
-      const message = diagnostic ? networkCodeText[diagnostic.code] : '连接失败，请重试'
+      const diagnostic = client.lastDiagnostic
+      const message = pairingFailureText(diagnostic?.stage, diagnostic?.code, payload.wsUrl)
       if (createdSource) {
         createdCandidateSource.current = null
         setManagementBusy((state) => ({ ...state, [createdSource]: false }))

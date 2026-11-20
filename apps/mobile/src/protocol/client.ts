@@ -1,5 +1,5 @@
 import { recordAction, actionText, type ConnectionDetails } from '../debug/log'
-import { recordNetworkDiagnostic, type NetworkCode } from './diagnostics'
+import { recordNetworkDiagnostic, type NetworkCode, type NetworkStage } from './diagnostics'
 // 单 WebSocket 生命周期与协议编排（设计 §5）。
 // 不依赖 React 或 DOM；WebSocket 工厂可注入以便测试。
 
@@ -167,8 +167,12 @@ export class ProtocolClient {
       timeoutMs: this.phaseTimeoutMs, readyState: this.socket?.readyState }
   }
 
+  lastDiagnostic: { stage: NetworkStage; code: NetworkCode } | null = null
+
   private diagnose(code: NetworkCode, extra: Partial<ConnectionDetails> = {}): void {
-    recordNetworkDiagnostic(this.payload.sessionId, this.payload.wsUrl, this.stage === 'ready' ? 'connected' : this.stage, code, this.startedAt, { ...this.diagnosticDetails(), ...extra })
+    const stage = this.stage === 'ready' ? 'connected' : this.stage
+    this.lastDiagnostic = { stage, code }
+    recordNetworkDiagnostic(this.payload.sessionId, this.payload.wsUrl, stage, code, this.startedAt, { ...this.diagnosticDetails(), ...extra })
   }
 
   // Whitelist numeric/boolean CloseEvent metadata; never read reason or raw error.

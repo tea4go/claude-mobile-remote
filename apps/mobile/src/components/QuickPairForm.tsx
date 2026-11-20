@@ -15,7 +15,6 @@ export function quickPairUrl(input: string): URL {
   url.pathname = '/quick-pair/v1'
   return url
 }
-const unavailable = '连接失败，请检查 PC 服务和网络'
 export default function QuickPairForm({ onPair, disabled = false, iosDesign = false, onScan, feedback, pcFeedback, onDismissFeedback, pcList, externalFeedbackKey }: { externalFeedbackKey?: string | null; pcList?: ReactNode; pcFeedback?: ReactNode; onDismissFeedback?: () => void; feedback?: ReactNode; onPair: (text: string) => void; disabled?: boolean; iosDesign?: boolean; onScan?: () => void }) {
   const [ip,setIP]=useState(''), [code,setCode]=useState(''), [phase,setPhase]=useState('idle'), [error,setError]=useState('')
   const [toast, setToast] = useState('')
@@ -74,12 +73,22 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
     if (iosDesign && legacy.current) { onPair(legacy.current); return }
     if (iosDesign && !validIP(ip)) { setLatest('local'); setToast('请输入有效的 IP 地址或配对信息'); return }
     let url:URL;try{url=quickPairUrl(ip)}catch{setError('请输入有效 PC IP，可附带端口');return}
+    const unavailable = `连接失败（${url.host}）。请核对电脑 IP、确认远程服务已开启，并检查手机网络`
     let s:WebSocket;try{s=new WebSocket(url)}catch{setError(unavailable);return}
     socket.current=s;setPhase('connecting')
     const fail=(message:string)=>{if(socket.current!==s)return;stop();setError(message)}
-    timer.current=setTimeout(()=>fail(unavailable),8000)
-    s.onopen=()=>{if(socket.current===s)s.send(JSON.stringify({version:1,type:'begin',requestId:'',payload:{}}))}
-    s.onerror=()=>fail(unavailable);s.onclose=()=>fail('配对已结束或连接断开，请重试')
+    let opened = false
+    const interrupted = () => request.current
+      ? '验证码配对连接已断开，请重新获取验证码'
+      : opened ? '已连接电脑，但未能获取验证码。请检查电脑端配对窗口后重试' : unavailable
+    timer.current = setTimeout(() => fail(opened ? '电脑未及时返回验证码，请检查电脑端配对窗口后重试' : `连接电脑超时（${url.host}）。请核对 IP、远程服务和手机网络`), 8000)
+    s.onopen = () => {
+      if (socket.current !== s) return
+      opened = true
+      try { s.send(JSON.stringify({ version: 1, type: 'begin', requestId: '', payload: {} })) }
+      catch { fail(interrupted()) }
+    }
+    s.onerror = s.onclose = () => fail(interrupted())
     s.onmessage=event=>{
       if(socket.current!==s)return
       try {
@@ -92,7 +101,7 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
           request.current=m.requestId;clearTimeout(timer.current);timer.current=setTimeout(()=>fail('验证码已过期，请重新连接'),ttl);setPhase('code')
         } else if(m.type==='paired') {
           if(!request.current||m.requestId!==request.current)throw new Error()
-          const parsed=parsePairingJson(JSON.stringify(m.payload),Date.now());if(!parsed.ok)throw new Error()
+          const parsed=parsePairingJson(JSON.stringify(m.payload),Date.now());if(!parsed.ok){fail(parsed.error);return}
           const target=new URL(parsed.value.wsUrl);target.hostname=url.hostname;parsed.value.wsUrl=target.toString()
           stop();onPair(JSON.stringify(parsed.value))
         } else if(m.type==='error') {
@@ -101,6 +110,18 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
           else fail(c==='busy'?'PC 正在处理另一条配对请求，请稍后重试':'配对已失效，请重新连接')
         } else throw new Error()
       } catch { fail('配对响应无效，请重试或扫码') }
+    }
+  }
+  function verify() {
+    const active = socket.current
+    setError('')
+    try {
+      if (active?.readyState !== WebSocket.OPEN) throw new Error('pairing connection closed')
+      active.send(JSON.stringify({ version: 1, type: 'verify', requestId: request.current, payload: { code } }))
+      setPhase('verifying')
+    } catch {
+      stop()
+      setError('验证码配对连接已断开，请重新获取验证码')
     }
   }
   if (iosDesign) return <div className="quick-pair-ios">
@@ -118,7 +139,7 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
     <p>请与 PC 配对窗口核对；手机所在网络需要能访问此地址。不同路由器共用宽带不代表设备能够互通。</p>
     <div className="quick-pair-ios__pc-scroll">{pcList}</div>
     </div>
-    {phase === 'code' && <PairingCodeDialog code={code} error={error} onChange={setCode} onCancel={stop} onVerify={() => { if (socket.current?.readyState === WebSocket.OPEN) { setError(''); setPhase('verifying'); socket.current.send(JSON.stringify({version:1,type:'verify',requestId:request.current,payload:{code}})) } }}/>}
+    {phase === 'code' && <PairingCodeDialog code={code} error={error} onChange={setCode} onCancel={stop} onVerify={verify}/>}
     {(phase === 'connecting' || phase === 'verifying') && <PairingLoading message={phase === 'connecting' ? '正在连接…' : '正在验证…'} onCancel={stop}/>}
     <div className="quick-pair-ios__footer">
     <div className="quick-pair-ios__feedback">
@@ -136,7 +157,7 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
     <Input aria-label="PC IP" placeholder="请输入 PC IP" value={ip} onChange={setIP} disabled={phase!=='idle'||disabled}/>
     {phase==='code' && <><div>请查看 WhaleTerm 上的六位验证码</div><Input aria-label="六位验证码" type="tel" maxLength={6} value={code} onChange={v=>setCode(v.replace(/\D/g,''))}/></>}
     {error && <div role="alert" style={{color:'#c0392b'}}>{error}</div>}
-    <Button color="primary" disabled={disabled||phase==='connecting'||phase==='verifying'||(phase==='code'&&code.length!==6)} onClick={()=>{if(phase==='idle')start();else if(socket.current?.readyState===WebSocket.OPEN){setError('');setPhase('verifying');socket.current.send(JSON.stringify({version:1,type:'verify',requestId:request.current,payload:{code}}))}}}>{phase==='connecting'?'正在连接…':phase==='verifying'?'正在验证…':phase==='code'?'验证并连接':'连接'}</Button>
+    <Button color="primary" disabled={disabled||phase==='connecting'||phase==='verifying'||(phase==='code'&&code.length!==6)} onClick={phase === 'idle' ? start : verify}>{phase==='connecting'?'正在连接…':phase==='verifying'?'正在验证…':phase==='code'?'验证并连接':'连接'}</Button>
     {phase!=='idle'&&<Button onClick={stop}>取消连接</Button>}
   </div>
 }

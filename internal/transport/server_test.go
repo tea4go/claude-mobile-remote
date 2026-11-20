@@ -1607,7 +1607,17 @@ func TestConnectionStatusLifecycle(t *testing.T) {
 	_ = readTestEnvelope(t, bad)
 	waitCount(0)
 	first := fixture.dial(t)
-	authenticateAndSubscribe(t, fixture, first)
+	writeVersionedTestEnvelope(t, first, 6, TypeHello, "session-1", HelloPayload{PairToken: fixture.token})
+	if got := readTestEnvelope(t, first); got.Type != TypeHelloAck {
+		t.Fatalf("hello response = %s", got.Type)
+	}
+	writeVersionedTestEnvelope(t, first, 6, TypeSubscribe, "session-1", struct{}{})
+	_ = readTestEnvelope(t, first)
+	_ = readTestEnvelope(t, first)
+	writeVersionedTestEnvelope(t, first, 6, TypePing, "session-1", struct{}{})
+	if got := readTestEnvelope(t, first); got.Type != TypePong {
+		t.Fatalf("heartbeat response = %s", got.Type)
+	}
 	waitCount(1)
 	second := fixture.dial(t)
 	authenticateAndSubscribe(t, fixture, second)
@@ -1635,7 +1645,7 @@ func TestConnectionStatusLifecycle(t *testing.T) {
 	for _, event := range status.Recent {
 		seen[event.Code] = true
 	}
-	for _, code := range []string{"authentication_rejected", "authenticated", "subscribed", "unsubscribed", "disconnected"} {
+	for _, code := range []string{"authentication_rejected", "authenticated", "subscribed", "unsubscribed", "disconnected", "ping_received", "pong_written"} {
 		if !seen[code] {
 			t.Errorf("missing event %s", code)
 		}

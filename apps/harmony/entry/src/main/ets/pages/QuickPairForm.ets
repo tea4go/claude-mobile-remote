@@ -271,7 +271,10 @@ export struct QuickPairForm {
     frame.type = kind
     frame.requestId = this.requestId
     frame.payload.code = kind === 'verify' ? this.code : ''
-    this.socket?.send(JSON.stringify(frame)).catch(() => this.fail('连接断开，请重试'))
+    const socket = this.socket
+    socket?.send(JSON.stringify(frame)).catch(() => {
+      if (this.socket === socket) this.fail(kind === 'verify' ? '验证码配对连接已断开，请重新获取验证码' : '已连接电脑，但未能获取验证码。请检查电脑端配对窗口后重试')
+    })
   }
   private start(): void {
     this.rememberAddress(); this.dismissAddressInput(); this.clearTestResult()
@@ -282,10 +285,26 @@ export struct QuickPairForm {
     this.host = match[1]
     const socket = webSocket.createWebSocket()
     this.socket = socket; this.phase = 'connecting'; this.loadingDialog.open()
-    this.timer = setTimeout(() => this.fail('无法连接，请先在 PC 启动远程服务，并检查网络'), 8000)
-    socket.on('open', () => { if (this.socket === socket) this.send('begin') })
-    socket.on('error', () => { if (this.socket === socket) this.fail('无法连接，请先在 PC 启动远程服务，并检查网络') })
-    socket.on('close', () => { if (this.socket === socket) this.fail('配对已结束，请重新连接') })
+    const address = `${this.host}:${match[2] || '7330'}`
+    const unavailable = `连接失败（${address}）。请核对电脑 IP、确认远程服务已开启，并检查手机网络`
+    let opened = false
+    const interrupted = (): void => {
+      if (this.socket !== socket) return
+      this.fail(this.requestId.length > 0 ? '验证码配对连接已断开，请重新获取验证码' :
+        opened ? '已连接电脑，但未能获取验证码。请检查电脑端配对窗口后重试' : unavailable)
+    }
+    this.timer = setTimeout(() => {
+      if (this.socket !== socket) return
+      this.fail(opened ? '电脑未及时返回验证码，请检查电脑端配对窗口后重试' : `连接电脑超时（${address}）。请核对 IP、远程服务和手机网络`)
+    }, 8000)
+    socket.on('open', (err: BusinessError) => {
+      if (this.socket !== socket) return
+      if (err !== null && err !== undefined) { interrupted(); return }
+      opened = true
+      this.send('begin')
+    })
+    socket.on('error', interrupted)
+    socket.on('close', interrupted)
     socket.on('message', (_err: BusinessError, value: string | ArrayBuffer) => {
       if (this.socket !== socket) return
       if (typeof value !== 'string') { this.fail('配对响应无效'); return }
@@ -309,7 +328,7 @@ export struct QuickPairForm {
         } else this.fail('配对响应无效')
       } catch (_) { this.fail('配对响应无效') }
     })
-    socket.connect(`ws://${this.host}:${match[2] || '7330'}/quick-pair/v1`).catch(() => { if (this.socket === socket) this.fail('无法连接，请先在 PC 启动远程服务，并检查网络') })
+    socket.connect(`ws://${address}/quick-pair/v1`).then((started: boolean) => { if (!started) interrupted() }).catch(interrupted)
   }
   private async paste(): Promise<void> {
     try {

@@ -39,10 +39,10 @@ func TestDisplayEventFallsBackWithoutDisplacingOrdinaryEvents(t *testing.T) {
 	if err := gate.EnqueueDisplayEvent(large, []byte("omitted-2")); err != nil {
 		t.Fatal(err)
 	}
-	if item, _ := queue.Next(); string(item) != string(large) {
+	if item, _ := queue.Next(); string(item.data) != string(large) {
 		t.Fatal("first image not queued")
 	}
-	if item, _ := queue.Next(); string(item) != "omitted-2" {
+	if item, _ := queue.Next(); string(item.data) != "omitted-2" {
 		t.Fatal("second image did not fall back")
 	}
 	if err := gate.Begin("cmd"); err != nil {
@@ -54,10 +54,10 @@ func TestDisplayEventFallsBackWithoutDisplacingOrdinaryEvents(t *testing.T) {
 	if err := gate.Finish([]byte("result")); err != nil {
 		t.Fatal(err)
 	}
-	if item, _ := queue.Next(); string(item) != "result" {
+	if item, _ := queue.Next(); string(item.data) != "result" {
 		t.Fatal("result ordering changed")
 	}
-	if item, _ := queue.Next(); string(item) != "omitted-3" {
+	if item, _ := queue.Next(); string(item.data) != "omitted-3" {
 		t.Fatal("early image did not fall back")
 	}
 }
@@ -91,7 +91,7 @@ func TestCommandGateEnqueuesResultBeforeEarlyEvents(t *testing.T) {
 	}
 	for _, want := range []string{"result", "event-1", "event-2"} {
 		got, ok := outbox.Next()
-		if !ok || string(got) != want {
+		if !ok || string(got.data) != want {
 			t.Fatalf("Next() = %q, %v, want %q", got, ok, want)
 		}
 	}
@@ -184,7 +184,7 @@ func TestOutboxCopiesEnqueuedBytes(t *testing.T) {
 	}
 	data[0] = 'X'
 	got, ok := outbox.Next()
-	if !ok || string(got) != "one" {
+	if !ok || string(got.data) != "one" {
 		t.Fatalf("Next() = %q, %v", got, ok)
 	}
 }

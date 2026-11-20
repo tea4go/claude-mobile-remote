@@ -9,13 +9,16 @@ import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
 
 function buildPairingHint(connection: ConnectionStage, error: ErrorInfo | null): string {
   if (connection === ConnectionStage.PAIRING_INVALID || error?.code === 'unauthorized') {
-    return '当前配对已失效，需要重新配对。'
+    return '配对凭证无效或已过期，请在电脑刷新二维码后重新配对'
   }
   if (error?.code === 'expired') {
-    return '配对串已过期，请重新配对。'
+    return '配对凭证已过期，请在电脑刷新二维码后重新配对'
   }
   if (error?.code === 'invalid') {
-    return '配对串解析失败，或 wsUrl 非法，请检查后重试。'
+    return '无法读取配对信息，请重新扫描电脑端的配对二维码'
+  }
+  if (connection === ConnectionStage.PROTOCOL_ERROR) {
+    return '电脑返回的配对或会话数据无法读取，请更新电脑端和手机端后重试'
   }
   if (error !== null) {
     return error.message

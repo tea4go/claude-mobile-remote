@@ -26,16 +26,19 @@ export function recordNetworkDiagnostic(sessionId: string, url: string, stage: N
   recordConnection(networkDebugText[code] + closeDescription, url, Math.max(0, time - startedAt), { ...details, code, stage })
   listeners.forEach((listener) => listener())
 }
-export const networkCodeText: Record<NetworkCode, string> = {
-  heartbeat_sent: '正在验证 PC 连接', heartbeat_received: 'PC 心跳响应正常', heartbeat_timeout: 'PC 心跳响应超时，连接已断开', heartbeat_unavailable: '旧版 PC 不支持应用层心跳检测', network_offline: '系统报告离线，连接已断开',
-  manual_retry: '正在手动重连', protocol_retry: '正在协商兼容协议并重连', constructor_error: '无法创建 WebSocket 连接',
-  started: '正在连接 PC', socket_open: '正在验证配对', authenticated: '正在同步会话', ready: '连接验证成功',
-  connect_timeout: '连接 PC 超时：请检查地址、本地网络权限、VPN、主副网互通及 PC 防火墙',
-  auth_timeout: 'PC 未及时完成认证，请检查服务状态', snapshot_timeout: 'PC 未及时返回会话状态',
-  attempt_timeout: '配对验证超时，请检查网络后重试', command_timeout: '等待 PC 受理超时，结果未知，请核对后再操作',
-  socket_error: '连接失败：请检查本地网络权限、PC 地址、主副网路由和防火墙；系统未提供具体原因',
-  socket_closed: '与 PC 的连接已断开', pairing_invalid: '配对凭证无效或过期，请重新扫码',
-  protocol_error: 'PC 返回的协议或会话状态无效', cancelled: '已取消连接',
+export function pairingFailureText(stage: NetworkStage | undefined, code: NetworkCode | undefined, url: string): string {
+  const target = safeNetworkTarget(url)
+  if (code === 'pairing_invalid') return '配对凭证无效或已过期，请在电脑刷新二维码后重新配对'
+  if (code === 'network_offline') return '手机网络已断开，请恢复网络后重新配对'
+  if (code === 'protocol_error') return '电脑返回的配对或会话数据无法读取，请更新电脑端和手机端后重试'
+  if (stage === 'authenticating') {
+    return `已连接电脑（${target}），但配对验证未完成。请确认远程服务仍开启，刷新二维码后重试`
+  }
+  if (stage === 'subscribing' || stage === 'connected') {
+    return `配对已验证，但未能完成会话同步（${target}）。请确认电脑上的会话仍可用后重试`
+  }
+  const reason = code === 'connect_timeout' || code === 'attempt_timeout' ? '连接电脑超时' : '连接失败'
+  return `${reason}（${target}）。请确认电脑已开启远程服务、二维码地址正确，且手机可通过局域网或 VPN 访问电脑`
 }
 
 const networkDebugText: Record<NetworkCode, string> = {

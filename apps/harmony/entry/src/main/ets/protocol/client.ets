@@ -256,6 +256,8 @@ export class ProtocolClient {
   private pendingCommandId: string | null = null
   private pendingKind: 'command' | 'create_session' | 'stop_session' | null = null
   private generation = 0
+  private connectionId: number = 0
+  private connectionStartedAt: number = 0
   private deadline: number = -1
   private heartbeat: number = -1
   private pongAt: number = 0
@@ -286,8 +288,9 @@ export class ProtocolClient {
     this.generation = generation
     this.socket = socket
     this.stage = 'CONNECTING'
-    debugLog.record('connect')
-    debugLog.connectionTarget(this.pairing.wsUrl)
+    this.connectionId = debugLog.beginConnection()
+    this.connectionStartedAt = Date.now()
+    this.logConnection('connect')
     this.armDeadline('connect_timeout', 10000)
     this.userClosed = false
     this.pendingCommandId = null
@@ -298,18 +301,18 @@ export class ProtocolClient {
         return
       }
       if (err !== null && err !== undefined) {
-        debugLog.record('socket_open_error', err.code)
+        this.logConnection('socket_open_error', err.code, err?.message ?? '')
         this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket open failed'))
         return
       }
       this.stage = 'AUTHENTICATING'
-      debugLog.record('socket_open')
+      this.logConnection('socket_open')
       this.armDeadline('auth_timeout', 8000)
       if (this.observer?.onSocketOpened !== undefined) {
         this.observer.onSocketOpened()
       }
       const payload = createHelloPayload(this.pairing.pairToken)
-      this.sendFrame(encodeEnvelope(this.wireVersion, 'hello', this.pairing.sessionId, '', '', 0, payload as Object), true)
+      this.sendFrame(encodeEnvelope(this.wireVersion, 'hello', this.pairing.sessionId, '', '', 0, payload as Object), 'hello')
     })
 
     socket.on('message', (err: BusinessError, value: string | ArrayBuffer) => {
@@ -318,9 +321,9 @@ export class ProtocolClient {
       }
       if (this.stage === 'AUTHENTICATING') {
         if (err !== null && err !== undefined) {
-          debugLog.record('hello_response_error', err.code)
+          this.logConnection('hello_response_error', err.code, err?.message ?? '')
         } else {
-          debugLog.record('hello_response', typeof value === 'string' ? 1 : 0)
+          this.logConnection('hello_response', typeof value === 'string' ? 1 : 0)
         }
       }
       if (err !== null && err !== undefined) {
@@ -339,10 +342,10 @@ export class ProtocolClient {
         return
       }
       this.clearTimers()
-      debugLog.record('closed', value.code)
+      this.logConnection('closed', value.code, `关闭原因=${value.reason} ${err?.message ?? ''}`.trim())
       this.socket = null
-      this.stage = 'IDLE'
       if (this.userClosed) {
+        this.stage = 'IDLE'
         return
       }
       let error: ErrorInfo | null = null
@@ -358,7 +361,7 @@ export class ProtocolClient {
       if (generation !== this.generation || this.socket !== socket) {
         return
       }
-      debugLog.record('socket_event_error', err?.code ?? 0)
+      this.logConnection('socket_event_error', err?.code ?? 0, err?.message ?? '')
       this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket error'))
     })
 
@@ -366,11 +369,20 @@ export class ProtocolClient {
       if (generation !== this.generation || this.socket !== socket) {
         return
       }
-      debugLog.record('socket_connect_result', err?.code ?? (value === true ? 1 : 0))
+      this.logConnection('socket_connect_result', err?.code ?? (value === true ? 1 : 0), err?.message ?? '')
       if ((err !== null && err !== undefined) || value !== true) {
         this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket connect request failed'))
       }
     })
+  }
+
+  private logConnection(code: LogCode, value: number = 0, detail: string = ''): void {
+    if (this.connectionId === 0) return
+    const token = this.pairing.pairToken
+    const safeDetail = (token.length > 0 ? detail.split(token).join('[配对凭证]') : detail)
+      .replace(/[\r\n]/g, ' ').slice(0, 500)
+    debugLog.connection(this.connectionId, this.pairing.wsUrl, this.stage,
+      Date.now() - this.connectionStartedAt, code, value, safeDetail)
   }
 
   private clearTimers(): void {
@@ -382,12 +394,12 @@ export class ProtocolClient {
   private armDeadline(code: LogCode, ms: number): void {
     if (this.deadline !== -1) clearTimeout(this.deadline)
     this.deadline = setTimeout(() => {
-      debugLog.record(code, ms)
+      this.logConnection(code, ms)
       this.terminate('DISCONNECTED', makeError(code, '连接阶段超时，请检查网络、VPN或电脑端服务'))
     }, ms)
   }
   networkLost(): void {
-    debugLog.record('network_lost')
+    this.logConnection('network_lost')
     if (this.socket !== null) this.terminate('DISCONNECTED', makeError('network_lost', '网络连接已断开；配对与消息保留，请恢复网络后重连'))
   }
   checkConnection(onPong?: () => void): void {
@@ -397,13 +409,13 @@ export class ProtocolClient {
     }
     if (onPong !== undefined) this.onProbePong = onPong
     if (this.pongAt > 0) {
-      if (Date.now() - this.pongAt >= 5000) { debugLog.record('heartbeat_timeout', 5000); this.terminate('DISCONNECTED', makeError('heartbeat_timeout', '连接探活超时，操作结果未知，请核对电脑端状态')) }
+      if (Date.now() - this.pongAt >= 5000) { this.logConnection('heartbeat_timeout', 5000); this.terminate('DISCONNECTED', makeError('heartbeat_timeout', '连接探活超时，操作结果未知，请核对电脑端状态')) }
       return
     }
     if (this.heartbeat !== -1) clearTimeout(this.heartbeat)
     this.heartbeat = -1
-    this.pongAt = Date.now(); debugLog.record('ping', 5000)
-    this.sendFrame(encodeEnvelope(this.wireVersion, 'ping', this.pairing.sessionId, '', '', 0, createEmptyPayload() as Object))
+    this.pongAt = Date.now(); this.logConnection('ping', 5000)
+    this.sendFrame(encodeEnvelope(this.wireVersion, 'ping', this.pairing.sessionId, '', '', 0, createEmptyPayload() as Object), 'ping')
     if (this.stage !== 'READY') return
     this.heartbeat = setTimeout(() => this.checkConnection(), 5000)
   }
@@ -413,14 +425,14 @@ export class ProtocolClient {
   }
 
   reconnect(): void {
-    debugLog.record('reconnect')
+    this.logConnection('reconnect')
     this.close()
     this.connect()
   }
 
   close(): void {
     this.clearTimers()
-    debugLog.record('closed')
+    this.logConnection('closed')
     const socket = this.socket
     this.userClosed = true
     this.generation += 1
@@ -513,7 +525,7 @@ export class ProtocolClient {
     return result
   }
 
-  private sendFrame(frame: string, isHello: boolean = false): void {
+  private sendFrame(frame: string, diagnostic?: 'hello' | 'ping'): void {
     if (this.socket === null || this.stage === 'CONNECTING') {
       this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'send called before socket open'))
       return
@@ -522,13 +534,13 @@ export class ProtocolClient {
     const socket = this.socket
     socket.send(frame).then((value: boolean) => {
       if (generation !== this.generation || this.socket !== socket) return
-      if (isHello) debugLog.record('hello_send_result', value ? 1 : 0)
+      if (diagnostic !== undefined) this.logConnection(diagnostic === 'hello' ? 'hello_send_result' : 'ping_send_result', value ? 1 : 0)
       if (!value) {
         this.terminate('DISCONNECTED', makeError('socket_error', 'socket send request failed'))
       }
     }).catch((err: BusinessError) => {
       if (generation !== this.generation || this.socket !== socket) return
-      if (isHello) debugLog.record('hello_send_error', err?.code ?? 0)
+      if (diagnostic !== undefined) this.logConnection(diagnostic === 'hello' ? 'hello_send_error' : 'ping_send_error', err?.code ?? 0, err?.message ?? '')
       this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket send failed'))
     })
   }
@@ -540,19 +552,37 @@ export class ProtocolClient {
     return true
   }
 
+  private pairingDisconnectMessage(error: ErrorInfo | null): string {
+    const target = debugLog.target(this.pairing.wsUrl)
+    if (error?.code === 'network_lost') return '手机网络已断开，请恢复网络后重新配对'
+    if (this.stage === 'AUTHENTICATING') {
+      return `已连接电脑（${target}），但配对验证未完成。请确认远程服务仍开启，刷新二维码后重试`
+    }
+    if (this.stage === 'SUBSCRIBING' || this.stage === 'SUBSCRIBED') {
+      return `配对已验证，但未能完成会话同步（${target}）。请确认电脑上的会话仍可用后重试`
+    }
+    const reason = error?.code === 'connect_timeout' ? '连接电脑超时' : '连接失败'
+    return `${reason}（${target}）。请确认电脑已开启远程服务、二维码地址正确，且手机可通过局域网或 VPN 访问电脑`
+  }
+
   private notifyClosed(
     reason: 'DISCONNECTED' | 'PAIRING_INVALID' | 'PROTOCOL_ERROR',
     error: ErrorInfo | null,
   ): void {
-    debugLog.record(reason === 'PROTOCOL_ERROR' ? 'protocol_error' : reason === 'PAIRING_INVALID' ? 'pairing_invalid' : 'socket_error',
-      reason === 'DISCONNECTED' && error !== null ? Number(error.code) : 0)
+    this.logConnection(reason === 'PROTOCOL_ERROR' ? 'protocol_error' : reason === 'PAIRING_INVALID' ? 'pairing_invalid' : 'socket_error',
+      reason === 'DISCONNECTED' && error !== null && Number.isFinite(Number(error.code)) ? Number(error.code) : 0,
+      error === null ? '' : `错误=${error.code}`)
+    const displayedError = reason === 'DISCONNECTED' && this.stage !== 'READY'
+      ? makeError(error?.code ?? 'socket_closed', this.pairingDisconnectMessage(error))
+      : error
+    this.stage = 'IDLE'
     const pendingCommandId = this.pendingCommandId
     this.pendingCommandId = null
     this.pendingKind = null
     const info: CloseInfo = {
       reason,
       pendingCommandId,
-      error,
+      error: displayedError,
     }
     if (this.observer?.onClosed !== undefined) {
       this.observer.onClosed(info)
@@ -568,7 +598,6 @@ export class ProtocolClient {
     this.userClosed = true
     this.generation += 1
     this.socket = null
-    this.stage = 'IDLE'
     if (socket !== null) {
       socket.close().catch((_err: BusinessError) => {})
     }
@@ -619,8 +648,8 @@ export class ProtocolClient {
         return
       case 'pong':
         if (this.stage !== 'READY' || this.pongAt === 0) { this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'unexpected pong')); return }
-        if (Date.now() - this.pongAt >= 5000) { debugLog.record('heartbeat_timeout', 5000); this.terminate('DISCONNECTED', makeError('heartbeat_timeout', '连接探活响应超过5秒，操作结果未知')); return }
-        debugLog.record('pong', Date.now() - this.pongAt)
+        if (Date.now() - this.pongAt >= 5000) { this.logConnection('heartbeat_timeout', 5000); this.terminate('DISCONNECTED', makeError('heartbeat_timeout', '连接探活响应超过5秒，操作结果未知')); return }
+        this.logConnection('pong', Date.now() - this.pongAt)
         this.pongAt = 0
         this.scheduleHeartbeat()
         const onPong = this.onProbePong
@@ -633,7 +662,7 @@ export class ProtocolClient {
           return
         }
         this.stage = 'SUBSCRIBING'
-        debugLog.record('authenticated')
+        this.logConnection('authenticated')
         this.armDeadline('subscribe_timeout', 8000)
         if (this.observer?.onHelloAck !== undefined) {
           this.observer.onHelloAck()
@@ -648,7 +677,7 @@ export class ProtocolClient {
           return
         }
         this.stage = 'SUBSCRIBED'
-        debugLog.record('subscribed')
+        this.logConnection('subscribed')
         this.armDeadline('snapshot_timeout', 10000)
         if (this.observer?.onSubscribed !== undefined) {
           this.observer.onSubscribed()
@@ -661,9 +690,9 @@ export class ProtocolClient {
         }
         this.stage = 'READY'
         this.clearTimers()
-        debugLog.record('ready')
+        this.logConnection('ready')
         if (this.wireVersion >= 6) this.scheduleHeartbeat()
-        else debugLog.record('legacy', this.wireVersion)
+        else this.logConnection('legacy', this.wireVersion)
         this.pendingCommandId = null
         this.pendingKind = null
         if (this.observer?.onSnapshot !== undefined) {
@@ -742,7 +771,7 @@ export class ProtocolClient {
       }
       case 'error':
         if (fallbackError) {
-          debugLog.record('legacy', message.payload.expectedVersion ?? 2)
+          this.logConnection('legacy', message.payload.expectedVersion ?? 2)
           this.close()
           this.wireVersion = message.payload.expectedVersion ?? PROTOCOL_VERSION
           this.connect()

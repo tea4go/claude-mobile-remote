@@ -1,8 +1,29 @@
 # HANDOFF.md — Claude Mobile Remote 交接文档
 
+- 当前执行（2026-11-20，三端配对失败提示）：覆盖扫码、粘贴与六位码的建连、认证及同步失败。通过条件为三端提示对应本次连接阶段、明确给出可操作指引，并通过移动与 Harmony 回归。
+  - 结果：iOS 和 Android 使用当前配对客户端的阶段及错误，HarmonyOS 在关闭时保留实际失败阶段和备用路由地址。按建连失败或超时、认证未完成、授权失效、会话同步失败显示中文操作指引。六位码区分连不上电脑、已连接但未取得验证码、验证连接断开和验证码错误。
+  - 验证：移动端 51 文件 699 项测试、生产 Web 构建、HarmonyOS 103 项测试和 22 文件逻辑检查，以及 API 24 未签名 Debug HAP 构建与压缩包校验通过。新增六位码握手前后失败与 HarmonyOS 备用路由认证中断回归。iOS、Android 原生包及三端真机交互待验收。
+
+  - 提交复核：Go transport race 全量回归通过。此次提交一并收录工作区中的连接与心跳诊断、Android 发布版本配置及三端 1.0.9 发布验证记录。历次未跟踪截图留待核对配对凭证及会话内容后再处理。
+
 - 当前执行（2026-11-20，WhaleTerm 切网后的 HarmonyOS 配对）：修复会话直连与 7330 转发共用的启动时 Origin 快照。通过条件为同一个 Remote 在地址变化后接受新的精确来源、拒绝移除的备用来源，并通过 Go 回归与 Windows 构建。真机按用户复现顺序复验。
   - 结果：失败截图中的直连 172.20.10.5:7331 在 CONNECTING 报系统码 200，7330 入口在发送 hello 后断开。重启后同一 IP 与端口认证、订阅、快照及心跳成功。代码确认 WhaleTerm 原先只在启动时生成来源快照，且 7330 原样转发 Origin。现按握手时的网卡列表生成精确来源，保留原规则和会话鉴权。
   - 验证：公共 transport/remote 与 WhaleTerm remote/quickpair race 通过。新增真实回环直连和转发测试，覆盖运行期间加入及移除来源、外部来源拒绝和错误凭证拒绝。WhaleTerm services 定向通过，沿用既有测试 overlay 并禁用 vet。Windows x64 GUI 交叉构建通过，未签名测试包为 `.local-tools/whaleterm-network-switch/WhaleTerm.exe`，使用临时 modfile 引用本地 Remote 和现有前端资源。正式发布需引用包含此修复的 Remote 版本。Windows 与 HarmonyOS/iOS 实机组合尚待复验。
+
+- 当前执行（2026-11-20，HarmonyOS 1.1.0 发布构建）：沿用 1.0.9 的发布签名，递增内部版本号到 1000010，构建并校验可上传华为后台的签名 APP。
+  - 结果：API 24 Release APP 构建通过，核对内嵌 HAP 版本、包名、Release 模式、ZIP 完整性和 APP 发布证书及 Profile。归档 `.local-tools/releases/20261120/ccBuddy-1.1.0-harmony-signed.app`，SHA-256 `11691cc681d923338e2de7670b338132b0df0034e08899cd25395b393ef6f085`。由用户上传，后台接收与真机安装待验证。
+
+- 当前执行（2026-11-20，心跳诊断优化）：用户确认按事件显示错误码、耗时与结果，补记 HarmonyOS 心跳发送回调及 Remote 收发情况。通过条件为现有 HarmonyOS 和 Go 定向回归验证。
+  - 结果：按事件显示系统错误码、帧类型、关闭码、等待上限和往返耗时，记录手机心跳发送回调。Go Remote 本地连接诊断区分收到 ping、pong 入队失败、写出及写失败。102 项 HarmonyOS 测试、22 文件逻辑检查和 Go transport race 回归通过。API 24 Debug HAP 已签名、校验、USB 覆盖安装并启动。实际心跳故障待复测，WhaleTerm 尚未用新版 Remote 构建。
+
+- 当前执行（2026-11-20，HarmonyOS 日志测试包真机部署）：构建包含连接诊断的 1.0.9 调试签名 HAP，通过 USB 覆盖安装并验证启动。WhaleTerm 自动识别暂缓。
+  - 结果：API 24 Debug 构建成功，签名遇到既有 JDK ZIP64 校验错误，使用单次兼容参数后签名及 ZIP 验证通过。USB 覆盖安装 1.0.9 成功，EntryAbility 启动成功。新日志的实际配对复现待验收。产物为 `.local-tools/mobile-1119/ccBuddy-1.0.9-harmony-ws-diagnostics-debug.hap`。
+
+- 当前执行（2026-11-19，HarmonyOS 配对连接诊断）：用户要求直接修改。为每次会话 WebSocket 尝试记录实际地址、路由、阶段、耗时及错误，检查并回归日志输出。同时只读核对 WhaleTerm 二维码地址选择和 Windows 网卡枚举。
+  - 结果：会话连接日志逐条带连接编号、地址与已知路由、阶段和经过毫秒数，系统错误回调记录原始描述，关闭回调记录关闭原因。102 项 HarmonyOS 测试及 22 文件逻辑检查通过，已有回退用例覆盖直连和 7330 编号区分、错误描述及凭证排除。未执行 SDK 构建和真机验证。WhaleTerm 只读确认地址候选来自所有启用的非回环 IPv4 网卡，弹窗默认首项并保留有效手选地址；第三个 IP 的网卡需在该 Windows 上核对，桌面端未改动。
+
+- 当前执行（2026-11-19，移动端 1.0.9 发布构建）：基于已验收的移动端改造，统一三端显示版本，沿用各平台发布签名。通过条件为 iOS IPA 验证且 TestFlight 接收，Android 华为推送签名 APK 和 HarmonyOS 发布签名 APP 验证并交付本地产物。
+  - 结果：三端 1.0.9 发布包已构建并验证，产物在 `.local-tools/releases/20261119/`。iOS（15）已上传，App Store Connect 显示「正在处理」，待 Apple 处理完成后关联测试群组。Android 华为推送 APK（7）与 HarmonyOS APP（1000009）由用户上传。本轮未安装发布包或复测推送。详见 `docs/testing/2026-11-19-mobile-1.0.9-release-build.md`。
 
 - 当前执行（2026-11-19，HarmonyOS 会话状态真机部署）：用户要求用当前代码编译并安装到手机。沿用现有调试签名，通过条件为 API 24 构建、签名包校验、USB 覆盖安装和首页启动。
   - 结果：API 24 Debug 构建及签名包完整性检查通过，USB 覆盖安装 1.0.8 并成功启动。真机界面树确认配对首页、已保存电脑区域、扫码按钮和版本栏。用户确认本轮移动端改造全部验证通过，并要求提交。
