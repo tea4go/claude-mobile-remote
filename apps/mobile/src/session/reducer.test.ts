@@ -280,6 +280,7 @@ describe('Turn 与消息流', () => {
     const claude = state.messages.find((m) => m.kind === 'claude')
     expect(claude).toMatchObject({ status: 'failed', error: { code: 'internal' } })
     expect(state.sessionStatus).toBe('ready')
+    expect(state.canSend).toBe(true)
   })
 
   test('session_failed 更新 Session 状态并禁止发送', () => {
@@ -1167,14 +1168,31 @@ test('v9 运行中快照之后继续合并增量', () => {
   expect(state.messages.find(m => m.kind === 'claude')).toMatchObject({ text: 'beforeafter' })
 })
 
+test('queued text enters the transcript when its ordinary turn starts', () => {
+  let state = stateWithSnapshot({ seq: 7 })
+  state = reducer(state, eventReceived(event('turn_started', 8, { requestId: 'running' })))
+  state = reducer(state, commandSent({ commandId: 'send', text: 'next' }))
+  state = reducer(state, commandAccepted({ commandId: 'send', requestId: 'queued' }))
+  expect(state.messages.some(message => message.requestId === 'queued')).toBe(false)
+  state = reducer(state, eventReceived(event('turn_completed', 9, { requestId: 'running', turnStatus: 'completed' })))
+  state = reducer(state, eventReceived(event('turn_started', 10, { requestId: 'queued', source: 'mobile', text: 'next' })))
+  expect(state.messages.filter(message => message.requestId === 'queued').map(message => message.kind)).toEqual(['input', 'claude'])
+})
+
 test('queued mixed input retains server image reference without changing ordinary files', () => {
   let state = createInitialState()
   state.messages = [{ kind: 'claude', requestId: 'running', source: 'terminal', status: 'streaming', text: '', error: null }]
   const attachments = [{ name: 'photo.jpg', mediaType: 'image/jpeg', data: 'aGVsbG8=' }, { name: 'note.txt', mediaType: 'text/plain', data: 'bm90ZQ==' }]
   state = reducer(state, commandSent({ commandId: 'upload', text: 'look', attachments }))
   state = reducer(state, commandAccepted({ commandId: 'upload', requestId: 'queued', imageRefs: ['upload-123:0', ''] }))
+  expect(state.messages.find(m => m.kind === 'input')).toBeUndefined()
+  const applied = event('input_steered', 1, { source: 'mobile', requestId: 'queued', text: 'look' })
+  state = reducer(state, eventReceived(applied))
+  state = reducer(state, eventReceived({ ...applied, seq: 2 }))
+  expect(state.messages.filter(m => m.kind === 'input')).toHaveLength(1)
+  expect(state.messages.find(m => m.kind === 'claude')).toMatchObject({ requestId: 'running', status: 'streaming' })
   expect(state.messages.find(m => m.kind === 'input')).toMatchObject({ requestId: 'queued', attachments: [{ ...attachments[0], ref: 'upload-123:0' }, attachments[1]] })
-  expect(state.queuedRequests.map(q => q.requestId)).toContain('queued')
+  expect(state.queuedRequests.map(q => q.requestId)).not.toContain('queued')
 })
 
 test('首次快照按顺序显示已结束的提问和回复，重复快照不重复插入', () => {

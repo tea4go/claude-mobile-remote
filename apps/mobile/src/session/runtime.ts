@@ -250,24 +250,24 @@ export class SessionRuntimeManager {
       (commandId) => commandSent({ commandId, text }))
   }
 
-  createSession(sessionId: string): boolean {
+  createSession(sessionId: string): SendResult {
     return this.sendManagement(sessionId, 'create_session')
   }
 
   stopSession(sessionId: string): boolean {
-    return this.sendManagement(sessionId, 'stop_session')
+    return this.sendManagement(sessionId, 'stop_session').ok
   }
 
-  private sendManagement(sessionId: string, operation: PendingManagement['operation']): boolean {
-    if (this.pendingManagement.has(sessionId)) return false
+  private sendManagement(sessionId: string, operation: PendingManagement['operation']): SendResult {
+    if (this.pendingManagement.has(sessionId)) return { ok: false, reason: 'busy' }
     const entry = this.entries.get(sessionId)
-    if (entry === undefined) return false
+    if (entry === undefined) return { ok: false, reason: 'notReady' }
     const commandId = generateCommandId()
     const result = operation === 'create_session'
       ? entry.client.createSession(commandId)
       : entry.client.stopSession(commandId)
     if (result.ok) this.pendingManagement.set(sessionId, { operation, commandId })
-    return result.ok
+    return result
   }
 
   setPermissionMode(sessionId: string, permissionMode: PermissionMode): boolean {

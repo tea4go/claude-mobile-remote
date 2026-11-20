@@ -174,3 +174,49 @@ test('iOS 目录标签按最近活动排序，窄屏只裁切最后可见标签�
     available.mockRestore()
   }
 })
+
+test('新版首页按钮先于列表，标题折叠且测试摘要可独立关闭', async () => {
+  function Page() {
+    const [feedback, setFeedback] = useState<PCFeedback | null>(null)
+    return <PairingForm iosDesign revisedHome initialError={null} onSubmit={vi.fn()} onScan={vi.fn()}
+      onDismissPCFeedback={() => setFeedback(null)}
+      pcFeedback={<PCConnectionFeedback feedback={feedback} autoOpen={false} />}
+      pcList={<PCList pairingHome revisedHome sessions={[session]} onSelect={vi.fn()} onEdit={vi.fn()} onRemove={vi.fn()}
+        onTest={async () => [{ sessionId: 'a', ok: true, message: '测试通过', port: '8765', token: '' }]} onFeedback={setFeedback} />} />
+  }
+  render(<Page />)
+  const title = screen.getByRole('button', { name: '全部电脑' })
+  expect(title.textContent).toBe('全部电脑')
+  const scan = screen.getByRole('button', { name: '扫描二维码' })
+  expect(scan.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '刷新电脑状态' }))
+  expect(title).toHaveAttribute('aria-expanded', 'true')
+  await waitFor(() => expect(screen.getByRole('button', { name: '刷新电脑状态' })).toBeEnabled())
+  fireEvent.click(title)
+  expect(title).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.queryByRole('button', { name: '测试连接 Mac' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '刷新电脑状态' })).not.toBeInTheDocument()
+  fireEvent.click(title)
+  fireEvent.click(screen.getByRole('button', { name: '测试连接 Mac' }))
+  expect(await screen.findByText('Mac：连接成功')).toBeInTheDocument()
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '关闭提示' }))
+  expect(screen.queryByText('Mac：连接成功')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '测试连接 Mac' })).toBeInTheDocument()
+})
+
+test('新版首页删除最后一台电脑后不再渲染列表，并保留连接与扫码', () => {
+  function Page({ sessions }: { sessions: typeof session[] }) {
+    return <PairingForm iosDesign revisedHome initialError={null} onSubmit={vi.fn()} onScan={vi.fn()}
+      pcList={<PCList pairingHome revisedHome sessions={sessions} onSelect={vi.fn()} onEdit={vi.fn()}
+        onRemove={vi.fn()} onTest={vi.fn()} />} />
+  }
+
+  const view = render(<Page sessions={[session]} />)
+  expect(screen.getByLabelText('已配对电脑')).toBeInTheDocument()
+  view.rerender(<Page sessions={[]} />)
+  expect(screen.queryByLabelText('已配对电脑')).not.toBeInTheDocument()
+  expect(view.container.querySelector('.quick-pair-ios__pc-scroll')).toBeEmptyDOMElement()
+  expect(screen.getByRole('button', { name: '连接' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '扫描二维码' })).toBeInTheDocument()
+})

@@ -107,6 +107,7 @@ export interface MobileState {
   snapshotStartPending?: string
   queueDepthHint: number
   queuedRequests: QueuedRequest[]
+  deferredInputs?: InputMessage[]
   messages: Message[]
   pendingAction: PendingAction | null
   pendingCommand: PendingCommand | null
@@ -488,7 +489,7 @@ function mergeTurnStarted(
       return null
     }
   } else {
-    const input: InputMessage = {
+    const input: InputMessage = state.deferredInputs?.find(input => input.requestId === event.requestId) ?? {
       kind: 'input',
       source,
       requestId: event.requestId,
@@ -509,7 +510,7 @@ function mergeTurnStarted(
       error: null,
     },
   ]
-  return { ...state, messages }
+  return { ...state, messages, deferredInputs: state.deferredInputs?.filter(input => input.requestId !== event.requestId) }
 }
 
 function applyEvent(state: MobileState, event: DomainEvent): MobileState {
@@ -523,6 +524,15 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
   if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
 
   switch (event.kind) {
+    case 'input_steered': {
+      if (!next.messages.some(message => message.kind === 'input' && message.requestId === event.requestId)) {
+        const input = next.deferredInputs?.find(item => item.requestId === event.requestId)
+        next.messages = [...next.messages, input ?? { kind: 'input', source: event.source as InputMessage['source'], requestId: event.requestId, text: event.text, status: null }]
+      }
+      next.deferredInputs = next.deferredInputs?.filter(input => input.requestId !== event.requestId)
+      next = withoutQueued(next, event.requestId)
+      break
+    }
     case 'queue_changed':
       next.queuedRequests = event.queue ?? []
       next.queueDepthHint = next.queuedRequests.length
@@ -745,7 +755,10 @@ export function reducer(state: MobileState, action: Action): MobileState {
             attachments: pending.attachments?.map((item, index) => action.imageRefs?.[index] ? { ...item, ref: action.imageRefs[index] } : item),
             status: 'accepted',
           }
-          next.messages = [...state.messages, accepted]
+          const running = state.turnStatus === 'running' || state.turnStatus === 'waiting' ||
+            state.messages.some(message => message.kind === 'claude' && message.status === 'streaming')
+          if (running) next.deferredInputs = [...(state.deferredInputs ?? []).slice(-255), accepted]
+          else next.messages = [...state.messages, accepted]
           // The command result precedes buffered turn events. While another
           // turn is active, expose this accepted request for cancellation;
           // turn_started or a later snapshot reconciles the queue.
@@ -762,6 +775,7 @@ export function reducer(state: MobileState, action: Action): MobileState {
           break
         case 'cancel_queued':
         case 'steer_queued':
+          if (pending.kind === 'cancel_queued') next.deferredInputs = next.deferredInputs?.filter(input => input.requestId !== pending.targetId)
           // 旧宿主按结果本地移除；v8 WhaleTerm 等待随后到达的权威 queue_changed。
           if (state.canSteerQueue) break
           return applyCanSend(withoutQueued(next, pending.targetId))

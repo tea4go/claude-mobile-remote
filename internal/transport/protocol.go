@@ -15,7 +15,7 @@ import (
 
 // Version remains the v2 default for callers constructing legacy envelopes.
 const Version = 2
-const LatestVersion = 11
+const LatestVersion = 12
 
 var ErrInvalidMessage = errors.New("invalid protocol message")
 
@@ -418,6 +418,9 @@ func validateEventDisplay(version int, event protocol.Event) error {
 	if version < 8 && (len(event.Images) != 0 || event.ImagesOmitted != 0) {
 		return protocolError(CodeInvalidMessage, "display images require v8")
 	}
+	if version < 12 && event.Kind == protocol.EventInputSteered {
+		return protocolError(CodeInvalidMessage, "steered input requires v12")
+	}
 	if version < 8 && (event.Kind == protocol.EventQueueChanged || event.Queue != nil) {
 		return protocolError(CodeInvalidMessage, "queue updates require v8")
 	}
@@ -648,6 +651,12 @@ func validateEvent(event protocol.Event) error {
 			event.Text == "" || len([]byte(event.Text)) > protocol.MaxPromptBytes ||
 			event.TurnStatus != protocol.TurnRunning {
 			return protocolError(CodeInvalidMessage, "invalid turn_started event")
+		}
+	case protocol.EventInputSteered:
+		if event.RequestID == "" || (event.Source != protocol.InputTerminal && event.Source != protocol.InputMobile) ||
+			event.Text == "" || len(event.Text) > protocol.MaxPromptBytes || !utf8.ValidString(event.Text) ||
+			event.SessionStatus != "" || event.TurnStatus != "" || event.Error != nil {
+			return protocolError(CodeInvalidMessage, "invalid steered input event")
 		}
 	case protocol.EventTextDelta:
 		if event.Text == "" {

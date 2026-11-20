@@ -20,6 +20,7 @@ interface Props {
   sessions: SessionListItem[]
   compactPCHeader?: boolean
   revisedLayout?: boolean
+  hideHeadingArrow?: boolean
   recentlyViewedId?: string | null
   selectedPC?: string | null
   managementBusy?: Record<string, boolean>
@@ -106,7 +107,7 @@ function activityTime(session: SessionListItem): string {
   return formatActivityTime(value)
 }
 
-export default function ProjectSessionList({ sessions, compactPCHeader, revisedLayout, recentlyViewedId, selectedPC = null, managementBusy = {}, managementFeedback = {}, onCreate, onPairProject, onError, onAdd, onOpen, onRemove, onRename }: Props) {
+export default function ProjectSessionList({ sessions, compactPCHeader, revisedLayout, hideHeadingArrow, recentlyViewedId, selectedPC = null, managementBusy = {}, managementFeedback = {}, onCreate, onPairProject, onError, onAdd, onOpen, onRemove, onRename }: Props) {
   // Keep the initial display order while the list is visible; add newly paired sessions at the end.
   const [initialOrder] = useState(() => revisedLayout
     ? groupPCs(sessions).flatMap(pc => projectGroups(pc.sessions).flatMap(group => group.ids))
@@ -163,7 +164,7 @@ export default function ProjectSessionList({ sessions, compactPCHeader, revisedL
     <div className="project-session-list__heading-row"><h2 className="project-session-list__title">{revisedLayout && projectKeys.length > 0 ? <button type="button" aria-expanded={hasExpandedDirectory} onClick={() => {
       setCollapseByDefault(hasExpandedDirectory)
       setCollapsed({})
-    }}>会话列表 <span aria-hidden="true">{hasExpandedDirectory ? '▾' : '▸'}</span></button> : '会话列表'}</h2><span className="project-session-list__count">{count} 个会话</span></div>
+    }}>会话列表{!hideHeadingArrow && <span aria-hidden="true"> {hasExpandedDirectory ? '▾' : '▸'}</span>}</button> : '会话列表'}</h2><span className="project-session-list__count">{count} 个会话</span></div>
     {sessions.length === 0 && <p>还没有已配对的会话，请扫描或粘贴配对信息。</p>}
     {visible.map((pc) => {
       const byId = new Map(pc.sessions.map((session) => [session.sessionId, session]))

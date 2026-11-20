@@ -879,6 +879,9 @@ function validateEventSemantics(event: DomainEvent): void {
     ) {
       fail('invalid turn_started event')
     }
+  } else if (event.kind === 'input_steered') {
+    if (event.requestId.length === 0 || event.source === '' || event.text.length === 0 || event.turnStatus !== '' ||
+      event.sessionStatus !== '' || event.error !== null || utf8ByteLength(event.text) > MAX_TEXT_BYTES) fail('invalid steered input')
   } else if (event.kind === 'text_delta') {
     if (event.text.length === 0) {
       fail('invalid text_delta event')
@@ -986,6 +989,7 @@ function decodeEventPayload(value: Object | null, version: number): EventPayload
     event.diagnostic = decodeDiagnostic(eventCandidate.diagnostic ?? null)
   }
   if ((event.kind === 'turn_progress' || event.kind === 'session_diagnostic') && (requestId.length === 0 || event.turnStatus !== '' || event.sessionStatus !== '' || event.error !== null)) fail('invalid observation event')
+  if (version < 12 && event.kind === 'input_steered') fail('steered input requires v12')
   validateEventSemantics(event)
   const payload: EventPayload = { event }
   return payload
@@ -1072,7 +1076,7 @@ export function decodeServerMessage(raw: string): ServerMessage {
 
   const envelope = requireAllowedObject(parsedValue, 'message', ENVELOPE_KEYS) as EnvelopeCandidate
   const version = readInteger(envelope.version, 'version')
-  if (version !== PROTOCOL_VERSION && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10 && version !== PREFERRED_PROTOCOL_VERSION) {
+  if (version < PROTOCOL_VERSION || version > PREFERRED_PROTOCOL_VERSION) {
     fail('unsupported protocol version')
   }
 

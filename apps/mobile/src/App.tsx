@@ -76,6 +76,14 @@ function cancelTargetOf(state: MobileState): string | null {
   return streaming?.kind === 'claude' ? streaming.requestId : null
 }
 
+function preventPairingPageZoom(node: HTMLDivElement | null) {
+  if (!node) return
+  // Cancel WebKit's multi-touch gesture without intercepting single-finger navigation.
+  const preventZoom = (event: Event) => event.preventDefault()
+  node.addEventListener('gesturestart', preventZoom)
+  return () => node.removeEventListener('gesturestart', preventZoom)
+}
+
 function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = defaultSocketFactory, native = null, experience = nativeExperience }: AppProps = {}) {
   const pairingHome = ['ios', 'android'].includes(Capacitor.getPlatform())
   const isNativeMobile = ['ios', 'android'].includes(Capacitor.getPlatform())
@@ -365,9 +373,12 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       if (!(accepted && operation === 'create_session')) setManagementBusy((current) => ({ ...current, [sessionId]: false }))
       const text = accepted
         ? (operation === 'stop_session' ? 'Claude 会话已终止；配对入口仍保留' : null)
-        : code === 'result_unknown' ? '操作结果未知，请重连核对；请勿重复新建会话'
-        : code === 'session_capacity' ? '活跃会话已达上限' :
-          code === 'create_rate_limited' ? '新建太频繁，请稍后重试' : '操作失败，请重试'
+        : code === 'result_unknown' ? '连接已断开或请求超时，请先在电脑端核对操作结果'
+        : code === 'session_capacity' ? '远程会话已达上限，请在电脑端关闭一个远程服务后重试'
+        : code === 'create_rate_limited' ? '新建太频繁，请稍后重试'
+        : code === 'session_unavailable' ? '来源会话已不可用，请在电脑端检查会话的远程服务'
+        : operation === 'create_session' ? '电脑端未能新建会话，请在电脑端检查远程服务，或在该目录启动配对后扫码'
+        : '操作失败，请重试'
       setManagementFeedback((current) => ({ ...current, [sessionId]: text }))
       if (!accepted && text) showToast(text)
     })
@@ -699,7 +710,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     pageContent = <div className="mobile-safe-area-content" style={{ minHeight: '100vh', background: PAGE_BACKGROUND }}>正在恢复已配对会话…</div>
   } else if ((adding && settingsPage === null) || (sessions.length === 0 && settingsPage === null)) {
     pageContent = (
-      <div className={`mobile-entry-page${isNativeMobile ? ' mobile-entry-page--native' : ''}${isNativeMobile ? ' native-mobile' : ''}${pairingHome ? ' mobile-entry-page--home' : ''}`} style={{ background: PAGE_BACKGROUND }}>
+      <div ref={isNativeMobile ? preventPairingPageZoom : undefined} className={`mobile-entry-page${isNativeMobile ? ' mobile-entry-page--native' : ''}${isNativeMobile ? ' native-mobile' : ''}${pairingHome ? ' mobile-entry-page--home' : ''}${isNativeMobile ? ' mobile-entry-page--revised-home' : ''}`} style={{ background: PAGE_BACKGROUND }}>
         <div className="mobile-safe-area-header">
           <NavBar
             className={pairingHome ? 'mobile-home-nav' : undefined}
@@ -714,11 +725,11 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         </div>
 
         {projectPairingCwd && !['ios', 'android'].includes(Capacitor.getPlatform()) && <p>请扫描目标电脑和目录下新会话的配对码：{projectPairingCwd}</p>}
-        <PairingForm compactPaths={pairingHome} pcFeedback={<PCConnectionFeedback feedback={pcFeedback}/>} pcList={<PCList claimInitialRefresh={pairingHome ? claimInitialPCRefresh : undefined} allowInitialRefresh={!pairingFromList} selectedPC={selectedPC} pairingHome={pairingHome} refreshOnEntry={isNativeMobile} onFeedback={setPCFeedback} sessions={sessions} disabled={!profilesReady || pairingProgress !== null || pairingSaving} onTest={testPC} onEdit={key => { setPairingDirection('back'); setEditingPC(key) }} onSelect={pc => { setListDirection(pairingHome && !pairingFromList ? 'forward' : 'back'); setPairingFromList(false); cancelPairing(); selectedChanged.current = true; setSelectedPC(pc); projectPairing.current = null; setProjectPairingCwd(null); setPairingTarget(null); appStore.getState().setAdding(false); appStore.getState().setPairingError(null) }} onRemove={async pc => {
+        <PairingForm revisedHome={isNativeMobile} onDismissPCFeedback={() => setPCFeedback(null)} compactPaths={pairingHome} pcFeedback={<PCConnectionFeedback feedback={pcFeedback} autoOpen={!isNativeMobile}/>} pcList={<PCList claimInitialRefresh={pairingHome ? claimInitialPCRefresh : undefined} allowInitialRefresh={!pairingFromList} selectedPC={selectedPC} revisedHome={isNativeMobile} pairingHome={pairingHome} refreshOnEntry={isNativeMobile} onFeedback={setPCFeedback} sessions={sessions} disabled={!profilesReady || pairingProgress !== null || pairingSaving} onTest={testPC} onEdit={key => { setPairingDirection('back'); setEditingPC(key) }} onSelect={pc => { setListDirection(pairingHome && !pairingFromList ? 'forward' : 'back'); setPairingFromList(false); cancelPairing(); selectedChanged.current = true; setSelectedPC(pc); projectPairing.current = null; setProjectPairingCwd(null); setPairingTarget(null); appStore.getState().setAdding(false); appStore.getState().setPairingError(null) }} onRemove={async pc => {
           for (const record of pc.sessions) { if (!await removePairing(record.sessionId)) return }
           const next = { ...pcProfiles }; delete next[pc.key]
           try { await writePCProfiles(next); setPCProfiles(next) } catch { showToast('电脑配置清理失败') }
-        }}/>} projectCwd={projectPairingCwd} projectPC={pairingHome ? pairingPCName : undefined} onDismissError={() => appStore.getState().setPairingError(null)} iosDesign={['ios', 'android'].includes(Capacitor.getPlatform())} target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
+        }}/>} projectCwd={projectPairingCwd} projectPC={pairingHome ? pairingPCName : undefined} onDismissError={() => appStore.getState().setPairingError(null)} iosDesign={isNativeMobile} target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
           recordAction('scan')
           const generation = ++pairingGeneration.current
           setPairingProgress('正在扫码…')
@@ -757,7 +768,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     </div>
   } else {
     pageContent = (
-    <div className={`session-list-page${isNativeMobile ? " session-list-page--fixed-footer" : ""}`}>
+    <div className={`session-list-page${isNativeMobile ? " session-list-page--fixed-footer" : ""}${isNativeMobile ? " session-list-page--directory-dividers" : ""}`}>
       <div className="mobile-safe-area-header">
         <NavBar className={pairingHome ? "mobile-home-nav" : undefined} back={pairingHome ? "" : null} backIcon={pairingHome ? <LeftOutline aria-label="返回" fontSize={24} /> : undefined} onBack={pairingHome ? goHome : undefined} right={homeButton ?? <button className="mobile-settings-button" onClick={() => { setSettingsDirection('forward'); setSettingsPage('settings') }}><SessionIcon name="settings" size={16} style={{ marginRight: 5 }} />设置</button>}>{appDisplayName}</NavBar>
       </div>
@@ -768,17 +779,22 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         sessions={sessions}
         compactPCHeader={isNativeMobile}
         revisedLayout={pairingHome}
+        hideHeadingArrow={isNativeMobile}
         recentlyViewedId={recentlyViewedId}
         selectedPC={selectedPC ?? null}
         managementBusy={managementBusy}
         managementFeedback={managementFeedback}
         onCreate={(sessionId) => {
-          if (runtime.createSession(sessionId)) {
+          const result = runtime.createSession(sessionId)
+          if (result.ok) {
             setManagementBusy((current) => ({ ...current, [sessionId]: true }))
             setManagementFeedback((current) => ({ ...current, [sessionId]: null }))
           } else {
-            setManagementFeedback((current) => ({ ...current, [sessionId]: '暂时无法新建会话，请检查连接后重试' }))
-            showToast('暂时无法新建会话，请检查连接后重试')
+            const message = result.reason === 'busy'
+              ? '有操作正在处理，请稍候'
+              : '会话连接已断开或尚未同步，请下拉刷新后重试'
+            setManagementFeedback((current) => ({ ...current, [sessionId]: message }))
+            showToast(message)
           }
         }}
         onError={showToast}

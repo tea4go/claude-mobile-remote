@@ -292,27 +292,30 @@ export struct SessionListPage {
                     }.alignItems(HorizontalAlign.End)
                   }.padding({ left: 16, right: 16, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16)
                 } else if (row.kind === 'project' && row.pc !== undefined && row.project !== undefined) {
-                  Row({ space: 8 }) {
-                    Column({ space: 4 }) {
-                      Row({ space: 6 }) { Image(this.collapsed.indexOf((row.project as ProjectGroup).key) >= 0 ? $r('app.media.directory_collapse') : $r('app.media.directory_expand')).width(16).height(16); Text((row.project as ProjectGroup).title).fontSize(15).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1) }.width('100%')
-                      Text(row.project.cwd.length > 0 ? row.project.cwd : '工作目录未知').fontSize(12)
-                        .fontColor(SECONDARY).maxLines(1).ellipsisMode(EllipsisMode.CENTER)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-                    }.layoutWeight(1).alignItems(HorizontalAlign.Start).onClick(() => {
-                      const project = row.project as ProjectGroup
-                      this.collapsed = this.collapsed.indexOf(project.key) >= 0 ? this.collapsed.filter((key: string) => key !== project.key) : this.collapsed.concat([project.key])
-                      this.updateRows()
-                    })
-                    if ((row.project as ProjectGroup).cwd.length > 0 &&
-                      (row.project as ProjectGroup).sessions.some((record: SessionRecord) => record.pcId === (row.pc as PCGroup).key)) {
-                      Button('＋', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(25)
-                        .fontColor(PRIMARY).borderRadius(12).clip(true).stateEffect(false)
-                        .stateStyles({ normal: { .backgroundColor('#00000000') }, pressed: { .backgroundColor('#e6effe') } })
-                        .accessibilityText('在此目录新建会话')
-                        .enabled(!this.projectCreating)
-                        .onClick(() => this.onCreateDirectory(row.pc as PCGroup, row.project as ProjectGroup))
-                    }
-                  }.width('100%').padding({ top: 4 })
+                  Column() {
+                    if (row.showDivider) { Divider().color('#dfe6f1') }
+                    Row({ space: 8 }) {
+                      Column({ space: 4 }) {
+                        Row({ space: 6 }) { Image(this.collapsed.indexOf((row.project as ProjectGroup).key) >= 0 ? $r('app.media.directory_collapse') : $r('app.media.directory_expand')).width(16).height(16); Text((row.project as ProjectGroup).title).fontSize(15).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1) }.width('100%')
+                        Text(row.project.cwd.length > 0 ? row.project.cwd : '工作目录未知').fontSize(12)
+                          .fontColor(SECONDARY).maxLines(1).ellipsisMode(EllipsisMode.CENTER)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+                      }.layoutWeight(1).alignItems(HorizontalAlign.Start).onClick(() => {
+                        const project = row.project as ProjectGroup
+                        this.collapsed = this.collapsed.indexOf(project.key) >= 0 ? this.collapsed.filter((key: string) => key !== project.key) : this.collapsed.concat([project.key])
+                        this.updateRows()
+                      })
+                      if ((row.project as ProjectGroup).cwd.length > 0 &&
+                        (row.project as ProjectGroup).sessions.some((record: SessionRecord) => record.pcId === (row.pc as PCGroup).key)) {
+                        Button('＋', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(25)
+                          .fontColor(PRIMARY).borderRadius(12).clip(true).stateEffect(false)
+                          .stateStyles({ normal: { .backgroundColor('#00000000') }, pressed: { .backgroundColor('#e6effe') } })
+                          .accessibilityText('在此目录新建会话')
+                          .enabled(!this.projectCreating)
+                          .onClick(() => this.onCreateDirectory(row.pc as PCGroup, row.project as ProjectGroup))
+                      }
+                    }.width('100%').padding({ top: 4 })
+                  }.width('100%')
                 }
               }
             } else {

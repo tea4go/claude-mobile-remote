@@ -378,6 +378,7 @@ export function cloneState(state: HarmonySessionState, cloneFeed: boolean = true
     queuedRequests: cloneQueuedRequests(state.queuedRequests),
     pendingAction: clonePendingAction(state.pendingAction),
     pendingCommand: clonePendingCommand(state.pendingCommand),
+    deferredInputs: state.deferredInputs?.slice(),
     messages: cloneFeed ? cloneMessages(state.messages) : state.messages,
     lastError: cloneErrorInfo(state.lastError),
     lastNotice: cloneNoticeInfo(state.lastNotice),
@@ -595,7 +596,7 @@ function mergeTurnStarted(state: HarmonySessionState, event: DomainEvent): Harmo
       return null
     }
   } else {
-    const input: InputFeedMessage = {
+    const input: InputFeedMessage = next.deferredInputs?.find((item: InputFeedMessage) => item.requestId === event.requestId) ?? {
       kind: 'input',
       source: event.source,
       requestId: event.requestId,
@@ -606,6 +607,7 @@ function mergeTurnStarted(state: HarmonySessionState, event: DomainEvent): Harmo
     next.messages.push(input)
   }
 
+  next.deferredInputs = next.deferredInputs?.filter((item: InputFeedMessage) => item.requestId !== event.requestId)
   next.messages.push(createClaudeMessage(event.requestId, event.source, '', 'streaming', null))
   return withoutQueued(next, event.requestId)
 }
@@ -721,6 +723,17 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
 
   if (['turn_completed','turn_failed','session_failed','session_stopped'].indexOf(event.kind) >= 0) next.progress = undefined
   switch (event.kind) {
+    case 'input_steered': {
+      if (event.source === '') break
+      if (!next.messages.some((message: FeedMessage) => message.kind === 'input' && message.requestId === event.requestId)) {
+        const input: InputFeedMessage = next.deferredInputs?.find((item: InputFeedMessage) => item.requestId === event.requestId) ??
+          { kind: 'input', source: event.source, requestId: event.requestId, text: event.text, status: '' }
+        next.messages.push(input)
+      }
+      next.deferredInputs = next.deferredInputs?.filter((item: InputFeedMessage) => item.requestId !== event.requestId)
+      next = withoutQueued(next, event.requestId)
+      break
+    }
     case 'queue_changed':
       next.queuedRequests = cloneQueuedRequests(event.queue ?? [])
       next.queueDepthHint = next.queuedRequests.length
@@ -961,18 +974,22 @@ export function reduceHarmonySessionState(
       next.pendingCommand = null
       if ((pending.kind === 'send_text' || pending.kind === 'send_attachments')) {
         const existing = next.messages.find((message: FeedMessage) => message.kind === 'input' && message.requestId === action.requestId)
-        if (existing !== undefined && existing.kind === 'input') {
-          existing.status = 'accepted'
-          if (pending.kind === 'send_attachments') existing.text = pending.text
-        } else next.messages.push(createAcceptedInputMessage(action.requestId, pending.text))
-        if (pending.kind === 'send_attachments' && action.attachments !== undefined) {
-          const input = next.messages.find((message: FeedMessage) => message.kind === 'input' && message.requestId === action.requestId)
-          if (input !== undefined && input.kind === 'input') input.attachments = action.attachments.slice()
+        const input = existing !== undefined && existing.kind === 'input' ? existing : createAcceptedInputMessage(action.requestId, pending.text)
+        input.status = 'accepted'
+        if (pending.kind === 'send_attachments') {
+          input.text = pending.text
+          input.attachments = action.attachments?.slice()
+        }
+        if (existing === undefined) {
+          if (next.turnStatus === 'running' || next.turnStatus === 'waiting') {
+            next.deferredInputs = (next.deferredInputs ?? []).slice(-255).concat([input])
+          } else next.messages.push(input)
         }
       } else if (pending.kind === 'resolve_action') {
         next.pendingAction = null
-      } else if (pending.kind === 'cancel_queued' && !next.canSteerQueue) {
-        next = withoutQueued(next, pending.targetId)
+      } else if (pending.kind === 'cancel_queued') {
+        next.deferredInputs = next.deferredInputs?.filter((input: InputFeedMessage) => input.requestId !== pending.targetId)
+        if (!next.canSteerQueue) next = withoutQueued(next, pending.targetId)
       }
       return applyCapabilityFlags(next)
     }

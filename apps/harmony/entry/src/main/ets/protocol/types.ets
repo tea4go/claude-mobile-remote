@@ -1,5 +1,5 @@
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 11
+export const PREFERRED_PROTOCOL_VERSION = 12
 export const PAIRING_PAYLOAD_VERSION = 1
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
 export const MAX_TEXT_BYTES = 1024 * 1024
@@ -21,6 +21,7 @@ export const EVENT_KIND_VALUES: string[] = [
   'turn_progress', 'session_diagnostic',
   'session_started',
   'turn_started',
+  'input_steered',
   'text_delta',
   'turn_completed',
   'turn_failed',
@@ -83,6 +84,7 @@ export type EventKind =
   | 'turn_progress' | 'session_diagnostic'
   | 'session_started'
   | 'turn_started'
+  | 'input_steered'
   | 'text_delta'
   | 'turn_completed'
   | 'turn_failed'

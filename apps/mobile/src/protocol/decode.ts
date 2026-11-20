@@ -64,6 +64,7 @@ const EVENT_KINDS: ReadonlySet<string> = new Set([
  'turn_progress', 'session_diagnostic',
   'session_started',
   'turn_started',
+  'input_steered',
   'text_delta',
   'turn_completed',
   'turn_failed',
@@ -528,7 +529,7 @@ function decodeSessionSnapshot(value: unknown, version: number): SessionSnapshot
     snapshot.turn.display = { items, truncated: display.truncated }
   }
   if (rawTurn.inputText !== undefined) {
-    if (version < 7 || typeof rawTurn.inputText !== 'string' || rawTurn.inputText === '' || new TextEncoder().encode(rawTurn.inputText).length > MAX_TEXT_BYTES || !snapshot.turn.requestId || snapshot.turn.status === 'idle' || (version < LATEST_INPUT_PROTOCOL_VERSION && !['running', 'waiting'].includes(snapshot.turn.status))) fail('invalid current input')
+    if (version < 7 || typeof rawTurn.inputText !== 'string' || rawTurn.inputText === '' || new TextEncoder().encode(rawTurn.inputText).length > MAX_TEXT_BYTES || !snapshot.turn.requestId || snapshot.turn.status === 'idle' || (version < 11 && !['running', 'waiting'].includes(snapshot.turn.status))) fail('invalid current input')
     snapshot.turn.inputText = rawTurn.inputText
   }
   if (rawTurn.progress !== undefined) {
@@ -644,6 +645,7 @@ function decodeEventPayload(value: unknown, version: number): EventPayload {
    domainEvent.diagnostic = decodeDiagnostic(event.diagnostic)
   }
   if ((kind === 'turn_progress' || kind === 'session_diagnostic') && (requestId === '' || domainEvent.turnStatus !== '' || domainEvent.sessionStatus !== '' || domainEvent.error !== null)) fail('invalid observation event')
+  if (version < 12 && kind === 'input_steered') fail('steered input requires v12')
   validateEventSemantics(domainEvent)
   return { event: domainEvent }
 }
@@ -653,6 +655,10 @@ function decodeEventPayload(value: unknown, version: number): EventPayload {
 // content_block / action_required 必须归属具体 Turn；其他 kind 不得携带正文。
 // 错误信息不包含正文本身。
 function validateEventSemantics(event: DomainEvent): void {
+  if (event.kind === 'input_steered') {
+    if (!event.requestId || !event.source || !event.text || event.turnStatus || event.sessionStatus || event.error || new TextEncoder().encode(event.text).length > MAX_TEXT_BYTES) fail('invalid steered input')
+    return
+  }
   if (event.kind === 'turn_started') {
     if (
       event.requestId === '' ||

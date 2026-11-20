@@ -15,14 +15,15 @@ export function quickPairUrl(input: string): URL {
   url.pathname = '/quick-pair/v1'
   return url
 }
-export default function QuickPairForm({ onPair, disabled = false, iosDesign = false, onScan, feedback, pcFeedback, onDismissFeedback, pcList, externalFeedbackKey }: { externalFeedbackKey?: string | null; pcList?: ReactNode; pcFeedback?: ReactNode; onDismissFeedback?: () => void; feedback?: ReactNode; onPair: (text: string) => void; disabled?: boolean; iosDesign?: boolean; onScan?: () => void }) {
+export default function QuickPairForm({ onPair, disabled = false, iosDesign = false, revisedHome = false, onDismissPCFeedback, onScan, feedback, pcFeedback, onDismissFeedback, pcList, externalFeedbackKey }: { revisedHome?: boolean; onDismissPCFeedback?: () => void; externalFeedbackKey?: string | null; pcList?: ReactNode; pcFeedback?: ReactNode; onDismissFeedback?: () => void; feedback?: ReactNode; onPair: (text: string) => void; disabled?: boolean; iosDesign?: boolean; onScan?: () => void }) {
   const [ip,setIP]=useState(''), [code,setCode]=useState(''), [phase,setPhase]=useState('idle'), [error,setError]=useState('')
   const [toast, setToast] = useState('')
   const [latest, setLatest] = useState<'local' | 'pc' | 'external'>('external')
-  const pcValue = isValidElement<{ feedback?: unknown }>(pcFeedback) ? pcFeedback.props.feedback : null
-  useEffect(() => { if (pcValue) setLatest('pc') }, [pcValue])
-  useEffect(() => { if (error || toast) setLatest('local') }, [error, toast])
-  useEffect(() => { if (externalFeedbackKey) setLatest('external') }, [externalFeedbackKey])
+  const [feedbackDismissed, setFeedbackDismissed] = useState(false)
+  const pcValue = isValidElement<{ feedback?: { testing: boolean } | null }>(pcFeedback) ? pcFeedback.props.feedback : null
+  useEffect(() => { if (pcValue) { setLatest('pc'); setFeedbackDismissed(false) } }, [pcValue])
+  useEffect(() => { if (error || toast) { setLatest('local'); setFeedbackDismissed(false) } }, [error, toast])
+  useEffect(() => { if (externalFeedbackKey) { setLatest('external'); setFeedbackDismissed(false) } }, [externalFeedbackKey])
   const [recent, setRecent] = useState<string[]>([])
   const [focused, setFocused] = useState(false)
   const legacy=useRef<string|null>(null)
@@ -124,6 +125,21 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
       setError('验证码配对连接已断开，请重新获取验证码')
     }
   }
+  const visibleFeedback = latest === 'local'
+    ? phase !== 'code' && (error || toast) && <div className="pairing-notice pairing-notice--error" role="alert">{error || toast}</div>
+    : latest === 'pc' ? (pcValue || !revisedHome ? pcFeedback : null) : (externalFeedbackKey || !revisedHome ? feedback : null)
+
+  function dismissFeedback() {
+    setFeedbackDismissed(true)
+    if (latest === 'local') { setError(''); setToast('') }
+    if (latest === 'pc') onDismissPCFeedback?.()
+    if (latest === 'external') onDismissFeedback?.()
+  }
+
+  const actions = <div className="quick-pair-ios__actions" data-debug-bottom-actions={!revisedHome || undefined}>
+    <Button className="pairing-form__primary" color="primary" disabled={disabled || phase !== 'idle'} onClick={start}>连接</Button>
+    {onScan && <Button className="pairing-form__scan" disabled={disabled || phase !== 'idle'} color="primary" fill="outline" onClick={onScan}><SessionIcon name="scan" size={16} style={{ marginRight: 6 }} />扫描二维码</Button>}
+  </div>
   if (iosDesign) return <div className="quick-pair-ios">
     <div className="quick-pair-ios__body">
     <div className="quick-pair-ios__address">
@@ -137,21 +153,20 @@ export default function QuickPairForm({ onPair, disabled = false, iosDesign = fa
     </div>}
     </div>
     <p>请与 PC 配对窗口核对；手机所在网络需要能访问此地址。不同路由器共用宽带不代表设备能够互通。</p>
+    {revisedHome && actions}
     <div className="quick-pair-ios__pc-scroll">{pcList}</div>
     </div>
     {phase === 'code' && <PairingCodeDialog code={code} error={error} onChange={setCode} onCancel={stop} onVerify={verify}/>}
     {(phase === 'connecting' || phase === 'verifying') && <PairingLoading message={phase === 'connecting' ? '正在连接…' : '正在验证…'} onCancel={stop}/>}
-    <div className="quick-pair-ios__footer">
-    <div className="quick-pair-ios__feedback">
-    {latest === 'local' && phase !== 'code' && (error || toast) && <div className="pairing-notice pairing-notice--error" role="alert">{error || toast}</div>}
-    {latest === 'pc' && pcFeedback}
-    {latest === 'external' && feedback}
-    </div>
-    <div className="quick-pair-ios__actions" data-debug-bottom-actions>
-      <Button className="pairing-form__primary" color="primary" disabled={disabled || phase !== 'idle'} onClick={start}>连接</Button>
-      {onScan && <Button className="pairing-form__scan" disabled={disabled || phase !== 'idle'} color="primary" fill="outline" onClick={onScan}><SessionIcon name="scan" size={16} style={{ marginRight: 6 }} />扫描二维码</Button>}
-    </div>
-    </div>
+    {revisedHome ? !feedbackDismissed && visibleFeedback && !(latest === 'pc' && pcValue?.testing) && (
+      <div className="quick-pair-ios__feedback-overlay">
+        {visibleFeedback}
+        <button type="button" className="quick-pair-ios__feedback-close" aria-label="关闭提示" onClick={dismissFeedback}>×</button>
+      </div>
+    ) : <div className="quick-pair-ios__footer">
+      <div className="quick-pair-ios__feedback">{visibleFeedback}</div>
+      {actions}
+    </div>}
   </div>
   return <div style={{display:'grid',gap:16}}>
     <Input aria-label="PC IP" placeholder="请输入 PC IP" value={ip} onChange={setIP} disabled={phase!=='idle'||disabled}/>

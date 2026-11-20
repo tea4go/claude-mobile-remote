@@ -7,6 +7,7 @@ const (
 	EventSessionDiagnostic EventKind = "session_diagnostic"
 	EventQueueChanged      EventKind = "queue_changed"
 	EventSessionStarted    EventKind = "session_started"
+	EventInputSteered      EventKind = "input_steered"
 	EventTurnStarted       EventKind = "turn_started"
 	EventTextDelta         EventKind = "text_delta"
 	EventTurnCompleted     EventKind = "turn_completed"

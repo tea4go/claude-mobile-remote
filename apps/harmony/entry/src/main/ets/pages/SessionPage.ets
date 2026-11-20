@@ -247,12 +247,19 @@ export struct SessionPage {
         (this.sheet === 'action' && this.state.pendingAction?.kind === 'ask_user_question' ? 136 : 68)) }).width('100%').align(Alignment.TopStart)
       if (this.sheet === 'action' && this.state.pendingAction?.kind === 'ask_user_question') {
         Row({ space: 8 }) {
-          Button('取消提问', { type: ButtonType.Normal }).height(52).layoutWeight(1).enabled(this.commandReady()).onClick(() => this.cancelAction())
-          Button('提交', { type: ButtonType.Normal }).height(52).layoutWeight(2).fontSize(16).fontColor('#ffffff').backgroundColor($r('app.color.primary_fill')).borderRadius(16)
+          Button('取消提问', { type: ButtonType.Normal }).height(52).layoutWeight(1)
+            .fontSize(16).fontColor($r('app.color.text')).backgroundColor($r('app.color.surface'))
+            .border({ width: 1, color: $r('app.color.border'), radius: 16 }).enabled(this.commandReady()).onClick(() => this.cancelAction())
+          Button('提交', { type: ButtonType.Normal }).height(52).layoutWeight(1).fontSize(16).fontColor('#ffffff').backgroundColor($r('app.color.primary_fill')).borderRadius(16)
             .enabled(this.state.canResolveAction && this.answersReady()).onClick(() => this.onSubmitAnswers())
         }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
       } else if (this.sheet === 'action' && this.state.pendingAction !== null) {
-        Button('取消本轮', { type: ButtonType.Normal }).height(44).width('100%').enabled(this.commandReady()).onClick(() => this.cancelAction())
+        Row() {
+          Button('取消本轮', { type: ButtonType.Normal }).height(48).width('100%')
+            .fontSize(16).fontColor($r('app.color.text')).backgroundColor($r('app.color.surface'))
+            .border({ width: 1, color: $r('app.color.border'), radius: 16 })
+            .enabled(this.commandReady()).onClick(() => this.cancelAction())
+        }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
       }
     }.width('100%').backgroundColor($r('app.color.surface')).borderRadius({ topLeft: 20, topRight: 20 }).transition(pageFade())
   }

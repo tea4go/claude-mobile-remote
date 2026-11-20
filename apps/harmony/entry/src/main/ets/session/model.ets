@@ -98,6 +98,7 @@ export interface HarmonySessionState {
   queuedRequests: Array<QueuedRequest>
   pendingAction: PendingAction | null
   pendingCommand: PendingCommand | null
+  deferredInputs?: Array<InputFeedMessage>
   messages: Array<FeedMessage>
   lastError: ErrorInfo | null
   lastNotice: NoticeInfo | null

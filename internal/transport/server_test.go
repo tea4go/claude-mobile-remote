@@ -1831,3 +1831,18 @@ func TestInitialDesktopTurnOnlySentToV11Clients(t *testing.T) {
 		_ = socket.Close()
 	}
 }
+
+func TestSteeredInputIsVersionGatedWithoutLosingSequence(t *testing.T) {
+	event := protocol.Event{Kind: protocol.EventInputSteered, SessionID: "session-1", Seq: 9,
+		RequestID: "queued", Source: protocol.InputTerminal, Text: "follow-up"}
+	for _, version := range []int{11, 12} {
+		conn := connection{version: version, sessionID: event.SessionID}
+		envelope, err := conn.outboundEvent(event)
+		if err != nil || envelope.Seq != event.Seq || envelope.Version != version {
+			t.Fatalf("v%d envelope = %+v, err = %v", version, envelope, err)
+		}
+		if (version == 11 && envelope.Type != TypeUnsupported) || (version == 12 && envelope.Type != TypeEvent) {
+			t.Fatalf("v%d returned envelope type %s", version, envelope.Type)
+		}
+	}
+}

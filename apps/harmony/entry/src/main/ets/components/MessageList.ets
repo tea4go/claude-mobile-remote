@@ -127,6 +127,26 @@ export struct MessageList {
     this.source.replace(this.messages)
   }
 
+  private inputBubbleWidth(text: string, hasAttachments: boolean): Length {
+    if (hasAttachments) return '100%'
+    const measure = this.getUIContext().getMeasureUtils()
+    const width = Math.max(...text.split('\n').map((line: string) =>
+      this.getUIContext().px2vp(measure.measureText({ textContent: line, fontSize: 16 }))))
+    return Math.ceil(width) + 24
+  }
+
+  @Builder
+  private scrollButton(top: boolean): void {
+    Button({ type: ButtonType.Circle }) {
+      Image(top ? $r('app.media.scroll_top') : $r('app.media.scroll_bottom')).width(21).height(21)
+        .objectFit(ImageFit.Contain).draggable(false)
+    }.width(44).height(44).padding(0)
+      .backgroundColor($r('app.color.surface')).border({ width: 1, color: '#dbe4ef' })
+      .shadow({ radius: 8, offsetY: 2, color: '#1f0f172a' })
+      .accessibilityText(top ? '到顶部' : '到底部')
+      .onClick(() => this.scroller.scrollEdge(top ? Edge.Top : Edge.Bottom))
+  }
+
   build() {
     Stack({ alignContent: Alignment.BottomEnd }) {
     List({ space: 10, scroller: this.scroller }) {
@@ -148,7 +168,9 @@ export struct MessageList {
                     }, (attachment: Attachment, itemIndex: number) => `${itemIndex}-${attachment.name}`)
                   }
                   MarkdownText({ text: inputDisplayText(message.text), onAccent: true, scrollController: this.scroller })
-                }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.primary_fill')).borderRadius(16)
+                }.padding({ left: 12, right: 12, top: 8, bottom: 8 })
+                  .width(this.inputBubbleWidth(inputDisplayText(message.text), (message.attachments?.length ?? 0) > 0))
+                  .constraintSize({ maxWidth: '100%' }).backgroundColor($r('app.color.primary_fill')).borderRadius(16)
                 Text(`${message.source === 'terminal' ? '电脑端' : '手机端'}${inputStatusLabel(message.status)}`)
                   .fontSize(12).fontColor($r('app.color.text_secondary')).width('100%').textAlign(TextAlign.End)
               }.width('80%').alignItems(HorizontalAlign.End)
@@ -234,10 +256,10 @@ export struct MessageList {
     .onReachStart(() => { this.atTop = true })
     Column({ space: 8 }) {
       if (!this.atTop) {
-        Button('↑', { type: ButtonType.Normal }).width(40).height(40).fontSize(21).borderRadius(20).backgroundColor($r('app.color.surface')).fontColor($r('app.color.text')).accessibilityText('到顶部').onClick(() => this.scroller.scrollEdge(Edge.Top))
+        this.scrollButton(true)
       }
       if (!this.atEnd) {
-        Button('↓', { type: ButtonType.Normal }).width(40).height(40).fontSize(21).borderRadius(20).backgroundColor($r('app.color.surface')).fontColor($r('app.color.text')).accessibilityText('到底部').onClick(() => this.scroller.scrollEdge(Edge.Bottom))
+        this.scrollButton(false)
       }
     }.padding({ right: 16, bottom: 12 })
     }.width('100%').height('100%')

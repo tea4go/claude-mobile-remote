@@ -234,3 +234,16 @@ test('新版目录最近活动顺序按所选 PC 计算，相同目录名不受�
   const view = render(<ProjectSessionList sessions={sessions} revisedLayout compactPCHeader selectedPC="pc:mac" onOpen={vi.fn()} onRename={vi.fn()} onRemove={vi.fn()} />)
   expect([...view.container.querySelectorAll('.project-session-list__project-toggle strong')].map(el => el.textContent)).toEqual(['new', 'shared'])
 })
+
+test('新版会话列表标题去掉箭头后仍可统一折叠和展开', () => {
+  const noop = () => {}
+  render(<ProjectSessionList revisedLayout hideHeadingArrow sessions={[item('a', '/work/alpha', null)]}
+    onOpen={noop} onRemove={noop} onRename={noop} />)
+  const title = screen.getByRole('button', { name: '会话列表' })
+  expect(title.textContent).toBe('会话列表')
+  fireEvent.click(title)
+  expect(title).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.queryByTestId('session-list-item')).not.toBeInTheDocument()
+  fireEvent.click(title)
+  expect(screen.getByTestId('session-list-item')).toBeInTheDocument()
+})

@@ -227,7 +227,7 @@ func contextError(ctx context.Context) error {
 }
 
 func applyEvent(snapshot protocol.Snapshot, event protocol.Event) protocol.Snapshot {
-	if event.Kind == protocol.EventSessionDiagnostic {
+	if event.Kind == protocol.EventSessionDiagnostic || event.Kind == protocol.EventInputSteered {
 		return snapshot
 	}
 	if event.Kind == protocol.EventTurnProgress {

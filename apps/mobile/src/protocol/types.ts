@@ -3,7 +3,7 @@
 
 export const PROTOCOL_VERSION = 2
 export const PREFERRED_PROTOCOL_VERSION = 10
-export const LATEST_INPUT_PROTOCOL_VERSION = 11
+export const LATEST_INPUT_PROTOCOL_VERSION = 12
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
@@ -34,6 +34,7 @@ export type EventKind =
   | 'session_diagnostic'
   | 'session_started'
   | 'turn_started'
+  | 'input_steered'
   | 'text_delta'
   | 'turn_completed'
   | 'turn_failed'

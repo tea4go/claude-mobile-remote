@@ -200,3 +200,18 @@ func TestReconnectSnapshotKeepsOrderedTurnDisplay(t *testing.T) {
 		t.Fatalf("sequence %d after snapshot %d", event.Seq, snapshot.Seq)
 	}
 }
+
+func TestSteeredInputDoesNotReplaceActiveTurn(t *testing.T) {
+	stream, err := NewEventStream(protocol.Snapshot{SessionID: "session-1", SessionStatus: protocol.SessionReady,
+		Turn: protocol.TurnSnapshot{RequestID: "active", Source: protocol.InputTerminal, Status: protocol.TurnRunning}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Publish(protocol.Event{Kind: protocol.EventInputSteered, RequestID: "queued", Source: protocol.InputMobile, Text: "follow-up"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := stream.Snapshot(context.Background())
+	if err != nil || snapshot.Seq != 1 || snapshot.Turn.RequestID != "active" || snapshot.Turn.Source != protocol.InputTerminal {
+		t.Fatalf("steered input changed active turn: %+v, %v", snapshot, err)
+	}
+}

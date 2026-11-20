@@ -249,10 +249,12 @@ test('v11 restores a completed input and reply once, including after reconnect',
   wire.payload.snapshot.turn.status = 'idle'
   assert.throws(() => decodeServerMessage(JSON.stringify(wire)), /invalid current input/)
 })
-test('client negotiates v11 to v10 to v3 to v2 without command replay', () => {
+test('client negotiates v12 to v11 to v10 to v3 to v2 without command replay', () => {
   const client = new (load('protocol/client').ProtocolClient)(pairing)
   client.connect(); sockets.at(-1).emit('open', {})
-  assert.equal(sockets.at(-1).frames[0].version, 11)
+  assert.equal(sockets.at(-1).frames[0].version, 12)
+  sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 11 }, 11))
+  sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 11)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 10 }, 10))
   sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 10)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 3 }, 3))
@@ -844,6 +846,8 @@ test('virtual list projection filters PCs and collapses only its exact project',
   const groups = groupSessions([record('a', 'one', '/a'), record('b', 'one', '/b'), record('c', 'two', '/a')])
   assert.deepEqual(projectListRows(groups, 'one', [groups[0].projects[0].key]).map(row => row.key), ['pc:one', 'project:' + groups[0].projects[0].key, 'project:' + groups[0].projects[1].key, 'session:b'])
   assert.equal(projectListRows(groups, 'all', []).filter(row => row.kind === 'session').length, 3)
+  assert.deepEqual(projectListRows(groups, 'all', []).filter(row => row.kind === 'project')
+    .map(row => [row.pc.key, row.showDivider]), [['one', false], ['one', true], ['two', false]])
   const refreshing = projectListRows(groups, 'all', [], ['b']).filter(row => row.kind === 'pc')
   assert.deepEqual(refreshing.map(row => [row.key, row.connecting]), [
     ['refreshing-pc:one', true], ['pc:two', false],
@@ -977,4 +981,19 @@ test('list turn status follows a snapshot and terminal event even without a repl
     requestId: 'req-1', turnStatus: 'cancelled',
   })))
   assert.equal(sessionTurnStatusLabel(state), '已中断')
+})
+
+test('queued phone input is shown once after confirmed steering and leaves the active reply intact', () => {
+  const reduce = reducer.reduceHarmonySessionState
+  let state = reduce(createInitialHarmonySessionState(), reducer.eventReceived(
+    event('turn_started', 1, { requestId: 'active', text: 'first', turnStatus: 'running' })))
+  state = reduce(state, reducer.commandStarted('send', 'send_text', 'follow-up', ''))
+  state = reduce(state, reducer.commandAccepted('send', 'queued'))
+  assert.equal(state.messages.some(row => row.requestId === 'queued'), false)
+  const applied = event('input_steered', 2, { requestId: 'queued', source: 'mobile', text: 'follow-up' })
+  assert.throws(() => decodeServerMessage(JSON.stringify(eventWire(applied, 11))), /requires v12/)
+  state = reduce(state, reducer.eventReceived(decodeServerMessage(JSON.stringify(eventWire(applied, 12))).payload.event))
+  state = reduce(state, reducer.eventReceived({ ...applied, seq: 3 }))
+  assert.deepEqual(state.messages.filter(row => row.requestId === 'queued').map(row => row.kind), ['input'])
+  assert.equal(state.messages.find(row => row.kind === 'claude').requestId, 'active')
 })

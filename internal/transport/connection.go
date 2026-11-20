@@ -630,7 +630,7 @@ func (c *connection) outboundEvent(event protocol.Event) (Envelope, error) {
 		event.Images = nil
 		event.ImagesOmitted = 0
 	}
-	if c.version < 8 && event.Kind == protocol.EventQueueChanged {
+	if (c.version < 8 && event.Kind == protocol.EventQueueChanged) || (c.version < 12 && event.Kind == protocol.EventInputSteered) {
 		if err := validateEvent(event); err != nil {
 			return Envelope{}, err
 		}

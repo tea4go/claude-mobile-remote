@@ -20,10 +20,10 @@ function Results({ results, ip }: { results: PCConnectionResult[]; ip?: string }
   return <div className="pc-test-results" aria-live="polite">{results.map((result, index) => <div key={index} role={result.ok ? 'status' : 'alert'} className={`pairing-notice pairing-notice--${result.ok ? 'success' : 'error'}`}><strong>{result.message}</strong>{ip && <div>IP：{ip} <button type="button" aria-label="复制 IP" className="pc-copy-ip" onClick={() => { void copyText(ip).then(() => setCopyFeedback('已复制')).catch(() => setCopyFeedback('复制失败')) }}><span aria-hidden="true">⧉</span></button>{copyFeedback && <span role="status">{copyFeedback}</span>}</div>}{result.port && <div>端口：{result.port}</div>}</div>)}</div>
 }
 export interface PCFeedback { pcName: string; ip?: string; testing: boolean; results: PCConnectionResult[] }
-export function PCConnectionFeedback({ feedback }: { feedback: PCFeedback | null }) {
+export function PCConnectionFeedback({ feedback, autoOpen = true }: { feedback: PCFeedback | null; autoOpen?: boolean }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const container = useRef<HTMLDivElement>(null)
-  useEffect(() => { setDetailsOpen(feedback !== null && !feedback.testing && !container.current?.closest('[inert]')) }, [feedback])
+  useEffect(() => { setDetailsOpen(autoOpen && feedback !== null && !feedback.testing && !container.current?.closest('[inert]')) }, [feedback, autoOpen])
   if (!feedback || feedback.testing) return null
   const failed = feedback.results.filter(result => !result.ok).length
   const summary = feedback.testing ? `正在测试 ${feedback.pcName}…` : `${feedback.pcName}：${failed ? '连接失败' : '连接成功'}`
@@ -92,7 +92,7 @@ function DirectoryTags({ paths }: { paths: string[] }) {
   </span>
 }
 
-export function PCList({ claimInitialRefresh, allowInitialRefresh = true, pairingHome, selectedPC, sessions, disabled, refreshOnEntry, onSelect, onEdit, onRemove, onTest, onFeedback }: { claimInitialRefresh?: () => boolean; allowInitialRefresh?: boolean; pairingHome?: boolean; selectedPC?: string | null; sessions: SessionListItem[]; disabled?: boolean; refreshOnEntry?: boolean; onSelect: (key: string | null) => void; onEdit: (key: string) => void; onRemove: (pc: PCGroup<SessionListItem>) => Promise<void>; onTest: TestPC; onFeedback?: (feedback: PCFeedback | null) => void }) {
+export function PCList({ claimInitialRefresh, allowInitialRefresh = true, revisedHome, pairingHome, selectedPC, sessions, disabled, refreshOnEntry, onSelect, onEdit, onRemove, onTest, onFeedback }: { claimInitialRefresh?: () => boolean; allowInitialRefresh?: boolean; revisedHome?: boolean; pairingHome?: boolean; selectedPC?: string | null; sessions: SessionListItem[]; disabled?: boolean; refreshOnEntry?: boolean; onSelect: (key: string | null) => void; onEdit: (key: string) => void; onRemove: (pc: PCGroup<SessionListItem>) => Promise<void>; onTest: TestPC; onFeedback?: (feedback: PCFeedback | null) => void }) {
   const [collapsed, setCollapsed] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -142,12 +142,14 @@ export function PCList({ claimInitialRefresh, allowInitialRefresh = true, pairin
     refreshedOnEntry.current = true
     void refresh(pcs, onTest)
   }, [refreshOnEntry, disabled, pcs, onTest, refresh, claimInitialRefresh, allowInitialRefresh])
+  if (revisedHome && pcs.length === 0) return null
+
   return <div ref={list} className={`pairing-pc-list${refreshOnEntry ? ' pairing-pc-list--compact' : ''}${pairingHome ? ' pairing-pc-list--home' : ''}`} aria-label="已配对电脑">
     {pcs.length > 0 && <div className="pairing-pc-list__header">
-      {pairingHome ? <button type="button" className="pairing-pc-list__all" aria-expanded={!collapsed} onClick={() => setCollapsed(value => !value)}>全部电脑 <span aria-hidden="true">{collapsed ? '▸' : '▾'}</span></button> : <button className="pairing-pc-list__all" disabled={disabled} onClick={() => onSelect(null)}>全部电脑</button>}
-      <button className="pairing-pc-list__refresh" type="button" aria-label="刷新电脑状态" disabled={disabled || testing !== null || refreshing} onClick={() => void refresh(pcs, onTest)}>
+      {pairingHome ? <button type="button" className="pairing-pc-list__all" aria-expanded={!collapsed} onClick={() => setCollapsed(value => !value)}>全部电脑{!revisedHome && <span aria-hidden="true"> {collapsed ? '▸' : '▾'}</span>}</button> : <button className="pairing-pc-list__all" disabled={disabled} onClick={() => onSelect(null)}>全部电脑</button>}
+      {(!revisedHome || !collapsed) && <button className="pairing-pc-list__refresh" type="button" aria-label="刷新电脑状态" disabled={disabled || testing !== null || refreshing} onClick={() => void refresh(pcs, onTest)}>
         {refreshing ? <span className="pc-testing"/> : refreshOnEntry ? '刷新' : <RedoOutline aria-hidden="true"/>}
-      </button>
+      </button>}
     </div>}
     {!collapsed && pcs.map(pc => {
       const tested = testStates[pc.key]?.ip === pcIP(pc) ? testStates[pc.key] : undefined
@@ -161,7 +163,7 @@ export function PCList({ claimInitialRefresh, allowInitialRefresh = true, pairin
         { key: 'delete', text: <span role="img" aria-label="删除" className="pairing-pc-action-icon"><DeleteOutline aria-hidden="true"/></span>, color: 'danger', onClick: async () => { if (await Dialog.confirm({ content: `删除 ${pc.label} 的全部本机配对？`, confirmText: '删除', cancelText: '取消' })) { controller.current?.abort(); setTesting(null); setRefreshing(false); publishFeedback(null); await onRemove(pc) } } },
       ]}><div className={`pairing-pc-item${pairingHome && selectedPC === pc.key ? " pairing-pc-item--selected" : ""}`}>
         <button type="button" className="pairing-pc-item__select" aria-pressed={pairingHome ? selectedPC === pc.key : undefined} disabled={disabled} onClick={() => onSelect(pc.key)}>
-          <SessionIcon name="pc" size={40} style={{ color: connected ? '#31a577' : pending ? '#e6a23c' : '#d7353e' }}/>
+          <SessionIcon name={revisedHome ? "pcStatus" : "pc"} size={revisedHome ? 28 : 40} style={{ color: connected ? '#31a577' : pending ? '#e6a23c' : '#d7353e' }}/>
           <span><span className="pairing-pc-item__name"><strong>{pc.label}</strong> <small>{pcIP(pc)}</small></span>{pairingHome ? <DirectoryTags paths={projects} /> : <span className="pairing-pc-item__projects">{projects.map(cwd => <em key={cwd}>{projectDirectoryName(cwd)}</em>)}</span>}<span className="sr-only">{connected ? '可用' : pending ? '连接中' : '不可用'}</span></span>
         </button>
         <button type="button" className={pairingHome ? "pairing-pc-item__test mobile-icon-button" : "pairing-pc-item__test"} aria-label={`测试连接 ${pc.label}`} disabled={disabled || testing !== null || refreshing} onClick={async () => {

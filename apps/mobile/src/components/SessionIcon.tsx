@@ -24,6 +24,7 @@ import microphone from '../assets/icons/svgs/session/microphone.svg'
 import notify from '../assets/icons/svgs/session/notify.svg'
 import paperclip from '../assets/icons/svgs/session/paperclip.svg'
 import pc from '../assets/icons/svgs/session/pc_host.svg'
+import pcStatus from '../assets/icons/svgs/session/pc-status.svg'
 import pcSettings from '../assets/icons/svgs/session/pc_setting.svg'
 import permission from '../assets/icons/svgs/session/permission.svg'
 import scan from '../assets/icons/svgs/session/scan_qcode.svg'
@@ -31,7 +32,7 @@ import send from '../assets/icons/svgs/session/send.svg'
 import settings from '../assets/icons/svgs/session/setting.svg'
 import target from '../assets/icons/svgs/session/target_pc_ip.svg'
 
-const icons = { expand, collapse, complete, processing, needCheck, interrupted, testConnect, testConnectButton, camera, image, file, arrow, logo, clear, debug, demo, folder, folderClosed, add, back, steps, microphone, notify, paperclip, pc, pcSettings, permission, scan, send, settings, target }
+const icons = { expand, collapse, complete, processing, needCheck, interrupted, testConnect, testConnectButton, camera, image, file, arrow, logo, clear, debug, demo, folder, folderClosed, add, back, steps, microphone, notify, paperclip, pc, pcStatus, pcSettings, permission, scan, send, settings, target }
 
 export default function SessionIcon({ name, size = 20, style }: { name: keyof typeof icons; size?: number; style?: CSSProperties }) {
   if (name === 'expand' || name === 'collapse' || name === 'complete' || name === 'processing' || name === 'needCheck' || name === 'interrupted' || name === 'testConnect' || name === 'testConnectButton') return <img aria-hidden="true" alt="" src={icons[name]} style={{ display: 'inline-block', flexShrink: 0, width: size, height: size, verticalAlign: 'middle', ...style }}/>

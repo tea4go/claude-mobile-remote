@@ -21,6 +21,7 @@ class FakeWebSocket {
   url: string
   sent: string[] = []
   closed = false
+  readyState?: number
   onopen: (() => void) | null = null
   onmessage: ((event: { data: string }) => void) | null = null
   onclose: (() => void) | null = null
@@ -504,6 +505,44 @@ describe('App：多 Session 生命周期', () => {
     const paired = parsePairingFragment(window.location.hash, Date.now())
     expect(paired.ok && paired.value.sessionId).toBe('session-2')
     expect(paired.ok && paired.value.wsUrl).toBe('ws://10.0.0.8:8766/ws')
+  })
+
+  test.each([
+    ['internal', '电脑端未能新建会话'],
+    ['session_unavailable', '来源会话已不可用'],
+    ['create_rate_limited', '新建太频繁'],
+  ])('目录新建只发一次并提示电脑端返回的 %s', async (code, message) => {
+    window.location.hash = fragmentOf({ ...PAIRING, capabilities: ['create_session'] })
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const socket = FakeWebSocket.instances[0]!
+    const snapshot = { ...SNAPSHOT, version: 3, payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, projectCwd: '/work/alpha' } } }
+    act(() => completeHandshake(socket, snapshot, 3))
+    await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('返回'))
+    const add = screen.getByRole('button', { name: '在 alpha 新建会话' })
+    fireEvent.click(add)
+    fireEvent.click(add)
+    const commands = socket.sent.map(frame => JSON.parse(frame)).filter(frame => frame.type === 'create_session')
+    expect(commands).toHaveLength(1)
+    act(() => socket.serverMessage({
+      version: 3, type: 'create_session_result', sessionId: 'session-1', commandId: commands[0].commandId,
+      requestId: '', seq: 0, payload: { accepted: false, code, message: 'detail from host' },
+    }))
+    expect(screen.getAllByRole('status').some(status => status.textContent?.includes(message))).toBe(true)
+  })
+
+  test('目录新建发现列表尚未刷新的断线时不发送请求', async () => {
+    window.location.hash = fragmentOf({ ...PAIRING, capabilities: ['create_session'] })
+    render(<App socketFactory={(url) => new FakeWebSocket(url)} />)
+    const socket = FakeWebSocket.instances[0]!
+    const snapshot = { ...SNAPSHOT, version: 3, payload: { ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, projectCwd: '/work/alpha' } } }
+    act(() => completeHandshake(socket, snapshot, 3))
+    await waitFor(() => expect(screen.getByLabelText('返回')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('返回'))
+    socket.readyState = 3
+    fireEvent.click(screen.getByRole('button', { name: '在 alpha 新建会话' }))
+    expect(socket.sent.some(frame => JSON.parse(frame).type === 'create_session')).toBe(false)
+    expect(screen.getAllByRole('status').some(status => status.textContent?.includes('请下拉刷新后重试'))).toBe(true)
   })
 
   test('创建成功但新连接失败时保留列表并提示电脑已创建', async () => {
@@ -1120,7 +1159,7 @@ test.each(['ios', 'android'] as const)('%s 首次配对展示最近正文及平�
     const socket = FakeWebSocket.instances[0]!
     const snapshot = {
       ...SNAPSHOT,
-      version: 11,
+      version: 12,
       payload: {
         ...SNAPSHOT.payload,
         snapshot: {
@@ -1136,8 +1175,8 @@ test.each(['ios', 'android'] as const)('%s 首次配对展示最近正文及平�
         },
       },
     }
-    act(() => completeHandshake(socket, snapshot, 11))
-    expect(JSON.parse(socket.sent[0]!).version).toBe(11)
+    act(() => completeHandshake(socket, snapshot, 12))
+    expect(JSON.parse(socket.sent[0]!).version).toBe(12)
     expect(await screen.findByText('来自电脑的最近提问')).toBeInTheDocument()
     expect(screen.getByText('来自电脑的最近回复')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('返回'))
@@ -1191,6 +1230,9 @@ test.each([
     }
     await waitFor(() => expect(activePage()).toHaveAttribute('data-mobile-page', 'pairing'))
     expect(activePage()?.querySelector('.mobile-home-logo')).toBeInTheDocument()
+    const gesture = new Event('gesturestart', { bubbles: true, cancelable: true })
+    fireEvent(screen.getByRole('textbox', { name: 'PC IP' }), gesture)
+    expect(gesture.defaultPrevented).toBe(true)
     const allPCs = await screen.findByRole('button', { name: '全部电脑' })
     fireEvent.click(allPCs)
     expect(allPCs).toHaveAttribute('aria-expanded', 'false')

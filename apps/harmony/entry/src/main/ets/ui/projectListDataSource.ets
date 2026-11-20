@@ -6,6 +6,7 @@ export interface ProjectListRow {
   key: string
   pc?: PCGroup
   connecting?: boolean
+  showDivider?: boolean
   project?: ProjectGroup
   session?: SessionRecord
 }
@@ -17,12 +18,12 @@ export function projectListRows(groups: Array<PCGroup>, selectedPC: string, coll
     if (selectedPC !== 'all' && selectedPC !== pc.key) continue
     const connecting = pc.sessions.some((session: SessionRecord) => pendingIds.has(session.sessionId))
     rows.push({ kind: 'pc', key: (connecting ? 'refreshing-pc:' : 'pc:') + pc.key, pc, connecting })
-    for (const project of pc.projects) {
-      rows.push({ kind: 'project', key: 'project:' + project.key, pc, project })
+    pc.projects.forEach((project: ProjectGroup, index: number) => {
+      rows.push({ kind: 'project', key: 'project:' + project.key, pc, project, showDivider: index > 0 })
       if (!closed.has(project.key)) {
         for (const session of project.sessions) rows.push({ kind: 'session', key: 'session:' + session.sessionId, session })
       }
-    }
+    })
   }
   return rows
 }

@@ -6,12 +6,15 @@ import { pageSlide } from '../ui/transitions'
 import { validComputerIP, type PCGroup, type PCProfile } from '../session/projectGroups'
 import { nativeLifecycle } from '../native/lifecycle'
 import { webSocket } from '@kit.NetworkKit'
+import { RectShape } from '@kit.ArkUI'
 import { BusinessError } from '@kit.BasicServicesKit'
 import { PRIMARY, SECONDARY } from '../ui/styles'
 import { pasteboard } from '@kit.BasicServicesKit'
 import { decodePairingPayload } from '../protocol/pairing'
 
 const ACTION_BUTTON_RADIUS = 14
+const PC_TEST_BUTTON_SIZE = 34
+const PC_TEST_BUTTON_RADIUS = 8
 
 export function validPairAddress(value: string): boolean {
   const match = /^(\[[0-9a-f:]+\]|(?:\d{1,3}\.){3}\d{1,3})(?::([0-9]{1,5}))?$/i.exec(value)
@@ -110,7 +113,10 @@ export struct QuickPairForm {
   claimInitialRefresh: () => boolean = () => false
   onHome: () => void = () => {}
   @Prop projectPC: string = ''
-  @Prop projectCwd: string = ''
+  @Prop @Watch('showProjectNotice') projectCwd: string = ''
+  @State private projectNoticeDismissed: boolean = false
+
+  private showProjectNotice(): void { this.projectNoticeDismissed = false }
   onSelectPC: (key: string) => void = () => {}
   onPair: (text: string) => void = () => {}
   onScan: () => void = () => {}
@@ -216,7 +222,6 @@ export struct QuickPairForm {
       this.testedName = this.computerName(computer)
       this.testResult = result
       this.testResultOK = reachable
-      this.resultOpen = true
     }
     this.probeTimeout = setTimeout(() => finish('连接超时'), 3000)
     socket.on('open', () => finish('PC 服务连接成功', true))
@@ -515,139 +520,60 @@ export struct QuickPairForm {
     }.width('100%').padding({ left: 24, right: 24, top: 16, bottom: 24 })
   }
 
-  build() {
-    Stack() {
-    if (this.editOpen) {
-      this.editComputer()
-    } else {
+  @Builder
+  private pairingInput(): void {
     Column({ space: 4 }) {
       Column({ space: 6 }) {
-      Row() {
-        TextInput({ text: this.ip, placeholder: '请输入IP' }).layoutWeight(1).height(44).backgroundColor($r('app.color.surface'))
-          .enabled(this.phase === 'idle' && !this.disabled).onChange((value: string) => this.updateAddress(value))
-          .onFocus(() => { clearTimeout(this.blurTimer); this.historyOpen = true })
-          .onBlur(() => {
-            this.rememberAddress()
-            this.blurTimer = setTimeout(() => { this.historyOpen = false }, 250)
-          })
-          .onPaste((value: string, event: PasteEvent) => { event.preventDefault?.(); this.acceptInput(value) })
-        PasteButton({ icon: PasteIconStyle.LINES, buttonType: ButtonType.Normal })
-          .width(34).height(34).backgroundColor($r('app.color.surface_blue')).fontColor(PRIMARY).enabled(this.phase === 'idle' && !this.disabled)
-          .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => { if (result === PasteButtonOnClickResult.SUCCESS) void this.paste() })
-      }.width('100%').padding({ left: 8, right: 8 }).backgroundColor($r('app.color.surface')).border({ width: 1, color: $r('app.color.border') }).borderRadius(15)
-      if (this.historyOpen && this.matchingAddresses().length > 0) {
-        Column() {
-          Scroll() {
-            Column() {
-              ForEach(this.matchingAddresses(), (address: string) => {
-                Button({ type: ButtonType.Normal }) {
-                  Text(address).width('100%').fontSize(14).fontColor(PRIMARY)
-                }.width('100%').height(44).padding({ left: 14, right: 14 })
-                  .backgroundColor(Color.Transparent).onClick(() => {
-                    this.updateAddress(address)
-                    this.dismissAddressInput()
-                  })
-              }, (address: string) => address)
-            }.width('100%')
-          }.width('100%').constraintSize({ maxHeight: 132 })
-          Divider().color($r('app.color.border'))
-          Button('清空历史', { type: ButtonType.Normal }).height(44).fontSize(13)
-            .fontColor(SECONDARY).backgroundColor(Color.Transparent).onClick(() => {
-              clearTimeout(this.historyTimer)
-              this.historyDirty = false
-              this.onHistoryChange([])
-              this.historyOpen = false
+        Row() {
+          TextInput({ text: this.ip, placeholder: '请输入IP' }).layoutWeight(1).height(44).backgroundColor($r('app.color.surface'))
+            .enabled(this.phase === 'idle' && !this.disabled).onChange((value: string) => this.updateAddress(value))
+            .onFocus(() => { clearTimeout(this.blurTimer); this.historyOpen = true })
+            .onBlur(() => {
+              this.rememberAddress()
+              this.blurTimer = setTimeout(() => { this.historyOpen = false }, 250)
             })
-        }.width('100%').alignItems(HorizontalAlign.End).borderRadius(12)
-          .border({ width: 1, color: $r('app.color.border') }).backgroundColor($r('app.color.surface')).clip(true)
-        }
+            .onPaste((value: string, event: PasteEvent) => { event.preventDefault?.(); this.acceptInput(value) })
+          PasteButton({ icon: PasteIconStyle.LINES, buttonType: ButtonType.Normal })
+            .width(34).height(34).backgroundColor($r('app.color.surface_blue')).fontColor(PRIMARY).enabled(this.phase === 'idle' && !this.disabled)
+            .onClick((_event: ClickEvent, result: PasteButtonOnClickResult) => { if (result === PasteButtonOnClickResult.SUCCESS) void this.paste() })
+        }.width('100%').padding({ left: 8, right: 8 }).backgroundColor($r('app.color.surface')).border({ width: 1, color: $r('app.color.border') }).borderRadius(15)
+        if (this.historyOpen && this.matchingAddresses().length > 0) {
+          Column() {
+            Scroll() {
+              Column() {
+                ForEach(this.matchingAddresses(), (address: string) => {
+                  Button({ type: ButtonType.Normal }) {
+                    Text(address).width('100%').fontSize(14).fontColor(PRIMARY)
+                  }.width('100%').height(44).padding({ left: 14, right: 14 })
+                    .backgroundColor(Color.Transparent).onClick(() => {
+                      this.updateAddress(address)
+                      this.dismissAddressInput()
+                    })
+                }, (address: string) => address)
+              }.width('100%')
+            }.width('100%').constraintSize({ maxHeight: 132 })
+            Divider().color($r('app.color.border'))
+            Button('清空历史', { type: ButtonType.Normal }).height(44).fontSize(13)
+              .fontColor(SECONDARY).backgroundColor(Color.Transparent).onClick(() => {
+                clearTimeout(this.historyTimer)
+                this.historyDirty = false
+                this.onHistoryChange([])
+                this.historyOpen = false
+              })
+          }.width('100%').alignItems(HorizontalAlign.End).borderRadius(12)
+            .border({ width: 1, color: $r('app.color.border') }).backgroundColor($r('app.color.surface')).clip(true)
+          }
       }.width('100%').margin({ top: 5, bottom: 6 }).onAreaChange((_previous: Area, current: Area) => {
         this.addressTop = Number(current.globalPosition.y)
         this.addressBottom = this.addressTop + Number(current.height)
       })
       Text('请与 PC 配对窗口核对；手机所在网络需要能访问此地址。不同路由器共用宽带不代表设备能够互通。').fontSize(11).fontColor(SECONDARY).width('100%')
-      if (this.computers.length > 0) {
-        Divider().color($r('app.color.border')).margin({ top: 12, bottom: 6 })
-        Row() {
-          Button(this.computersCollapsed ? '全部电脑 ▸' : '全部电脑 ▾', { type: ButtonType.Normal }).fontWeight(FontWeight.Bold)
-            .height(44).padding({ left: 0, right: 8 }).fontSize(17)
-            .fontColor('#202938').borderRadius(12).clip(true).stateEffect(false)
-            .stateStyles({ normal: { .backgroundColor('#00000000') }, pressed: { .backgroundColor('#e6effe') } })
-            .onClick(() => { this.computersCollapsed = !this.computersCollapsed })
-          Blank()
-          Stack() {
-            if (this.refreshing) {
-              LoadingProgress().width(17).height(17).color(PRIMARY)
-            } else {
-              Button('刷新', { type: ButtonType.Normal }).width(48).height(44).padding(0)
-                .fontSize(16).fontWeight(FontWeight.Bold).fontColor(PRIMARY).borderRadius(12).clip(true).stateEffect(false)
-      .stateStyles({ normal: { .backgroundColor('#00000000') }, pressed: { .backgroundColor('#e6effe') } }).accessibilityText('刷新电脑状态')
-                .enabled(this.testingPC.length === 0).onClick(() => this.refreshComputers())
-            }
-          }.width(48).height(44)
-        }.width('100%').height(44)
-      }
-      List({ space: 7 }) {
-          if (!this.computersCollapsed) { ForEach(this.computers, (computer: PCGroup) => {
-            ListItem() {
-              Row({ space: 8 }) {
-                Row({ space: 10 }) {
-                  Image($r('app.media.pc_host_tight')).width(40).height(24)
-                    .objectFit(ImageFit.Contain)
-                    .fillColor(this.computerStatusColor(computer))
-                  Column({ space: 1 }) {
-                    Row({ space: 6 }) {
-                      Text(this.computerName(computer)).fontSize(14).fontWeight(FontWeight.Bold)
-                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(1)
-                      Text(this.computerHost(computer)).fontSize(12).fontColor(SECONDARY)
-                        .maxLines(1).flexShrink(0)
-                    }.width('100%').height(20)
-                    if (computer.projects.length > 0) {
-                      DirectoryTags({ projects: computer.projects })
-                    }
-                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                }.layoutWeight(1).height(44).onTouch((event: TouchEvent) => {
-                  if (event.type === TouchType.Down) this.pressedPC = computer.key
-                  if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.pressedPC = ''
-                }).onClick(() => this.onSelectPC(computer.key))
-                Button({ type: ButtonType.Normal }) {
-                  if (this.testingPC === computer.key) {
-                    LoadingProgress().width(20).height(20).color(PRIMARY)
-                  } else {
-                    Image($r('app.media.test_connect_in_button')).width(16).height(16)
-                  }
-                }.width(44).height(44).padding(0).borderRadius(12).clip(true).stateEffect(false)
-      .stateStyles({ normal: { .backgroundColor('#eaf3ff') }, pressed: { .backgroundColor('#d8e9ff') } })
-                  .accessibilityText('测试连接')
-                  .onClick(() => {
-                    if (!this.refreshing && this.testingPC.length === 0) this.testComputer(computer)
-                  })
-              }.width('100%').padding({ left: 7, right: 8, top: 7, bottom: 7 })
-                .backgroundColor(this.selectedPC === computer.key || this.pressedPC === computer.key ? '#e3efff' : $r('app.color.surface'))
-                .border({ width: { left: 3 }, color: this.selectedPC === computer.key || this.pressedPC === computer.key ? '#3478f6' : Color.Transparent })
-            }.swipeAction({ end: this.computerActions(computer) }).borderRadius(12)
-              .border({ width: 1, color: $r('app.color.border') }).clip(true)
-          }, (computer: PCGroup) => computer.key) }
-      }.layoutWeight(1).width('100%').scrollBar(BarState.Auto)
-      if (this.error.length > 0 && this.phase === 'idle') {
-        Text(this.error).width('100%').padding(10).fontSize(12).fontColor('#a42c26')
-          .borderRadius(15).backgroundColor('#fff4f3').border({ width: 1, color: '#ffd2cf' })
-      } else if (this.testResult.length > 0) {
-        Row({ space: 8 }) {
-          Text(this.testedName + '：' + (this.testResultOK ? '连接成功' : '连接失败'))
-            .fontSize(12).fontColor(this.testResultOK ? '#247443' : '#a42c26').layoutWeight(1)
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          Button('查看详情', { type: ButtonType.Normal }).padding(0).height(44).fontSize(14)
-            .fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.resultOpen = true })
-        }.width('100%').padding({ left: 16, right: 16 }).borderRadius(15)
-          .backgroundColor(this.testResultOK ? '#effaf2' : '#fff4f3')
-          .border({ width: 1, color: this.testResultOK ? '#c8e9d1' : '#ffd2cf' })
-      } else if (this.projectCwd.length > 0) {
-        Text('请扫描目标电脑和目录下新会话的配对码：\n' + [this.projectPC, this.projectCwd].filter((value: string) => value.length > 0).join('\n'))
-          .fontSize(13).fontColor('#8a5300').backgroundColor('#fff3d6')
-          .width('100%').padding(10).borderRadius(10).maxLines(3)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-      }
+    }.width('100%')
+  }
+
+  @Builder
+  private pairingActions(): void {
+    Column({ space: 8 }) {
       Button('连接', { type: ButtonType.Normal }).fontColor(Color.White).width('100%').height(46).borderRadius(ACTION_BUTTON_RADIUS).backgroundColor($r('app.color.primary_fill')).enabled(!this.disabled && this.phase === 'idle').onClick(() => this.start())
         .onAreaChange((_previous: Area, current: Area) => this.onDebugActionsTop(Number(current.globalPosition.y)))
       Button({ type: ButtonType.Normal }) {
@@ -659,13 +585,139 @@ export struct QuickPairForm {
         .border({ width: 1, color: PRIMARY, radius: ACTION_BUTTON_RADIUS })
         .enabled(!this.disabled && this.phase === 'idle')
         .onClick(() => { this.dismissAddressInput(); this.clearTestResult(); this.error = ''; this.onScan() })
-    }.width('100%').layoutWeight(1)
-      .onClick((event: ClickEvent) => {
-        if (event.windowY < this.addressTop || event.windowY > this.addressBottom) this.dismissAddressInput()
-      })
-      .onAppear(() => this.refreshOnEntry())
-      .bindSheet($$this.resultOpen, this.connectionDetails(), { height: SheetSize.FIT_CONTENT, showClose: false, dragBar: false })
-    }
+    }.width('100%')
+  }
+
+  @Builder
+  private computerHeading(): void {
+    Row() {
+      Button({ type: ButtonType.Normal }) {
+        Text('全部电脑').width('100%').textAlign(TextAlign.Start)
+          .fontSize(17).fontWeight(FontWeight.Bold).fontColor('#202938')
+      }.layoutWeight(1).height(44).padding({ left: 10, right: 10 }).borderRadius(12).stateEffect(false)
+        .stateStyles({
+          normal: { .backgroundColor(this.computersCollapsed ? '#eaf0fa' : Color.Transparent) },
+          pressed: { .backgroundColor('#e3efff') }
+        })
+        .accessibilityDescription(this.computersCollapsed ? '已收起' : '已展开')
+        .onClick(() => { this.computersCollapsed = !this.computersCollapsed })
+      if (!this.computersCollapsed) {
+        Stack() {
+          if (this.refreshing) {
+            LoadingProgress().width(17).height(17).color(PRIMARY)
+          } else {
+            Button('刷新', { type: ButtonType.Normal }).width(48).height(44).padding(0)
+              .fontSize(14).fontWeight(FontWeight.Bold).fontColor(PRIMARY).borderRadius(12).stateEffect(false)
+              .stateStyles({ normal: { .backgroundColor(Color.Transparent) }, pressed: { .backgroundColor('#e3efff') } })
+              .accessibilityText('刷新电脑状态').enabled(this.testingPC.length === 0)
+              .onClick(() => this.refreshComputers())
+          }
+        }.width(48).height(44)
+      }
+    }.width('100%')
+  }
+
+  @Builder
+  private pairingFeedback(message: string, result: boolean, warning: boolean): void {
+    Row({ space: 8 }) {
+      Button('×', { type: ButtonType.Normal }).width(44).height(44).padding(0).fontSize(20)
+        .fontColor(warning ? '#8a5300' : result && this.testResultOK ? '#247443' : '#a42c26')
+        .backgroundColor(Color.Transparent).accessibilityText('关闭提示').onClick(() => {
+          if (result) this.clearTestResult()
+          else if (warning) this.projectNoticeDismissed = true
+          else this.error = ''
+        })
+      Text(message).layoutWeight(1).fontSize(12).maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis })
+        .fontColor(warning ? '#8a5300' : result && this.testResultOK ? '#247443' : '#a42c26')
+      if (result) {
+        Button('查看详情', { type: ButtonType.Normal }).padding({ left: 6, right: 6 }).height(44).fontSize(14)
+          .fontColor(PRIMARY).backgroundColor(Color.Transparent).onClick(() => { this.resultOpen = true })
+      }
+    }.width('100%').padding({ right: 10 }).borderRadius(14)
+      .backgroundColor(warning ? '#fff3d6' : result && this.testResultOK ? '#effaf2' : '#fff4f3')
+      .border({ width: 1, color: warning ? '#f4d991' : result && this.testResultOK ? '#c8e9d1' : '#ffd2cf' })
+      .shadow({ radius: 8, color: '#20345326', offsetY: 3 })
+  }
+
+  build() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      if (this.editOpen) {
+        this.editComputer()
+      } else {
+        Column() {
+          if (this.computers.length > 0 && !this.computersCollapsed) {
+            List() {
+              ListItem() { this.pairingInput() }.padding({ bottom: 10 })
+              ListItem() { this.pairingActions() }.padding({ bottom: 24 })
+              ListItem() { this.computerHeading() }
+              ForEach(this.computers, (computer: PCGroup) => {
+                ListItem() {
+                  Row({ space: 8 }) {
+                    Row({ space: 10 }) {
+                      Image($r('app.media.pc_status')).width(26).height(24)
+                        .objectFit(ImageFit.Contain)
+                        .fillColor(this.computerStatusColor(computer))
+                      Column({ space: 3 }) {
+                        Row({ space: 6 }) {
+                          Text(this.computerName(computer)).fontSize(14).fontWeight(FontWeight.Bold)
+                            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(1)
+                          Text(this.computerHost(computer)).fontSize(12).fontColor(SECONDARY)
+                            .maxLines(1).flexShrink(0)
+                        }.width('100%').height(20)
+                        if (computer.projects.length > 0) {
+                          DirectoryTags({ projects: computer.projects })
+                        }
+                      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                    }.layoutWeight(1).constraintSize({ minHeight: 44 }).onTouch((event: TouchEvent) => {
+                      if (event.type === TouchType.Down) this.pressedPC = computer.key
+                      if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.pressedPC = ''
+                    }).onClick(() => this.onSelectPC(computer.key))
+                    Button({ type: ButtonType.Normal }) {
+                      if (this.testingPC === computer.key) {
+                        LoadingProgress().width(20).height(20).color(PRIMARY)
+                      } else {
+                        Image($r('app.media.test_connect_in_button')).width(16).height(16)
+                      }
+                    }.width(PC_TEST_BUTTON_SIZE).height(PC_TEST_BUTTON_SIZE).padding(0)
+                      .border({ width: 1, color: '#dfe6f1', radius: PC_TEST_BUTTON_RADIUS })
+                      .clipShape(new RectShape({
+                        width: PC_TEST_BUTTON_SIZE, height: PC_TEST_BUTTON_SIZE, radius: PC_TEST_BUTTON_RADIUS
+                      }))
+                      .stateEffect(false)
+                      .stateStyles({ normal: { .backgroundColor('#eaf3ff') }, pressed: { .backgroundColor('#d8e9ff') } })
+                      .accessibilityText('测试连接')
+                      .onClick(() => {
+                        if (!this.refreshing && this.testingPC.length === 0) this.testComputer(computer)
+                      })
+                  }.width('100%').padding({ left: 10, right: 10, top: 6, bottom: 8 })
+                    .backgroundColor(this.selectedPC === computer.key || this.pressedPC === computer.key ? '#e3efff' : Color.Transparent)
+                }.swipeAction({ end: this.computerActions(computer) }).border({ width: { top: 1 }, color: '#dfe6f1' }).clip(true)
+              }, (computer: PCGroup) => computer.key)
+              ListItem() { Divider().color('#dfe6f1') }
+            }.width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+          } else {
+            this.pairingInput()
+            Blank()
+            this.pairingActions()
+            if (this.computers.length > 0) {
+              Column() { this.computerHeading() }.width('100%').padding({ top: 24 })
+            }
+          }
+        }.width('100%').height('100%')
+          .onClick((event: ClickEvent) => {
+            if (event.windowY < this.addressTop || event.windowY > this.addressBottom) this.dismissAddressInput()
+          })
+          .onAppear(() => this.refreshOnEntry())
+          .bindSheet($$this.resultOpen, this.connectionDetails(), { height: SheetSize.FIT_CONTENT, showClose: false, dragBar: false })
+        if (this.error.length > 0 && this.phase === 'idle') {
+          this.pairingFeedback(this.error, false, false)
+        } else if (this.testResult.length > 0) {
+          this.pairingFeedback(this.testedName + '：' + (this.testResultOK ? '连接成功' : '连接失败'), true, false)
+        } else if (this.projectCwd.length > 0 && !this.projectNoticeDismissed) {
+          this.pairingFeedback('请扫描目标电脑和目录下新会话的配对码：\n' +
+            [this.projectPC, this.projectCwd].filter((value: string) => value.length > 0).join('\n'), false, true)
+        }
+      }
     }.width('100%').layoutWeight(1)
   }
 }
