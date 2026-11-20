@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 
@@ -29,8 +30,9 @@ type Config struct {
 	ListenAddress string
 	OnSubscribed  func(string)
 	// OnConnectionChange must not block; called outside the server lock.
-	OnConnectionChange func()
-	AllowedOrigins     []string
+	OnConnectionChange    func()
+	AllowedOrigins        []string
+	CurrentAllowedOrigins func() []string
 	// AdvertiseURL is the address the phone is told to dial. Its host is trusted
 	// as an Origin host: the user has already declared that clients reach this
 	// server through it, and a real-device live reload shell is served from that
@@ -108,7 +110,10 @@ func NewServer(config Config, authenticator Authenticator, registry *channel.Reg
 		if _, allowed := allowedOrigins[origin]; allowed {
 			return true
 		}
-		return isTrustedOriginHost(origin, advertisedHost)
+		if isTrustedOriginHost(origin, advertisedHost) {
+			return true
+		}
+		return config.CurrentAllowedOrigins != nil && slices.Contains(config.CurrentAllowedOrigins(), origin)
 	}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", server.handleWebSocket)

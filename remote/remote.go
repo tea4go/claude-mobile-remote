@@ -63,10 +63,13 @@ type Config struct {
 	PCID                   string
 	PCName                 string
 	AllowedOrigins         []string
-	AuthTimeout            time.Duration
-	CloseTimeout           time.Duration
-	ReadLimit              int64
-	ServiceConfig          protocol.ServiceConfig
+	// CurrentAllowedOrigins supplies additional exact origins at handshake time.
+	// The callback can be called concurrently.
+	CurrentAllowedOrigins func() []string
+	AuthTimeout           time.Duration
+	CloseTimeout          time.Duration
+	ReadLimit             int64
+	ServiceConfig         protocol.ServiceConfig
 }
 
 // transportServer is the minimal seam the Server needs from Transport, so tests
@@ -150,6 +153,7 @@ func newServer(config Config, factory transportFactory) (*Server, error) {
 	tcfg := transport.DefaultConfig()
 	tcfg.ListenAddress = config.ListenAddress
 	tcfg.AdvertiseURL = config.AdvertiseURL
+	tcfg.CurrentAllowedOrigins = config.CurrentAllowedOrigins
 	if len(config.AllowedOrigins) > 0 {
 		tcfg.AllowedOrigins = append([]string(nil), config.AllowedOrigins...)
 	}

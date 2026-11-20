@@ -1,5 +1,9 @@
 # HANDOFF.md — Claude Mobile Remote 交接文档
 
+- 当前执行（2026-11-20，WhaleTerm 切网后的 HarmonyOS 配对）：修复会话直连与 7330 转发共用的启动时 Origin 快照。通过条件为同一个 Remote 在地址变化后接受新的精确来源、拒绝移除的备用来源，并通过 Go 回归与 Windows 构建。真机按用户复现顺序复验。
+  - 结果：失败截图中的直连 172.20.10.5:7331 在 CONNECTING 报系统码 200，7330 入口在发送 hello 后断开。重启后同一 IP 与端口认证、订阅、快照及心跳成功。代码确认 WhaleTerm 原先只在启动时生成来源快照，且 7330 原样转发 Origin。现按握手时的网卡列表生成精确来源，保留原规则和会话鉴权。
+  - 验证：公共 transport/remote 与 WhaleTerm remote/quickpair race 通过。新增真实回环直连和转发测试，覆盖运行期间加入及移除来源、外部来源拒绝和错误凭证拒绝。WhaleTerm services 定向通过，沿用既有测试 overlay 并禁用 vet。Windows x64 GUI 交叉构建通过，未签名测试包为 `.local-tools/whaleterm-network-switch/WhaleTerm.exe`，使用临时 modfile 引用本地 Remote 和现有前端资源。正式发布需引用包含此修复的 Remote 版本。Windows 与 HarmonyOS/iOS 实机组合尚待复验。
+
 - 当前执行（2026-11-19，HarmonyOS 会话状态真机部署）：用户要求用当前代码编译并安装到手机。沿用现有调试签名，通过条件为 API 24 构建、签名包校验、USB 覆盖安装和首页启动。
   - 结果：API 24 Debug 构建及签名包完整性检查通过，USB 覆盖安装 1.0.8 并成功启动。真机界面树确认配对首页、已保存电脑区域、扫码按钮和版本栏。用户确认本轮移动端改造全部验证通过，并要求提交。
 
