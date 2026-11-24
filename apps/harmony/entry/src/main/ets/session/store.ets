@@ -1,3 +1,4 @@
+import type { ToolDetail } from '../protocol/types'
 import { debugLog } from '../debug/log'
 import {
   ProtocolClient,
@@ -50,6 +51,7 @@ import {
 interface PendingManagement { operation: 'create_session' | 'stop_session'; commandId: string }
 
 export interface HarmonySessionStore {
+  getToolDetail(requestId: string, toolUseId: string): Promise<ToolDetail>
   connectFromRawPairing(raw: string): boolean
   connectWithPairing(pairing: PairingPayload, allowFallback?: boolean): void
   disconnect(): void
@@ -142,6 +144,11 @@ class SessionStoreObserver implements ProtocolClientObserver {
 
 class SessionStore implements HarmonySessionStore {
   private state: HarmonySessionState = createInitialHarmonySessionState()
+  getToolDetail(requestId: string, toolUseId: string): Promise<ToolDetail> {
+    if (this.client === null) return Promise.reject(new Error('请先连接电脑'))
+    return this.client.getToolDetail(requestId, toolUseId)
+  }
+
   private client: ProtocolClient | null = null
   private allowFallback: boolean = false
   private fallbackFrom: PairingPayload | null = null
@@ -382,7 +389,7 @@ class SessionStore implements HarmonySessionStore {
       const messages: Array<FeedMessage> = this.state.messages.map((message: FeedMessage): FeedMessage => {
         if (message.kind !== 'input' || message.attachments === undefined) return message
         const attachments = message.attachments.map((item: Attachment): Attachment => item.ref === result.ref ? { name: item.name, mediaType: image.mediaType, data: image.data, ref: item.ref } : item)
-        return { kind: 'input', requestId: message.requestId, source: message.source, text: message.text, status: message.status, attachments }
+        return { kind: 'input', requestId: message.requestId, source: message.source, text: message.text, status: message.status, processingStarted: message.processingStarted, attachments }
       })
       const next = cloneState(this.state, false)
       next.messages = messages

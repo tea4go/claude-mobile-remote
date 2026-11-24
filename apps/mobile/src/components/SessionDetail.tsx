@@ -6,6 +6,7 @@ import { Button, NavBar, Popup, Toast } from 'antd-mobile'
 import { LeftOutline } from 'antd-mobile-icons'
 import MessageComposer from './MessageComposer'
 import MessageFeed from './MessageFeed'
+import type { LoadToolDetail } from './ToolDetailPage'
 import PendingActionCard from './PendingActionCard'
 import QueuedRequestList from './QueuedRequestList'
 import SessionStatus from './SessionStatus'
@@ -40,6 +41,7 @@ interface SessionDetailProps {
   onCancelTurn: (requestId: string) => boolean | void
   onCancelQueued: (requestId: string) => boolean | void
   onSteerQueued?: (requestId: string) => boolean | void
+  loadToolDetail?: LoadToolDetail
   managementBusy?: boolean
   managementFeedback?: string | null
 }
@@ -65,6 +67,7 @@ export default function SessionDetail({
   onResolveAction,
   onCancelTurn,
   onCancelQueued,
+  loadToolDetail,
   onSteerQueued,
   managementBusy = false,
   managementFeedback = null,
@@ -74,6 +77,8 @@ export default function SessionDetail({
   // 所有命令共用单在途门控（B2 §5）：取消类命令不依赖 canSend，
   // 因为等待待处理事项时自由文本被禁用但仍应可取消。
   const sessionUsable = state.sessionStatus !== 'stopped' && state.sessionStatus !== 'failed'
+  const backgroundRunning = !pairingInvalid && sessionUsable && state.connection === 'connected' &&
+    state.subagentTasks?.some(task => task.status === 'running') === true
   const commandReady =
     !pairingInvalid && state.phase === 'connected' && state.pendingCommand === null && !managementBusy
   const cancelRequested = state.pendingCommand?.kind === 'cancel_turn'
@@ -165,6 +170,7 @@ export default function SessionDetail({
               sessionStatus={state.sessionStatus}
               sessionError={state.sessionError}
               turnStatus={turnStatus}
+              backgroundRunning={backgroundRunning}
               queueDepthHint={state.queueDepthHint}
               variant="compact"
             />
@@ -207,7 +213,7 @@ export default function SessionDetail({
         )}
       </div>}
       <div style={{ padding: '0 16px' }}>
-        <MessageFeed messages={state.messages} scrollContainerRef={contentScrollRef} />
+        <MessageFeed messages={state.messages} subagentTasks={state.subagentTasks} scrollContainerRef={contentScrollRef} loadToolDetail={loadToolDetail} connected={state.connection === 'connected'} />
       </div>
       </div>
       </div>
@@ -255,6 +261,7 @@ export default function SessionDetail({
           progress={state.progress}
           turnWaiting={state.pendingAction !== null}
           turnRunning={sessionUsable && state.connection === 'connected' && cancelTarget !== null}
+          backgroundRunning={backgroundRunning}
           cancelTarget={cancelTarget}
           cancelEnabled={sessionUsable && commandReady && !cancelRequested}
           onCancelTurn={onCancelTurn}

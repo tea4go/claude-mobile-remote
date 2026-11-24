@@ -60,6 +60,7 @@ type transportFakeController struct {
 	inputs      []projectsession.Input
 	submit      func(projectsession.Input) (string, error)
 	subscribers map[chan projectsession.Event]<-chan struct{}
+	toolDetails protocol.ToolDetails
 
 	resolves   []transportResolveCall
 	cancelled  []string
@@ -68,6 +69,10 @@ type transportFakeController struct {
 	resolveErr error
 	cancelErr  error
 	dequeueErr error
+}
+
+func (f *transportFakeController) ToolDetail(requestID, toolUseID string) (protocol.ToolDetail, bool) {
+	return f.toolDetails.Get(requestID, toolUseID)
 }
 
 func (f *transportFakeController) Snapshot(context.Context) (projectsession.Snapshot, error) {

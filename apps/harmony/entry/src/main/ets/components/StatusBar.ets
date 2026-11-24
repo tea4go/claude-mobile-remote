@@ -1,6 +1,6 @@
 import type { ErrorInfo } from '../protocol/types'
 import {
-  ConnectionStage,
+  ConnectionStage, hasRunningSubagents,
   createInitialHarmonySessionState,
   type HarmonySessionState,
 } from '../session/model'
@@ -75,6 +75,7 @@ export struct StatusBar {
     const status = this.turnStatusText()
     if (status === 'waiting') return '等待中'
     if (status === 'running') return '运行中'
+    if (hasRunningSubagents(this.state)) return '正在执行子任务'
     if (status === 'done') return '已完成'
     if (status === 'failed') return '本轮失败'
     if (status === 'cancelled') return '已取消'

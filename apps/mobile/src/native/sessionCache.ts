@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { AppStore } from '../session/appStore'
 import { createInitialState, type Message, type MobileState } from '../session/reducer'
 import { decodeServerMessage } from '../protocol/decode'
+import { TOOL_DETAIL_PROTOCOL_VERSION } from '../protocol/types'
 
 export const CACHE_BYTES = 2 * 1024 * 1024
 export const CACHE_MESSAGES = 200
@@ -22,7 +23,7 @@ function text(value: unknown, limit = CACHE_BYTES): value is string {
   return typeof value === 'string' && value.length <= limit
 }
 // Whitelist the display model. Never serialize the runtime, Pairing, actions or attachment bytes.
-function displayMessage(value: unknown): Message | null {
+function displayMessage(value: unknown, thinTools: boolean): Message | null {
   if (!object(value) || !(text(value.requestId, 256) || (value.kind === 'input' && value.requestId === null))) return null
   const requestId = typeof value.requestId === 'string' ? value.requestId : ''
   if (value.kind === 'input' || value.kind === 'claude') {
@@ -31,18 +32,25 @@ function displayMessage(value: unknown): Message | null {
       const items = Array.isArray(value.attachments) ? value.attachments.filter(object) : []
       const attachments = items.filter(item => text(item.name, 255) && text(item.mediaType, 128) && text(item.ref, 128) && !!item.ref && /^image\/(jpeg|png|gif|webp)$/.test(item.mediaType as string)).map(item => ({ name: item.name as string, mediaType: item.mediaType as string, ref: item.ref as string, data: '' }))
       const names = items.filter(item => !attachments.some(a => a.name === item.name && a.ref === item.ref)).map(item => text(item.name, 255) ? item.name : '').filter(Boolean)
-      return { kind: 'input', requestId: requestId || null, source: value.source, text: value.text + (names.length ? `\n[附件：${names.join('、')}；预览未缓存]` : ''), ...(attachments.length ? { attachments } : {}), status: value.status === 'unknown' ? 'unknown' : 'accepted' }
+      return { kind: 'input', requestId: requestId || null, source: value.source, text: value.text + (names.length ? `\n[附件：${names.join('、')}；预览未缓存]` : ''), ...(attachments.length ? { attachments } : {}), status: value.status === 'unknown' ? 'unknown' : 'accepted', ...(thinTools ? { processingStarted: true } : {}) }
     }
-    return { kind: 'claude', requestId, source: value.source, text: value.text,
+    const model = text(value.model, 128) && new TextEncoder().encode(value.model).length <= 128 && !/\p{Cc}/u.test(value.model) ? value.model : ''
+    return { kind: 'claude', requestId, source: value.source, text: value.text, ...(model ? { model } : {}),
       status: value.status === 'failed' || value.status === 'cancelled' ? value.status : 'done', error: null }
   }
   // Reuse wire validation for nested tool/answer display data, without invoking any command.
   if (value.kind === 'block' || value.kind === 'answer') {
     try {
+      const block = object(value.block) ? { ...value.block } : value.block
+      if (thinTools && object(block) && block.kind === 'tool_result') {
+        delete block.output
+        delete block.truncated
+      }
+      const wireVersion = thinTools ? TOOL_DETAIL_PROTOCOL_VERSION : 4
       const event = { seq: 1, sessionId: 'cache', requestId, kind: value.kind === 'block' ? 'content_block' : 'action_resolved',
         source: 'mobile', text: '', sessionStatus: '', turnStatus: value.kind === 'answer' ? 'running' : '', error: null,
-        ...(value.kind === 'block' ? { block: value.block } : { answers: value.answers }) }
-      const decoded = decodeServerMessage(JSON.stringify({ version: 4, type: 'event', sessionId: 'cache', requestId, commandId: '', seq: 1, payload: { event } }))
+        ...(value.kind === 'block' ? { block } : { answers: value.answers }) }
+      const decoded = decodeServerMessage(JSON.stringify({ version: wireVersion, type: 'event', sessionId: 'cache', requestId, commandId: '', seq: 1, payload: { event } }))
       if (decoded.type !== 'event') return null
       if (value.kind === 'block' && decoded.payload.event.block) return { kind: 'block', requestId, block: decoded.payload.event.block }
       if (value.kind === 'answer' && decoded.payload.event.answers) return { kind: 'answer', requestId, answers: decoded.payload.event.answers }
@@ -51,8 +59,8 @@ function displayMessage(value: unknown): Message | null {
   return null
 }
 const fields = ['projectCwd', 'sessionTitle', 'createdAt', 'lastActivityAt'] as const
-export function encodeSessionCache(sessionId: string, state: MobileState, savedAt: number): string {
-  const messages = state.messages.slice(-CACHE_MESSAGES).map(displayMessage).filter((item): item is Message => item !== null)
+export function encodeSessionCache(sessionId: string, state: MobileState, savedAt: number, thinTools = false): string {
+  const messages = state.messages.slice(-CACHE_MESSAGES).map(item => displayMessage(item, thinTools)).filter((item): item is Message => item !== null)
   const metadata = Object.fromEntries(fields.map((key) => [key, text(state[key], 4096) ? state[key] : null]))
   const value = { version: 1, sessionId, savedAt, ...metadata, messages }
   let result = JSON.stringify(value)
@@ -62,7 +70,7 @@ export function encodeSessionCache(sessionId: string, state: MobileState, savedA
   }
   return result
 }
-export function decodeSessionCache(data: string | null, sessionId: string, now: number): MobileState | null {
+export function decodeSessionCache(data: string | null, sessionId: string, now: number, thinTools = false): MobileState | null {
   if (data === null || new TextEncoder().encode(data).byteLength > CACHE_BYTES) return null
   try {
     const value: unknown = JSON.parse(data)
@@ -78,7 +86,7 @@ export function decodeSessionCache(data: string | null, sessionId: string, now: 
       if (value[field] !== null && !text(value[field], 4096)) return null
       state[field] = value[field] as string | null
     }
-    state.messages = value.messages.map(displayMessage).filter((item): item is Message => item !== null)
+    state.messages = value.messages.map(item => displayMessage(item, thinTools)).filter((item): item is Message => item !== null)
     return state
   } catch { return null }
 }
@@ -95,8 +103,10 @@ export class SessionCacheWriter {
   private readonly port: SessionCachePort
   private readonly now: () => number
   private readonly onError: () => void
-  constructor(store: AppStore, port: SessionCachePort, now: () => number, onError: () => void) {
+  private readonly thinTools: boolean
+  constructor(store: AppStore, port: SessionCachePort, now: () => number, onError: () => void, thinTools = false) {
     this.store = store; this.port = port; this.now = now; this.onError = onError
+    this.thinTools = thinTools
     this.ids = new Set(store.getState().pairings.records.map((item) => item.sessionId))
     this.unsubscribe = store.subscribe(() => this.observe())
     this.observe()
@@ -130,7 +140,7 @@ export class SessionCacheWriter {
     for (const sessionId of this.dirty) {
       const state = this.store.getState().sessions[sessionId]
       if (!state || !this.ids.has(sessionId)) continue
-      const data = encodeSessionCache(sessionId, state, this.now())
+      const data = encodeSessionCache(sessionId, state, this.now(), this.thinTools)
       this.enqueue(() => this.port.writeSessionCache({ sessionId, data }))
     }
     this.dirty.clear()

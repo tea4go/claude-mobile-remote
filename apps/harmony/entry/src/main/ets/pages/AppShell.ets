@@ -1,3 +1,4 @@
+import type { ToolDetail } from '../protocol/types'
 import { validPairAddress } from './QuickPairForm'
 import { NetworkMonitor } from '../native/network'
 import { KeyboardAvoidMode, promptAction } from '@kit.ArkUI'
@@ -1071,6 +1072,7 @@ export struct AppShell {
     SessionPage({
       title: this.activeRecordTitle(),
       state: this.sessionState,
+      loadToolDetail: (requestId: string, toolUseId: string): Promise<ToolDetail> => this.store.getToolDetail(requestId, toolUseId),
       draft: this.draft,
       onDebugActionsTop: (top: number) => { this.debugDetailActionsTop = top },
       speechActive: this.speechActive,

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useRef } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import MessageFeed from './MessageFeed'
@@ -406,4 +406,58 @@ test('消息菜单复制各自正文，外部系统选区不改变应用选区',
   fireEvent.click(document.querySelector('.selectable-message-menu button')!)
   await waitFor(() => expect(writeText).toHaveBeenCalledWith('回复\n内容'))
   selection.removeAllRanges()
+})
+
+test('后台任务快照接续旧轮次，在详情折叠子工具并接受状态更新', async () => {
+  const load = vi.fn().mockResolvedValue({ input: 'printf example', output: 'example' })
+  const messages = [claude({ requestId: 'foreground', text: '本轮正文' })]
+  const task = {
+    requestId: 'origin', toolUseId: 'parent', status: 'running' as const, summary: '后台检查',
+    blocks: [{ id: 'bash', kind: 'tool_use' as const, toolUseId: 'child', parentToolUseId: 'parent',
+      toolClass: 'builtin' as const, toolName: 'Bash', titleSummary: '打印示例', mcpServer: '', detailAvailable: true }],
+  }
+  const rendered = render(<MessageFeed messages={messages} subagentTasks={[task]} loadToolDetail={load} />)
+  fireEvent.click(screen.getByTestId('activity-group-summary'))
+  const panel = screen.getByRole('button', { name: /^子代理 · 后台检查/ })
+  expect(panel).not.toHaveAttribute('aria-expanded')
+  expect(within(panel).getByRole('img', { name: '执行中' })).toBeInTheDocument()
+  expect(screen.queryByText('Bash · 打印示例')).not.toBeInTheDocument()
+  fireEvent.click(panel)
+  const dialog = screen.getByRole('dialog', { name: '子代理 · 后台检查' })
+  const child = within(dialog).getByRole('button', { name: /^Bash · 打印示例/ })
+  expect(child).toHaveAttribute('aria-expanded', 'false')
+  expect(load).not.toHaveBeenCalled()
+  fireEvent.click(child)
+  expect(child).toHaveAttribute('aria-expanded', 'true')
+  expect(await within(dialog).findByText('printf example')).toBeInTheDocument()
+  expect(load.mock.calls[0]?.slice(0, 2)).toEqual(['origin', 'child'])
+  expect(within(dialog).getByRole('button', { name: '复制命令' })).toBeInTheDocument()
+  expect(within(dialog).getByRole('button', { name: '复制输出' })).toBeInTheDocument()
+  rendered.rerender(<MessageFeed messages={[...messages, claude({ requestId: 'later', text: '下一轮正文' })]}
+    subagentTasks={[{ ...task, status: 'failed' }]} loadToolDetail={load} />)
+  expect(dialog).toHaveTextContent('失败')
+  expect(child).toHaveAttribute('aria-expanded', 'true')
+  fireEvent.click(within(dialog).getByRole('button', { name: '返回步骤' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: /^子代理 · 后台检查/ })).toHaveTextContent('失败'))
+  expect(screen.queryByText('Bash · 打印示例')).not.toBeInTheDocument()
+  expect(screen.getByText('下一轮正文')).toBeInTheDocument()
+})
+
+test('iOS 思考详情使用消息 Markdown，并保留没有正文的工具结果提示', async () => {
+  const load = vi.fn().mockResolvedValue({ input: 'color\n• Blue' })
+  render(<MessageFeed loadToolDetail={load} messages={[
+    block({ id: 'thinking', kind: 'thinking', thinking: '**步骤**\n\n- 检查配置' }),
+    block({ id: 'ask', kind: 'tool_use', toolUseId: 'ask', toolClass: 'builtin', toolName: 'AskUserQuestion', mcpServer: '', detailAvailable: true }),
+    { kind: 'answer', requestId: 'req-1', answers: [{ questionId: 'q1', header: '', question: 'color', values: ['Blue'] }] },
+    block({ id: 'result', kind: 'tool_result', toolUseId: 'ask', isError: false }),
+  ]} />)
+  fireEvent.click(screen.getByTestId('activity-group-summary'))
+  fireEvent.click(screen.getByRole('button', { name: /思考过程/ }))
+  expect(screen.getByText('步骤').tagName).toBe('STRONG')
+  expect(screen.getByRole('listitem')).toHaveTextContent('检查配置')
+  fireEvent.click(screen.getByRole('button', { name: '返回步骤' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  fireEvent.click(screen.getByRole('button', { name: /AskUserQuestion/ }))
+  expect(await screen.findByRole('heading', { name: '已提交的答案' })).toBeInTheDocument()
+  expect(screen.queryByText('工具已返回，结果没有可显示的文本。')).not.toBeInTheDocument()
 })

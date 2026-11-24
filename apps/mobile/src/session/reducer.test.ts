@@ -525,7 +525,7 @@ describe('A5.1 输入消息归并', () => {
 
     const inputs = state.messages.filter((m) => m.kind === 'input')
     expect(inputs).toEqual([
-      { kind: 'input', source: 'mobile', requestId: 'req-m', text: '手机提问', status: 'accepted' },
+      { kind: 'input', source: 'mobile', requestId: 'req-m', text: '手机提问', status: 'accepted', processingStarted: true },
     ])
     expect(state.messages.filter((m) => m.kind === 'claude')).toHaveLength(1)
   })

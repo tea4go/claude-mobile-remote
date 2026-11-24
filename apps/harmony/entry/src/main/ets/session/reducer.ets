@@ -1,3 +1,4 @@
+import type { SubagentTask } from '../protocol/types'
 import type {
   ActionDecision,
   Attachment,
@@ -259,6 +260,9 @@ function cloneContentBlock(block: ContentBlock): ContentBlock {
       toolClass: block.toolClass,
       toolName: block.toolName,
       mcpServer: block.mcpServer,
+      parentToolUseId: block.parentToolUseId,
+      titleSummary: block.titleSummary,
+      detailAvailable: block.detailAvailable,
     }
     if (block.preview !== undefined) {
       next.preview = block.preview
@@ -271,6 +275,8 @@ function cloneContentBlock(block: ContentBlock): ContentBlock {
     toolUseId: block.toolUseId,
     isError: block.isError,
     output: block.output,
+    parentToolUseId: block.parentToolUseId,
+    detailAvailable: block.detailAvailable,
     truncated: block.truncated,
   }
 }
@@ -284,6 +290,7 @@ function cloneFeedMessage(message: FeedMessage): FeedMessage {
       text: message.text,
       status: message.status,
       attachments: message.attachments,
+      processingStarted: message.processingStarted,
     }
     return next
   }
@@ -295,6 +302,7 @@ function cloneFeedMessage(message: FeedMessage): FeedMessage {
       status: message.status,
       text: message.text,
       error: cloneErrorInfo(message.error),
+      model: message.model,
     }
     return next
   }
@@ -359,6 +367,7 @@ function cloneNoticeInfo(notice: NoticeInfo | null): NoticeInfo | null {
 export function cloneState(state: HarmonySessionState, cloneFeed: boolean = true): HarmonySessionState {
   return {
     progress: state.progress,
+    subagentTasks: state.subagentTasks,
     progressRequestId: state.progressRequestId,
     permissionMode: state.permissionMode,
     pairing: clonePairingPayload(state.pairing),
@@ -512,6 +521,7 @@ function createClaudeMessage(
   text: string,
   status: 'streaming' | 'done' | 'failed' | 'cancelled',
   error: ErrorInfo | null,
+  model?: string,
 ): ClaudeFeedMessage {
   return {
     kind: 'claude',
@@ -520,6 +530,7 @@ function createClaudeMessage(
     text,
     status,
     error: cloneErrorInfo(error),
+    model,
   }
 }
 
@@ -553,9 +564,6 @@ function findLastClaudeIndex(messages: Array<FeedMessage>, requestId: string): n
     const message = messages[index]
     if (message.kind === 'claude' && message.requestId === requestId) {
       return index
-    }
-    if (message.requestId === requestId) {
-      break
     }
   }
   return -1
@@ -612,9 +620,31 @@ function mergeTurnStarted(state: HarmonySessionState, event: DomainEvent): Harmo
   return withoutQueued(next, event.requestId)
 }
 
+function matchesToolBlock(message: FeedMessage, requestId: string, expected: ContentBlock): boolean {
+  if (message.kind !== 'block' || message.requestId !== requestId ||
+    message.block.kind === 'thinking' || expected.kind === 'thinking') return false
+  return message.block.kind === expected.kind && message.block.toolUseId === expected.toolUseId
+}
+
+function mergeSubagentBlocks(messages: FeedMessage[], task: SubagentTask): FeedMessage[] {
+  const blocks = task.blocks?.slice() ?? []
+  const root: ToolUseContentBlock = { id: task.toolUseId, kind: 'tool_use', toolUseId: task.toolUseId,
+    toolClass: 'builtin', toolName: 'Agent', mcpServer: '' }
+  blocks.unshift(root)
+  let next = messages
+  for (const block of blocks) {
+    if (block.kind === 'thinking') continue
+    if (next.some((message: FeedMessage) => matchesToolBlock(message, task.requestId, block))) continue
+    if (next === messages) next = messages.slice()
+    next.push(createBlockMessage(task.requestId, block))
+  }
+  return next
+}
+
 function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): HarmonySessionState {
   const next = cloneState(state)
   next.progress = snapshot.turn.progress
+  next.subagentTasks = snapshot.subagentTasks
   next.progressRequestId = snapshot.turn.requestId
   next.permissionMode = snapshot.permissionMode ?? 'default'
   next.connection = ConnectionStage.READY
@@ -663,7 +693,7 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
       const replacement: Array<FeedMessage> = []
       if (display.truncated) replacement.push(createClaudeMessage(current.requestId, current.source, '[较早的执行过程未同步]', status, current.error))
       display.items.forEach((item) => {
-        if (item.text !== undefined) replacement.push(createClaudeMessage(current.requestId, current.source, item.text, status, current.error))
+        if (item.text !== undefined) replacement.push(createClaudeMessage(current.requestId, current.source, item.text, status, current.error, item.model))
         else if (item.block !== undefined) {
           const block: BlockFeedMessage = { kind: 'block', requestId: current.requestId, block: item.block }
           replacement.push(block)
@@ -698,6 +728,7 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
     }
   }
 
+  for (const task of snapshot.subagentTasks ?? []) next.messages = mergeSubagentBlocks(next.messages, task)
   return applyCapabilityFlags(next)
 }
 
@@ -709,10 +740,10 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
     return applyCapabilityFlags(failed)
   }
 
-  const snapshotStart = state.snapshotStartPending === event.requestId && event.requestId !== ''
+  const snapshotStart = event.kind !== 'subagent_task' && state.snapshotStartPending === event.requestId && event.requestId !== ''
   // These events change metadata only; retain the feed identity to avoid list reloads and cache writes.
   const changesFeed = ['queue_changed', 'turn_progress', 'session_diagnostic', 'permission_mode_changed',
-    'session_started', 'action_required'].indexOf(event.kind) < 0
+    'session_started', 'action_required', 'subagent_task'].indexOf(event.kind) < 0
   // Text deltas replace a single immutable message; copying the full transcript for
   // every chunk needlessly duplicates all prior messages and attachment metadata.
   let next = cloneState(state, changesFeed && event.kind !== 'text_delta')
@@ -721,6 +752,18 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
   if (event.sessionTitle !== undefined && next.sessionTitle === undefined) next.sessionTitle = event.sessionTitle
   if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
 
+  if (['text_delta', 'content_block', 'action_required', 'turn_completed', 'turn_failed'].indexOf(event.kind) >= 0) {
+    const input = next.messages.findIndex((message: FeedMessage) => message.kind === 'input' && message.requestId === event.requestId &&
+      message.status === 'accepted' && message.processingStarted !== true)
+    if (input >= 0) {
+      const original = next.messages[input] as InputFeedMessage
+      const processed: InputFeedMessage = {
+        kind: 'input', requestId: original.requestId, source: original.source, text: original.text, status: original.status,
+        attachments: original.attachments, processingStarted: true,
+      }
+      next.messages = replaceMessage(next.messages, input, processed)
+    }
+  }
   if (['turn_completed','turn_failed','session_failed','session_stopped'].indexOf(event.kind) >= 0) next.progress = undefined
   switch (event.kind) {
     case 'input_steered': {
@@ -732,6 +775,24 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       }
       next.deferredInputs = next.deferredInputs?.filter((item: InputFeedMessage) => item.requestId !== event.requestId)
       next = withoutQueued(next, event.requestId)
+      break
+    }
+    case 'subagent_task': {
+      const task = event.subagentTask
+      if (task === undefined) break
+      const tasks = next.subagentTasks ?? []
+      const index = tasks.findIndex((item: SubagentTask) => item.requestId === task.requestId && item.toolUseId === task.toolUseId)
+      const previous = tasks[index]
+      if (previous !== undefined && previous.status !== 'running' && task.status === 'running') break
+      const recent = tasks.filter((_item: SubagentTask, i: number) => i !== index)
+      recent.push({ requestId: task.requestId, toolUseId: task.toolUseId, status: task.status,
+        summary: task.summary ?? previous?.summary, blocks: previous?.blocks })
+      if (recent.length > 16) {
+        const terminal = recent.findIndex((item: SubagentTask) => item.status !== 'running')
+        recent.splice(terminal < 0 ? 0 : terminal, 1)
+      }
+      next.subagentTasks = recent
+      next.messages = mergeSubagentBlocks(next.messages, task)
       break
     }
     case 'queue_changed':
@@ -792,19 +853,21 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       break
     }
     case 'text_delta': {
-      if (/^\$\{[^{}]+\}$/.test(event.text.trim())) break
-      const lastClaudeIndex = findLastClaudeIndex(next.messages, event.requestId)
-      if (lastClaudeIndex >= 0 && lastClaudeIndex === next.messages.length - 1) {
-        const last = next.messages[lastClaudeIndex] as ClaudeFeedMessage
-        next.messages = replaceMessage(
-          next.messages,
-          lastClaudeIndex,
-          createClaudeMessage(last.requestId, last.source, `${last.text}${event.text}`, last.status, last.error),
-        )
-      } else if (hasClaudeForRequest(next.messages, event.requestId) && event.source !== '') {
-        next.messages = next.messages.slice()
-        next.messages.push(createClaudeMessage(event.requestId, event.source, event.text, 'streaming', null))
-      }
+      if (/^\$\{[^{}]+\}$/.test(event.text.trim()) || event.source === '') break
+      const index = findLastClaudeIndex(next.messages, event.requestId)
+      if (index < 0) break
+      const reply = next.messages[index] as ClaudeFeedMessage
+      const nextTurn = reply.status === 'streaming' ? -1 : next.messages.findIndex((message: FeedMessage, i: number) =>
+        i > index && (message.kind === 'input' || message.kind === 'claude') && message.requestId !== event.requestId)
+      const insertAt = nextTurn < 0 ? next.messages.length : nextTurn
+      const previous = next.messages[insertAt - 1]
+      const merge = previous?.kind === 'claude' && previous.requestId === event.requestId &&
+        (previous.text === '' || previous.model === event.model)
+      const text = merge ? (previous as ClaudeFeedMessage).text + event.text : event.text
+      const model = event.model ?? (merge ? (previous as ClaudeFeedMessage).model : undefined)
+      const chunk = createClaudeMessage(reply.requestId, reply.source, text, reply.status, reply.error, model)
+      next.messages = next.messages.slice()
+      next.messages.splice(merge ? insertAt - 1 : insertAt, merge ? 1 : 0, chunk)
       break
     }
     case 'turn_completed':
@@ -820,7 +883,7 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
           } else if (event.turnStatus === 'cancelled') {
             status = 'cancelled'
           }
-          updated.push(createClaudeMessage(message.requestId, message.source, message.text, status, event.error))
+          updated.push(createClaudeMessage(message.requestId, message.source, message.text, status, event.error, message.model))
         } else {
           updated.push(cloneFeedMessage(message))
         }
@@ -831,7 +894,15 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
     }
     case 'content_block':
       if (event.block !== undefined) {
-        next.messages.push(createBlockMessage(event.requestId, event.block))
+        const block = event.block
+        const dupe = next.messages.findIndex((message: FeedMessage) => matchesToolBlock(message, event.requestId, block))
+        const entry = createBlockMessage(event.requestId, block)
+        if (dupe < 0) next.messages.push(entry)
+        else {
+          const old = next.messages[dupe] as BlockFeedMessage
+          entry.block.id = old.block.id
+          next.messages[dupe] = entry
+        }
       }
       break
     case 'action_required':

@@ -1,7 +1,8 @@
 import {
   type TurnDisplayItem, type TurnDisplay,
   type ProgressPhase, type DiagnosticCode, type TurnProgress, type SessionDiagnostic,
-  type Attachment, type ImageResultPayload,
+  type Attachment, type ImageResultPayload, type SubagentTask, type SubagentStatus, type ToolDetail, type ToolDetailResultPayload,
+  TOOL_DETAIL_PROTOCOL_VERSION,
   ACTION_KIND_VALUES,
   ASK_USER_QUESTION_TOOL_NAME,
   BLOCK_KIND_VALUES,
@@ -71,6 +72,7 @@ interface SnapshotPayloadCandidate {
 }
 
 interface SessionSnapshotCandidate {
+  subagentTasks?: Array<Object>
   canSteerQueue?: boolean
   permissionMode?: string
   sessionId?: string
@@ -87,7 +89,7 @@ interface SessionSnapshotCandidate {
 }
 
 interface TurnDisplayCandidate { items?: Array<Object>; truncated?: boolean }
-interface TurnDisplayItemCandidate { text?: string; block?: Object | null }
+interface TurnDisplayItemCandidate { text?: string; model?: string; block?: Object | null }
 interface TurnSnapshotCandidate {
   display?: Object | null
   inputText?: string
@@ -112,6 +114,8 @@ interface EventPayloadCandidate {
 interface ImageCandidate { name?: string; mediaType?: string; data?: string }
 
 interface EventCandidate {
+  model?: string
+  subagentTask?: Object
   images?: Array<Object>
   imagesOmitted?: number
   queue?: Array<Object>
@@ -141,6 +145,9 @@ interface ThinkingBlockCandidate {
 }
 
 interface ToolUseBlockCandidate {
+  titleSummary?: string
+  parentToolUseId?: string
+  detailAvailable?: boolean
   id?: string
   kind?: string
   toolUseId?: string
@@ -151,6 +158,8 @@ interface ToolUseBlockCandidate {
 }
 
 interface ToolResultBlockCandidate {
+  parentToolUseId?: string
+  detailAvailable?: boolean
   id?: string
   kind?: string
   toolUseId?: string
@@ -232,6 +241,7 @@ interface UnsupportedPayloadCandidate {
 const ENVELOPE_KEYS: Array<string> = ['version', 'type', 'sessionId', 'commandId', 'requestId', 'seq', 'payload']
 const SNAPSHOT_PAYLOAD_KEYS: Array<string> = ['connectionStatus', 'snapshot']
 const SESSION_SNAPSHOT_KEYS: Array<string> = [
+  'subagentTasks',
   'canSteerQueue',
   'permissionMode',
   'sessionId',
@@ -247,6 +257,7 @@ const TURN_SNAPSHOT_KEYS: Array<string> = ['inputText', 'progress', 'status', 'r
 const ERROR_INFO_KEYS: Array<string> = ['code', 'message']
 const EVENT_PAYLOAD_KEYS: Array<string> = ['event']
 const EVENT_KEYS: Array<string> = [
+  'model', 'subagentTask',
   'images', 'imagesOmitted', 'queue',
   'progress', 'diagnostic',
   'permissionMode',
@@ -272,9 +283,9 @@ const TOOL_USE_BLOCK_KEYS: Array<string> = [
   'toolClass',
   'toolName',
   'preview',
-  'mcpServer',
+  'mcpServer', 'titleSummary', 'parentToolUseId', 'detailAvailable',
 ]
-const TOOL_RESULT_BLOCK_KEYS: Array<string> = ['id', 'kind', 'toolUseId', 'isError', 'output', 'truncated']
+const TOOL_RESULT_BLOCK_KEYS: Array<string> = ['id', 'kind', 'toolUseId', 'isError', 'output', 'truncated', 'parentToolUseId', 'detailAvailable']
 const TOOL_APPROVAL_KEYS: Array<string> = [
   'actionId',
   'requestId',
@@ -542,7 +553,68 @@ function utf8ByteLength(text: string): number {
   return total
 }
 
-function decodeContentBlock(value: Object | null): ContentBlock {
+function boundedLabel(raw: string | undefined, field: string, maxBytes: number): string {
+  const label = readNonEmptyString(raw, field)
+  if (utf8ByteLength(label) > maxBytes || /[\u0000-\u001f\u007f-\u009f]/.test(label)) fail(`invalid ${field}`)
+  return label
+}
+
+function replyModel(model: string | undefined, version: number): string | undefined {
+  if (model === undefined) return undefined
+  if (version < TOOL_DETAIL_PROTOCOL_VERSION) fail('reply model requires v13')
+  return boundedLabel(model, 'model', 128)
+}
+
+function setToolMetadata(block: ToolUseContentBlock | ToolResultContentBlock, parent: string | undefined,
+  available: boolean | undefined, version: number): void {
+  if (parent === undefined && available === undefined) return
+  if (version < TOOL_DETAIL_PROTOCOL_VERSION) fail('tool metadata requires v13')
+  boundedLabel(block.toolUseId, 'toolUseId', 256)
+  if (parent !== undefined) {
+    const id = boundedLabel(parent, 'parentToolUseId', 256)
+    if (id === block.toolUseId) fail('invalid parent tool')
+    block.parentToolUseId = id
+  }
+  if (available !== undefined) {
+    if (readBoolean(available, 'detailAvailable')) block.detailAvailable = true
+  }
+}
+
+interface SubagentCandidate { requestId?: string; toolUseId?: string; status?: string; summary?: string; blocks?: Object[] }
+interface ToolDetailResultCandidate { toolUseId?: string; detail?: Object }
+
+function decodeSubagent(value: Object, version: number, snapshot: boolean): SubagentTask {
+  if (version < 14) fail('subagent requires v14')
+  const keys = ['requestId', 'toolUseId', 'status', 'summary']
+  if (snapshot) keys.push('blocks')
+  const candidate = requireAllowedObject(value, 'subagent task', keys) as SubagentCandidate
+  const status = readNonEmptyString(candidate.status, 'status')
+  if (['running', 'completed', 'failed', 'cancelled'].indexOf(status) < 0) fail('invalid subagent status')
+  const task: SubagentTask = {
+    requestId: boundedLabel(candidate.requestId, 'requestId', 256),
+    toolUseId: boundedLabel(candidate.toolUseId, 'toolUseId', 256),
+    status: status as SubagentStatus,
+  }
+  if (candidate.summary !== undefined) {
+    task.summary = boundedLabel(candidate.summary, 'summary', 640)
+    if (Array.from(task.summary).length > 160) fail('subagent summary exceeds limit')
+  }
+  if (candidate.blocks !== undefined) {
+    if (!Array.isArray(candidate.blocks) || candidate.blocks.length > 24) fail('invalid subagent blocks')
+    const seen = new Set<string>()
+    task.blocks = candidate.blocks.map((value: Object): ContentBlock => {
+      const block = decodeContentBlock(value, version)
+      if (block.kind === 'thinking' || block.parentToolUseId !== task.toolUseId) fail('invalid subagent tool block')
+      const key = block.kind + ':' + block.toolUseId
+      if (seen.has(key)) fail('duplicate subagent block')
+      seen.add(key)
+      return block
+    })
+  }
+  return task
+}
+
+function decodeContentBlock(value: Object | null, version: number): ContentBlock {
   const blockObject = requirePlainObject(value, 'block')
   const kind = readBlockKind((blockObject as ThinkingBlockCandidate).kind, 'kind')
 
@@ -575,6 +647,12 @@ function decodeContentBlock(value: Object | null): ContentBlock {
       toolName: readNonEmptyString(candidate.toolName, 'toolName'),
       mcpServer,
     }
+    setToolMetadata(block, candidate.parentToolUseId, candidate.detailAvailable, version)
+    if (candidate.titleSummary !== undefined) {
+      if (version < TOOL_DETAIL_PROTOCOL_VERSION) fail('title summary requires v13')
+      block.titleSummary = boundedLabel(candidate.titleSummary, 'titleSummary', 640)
+      if (Array.from(block.titleSummary).length > 160) fail('title summary exceeds limit')
+    }
     if (preview.length > 0) {
       block.preview = preview
     }
@@ -588,6 +666,7 @@ function decodeContentBlock(value: Object | null): ContentBlock {
     toolUseId: readNonEmptyString(resultCandidate.toolUseId, 'toolUseId'),
     isError: readBoolean(resultCandidate.isError, 'isError'),
   }
+  setToolMetadata(result, resultCandidate.parentToolUseId, resultCandidate.detailAvailable, version)
   const output = readOptionalString(resultCandidate.output, 'output')
   if (utf8ByteLength(output) > 16384) fail('tool output exceeds limit')
   if (output.length > 0) result.output = output
@@ -795,9 +874,9 @@ function decodeTurnSnapshot(value: Object | null, version: number): TurnSnapshot
     const display = requireAllowedObject(candidate.display, 'turn display', ['items', 'truncated']) as TurnDisplayCandidate
     if (!Array.isArray(display.items) || display.items.length > 512 || typeof display.truncated !== 'boolean') fail('invalid turn display')
     const items: Array<TurnDisplayItem> = display.items.map((value: Object): TurnDisplayItem => {
-      const item = requireAllowedObject(value, 'turn display item', ['text', 'block']) as TurnDisplayItemCandidate
-      if (typeof item.text === 'string' && item.text.length > 0 && item.block === undefined) return { text: item.text }
-      if (item.text === undefined && item.block !== undefined) return { block: decodeContentBlock(item.block) }
+      const item = requireAllowedObject(value, 'turn display item', ['text', 'block', 'model']) as TurnDisplayItemCandidate
+      if (typeof item.text === 'string' && item.text.length > 0 && item.block === undefined) return { text: item.text, model: replyModel(item.model, version) }
+      if (item.text === undefined && item.model === undefined && item.block !== undefined) return { block: decodeContentBlock(item.block, version) }
       return fail('invalid turn display item')
     })
     const result: TurnDisplay = { items, truncated: display.truncated }
@@ -849,6 +928,17 @@ function decodeSessionSnapshot(value: Object | null, version: number): SessionSn
     turn: decodeTurnSnapshot(candidate.turn !== undefined ? candidate.turn : null, version),
     queueDepth,
     queuedRequests,
+  }
+  if (candidate.subagentTasks !== undefined) {
+    if (version < 14 || !Array.isArray(candidate.subagentTasks) || candidate.subagentTasks.length > 16) fail('invalid subagent snapshot')
+    const seen = new Set<string>()
+    snapshot.subagentTasks = candidate.subagentTasks.map((raw: Object): SubagentTask => {
+      const task = decodeSubagent(raw, version, true)
+      const key = JSON.stringify([task.requestId, task.toolUseId])
+      if (seen.has(key)) fail('duplicate subagent task')
+      seen.add(key)
+      return task
+    })
   }
   snapshot.canSteerQueue = candidate.canSteerQueue
   snapshot.projectCwd = displayField(candidate.projectCwd, 'projectCwd', version)
@@ -948,6 +1038,18 @@ function decodeEventPayload(value: Object | null, version: number): EventPayload
       event.images = images
     }
   }
+  if (eventCandidate.model !== undefined) {
+    if (event.kind !== 'text_delta') fail('unexpected reply model')
+    event.model = replyModel(eventCandidate.model, version)
+  }
+  if (event.kind === 'subagent_task') {
+    if (eventCandidate.subagentTask === undefined) fail('missing subagent task')
+    const task = decodeSubagent(eventCandidate.subagentTask, version, false)
+    if (task.requestId !== requestId || event.source !== '' || event.text !== '' || event.sessionStatus !== '' ||
+      event.turnStatus !== '' || event.error !== null || eventCandidate.sessionTitle !== undefined ||
+      eventCandidate.lastActivityAt !== undefined) fail('invalid subagent update')
+    event.subagentTask = task
+  } else if (eventCandidate.subagentTask !== undefined) fail('unexpected subagent task')
   if (event.kind === 'queue_changed') {
     if (version < 8 || !Array.isArray(eventCandidate.queue) || eventCandidate.queue.length > 256 || event.requestId !== '' || event.source !== '' || event.text !== '' || event.sessionStatus !== '' || event.turnStatus !== '' || event.error !== null) fail('invalid queue update')
     event.queue = decodeQueuedRequests(eventCandidate.queue)
@@ -964,7 +1066,7 @@ function decodeEventPayload(value: Object | null, version: number): EventPayload
   else if (eventCandidate.permissionMode !== undefined) fail('unexpected permission mode')
 
   if (event.kind === 'content_block') {
-    event.block = decodeContentBlock(eventCandidate.block !== undefined ? eventCandidate.block : null)
+    event.block = decodeContentBlock(eventCandidate.block !== undefined ? eventCandidate.block : null, version)
     if (version < 4 && event.block.kind === 'tool_result' && (event.block.output !== undefined || event.block.truncated === true)) fail('tool output requires v4')
   }
   if (event.kind === 'action_required') {
@@ -1089,6 +1191,25 @@ export function decodeServerMessage(raw: string): ServerMessage {
     fail('field payload must be an object')
   }
   const payloadValue = envelope.payload
+
+  if (type === 'tool_detail_result') {
+    if (version < TOOL_DETAIL_PROTOCOL_VERSION || sessionId.length === 0 || seq !== 0) fail('invalid tool detail result')
+    boundedLabel(commandId, 'commandId', 256)
+    boundedLabel(requestId, 'requestId', 256)
+    const candidate = requireAllowedObject(payloadValue, 'tool detail result', ['toolUseId', 'detail']) as ToolDetailResultCandidate
+    const payload: ToolDetailResultPayload = { toolUseId: boundedLabel(candidate.toolUseId, 'toolUseId', 256) }
+    if (candidate.detail !== undefined) {
+      const raw = requireAllowedObject(candidate.detail, 'tool detail', ['input', 'output', 'inputTruncated', 'outputTruncated']) as ToolDetail
+      const input = readOptionalString(raw.input, 'input')
+      const output = readOptionalString(raw.output, 'output')
+      if ((!input && !output) || utf8ByteLength(input) > 32 * 1024 || utf8ByteLength(output) > 96 * 1024) fail('tool detail exceeds limit')
+      const detail: ToolDetail = { input, output }
+      if (raw.inputTruncated !== undefined) detail.inputTruncated = readBoolean(raw.inputTruncated, 'inputTruncated')
+      if (raw.outputTruncated !== undefined) detail.outputTruncated = readBoolean(raw.outputTruncated, 'outputTruncated')
+      payload.detail = detail
+    }
+    return { version, type: 'tool_detail_result', sessionId, commandId, requestId, seq, payload }
+  }
 
   if (type === 'image_result') {
     if (version < 10 || commandId !== '' || requestId !== '' || seq !== 0) fail('invalid image result')

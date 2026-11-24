@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	claudecode "github.com/tea4go/claude-agent-sdk-go"
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 func stringPointer(value string) *string { return &value }
@@ -118,11 +119,13 @@ func TestBlockMapperMapsToolBlocks(t *testing.T) {
 				},
 			}},
 			want: []parsedItem{{kind: EventContentBlock, block: &ContentBlock{
-				Kind:      BlockToolUse,
-				ToolUseID: "toolu_1",
-				ToolClass: ToolBuiltin,
-				ToolName:  "Read",
-				Preview:   "/tmp/a.go",
+				Kind:         BlockToolUse,
+				ToolUseID:    "toolu_1",
+				ToolClass:    ToolBuiltin,
+				ToolName:     "Read",
+				Preview:      "/tmp/a.go",
+				TitleSummary: "/tmp/a.go",
+				Detail:       &protocol.ToolDetail{Input: "file_path:\n/tmp/a.go"},
 			}}},
 		},
 		{
@@ -179,6 +182,7 @@ func TestBlockMapperMapsToolBlocks(t *testing.T) {
 				ToolUseID: "toolu_1",
 				IsError:   boolPointer(true),
 				Output:    "file contents that must not be forwarded",
+				Detail:    &protocol.ToolDetail{Output: "file contents that must not be forwarded"},
 			}}},
 		},
 		{
@@ -192,6 +196,7 @@ func TestBlockMapperMapsToolBlocks(t *testing.T) {
 				ToolUseID: "toolu_1",
 				IsError:   boolPointer(false),
 				Output:    "ok",
+				Detail:    &protocol.ToolDetail{Output: "ok"},
 			}}},
 		},
 		{
@@ -208,14 +213,17 @@ func TestBlockMapperMapsToolBlocks(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "subagent tool result ignored",
+			name: "subagent tool result retains parent",
 			msg: &claudecode.UserMessage{
 				ParentToolUseID: stringPointer("toolu_task"),
 				Content: []claudecode.ContentBlock{
 					&claudecode.ToolResultBlock{ToolUseID: "toolu_child", Content: "hidden"},
 				},
 			},
-			want: nil,
+			want: []parsedItem{{kind: EventContentBlock, block: &ContentBlock{
+				Kind: BlockToolResult, ToolUseID: "toolu_child", ParentToolUseID: "toolu_task",
+				IsError: boolPointer(false), Output: "hidden", Detail: &protocol.ToolDetail{Output: "hidden"},
+			}}},
 		},
 	}
 

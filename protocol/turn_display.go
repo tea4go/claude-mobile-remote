@@ -12,6 +12,7 @@ type TurnDisplay struct {
 }
 type TurnDisplayItem struct {
 	Text  string        `json:"text,omitempty"`
+	Model string        `json:"model,omitempty"`
 	Block *ContentBlock `json:"block,omitempty"`
 }
 
@@ -31,10 +32,10 @@ func AppendTurnDisplay(display *TurnDisplay, event Event) *TurnDisplay {
 	}
 	if event.Kind == EventTextDelta && event.Text != "" {
 		n := len(display.Items)
-		if n > 0 && display.Items[n-1].Block == nil {
+		if n > 0 && display.Items[n-1].Block == nil && display.Items[n-1].Model == event.Model {
 			display.Items[n-1].Text += event.Text
 		} else {
-			display.Items = append(display.Items, TurnDisplayItem{Text: event.Text})
+			display.Items = append(display.Items, TurnDisplayItem{Text: event.Text, Model: event.Model})
 		}
 	} else if event.Block != nil {
 		b := *event.Block

@@ -1,5 +1,39 @@
 # HANDOFF.md — Claude Mobile Remote 交接文档
 
+- 当前执行（2026-11-24，ccBuddy iOS TestFlight）：用户要求在 HarmonyOS 调试证书切换前先上传 iOS 测试包。基于当前工作区及既有 App Store 签名，沿用 1.1.1 并按上次本地上传记录递增至构建 17。通过条件为移动端回归、生产构建及资源同步、Release 归档与 IPA 校验、Apple 确认接收。
+  - 结果：51 个移动端测试文件共 713 项通过，Lint 有警告，生产构建及 iOS 资源同步通过。Release 归档与 App Store IPA 导出成功，版本 1.1.1（17）、分发描述文件、严格签名、APNs production、包内 Web 资源及 ZIP 完整性均已核验。IPA 位于 `.local-tools/releases/20261124-ios-b17/export/App.ipa`。
+  - 上传：Apple 于 19:41 确认接收并开始处理。测试群组、可安装状态及真机验收待核实。Apple 提醒 2027 年 4 月起上传需使用 iOS 27 SDK 或更高版本。详见 `docs/testing/2026-11-24-ios-testflight-b17-result.md`。
+
+- 当前执行（11 月 24 日，Android 与 HarmonyOS 同步）：用户确认 iOS 第三轮并要求同步两端。范围为 11 月 24 日会话详情、按需工具结果、后台任务状态与抽屉、回复模型、发送提示及同轮的小幅样式变更。通过条件为 v13/v14 和旧 PC 兼容、五任务与队列独立、详情实时更新、两端测试及本机构建。
+  - 已完成：Android 启用 React 共享实现，系统返回键支持工具详情和步骤抽屉。HarmonyOS 启用 v14，兼容降级，采用同一配对连接按需读取工具详情，支持后台任务快照、跨轮续答、全屏详情与子工具折叠。两端同步实际模型、等待处理提示、目录分隔线和 PC 按压反馈。
+  - 验证：共享端 51 文件 714 项、Lint 和生产构建通过。Android Debug APK 包含 12 个逐一比对相同的 Web 文件，已在 Pixel 7 模拟器安装并冷启动。HarmonyOS 106 项测试、22 文件逻辑检查及 API 24 原生构建通过，已验证未签名 HAP 完整性。两端真机配合新版 WhaleTerm 复验并行子代理、队列与详情交互，见 11 月 24 日测试记录。
+
+- 当前执行（11 月 24 日，iOS 测试问题 3）：实机复验发现 5 个并行子代理仍在 PC 运行时，iOS 已显示主轮次完成。用户确认审查 WhaleTerm SDK 读取、后台续答与 FIFO 队列，iOS 抽屉改为单行入口，展开子工具移到详情页，运行中复用会话列表加载状态。通过条件为五任务跨轮及重连、主轮次与队列互不干扰、子工具详情实时刷新和 iOS 构建。
+  - 已完成：单行入口接入现有加载动画，子工具在全屏详情内折叠并按需读取。iOS 连接中按 v14 显示活跃后台任务。WhaleTerm 空闲读取器收到已知任务的完成通知后，把随后读到的顶层续答发回原轮次。迟到正文不替换较新的轮次快照或取消目标。审查确认既有队列允许同一宿主有后台任务时按 FIFO 启动新轮，继续复用唯一 SDK Client 和读取权交接。
+  - 验证：移动端 51 文件共 713 项、Lint、Go 全量 race、WhaleTerm chat 队列及远程定向 race 通过。Web 构建和同步通过，iOS 模拟器包内 12 个文件逐一相同，已在 iPhone 17 QA 模拟器安装启动。Windows x64 联调包为 `.local-tools/mobile-1124/WhaleTerm-ios-1124-3.exe`。待 iPhone 与实际 WhaleTerm 复验，重点观察主轮结束后五任务的实时更新以及任务续答和新输入紧邻时的 SDK 事件顺序。Android 和 HarmonyOS 在 iOS 验收后同步。
+
+- 当前执行（11 月 24 日，iOS 测试问题 2）：修复 WhaleTerm 异步子代理、iOS 会话详情及配对和列表反馈。包含后台任务的归属、队列衔接、可折叠的二级抽屉、工具结果、详情导航与样式。通过条件为同一 SDK Client 下的队列与任务验证、旧端协议兼容、移动端回归和 iOS 构建。iPhone 体验验收后同步 Android 与 HarmonyOS。
+  - 已完成 v14 后台任务、原轮次子工具路由及重连快照。WhaleTerm 复用既有 SDK Client、任务跟踪和队列。iOS 子代理面板默认折叠，工具详情在流式分组变化时保留。已补齐 SDK 可用的文件内容、diff、问答和 Bash 复制，并修复标题、时间线、目录分隔线和 PC 按压样式。
+  - 移动端 51 个测试文件共 712 项通过，Lint、Go 全量 race、WhaleTerm quickpair/remote 和 chat 定向回归通过。完成 Web 构建、iOS 资源同步和无签名模拟器构建，包内 12 个 Web 文件与产物一致。Windows x64 联调包位于 `.local-tools/mobile-1124/WhaleTerm-ios-1124-2.exe`，已核验 PE32+ GUI、生产标签和本地 v14 Remote 依赖。待 iPhone 和 Windows 实机联调，清单见本次测试记录。
+
+- 当前执行（11 月 24 日，iOS 工具详情复验）：修正页面进退动效、左缘返回、状态标签和两处标题。PC 为 v13 提供可选标题摘要。通过条件为协议兼容、移动端回归、iOS 构建和真机复验。
+  - 已完成详情滑入与退出、左缘返回、代码区手势避让、状态标签和双处标题。Standalone 和 WhaleTerm 依据工具类型生成有界摘要，v13 按连接能力提供，直连与 7330 转接均已覆盖。
+  - 709 项移动端测试、Go 全量 race、WhaleTerm quickpair/remote 和 chat 定向用例、iOS 模拟器构建与资源比对通过。Windows x64 联调包已按 Wails production 标签重新构建。待实际 iPhone/Windows 联调验收后同步其他两端。
+
+- 当前执行（2026-11-24，HarmonyOS MyPhone 私钥库归档）：按用户要求将 MyPhoneKey.p12 移到本机 Harmony 签名根目录，供 Debug 验证与以后复用。通过条件为内容一致、权限 0600、原路径移除。
+  - 结果：私钥库已移至 `~/.config/claude-mobile-remote/harmony-signing/MyPhoneKey.p12`，字节比对通过、文件权限 0600、Downloads 原路径已移除。待用新路径构建并验签 Debug HAP。
+
+- 当前执行（2026-11-24，HarmonyOS MyPhoneCSR 证书归档）：按用户要求移动两张 CER，Debug 与新 Profile 同目录，Release CER 单独归档。通过条件为目标文件内容一致、原路径移除，范围仅限两张 CER。
+  - 结果：Debug CER 已移入 `~/.config/claude-mobile-remote/harmony-signing/myphone-debug-1028/`，Release CER 已移入同一签名根目录下的 `myphone-release/`。两张证书均通过字节比对，权限为 0600，原路径已移除。签名验证所需私钥库位置见上方归档记录。
+
+- 当前执行（2026-11-24，HarmonyOS MyPhoneCSR Debug）：用户确认已解锁 MyPhoneKey.p12，要求将新 Debug Profile 移出下载目录。本次核对包名、Debug 类型、证书及设备数量，并归档到仓库外私有签名目录。后续另行验证私钥签名、构建及真机安装，正式发布配置沿用现有材料。
+  - 结果：新 Profile 为 `com.tea4go.claudemobileremote1028` 的 Debug Profile，内嵌叶证书与 MyPhoneCSR Debug 完全一致，含 5 台登记设备。已移入 `~/.config/claude-mobile-remote/harmony-signing/myphone-debug-1028/ccBuddy-DebugDebug.p7b`，比对字节一致，目录权限 0700、文件权限 0600，Downloads 原件已移除。待用原密钥库验证签名并构建验签 Debug HAP，尚未切换构建配置或安装。
+
+- 当前执行（2026-11-24，iOS 会话详情测试反馈）：用户确认先改 iOS 及 PC 数据链路，显示实际回复模型，iOS 真机验收后同步 Android 和 HarmonyOS。范围为步骤抽屉密度、子代理层级、全屏工具详情及按需读取、发送提示、回复模型。通过条件为 Go 与移动端回归、旧协议兼容、iOS 构建及真机联调。涉及 WhaleTerm 宿主接线，当前先在公共组件定义并验证接口。
+  - 结果：iOS 启用 v13，压缩步骤行并展示子代理下属工具。工具详情通过已订阅的 Session 按需读取，独立全屏提供加载、失败、重试和代码横滚。缓存保留工具摘要和标识。发送提示随同一请求的实际处理收起，回复显示 SDK 实际模型。Standalone 与 WhaleTerm 均已接入，协议与兼容规则见 D134。
+  - 验证：移动端 51 文件 709 项、Lint、Web 构建、Capacitor 资源同步、无签名 iOS 模拟器构建及资源比对通过。Go 全量 race 通过。WhaleTerm Remote 和宿主定向回归通过，宿主测试通过临时 modfile 引用本地 Remote，因既有 chat 包格式检查问题使用 `-vet=off`。
+  - 待验：Windows x64 WhaleTerm 测试程序已构建并核验，位于 `.local-tools/mobile-1124/WhaleTerm.exe`。真实 iPhone 与新版 PC 联调长 Read/Edit、子代理层级、失败重试及发送提示和模型。通过后同步 Android 和 HarmonyOS。详见 `docs/testing/2026-11-24-mobile-test-result.md`。
+
 - 当前执行（2026-11-20，HarmonyOS 1.0.0 正式发布）：用户确认三端 1.1.1 已上传，要求另建 HarmonyOS 1.0.0 正式发布包并安装至手机。显示版本设为 1.0.0，内部构建号升至 1000012。验收覆盖发布签名、包信息校验及调试包 USB 覆盖安装与启动。
   - 结果：104 项测试、22 文件逻辑检查、API 24 正式与调试构建通过。正式 APP 通过官方验签和包信息核验，已归档供用户发布。相同版本的调试 HAP 已在手机上通过 USB 覆盖安装并启动。详见 `docs/testing/2026-11-20-harmony-1.0.0-release-build.md`。
 

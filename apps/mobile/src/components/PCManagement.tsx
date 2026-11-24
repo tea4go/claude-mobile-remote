@@ -92,7 +92,7 @@ function DirectoryTags({ paths }: { paths: string[] }) {
   </span>
 }
 
-export function PCList({ claimInitialRefresh, allowInitialRefresh = true, revisedHome, pairingHome, selectedPC, sessions, disabled, refreshOnEntry, onSelect, onEdit, onRemove, onTest, onFeedback }: { claimInitialRefresh?: () => boolean; allowInitialRefresh?: boolean; revisedHome?: boolean; pairingHome?: boolean; selectedPC?: string | null; sessions: SessionListItem[]; disabled?: boolean; refreshOnEntry?: boolean; onSelect: (key: string | null) => void; onEdit: (key: string) => void; onRemove: (pc: PCGroup<SessionListItem>) => Promise<void>; onTest: TestPC; onFeedback?: (feedback: PCFeedback | null) => void }) {
+export function PCList({ claimInitialRefresh, allowInitialRefresh = true, revisedHome, pairingHome, pressOnly = false, selectedPC, sessions, disabled, refreshOnEntry, onSelect, onEdit, onRemove, onTest, onFeedback }: { claimInitialRefresh?: () => boolean; allowInitialRefresh?: boolean; revisedHome?: boolean; pairingHome?: boolean; pressOnly?: boolean; selectedPC?: string | null; sessions: SessionListItem[]; disabled?: boolean; refreshOnEntry?: boolean; onSelect: (key: string | null) => void; onEdit: (key: string) => void; onRemove: (pc: PCGroup<SessionListItem>) => Promise<void>; onTest: TestPC; onFeedback?: (feedback: PCFeedback | null) => void }) {
   const [collapsed, setCollapsed] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -161,8 +161,8 @@ export function PCList({ claimInitialRefresh, allowInitialRefresh = true, revise
       return <SwipeAction key={pc.key} className="pairing-pc-swipe" rightActions={disabled ? [] : [
         { key: 'edit', text: <span role="img" aria-label="编辑" className="pairing-pc-action-icon"><MoreOutline aria-hidden="true"/></span>, color: '#ff8a30', onClick: () => { controller.current?.abort(); setTesting(null); setRefreshing(false); onEdit(pc.key) } },
         { key: 'delete', text: <span role="img" aria-label="删除" className="pairing-pc-action-icon"><DeleteOutline aria-hidden="true"/></span>, color: 'danger', onClick: async () => { if (await Dialog.confirm({ content: `删除 ${pc.label} 的全部本机配对？`, confirmText: '删除', cancelText: '取消' })) { controller.current?.abort(); setTesting(null); setRefreshing(false); publishFeedback(null); await onRemove(pc) } } },
-      ]}><div className={`pairing-pc-item${pairingHome && selectedPC === pc.key ? " pairing-pc-item--selected" : ""}`}>
-        <button type="button" className="pairing-pc-item__select" aria-pressed={pairingHome ? selectedPC === pc.key : undefined} disabled={disabled} onClick={() => onSelect(pc.key)}>
+      ]}><div className={`pairing-pc-item${pairingHome && !pressOnly && selectedPC === pc.key ? " pairing-pc-item--selected" : ""}`}>
+        <button type="button" className="pairing-pc-item__select" aria-pressed={pairingHome && !pressOnly ? selectedPC === pc.key : undefined} disabled={disabled} onClick={() => onSelect(pc.key)}>
           <SessionIcon name={revisedHome ? "pcStatus" : "pc"} size={revisedHome ? 28 : 40} style={{ color: connected ? '#31a577' : pending ? '#e6a23c' : '#d7353e' }}/>
           <span><span className="pairing-pc-item__name"><strong>{pc.label}</strong> <small>{pcIP(pc)}</small></span>{pairingHome ? <DirectoryTags paths={projects} /> : <span className="pairing-pc-item__projects">{projects.map(cwd => <em key={cwd}>{projectDirectoryName(cwd)}</em>)}</span>}<span className="sr-only">{connected ? '可用' : pending ? '连接中' : '不可用'}</span></span>
         </button>

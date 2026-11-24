@@ -1,5 +1,6 @@
 export const PROTOCOL_VERSION = 2
-export const PREFERRED_PROTOCOL_VERSION = 12
+export const TOOL_DETAIL_PROTOCOL_VERSION = 13
+export const PREFERRED_PROTOCOL_VERSION = 14
 export const PAIRING_PAYLOAD_VERSION = 1
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
 export const MAX_TEXT_BYTES = 1024 * 1024
@@ -17,7 +18,7 @@ export const INPUT_SOURCE_VALUES: string[] = ['terminal', 'mobile']
 export const PERMISSION_MODE_VALUES: string[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 export const EVENT_KIND_VALUES: string[] = [
-  'queue_changed',
+  'queue_changed', 'subagent_task',
   'turn_progress', 'session_diagnostic',
   'session_started',
   'turn_started',
@@ -37,7 +38,7 @@ export const TOOL_CLASS_VALUES: string[] = ['builtin', 'mcp']
 export const ACTION_KIND_VALUES: string[] = ['tool_approval', 'ask_user_question']
 export const QUESTION_INPUT_TYPE_VALUES: string[] = ['choice', 'text']
 export const MESSAGE_TYPE_VALUES: string[] = [
-  'ping', 'pong', 'image_get', 'image_result',
+  'ping', 'pong', 'image_get', 'image_result', 'tool_detail_get', 'tool_detail_result',
   'hello',
   'hello_ack',
   'subscribe',
@@ -56,7 +57,7 @@ export const MESSAGE_TYPE_VALUES: string[] = [
   'error',
 ]
 export const SERVER_MESSAGE_TYPE_VALUES: string[] = [
-  'image_result',
+  'image_result', 'tool_detail_result',
   'pong',
   'hello_ack',
   'subscribed',
@@ -80,7 +81,7 @@ export type SessionStatus = 'starting' | 'ready' | 'stopped' | 'failed'
 export type TurnStatus = 'idle' | 'running' | 'waiting' | 'completed' | 'cancelled' | 'failed'
 export type InputSource = 'terminal' | 'mobile'
 export type EventKind =
-  | 'queue_changed'
+  | 'queue_changed' | 'subagent_task'
   | 'turn_progress' | 'session_diagnostic'
   | 'session_started'
   | 'turn_started'
@@ -99,7 +100,7 @@ export type ToolClass = 'builtin' | 'mcp'
 export type PendingActionKind = 'tool_approval' | 'ask_user_question'
 export type QuestionInputType = 'choice' | 'text'
 export type MessageType =
-  | 'ping' | 'pong' | 'image_get' | 'image_result'
+  | 'ping' | 'pong' | 'image_get' | 'image_result' | 'tool_detail_get' | 'tool_detail_result'
   | 'hello'
   | 'hello_ack'
   | 'subscribe'
@@ -117,7 +118,7 @@ export type MessageType =
   | 'stop_session_result'
   | 'error'
 export type ServerMessageType =
-  | 'image_result'
+  | 'image_result' | 'tool_detail_result'
   | 'pong'
   | 'hello_ack'
   | 'subscribed'
@@ -218,6 +219,9 @@ export interface ThinkingContentBlock {
 export interface ToolUseContentBlock {
   id: string
   kind: 'tool_use'
+  parentToolUseId?: string
+  detailAvailable?: boolean
+  titleSummary?: string
   toolUseId: string
   toolClass: ToolClass
   toolName: string
@@ -228,6 +232,8 @@ export interface ToolUseContentBlock {
 export interface ToolResultContentBlock {
   id: string
   kind: 'tool_result'
+  parentToolUseId?: string
+  detailAvailable?: boolean
   output?: string
   truncated?: boolean
   toolUseId: string
@@ -247,7 +253,7 @@ export interface SessionDiagnostic {
  code: 'api_retry' | 'query_failed' | 'receive_failed' | 'response_incomplete' | 'assistant_error' | 'result_error' | 'turn_failed' | 'tool_failed'
  httpStatus?: number; attempt?: number; maxAttempts?: number; retryDelayMs?: number
 }
-export interface TurnDisplayItem { text?: string; block?: ContentBlock }
+export interface TurnDisplayItem { text?: string; model?: string; block?: ContentBlock }
 export interface TurnDisplay { items: Array<TurnDisplayItem>; truncated: boolean }
 export interface TurnSnapshot {
   display?: TurnDisplay
@@ -262,6 +268,7 @@ export interface TurnSnapshot {
 }
 
 export interface SessionSnapshot {
+  subagentTasks?: SubagentTask[]
   canSteerQueue?: boolean
   permissionMode?: PermissionMode
   sessionId: string
@@ -278,6 +285,8 @@ export interface SessionSnapshot {
 }
 
 export interface DomainEvent {
+  model?: string
+  subagentTask?: SubagentTask
   images?: Array<Attachment>
   imagesOmitted?: number
   queue?: Array<QueuedRequest>
@@ -396,7 +405,32 @@ export interface ErrorServerMessage extends BaseServerMessage {
 
 export interface ImageResultPayload { ref: string; image?: Attachment }
 export interface ImageResultServerMessage extends BaseServerMessage { type: 'image_result'; payload: ImageResultPayload }
+export type SubagentStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface SubagentTask {
+  requestId: string
+  toolUseId: string
+  status: SubagentStatus
+  summary?: string
+  blocks?: ContentBlock[]
+}
+
+export interface ToolDetail {
+  input?: string
+  output?: string
+  inputTruncated?: boolean
+  outputTruncated?: boolean
+}
+
+export interface ToolDetailGetPayload { toolUseId: string }
+export interface ToolDetailResultPayload { toolUseId: string; detail?: ToolDetail }
+export interface ToolDetailResultServerMessage extends BaseServerMessage {
+  type: 'tool_detail_result'
+  payload: ToolDetailResultPayload
+}
+
 export type ServerMessage =
+  | ToolDetailResultServerMessage
   | ImageResultServerMessage
   | HelloAckServerMessage
   | SubscribedServerMessage

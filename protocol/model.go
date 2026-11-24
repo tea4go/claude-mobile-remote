@@ -105,14 +105,18 @@ const (
 // ContentBlock is a bounded display view. v4 optionally carries text-only tool
 // output; raw tool inputs, images and arbitrary resource objects stay on the PC.
 type ContentBlock struct {
-	ID        string    `json:"id"`
-	Kind      BlockKind `json:"kind"`
-	Thinking  string    `json:"thinking,omitempty"`
-	ToolUseID string    `json:"toolUseId,omitempty"`
-	ToolClass ToolClass `json:"toolClass,omitempty"`
-	MCPServer string    `json:"mcpServer,omitempty"`
-	ToolName  string    `json:"toolName,omitempty"`
-	Preview   string    `json:"preview,omitempty"`
+	ID              string      `json:"id"`
+	Kind            BlockKind   `json:"kind"`
+	Thinking        string      `json:"thinking,omitempty"`
+	ToolUseID       string      `json:"toolUseId,omitempty"`
+	ToolClass       ToolClass   `json:"toolClass,omitempty"`
+	MCPServer       string      `json:"mcpServer,omitempty"`
+	ToolName        string      `json:"toolName,omitempty"`
+	Preview         string      `json:"preview,omitempty"`
+	TitleSummary    string      `json:"titleSummary,omitempty"`
+	ParentToolUseID string      `json:"parentToolUseId,omitempty"`
+	DetailAvailable bool        `json:"detailAvailable,omitempty"`
+	Detail          *ToolDetail `json:"-"`
 	// IsError is a pointer so tool_result can report an explicit false while the
 	// other kinds must leave it absent.
 	IsError   *bool  `json:"isError,omitempty"`
@@ -198,6 +202,7 @@ type TurnSnapshot struct {
 }
 
 type Snapshot struct {
+	SubagentTasks  []SubagentTask  `json:"subagentTasks,omitempty"`
 	CanSteerQueue  bool            `json:"canSteerQueue,omitempty"`
 	SessionID      string          `json:"sessionId"`
 	SessionStatus  SessionStatus   `json:"sessionStatus"`

@@ -1,9 +1,11 @@
-// v2–v7 协议类型，字段与 internal/transport/protocol.go 对应。
+// WebSocket 协议类型，字段与 internal/transport/protocol.go 对应。
 // 组件不得复制消息定义，一律从本文件导入。
 
 export const PROTOCOL_VERSION = 2
 export const PREFERRED_PROTOCOL_VERSION = 10
 export const LATEST_INPUT_PROTOCOL_VERSION = 12
+export const TOOL_DETAIL_PROTOCOL_VERSION = 13
+export const SUBAGENT_PROTOCOL_VERSION = 14
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
@@ -41,6 +43,7 @@ export type EventKind =
   | 'session_failed'
   | 'session_stopped'
   | 'content_block'
+  | 'subagent_task'
   | 'action_required'
   | 'action_resolved'
   | 'permission_mode_changed'
@@ -51,10 +54,22 @@ export type BlockKind = 'thinking' | 'tool_use' | 'tool_result'
 
 export type ToolClass = 'builtin' | 'mcp'
 
+interface ToolMetadata {
+  parentToolUseId?: string
+  detailAvailable?: boolean
+}
+
+export interface ToolDetail {
+  input?: string
+  output?: string
+  inputTruncated?: boolean
+  outputTruncated?: boolean
+}
+
 // 按 kind 携带不相交的字段子集；服务端对多余字段一律拒绝。
 export type ContentBlock =
   | { id: string; kind: 'thinking'; thinking: string }
-  | {
+  | (ToolMetadata & {
       id: string
       kind: 'tool_use'
       toolUseId: string
@@ -62,10 +77,11 @@ export type ContentBlock =
       toolName: string
       // 服务端按工具白名单抽取的有限长度展示摘要，不是原始 input。
       preview?: string
+      titleSummary?: string
       // builtin 工具必须为空串，mcp 工具必须非空。
       mcpServer: string
-    }
-  | { id: string; kind: 'tool_result'; toolUseId: string; isError: boolean; output?: string; truncated?: boolean }
+    })
+  | (ToolMetadata & { id: string; kind: 'tool_result'; toolUseId: string; isError: boolean; output?: string; truncated?: boolean })
 
 // ---- 待处理事项（B2 §4.2）----
 
@@ -142,6 +158,8 @@ export interface UnsupportedPayload {
 export type MessageType =
   | 'image_get'
   | 'image_result'
+  | 'tool_detail_get'
+  | 'tool_detail_result'
   | 'ping'
   | 'pong'
   | 'hello'
@@ -164,6 +182,7 @@ export type MessageType =
 // 消息方向表（A4 设计 §5、B2 §4.4）：客户端→服务端、服务端→客户端。
 export const CLIENT_TO_SERVER_TYPES: ReadonlySet<string> = new Set([
   'image_get',
+  'tool_detail_get',
   'ping',
   'hello',
   'subscribe',
@@ -175,6 +194,7 @@ export const CLIENT_TO_SERVER_TYPES: ReadonlySet<string> = new Set([
 
 export const SERVER_TO_CLIENT_TYPES: ReadonlySet<string> = new Set([
   'image_result',
+  'tool_detail_result',
   'pong',
   'hello_ack',
   'subscribed',
@@ -202,7 +222,7 @@ export interface SessionDiagnostic {
  code: 'api_retry' | 'query_failed' | 'receive_failed' | 'response_incomplete' | 'assistant_error' | 'result_error' | 'turn_failed' | 'tool_failed'
  httpStatus?: number; attempt?: number; maxAttempts?: number; retryDelayMs?: number
 }
-export interface TurnDisplay { items: Array<{ text: string } | { block: ContentBlock }>; truncated: boolean }
+export interface TurnDisplay { items: Array<{ text: string; model?: string } | { block: ContentBlock }>; truncated: boolean }
 export interface TurnSnapshot {
   display?: TurnDisplay
   inputText?: string
@@ -217,7 +237,16 @@ export interface TurnSnapshot {
   pendingAction: PendingAction | null
 }
 
+export interface SubagentTask {
+  requestId: string
+  toolUseId: string
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  summary?: string
+  blocks?: Exclude<ContentBlock, { kind: 'thinking' }>[]
+}
+
 export interface SessionSnapshot {
+  subagentTasks?: SubagentTask[]
   canSteerQueue?: boolean
   sessionId: string
   sessionStatus: SessionStatus
@@ -237,6 +266,8 @@ export interface SessionSnapshot {
 // 领域事件：按 kind 部分携带字段，其余枚举在线上为空字符串（Go 零值
 // 序列化）。kind 语义校验由 decoder 的 validateEventSemantics 负责。
 export interface DomainEvent {
+  subagentTask?: SubagentTask
+  model?: string
   images?: Attachment[]
   imagesOmitted?: number
   queue?: QueuedRequest[]
@@ -346,6 +377,7 @@ export type ServerMessage = {
   seq: number
 } & (
   | { type: 'image_result'; payload: { ref: string; image?: Attachment } }
+  | { type: 'tool_detail_result'; payload: { toolUseId: string; detail?: ToolDetail } }
   | { type: 'pong' | 'hello_ack' | 'subscribed' | 'unsubscribed'; payload: Record<string, never> }
   | { type: 'snapshot'; payload: SnapshotPayload }
   | { type: 'event'; payload: EventPayload }

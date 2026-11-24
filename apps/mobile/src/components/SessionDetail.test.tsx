@@ -71,6 +71,25 @@ describe('WhaleTerm 双向队列入口', () => {
     render(<SessionDetail {...props} state={connectedState({ queuedRequests: requests, queueDepthHint: 2 })} onCancelQueued={noop} />)
     expect(screen.queryByTestId('queue-toggle')).not.toBeInTheDocument()
   })
+
+  test('主轮结束后持续显示五个后台任务，排队入口与前台取消目标独立', () => {
+    const tasks = Array.from({ length: 5 }, (_, index) => ({ requestId: 'previous', toolUseId: `agent-${index}`, status: 'running' as const }))
+    const state = connectedState({ canSteerQueue: true, queuedRequests: requests, subagentTasks: tasks })
+    const onCancelQueued = vi.fn()
+    const view = render(<SessionDetail {...props} state={state} turnStatus="completed" cancelTarget={null} onCancelQueued={onCancelQueued} />)
+    expect(screen.getByTestId('session-status-compact')).toHaveTextContent('正在执行子任务')
+    expect(screen.getByRole('status')).toHaveTextContent('正在执行子任务')
+    expect(screen.queryByTestId('floating-cancel-turn')).not.toBeInTheDocument()
+    expect(screen.getByTestId('queue-toggle')).toBeEnabled()
+    view.rerender(<SessionDetail {...props} state={{ ...state, subagentTasks: [tasks[4]!] }} onCancelQueued={onCancelQueued} />)
+    expect(screen.getByTestId('floating-cancel-turn')).toBeEnabled()
+    expect(screen.getByTestId('queue-toggle')).toBeEnabled()
+    view.rerender(<SessionDetail {...props} state={{ ...state, phase: 'disconnected', connection: 'disconnected' }} turnStatus="completed" cancelTarget={null} onCancelQueued={onCancelQueued} />)
+    expect(screen.queryByText(/正在执行子任务/)).not.toBeInTheDocument()
+    view.rerender(<SessionDetail {...props} state={{ ...state, subagentTasks: tasks.map(task => ({ ...task, status: 'completed' })) }} turnStatus="completed" cancelTarget={null} onCancelQueued={onCancelQueued} />)
+    expect(screen.getByTestId('session-status-compact')).toHaveTextContent('已完成')
+    expect(screen.queryByText(/正在执行子任务/)).not.toBeInTheDocument()
+  })
 })
 
 describe('SessionDetail：基本渲染', () => {

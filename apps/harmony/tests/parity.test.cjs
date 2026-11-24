@@ -49,11 +49,11 @@ function event(kind, seq, extra = {}) {
   return { seq, kind, sessionId: 'session-1', requestId: 'r1', source: 'mobile', text: '', sessionStatus: '', turnStatus: '', error: null, ...extra }
 }
 function eventWire(value, version = 4) { return { ...envelope('event', { event: value }, version, value.seq), requestId: value.requestId } }
-function readyStore() {
+function readyStore(version = 4) {
   const store = load('session/store').createSessionStore(); stores.push(store)
   store.connectWithPairing(pairing)
   const socket = sockets.at(-1); socket.emit('open', {})
-  socket.wire(envelope('hello_ack')); socket.wire(envelope('subscribed')); socket.wire(snapshot())
+  socket.wire(envelope('hello_ack', {}, version)); socket.wire(envelope('subscribed', {}, version)); socket.wire({ ...snapshot(), version })
   assert.equal(store.getState().connection, ConnectionStage.READY)
   return { store, socket }
 }
@@ -68,7 +68,8 @@ test('pairing retries once via the same PC and uses the route that returned a va
 
   const alternate = sockets.at(-1)
   assert.notEqual(alternate, original)
-  assert.equal(alternate.url, 'ws://example.test:7330/session/v1')
+  const fallbackUrl = 'ws://example.test:7330/session/v1'
+  assert.equal(alternate.url, fallbackUrl + '?toolTitles=1')
   alternate.emit('open', {})
   assert.equal(alternate.frames[0].sessionId, pairing.sessionId)
   assert.equal(alternate.frames[0].payload.pairToken, pairing.pairToken)
@@ -76,12 +77,12 @@ test('pairing retries once via the same PC and uses the route that returned a va
   alternate.wire(envelope('subscribed'))
   alternate.wire(snapshot())
   assert.equal(store.getState().connection, ConnectionStage.READY)
-  assert.equal(store.getState().pairing.wsUrl, alternate.url)
+  assert.equal(store.getState().pairing.wsUrl, fallbackUrl)
   const failure = log.list().find(entry => entry.code === 'socket_event_error')
   const fallback = log.list().find(entry => entry.code === 'socket_open')
   assert.ok(failure.detail.includes('ws://example.test:80/ws'))
   assert.match(failure.detail, /阶段=CONNECTING .*系统错误码=2302001 .*test failure/)
-  assert.ok(fallback.detail.includes(alternate.url))
+  assert.ok(fallback.detail.includes(fallbackUrl))
   assert.match(fallback.detail, /阶段=AUTHENTICATING/)
   assert.notEqual(failure.detail.split(' ')[1], fallback.detail.split(' ')[1])
   assert.ok(!log.text().includes(pairing.pairToken))
@@ -183,7 +184,7 @@ test('streaming delta leaves the prior session state and message unchanged', () 
   state.messages = [input, reply]
   const next = reducer.reduceHarmonySessionState(state, reducer.eventReceived(event('text_delta', 1, { text: 'b', turnStatus: 'running' })))
   assert.equal(state.messages[1].text, 'a'); assert.equal(next.messages[1].text, 'ab')
-  assert.notEqual(next.messages, state.messages); assert.equal(next.messages[0], input)
+  assert.notEqual(next.messages, state.messages); assert.equal(input.processingStarted, undefined); assert.equal(next.messages[0].processingStarted, true)
 })
 test('accepted attachments enter the feed in the same immutable state update', () => {
   let state = createInitialHarmonySessionState()
@@ -249,10 +250,15 @@ test('v11 restores a completed input and reply once, including after reconnect',
   wire.payload.snapshot.turn.status = 'idle'
   assert.throws(() => decodeServerMessage(JSON.stringify(wire)), /invalid current input/)
 })
-test('client negotiates v12 to v11 to v10 to v3 to v2 without command replay', () => {
+test('client negotiates v14 through v13 and older hosts without command replay', () => {
   const client = new (load('protocol/client').ProtocolClient)(pairing)
   client.connect(); sockets.at(-1).emit('open', {})
-  assert.equal(sockets.at(-1).frames[0].version, 12)
+  assert.equal(sockets.at(-1).frames[0].version, 14)
+  sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 13 }, 13))
+  sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 13)
+  sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 12 }, 12))
+  sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 12)
+  assert.equal(sockets.at(-1).url, pairing.wsUrl)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 11 }, 11))
   sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 11)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 10 }, 10))
@@ -411,7 +417,7 @@ test('cached blocks and answers remain display-only and validate against wire sc
     { kind: 'answer', requestId: 'r', answers: [{ questionId: 'q', header: '', question: 'pick', values: ['yes'] }] }]
   const restored = decodeCache(encodeCache('s', state, 100), 's', 101)
   assert.equal(restored.messages.length, 2)
-  assert.equal(restored.messages[0].block.output, 'safe output')
+  assert.equal(restored.messages[0].block.output, undefined)
   assert.equal(restored.pendingAction, null)
 })
 
@@ -996,4 +1002,49 @@ test('queued phone input is shown once after confirmed steering and leaves the a
   state = reduce(state, reducer.eventReceived({ ...applied, seq: 3 }))
   assert.deepEqual(state.messages.filter(row => row.requestId === 'queued').map(row => row.kind), ['input'])
   assert.equal(state.messages.find(row => row.kind === 'claude').requestId, 'active')
+})
+
+test('v14 keeps five subagents and their children across a foreground start and reconnect', () => {
+  const session = load('session/model')
+  const { store, socket } = readyStore(14)
+  const send = (kind, seq, fields) => socket.wire(eventWire(event(kind, seq, fields), 14))
+  send('turn_started', 1, { text: 'first', turnStatus: 'running' })
+  const tasks = Array.from({ length: 5 }, (_, index) => ({ requestId: 'r1', toolUseId: 'agent-' + index, status: 'running' }))
+  tasks.forEach((task, index) => send('subagent_task', index + 2, { source: '', subagentTask: task }))
+  send('turn_completed', 7, { turnStatus: 'completed' })
+  assert.equal(session.hasRunningSubagents(store.getState()), true)
+  send('queue_changed', 8, { requestId: '', source: '', queue: [{ requestId: 'queued', source: 'mobile', preview: 'queued' }] })
+  send('turn_started', 9, { requestId: 'next', text: 'next', turnStatus: 'running' })
+  send('text_delta', 10, { source: 'terminal', text: 'continuation', model: 'actual-model' })
+  const child = { id: 'child-row', kind: 'tool_use', toolUseId: 'child', toolClass: 'builtin', toolName: 'Read', parentToolUseId: 'agent-0', detailAvailable: true }
+  send('content_block', 11, { block: child })
+  const state = store.getState()
+  assert.equal(state.progressRequestId, 'next')
+  assert.equal(state.messages.find(message => message.kind === 'claude' && message.requestId === 'r1' && message.text === 'continuation').model, 'actual-model')
+  assert.equal(state.messages.filter(message => message.kind === 'claude' && message.status === 'streaming').at(-1).requestId, 'next')
+  assert.equal(state.queuedRequests[0].requestId, 'queued')
+  const recovery = { ...snapshot().payload.snapshot, subagentTasks: [{ ...tasks[0], blocks: [child] }] }
+  assert.throws(() => decodeServerMessage(JSON.stringify(envelope('snapshot', { connectionStatus: 'connected', snapshot: recovery }, 13))))
+  const recovered = decodeServerMessage(JSON.stringify(envelope('snapshot', { connectionStatus: 'connected', snapshot: recovery }, 14))).payload.snapshot
+  const restored = reducer.reduceHarmonySessionState(createInitialHarmonySessionState(), reducer.snapshotReceived(recovered))
+  assert.equal(session.hasRunningSubagents(restored), true)
+  assert.equal(restored.messages.filter(message => message.kind === 'block').length, 2)
+  assert.equal(load('ui/feedDataSource').projectFeed(restored.messages)[0].blocks.length, 1)
+})
+
+test('v14 tool detail request matches the session and stays independent of queue commands', async () => {
+  const { store, socket } = readyStore(14)
+  const details = store.getToolDetail('r1', 'read')
+  const request = socket.frames.at(-1)
+  assert.equal(request.type, 'tool_detail_get')
+  assert.equal(request.requestId, 'r1')
+  assert.equal(request.payload.toolUseId, 'read')
+  store.sendText('queued input')
+  assert.equal(socket.frames.at(-1).type, 'command')
+  socket.wire({ ...envelope('tool_detail_result', { toolUseId: 'read', detail: { output: 'raw\n  bytes' } }, 14),
+    commandId: request.commandId, requestId: 'r1' })
+  assert.equal((await details).output, 'raw\n  bytes')
+  const pending = store.getToolDetail('r1', 'read')
+  store.disconnect()
+  await assert.rejects(pending, /连接已断开/)
 })

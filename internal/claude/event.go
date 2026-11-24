@@ -3,6 +3,8 @@ package claude
 import (
 	"errors"
 	"fmt"
+
+	"github.com/tea4go/claude-mobile-remote/protocol"
 )
 
 // EventKind 标识 SDK Adapter 向上层发出的 A2 内部事件。
@@ -65,7 +67,10 @@ type ContentBlock struct {
 	ToolName  string
 	// Preview is a bounded, schema-selected display string. It never contains
 	// the raw tool input and is safe to show beside the tool title.
-	Preview string
+	Preview         string
+	TitleSummary    string
+	ParentToolUseID string
+	Detail          *protocol.ToolDetail
 	// IsError 是指针：只有 tool_result 带该字段，且必须显式区分 true/false。
 	IsError   *bool
 	Output    string
@@ -85,6 +90,7 @@ type Event struct {
 	Kind      EventKind
 	SessionID string
 	Text      string
+	Model     string
 	Source    SessionIDSource
 	// Block 仅在 Kind 为 EventContentBlock 时非空。
 	Block *ContentBlock

@@ -215,3 +215,69 @@ func TestSteeredInputDoesNotReplaceActiveTurn(t *testing.T) {
 		t.Fatalf("steered input changed active turn: %+v, %v", snapshot, err)
 	}
 }
+
+func TestBackgroundSubagentSnapshotKeepsForegroundAndQueue(t *testing.T) {
+	stream, err := NewEventStream(protocol.Snapshot{SessionID: "session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish := func(event protocol.Event) {
+		t.Helper()
+		if err := stream.Publish(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	turn := func(id string) protocol.Event {
+		return protocol.Event{Kind: protocol.EventTurnStarted, RequestID: id, Source: protocol.InputTerminal, Text: id, TurnStatus: protocol.TurnRunning}
+	}
+	task := func(status protocol.SubagentStatus) protocol.Event {
+		return protocol.Event{Kind: protocol.EventSubagentTask, RequestID: "origin",
+			SubagentTask: &protocol.SubagentTask{RequestID: "origin", ToolUseID: "agent", Status: status, Summary: "Inspect files"}}
+	}
+	publish(turn("origin"))
+	publish(protocol.Event{Kind: protocol.EventContentBlock, RequestID: "origin", Block: &protocol.ContentBlock{ID: "call", Kind: protocol.BlockToolUse, ToolUseID: "child", ParentToolUseID: "agent", ToolClass: protocol.ToolBuiltin, ToolName: "Read"}})
+	publish(task(protocol.SubagentRunning))
+	publish(protocol.Event{Kind: protocol.EventTurnCompleted, RequestID: "origin", TurnStatus: protocol.TurnCompleted})
+	if err := stream.PublishQueue([]protocol.QueuedRequest{{RequestID: "queued", Source: protocol.InputMobile, Preview: "after"}}); err != nil {
+		t.Fatal(err)
+	}
+	publish(turn("next"))
+	publish(protocol.Event{Kind: protocol.EventTextDelta, RequestID: "next", Source: protocol.InputTerminal, Text: "foreground reply"})
+	if request, root := stream.SubagentOrigin("child"); request != "origin" || root != "agent" {
+		t.Fatalf("nested tool origin = %q, %q", request, root)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, updates, err := stream.Subscribe(ctx, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish(protocol.Event{Kind: protocol.EventContentBlock, RequestID: "origin", Block: &protocol.ContentBlock{ID: "result", Kind: protocol.BlockToolResult, ToolUseID: "child", ParentToolUseID: "agent", Output: "secret detail", IsError: protocol.BoolPointer(false)}})
+	publish(task(protocol.SubagentCompleted))
+	publish(task(protocol.SubagentRunning))
+	late := <-updates
+	if !late.BackgroundChild || late.RequestID != "origin" {
+		t.Fatalf("late event projection = %+v", late)
+	}
+	<-updates // completed task
+	<-updates // stale task progress, retained only in the sequenced stream
+	publish(protocol.Event{Kind: protocol.EventTextDelta, RequestID: "origin", Source: protocol.InputTerminal, Text: "late continuation"})
+	if late := <-updates; !late.LateTurnContent || late.RequestID != "origin" || late.Text != "late continuation" {
+		t.Fatalf("late continuation = %+v", late)
+	}
+	snapshot, err := stream.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.UpdateSnapshot(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _, err = stream.Subscribe(ctx, 1)
+	if err != nil || snapshot.Turn.RequestID != "next" || snapshot.Turn.Status != protocol.TurnRunning || snapshot.Turn.Message != "foreground reply" || len(snapshot.Turn.Display.Items) != 1 || len(snapshot.QueuedRequests) != 1 || snapshot.QueuedRequests[0].RequestID != "queued" {
+		t.Fatalf("background work touched foreground state: %+v, %v", snapshot, err)
+	}
+	if len(snapshot.SubagentTasks) != 1 || snapshot.SubagentTasks[0].Status != protocol.SubagentCompleted || len(snapshot.SubagentTasks[0].Blocks) != 2 ||
+		snapshot.SubagentTasks[0].Blocks[1].Output != "" {
+		t.Fatalf("bad background snapshot: %+v", snapshot.SubagentTasks)
+	}
+}

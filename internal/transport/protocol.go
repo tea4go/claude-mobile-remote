@@ -15,7 +15,9 @@ import (
 
 // Version remains the v2 default for callers constructing legacy envelopes.
 const Version = 2
-const LatestVersion = 12
+const LatestVersion = 14
+const subagentVersion = 14
+const toolDetailVersion = 13
 
 var ErrInvalidMessage = errors.New("invalid protocol message")
 
@@ -64,6 +66,8 @@ type MessageType string
 const (
 	TypeImageGet            MessageType = "image_get"
 	TypeImageResult         MessageType = "image_result"
+	TypeToolDetailGet       MessageType = "tool_detail_get"
+	TypeToolDetailResult    MessageType = "tool_detail_result"
 	TypePing                MessageType = "ping"
 	TypePong                MessageType = "pong"
 	TypeHello               MessageType = "hello"
@@ -202,6 +206,15 @@ type EventPayload struct {
 	Event protocol.Event `json:"event"`
 }
 
+type ToolDetailRequestPayload struct {
+	ToolUseID string `json:"toolUseId"`
+}
+
+type ToolDetailResultPayload struct {
+	ToolUseID string               `json:"toolUseId"`
+	Detail    *protocol.ToolDetail `json:"detail,omitempty"`
+}
+
 func NewEnvelope(messageType MessageType, sessionID, commandID, requestID string, seq uint64, payload any) (Envelope, error) {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -236,6 +249,21 @@ func ValidateEnvelope(envelope Envelope) error {
 	}
 
 	switch envelope.Type {
+	case TypeToolDetailGet, TypeToolDetailResult:
+		if envelope.Version < toolDetailVersion || !protocol.ValidToolDetailID(envelope.CommandID) || !protocol.ValidToolDetailID(envelope.RequestID) || envelope.Seq != 0 {
+			return protocolError(CodeInvalidMessage, "invalid tool detail correlation")
+		}
+		if envelope.Type == TypeToolDetailGet {
+			var payload ToolDetailRequestPayload
+			if DecodePayload(envelope, &payload) != nil || !protocol.ValidToolDetailID(payload.ToolUseID) {
+				return protocolError(CodeInvalidMessage, "invalid tool detail request")
+			}
+		} else {
+			var payload ToolDetailResultPayload
+			if DecodePayload(envelope, &payload) != nil || !protocol.ValidToolDetailID(payload.ToolUseID) || (payload.Detail != nil && !payload.Detail.Valid()) {
+				return protocolError(CodeInvalidMessage, "invalid tool detail result")
+			}
+		}
 	case TypeImageGet:
 		var payload ImageRequestPayload
 		if envelope.Version < 10 || envelope.CommandID != "" || envelope.RequestID != "" || envelope.Seq != 0 || DecodePayload(envelope, &payload) != nil || len(payload.Ref) == 0 || len(payload.Ref) > 128 {
@@ -372,6 +400,30 @@ func validateDisplayTitle(value string) bool {
 }
 
 func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
+	if len(snapshot.SubagentTasks) != 0 {
+		if version < subagentVersion || len(snapshot.SubagentTasks) > protocol.MaxSubagentTasks {
+			return protocolError(CodeInvalidMessage, "invalid subagent snapshot")
+		}
+		seen := make(map[[2]string]bool, len(snapshot.SubagentTasks))
+		for _, task := range snapshot.SubagentTasks {
+			key := [2]string{task.RequestID, task.ToolUseID}
+			if seen[key] || !task.Valid() || len(task.Blocks) > protocol.MaxSubagentBlocks {
+				return protocolError(CodeInvalidMessage, "invalid subagent task")
+			}
+			seen[key] = true
+			blocks := make(map[[2]string]bool, len(task.Blocks))
+			for _, block := range task.Blocks {
+				key := [2]string{string(block.Kind), block.ToolUseID}
+				if blocks[key] || block.ParentToolUseID != task.ToolUseID || !validToolBlockVersion(version, &block) {
+					return protocolError(CodeInvalidMessage, "invalid subagent tool block")
+				}
+				blocks[key] = true
+				if err := validateContentBlock(block); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	if version < 9 && snapshot.Turn.Display != nil {
 		return protocolError(CodeInvalidMessage, "turn display requires v9")
 	}
@@ -381,6 +433,9 @@ func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
 			return protocolError(CodeInvalidMessage, "invalid turn display")
 		}
 		for _, item := range display.Items {
+			if !validReplyModel(version, item.Model) || !validToolBlockVersion(version, item.Block) || (item.Block != nil && item.Model != "") {
+				return protocolError(CodeInvalidMessage, "invalid turn display metadata")
+			}
 			if item.Block == nil {
 				if item.Text == "" || !utf8.ValidString(item.Text) {
 					return protocolError(CodeInvalidMessage, "invalid turn display text")
@@ -415,6 +470,12 @@ func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
 }
 
 func validateEventDisplay(version int, event protocol.Event) error {
+	if version < subagentVersion && event.Kind == protocol.EventSubagentTask {
+		return protocolError(CodeInvalidMessage, "subagent task requires v14")
+	}
+	if !validReplyModel(version, event.Model) || !validToolBlockVersion(version, event.Block) {
+		return protocolError(CodeInvalidMessage, "invalid reply or tool metadata")
+	}
 	if version < 8 && (len(event.Images) != 0 || event.ImagesOmitted != 0) {
 		return protocolError(CodeInvalidMessage, "display images require v8")
 	}
@@ -441,6 +502,20 @@ func validateEventDisplay(version int, event protocol.Event) error {
 		return protocolError(CodeInvalidMessage, "invalid event display metadata")
 	}
 	return nil
+}
+
+func validReplyModel(version int, model string) bool {
+	return model == "" || (version >= toolDetailVersion && protocol.ValidReplyModel(model))
+}
+
+func validToolBlockVersion(version int, block *protocol.ContentBlock) bool {
+	if block == nil {
+		return true
+	}
+	if version < toolDetailVersion {
+		return block.TitleSummary == "" && block.ParentToolUseID == "" && !block.DetailAvailable
+	}
+	return block.Output == "" && !block.Truncated
 }
 
 // validateCommand keeps each command kind to its own disjoint field subset, so
@@ -627,6 +702,9 @@ func isEmptyPayload(envelope Envelope) bool {
 // turn_started must carry the normalized input text, text_delta a non-empty
 // increment, and all other kinds no text at all.
 func validateEvent(event protocol.Event) error {
+	if event.Model != "" && (event.Kind != protocol.EventTextDelta || !protocol.ValidReplyModel(event.Model)) {
+		return protocolError(CodeInvalidMessage, "invalid reply model")
+	}
 	if len(event.Images) > 0 || event.ImagesOmitted != 0 {
 		if event.Kind != protocol.EventTurnStarted || event.Source != protocol.InputTerminal || event.ImagesOmitted < 0 || event.ImagesOmitted > 1024 {
 			return protocolError(CodeInvalidMessage, "invalid display images")
@@ -674,6 +752,16 @@ func validateEvent(event protocol.Event) error {
 // that own them. Every other kind must leave them absent, so a client never has
 // to guess whether a block or an action belongs to the event it is reading.
 func validateEventPayloadFields(event protocol.Event) error {
+	if (event.SubagentTask != nil) != (event.Kind == protocol.EventSubagentTask) {
+		return protocolError(CodeInvalidMessage, "unexpected subagent task")
+	}
+	if task := event.SubagentTask; task != nil {
+		if !task.Valid() || task.RequestID != event.RequestID || len(task.Blocks) != 0 ||
+			event.Source != "" || event.TurnStatus != "" || event.SessionStatus != "" || event.Error != nil ||
+			event.PermissionMode != "" || event.SessionTitle != "" || event.LastActivityAt != "" {
+			return protocolError(CodeInvalidMessage, "invalid subagent task update")
+		}
+	}
 	if event.Kind == protocol.EventQueueChanged {
 		if event.Queue == nil || len(*event.Queue) > 256 || event.RequestID != "" || event.Source != "" || event.Text != "" || event.SessionStatus != "" || event.TurnStatus != "" || event.Error != nil || event.Progress != nil || event.Diagnostic != nil || event.Block != nil || event.PendingAction != nil || event.Code != "" || len(event.Answers) != 0 || event.PermissionMode != "" || event.SessionTitle != "" || event.LastActivityAt != "" {
 			return protocolError(CodeInvalidMessage, "invalid queue update")
@@ -773,6 +861,15 @@ func validateResolvedAnswers(answers []protocol.ResolvedAnswer) error {
 // unknown or incomplete is rejected here instead of being forwarded, because the
 // Adapter is expected to degrade such input to the unsupported notice.
 func validateContentBlock(block protocol.ContentBlock) error {
+	if block.TitleSummary != "" && (block.Kind != protocol.BlockToolUse || block.ToolClass != protocol.ToolBuiltin || !protocol.ValidToolTitleSummary(block.TitleSummary)) {
+		return protocolError(CodeInvalidMessage, "invalid tool title summary")
+	}
+	if (block.DetailAvailable || block.ParentToolUseID != "") && (block.Kind == protocol.BlockThinking || !protocol.ValidToolDetailID(block.ToolUseID)) {
+		return protocolError(CodeInvalidMessage, "invalid tool detail reference")
+	}
+	if block.ParentToolUseID != "" && (!protocol.ValidToolDetailID(block.ParentToolUseID) || block.ParentToolUseID == block.ToolUseID) {
+		return protocolError(CodeInvalidMessage, "invalid parent tool")
+	}
 	if (block.Kind != protocol.BlockToolResult && (block.Output != "" || block.Truncated)) || len(block.Output) > protocol.MaxToolOutputBytes {
 		return protocolError(CodeInvalidMessage, "invalid tool output")
 	}

@@ -16,6 +16,24 @@ function state(): MobileState {
     ] }
 }
 afterEach(() => vi.useRealTimers())
+test('iOS migrates old inline tool results and retains references and model names', () => {
+  const current = state()
+  const previous = encodeSessionCache('a', current, now)
+  const migrated = decodeSessionCache(previous, 'a', now, true)!
+  expect(migrated.messages[3]).toEqual({ kind: 'block', requestId: 'r', block: { id: 'result', kind: 'tool_result', toolUseId: 't', isError: false } })
+
+  current.messages.push(
+    { kind: 'block', requestId: 'r', block: { id: 'bash', kind: 'tool_use', toolUseId: 'bash', toolClass: 'builtin', toolName: 'Bash', mcpServer: '', titleSummary: '检查测试' } },
+    { kind: 'block', requestId: 'r', block: { id: 'child', kind: 'tool_result', toolUseId: 't2', parentToolUseId: 't', detailAvailable: true, isError: false } },
+    { kind: 'claude', requestId: 'r', source: 'mobile', model: 'example-model', text: '答复', status: 'done', error: null },
+  )
+  const next = encodeSessionCache('a', current, now, true)
+  expect(next).not.toContain('"output"')
+  const restored = decodeSessionCache(next, 'a', now, true)!
+  expect(restored.messages[0]).toMatchObject({ processingStarted: true })
+  expect(restored.messages.slice(-3)).toEqual(current.messages.slice(-3))
+})
+
 test('roundtrip restores display only, preserving tools and answers without attachment bytes or permissions', () => {
   const current = { ...state(), pairToken: 'PRIVATE_TOKEN' }
   const data = encodeSessionCache('a', current, now)

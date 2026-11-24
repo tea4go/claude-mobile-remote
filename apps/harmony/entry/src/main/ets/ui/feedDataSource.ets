@@ -38,7 +38,13 @@ export function collapseLongTurns(rows: Array<FeedRow>, expanded: Set<string>): 
 // Only adjacent blocks in the same turn form a group; no attachment bytes in keys.
 export function projectFeed(messages: Array<FeedMessage>): Array<FeedRow> {
   const rows: Array<FeedRow> = []
+  const parents = new Set<string>()
   for (const message of messages) {
+    if (message.kind === 'block' && message.block.kind === 'tool_use') parents.add(JSON.stringify([message.requestId, message.block.toolUseId]))
+  }
+  for (const message of messages) {
+    if (message.kind === 'block' && message.block.kind !== 'thinking' && message.block.parentToolUseId !== undefined &&
+      parents.has(JSON.stringify([message.requestId, message.block.parentToolUseId]))) continue
     const previous = rows.length > 0 ? rows[rows.length - 1] : undefined
     if (message.kind === 'block') {
       if (previous !== undefined && previous.kind === 'activity' && previous.requestId === message.requestId) previous.blocks.push(message)
@@ -50,7 +56,7 @@ export function projectFeed(messages: Array<FeedMessage>): Array<FeedRow> {
 export function feedRenderKey(message: FeedRow, index: number): string {
   if (message.kind === 'collapsed') return `collapsed-${message.requestId}-${message.expanded}`
   if (message.kind === 'input') return JSON.stringify([index, message.kind, message.requestId, message.text,
-    message.status, message.attachments?.map((item: Attachment) => item.name + ':' + item.mediaType + ':' + (item.data.length > 0 ? 'loaded' : 'missing'))])
+    message.status, message.processingStarted, message.attachments?.map((item: Attachment) => item.name + ':' + item.mediaType + ':' + (item.data.length > 0 ? 'loaded' : 'missing'))])
   return `${index}-${JSON.stringify(message)}`
 }
 

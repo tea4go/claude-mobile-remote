@@ -255,6 +255,7 @@ func (s *Server) handleWebSocket(response http.ResponseWriter, request *http.Req
 	}
 	s.recordConnectionEvent("", "socket_open")
 	connection := newConnection(s, socket)
+	connection.toolTitles = request.URL.Query().Get("toolTitles") == "1"
 	s.mu.Lock()
 	if s.shuttingDown {
 		s.mu.Unlock()

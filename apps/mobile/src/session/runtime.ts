@@ -8,7 +8,7 @@ import {
   type SocketFactory,
 } from '../protocol/client'
 import type { PairingPayload } from '../protocol/pairing'
-import type { Attachment, AttachmentSendResult, PermissionMode } from '../protocol/types'
+import type { Attachment, AttachmentSendResult, PermissionMode, ToolDetail } from '../protocol/types'
 import {
   actionResolutionSent,
   commandAccepted,
@@ -248,6 +248,12 @@ export class SessionRuntimeManager {
   sendText(sessionId: string, text: string): boolean {
     return this.send(sessionId, (client, commandId) => client.sendText(text, commandId),
       (commandId) => commandSent({ commandId, text }))
+  }
+
+  getToolDetail(sessionId: string, requestId: string, toolUseId: string, signal: AbortSignal): Promise<ToolDetail> {
+    const entry = this.entries.get(sessionId)
+    if (entry === undefined) return Promise.reject(new Error('请先连接电脑'))
+    return entry.client.getToolDetail(requestId, toolUseId, generateCommandId(), signal)
   }
 
   createSession(sessionId: string): SendResult {

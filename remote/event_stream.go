@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,7 @@ type EventStream struct {
 	subscribers map[uint64]chan protocol.Event
 	nextID      uint64
 	closed      bool
+	toolDetails protocol.ToolDetails
 }
 
 // NewEventStream constructs a stream bound permanently to one session.
@@ -92,6 +94,7 @@ func (s *EventStream) UpdateSnapshot(snapshot protocol.Snapshot) error {
 		return protocol.ErrSessionMismatch
 	}
 	snapshot.Seq = s.snapshot.Seq
+	snapshot.SubagentTasks = s.snapshot.SubagentTasks
 	// Hosts supply lifecycle/queue state; this stream owns the observed text.
 	// An idle host refresh after completion must not erase the last Turn.
 	if snapshot.Turn.RequestID == "" || snapshot.Turn.RequestID == s.snapshot.Turn.RequestID {
@@ -138,6 +141,7 @@ func (s *EventStream) Publish(event protocol.Event) error {
 	if event.SessionID != s.snapshot.SessionID {
 		return protocol.ErrSessionMismatch
 	}
+	event.Block = s.toolDetails.Record(event.RequestID, event.Block)
 	if event.Kind == protocol.EventTurnProgress && (event.RequestID != s.snapshot.Turn.RequestID || (s.snapshot.Turn.Status != protocol.TurnRunning && s.snapshot.Turn.Status != protocol.TurnWaiting)) {
 		return nil
 	}
@@ -152,8 +156,14 @@ func (s *EventStream) Publish(event protocol.Event) error {
 		s.snapshot.LastActivityAt = time.Now().UTC().Format(time.RFC3339Nano)
 		event.LastActivityAt = s.snapshot.LastActivityAt
 	}
-	s.snapshot = applyEvent(s.snapshot, event)
-	s.snapshot.Turn.Display = protocol.AppendTurnDisplay(s.snapshot.Turn.Display, event)
+	s.applySubagent(event)
+	event.BackgroundChild = event.Block != nil && event.Block.ParentToolUseID != "" && event.RequestID != s.snapshot.Turn.RequestID
+	event.LateTurnContent = s.snapshot.Turn.RequestID != "" && event.RequestID != s.snapshot.Turn.RequestID &&
+		(event.Kind == protocol.EventTextDelta || event.Kind == protocol.EventContentBlock)
+	if event.Kind != protocol.EventSubagentTask && !event.BackgroundChild && !event.LateTurnContent {
+		s.snapshot = applyEvent(s.snapshot, event)
+		s.snapshot.Turn.Display = protocol.AppendTurnDisplay(s.snapshot.Turn.Display, event)
+	}
 	s.snapshot.Seq++
 	event.Seq = s.snapshot.Seq
 	for id, events := range s.subscribers {
@@ -165,6 +175,11 @@ func (s *EventStream) Publish(event protocol.Event) error {
 		}
 	}
 	return nil
+}
+
+// ToolDetail returns data observed by this stream for the subscribed session.
+func (s *EventStream) ToolDetail(requestID, toolUseID string) (protocol.ToolDetail, bool) {
+	return s.toolDetails.Get(requestID, toolUseID)
 }
 
 // PublishQueue atomically advances the snapshot and publishes the same FIFO
@@ -281,6 +296,16 @@ func applyEvent(snapshot protocol.Snapshot, event protocol.Event) protocol.Snaps
 }
 
 func cloneSnapshot(snapshot protocol.Snapshot) protocol.Snapshot {
+	snapshot.SubagentTasks = slices.Clone(snapshot.SubagentTasks)
+	for i := range snapshot.SubagentTasks {
+		task := &snapshot.SubagentTasks[i]
+		task.Blocks = slices.Clone(task.Blocks)
+		for j := range task.Blocks {
+			if result := task.Blocks[j].IsError; result != nil {
+				task.Blocks[j].IsError = protocol.BoolPointer(*result)
+			}
+		}
+	}
 	snapshot.Turn.Display = protocol.CloneTurnDisplay(snapshot.Turn.Display)
 	snapshot.Turn.Progress = cloneProgress(snapshot.Turn.Progress)
 	snapshot.SessionError = cloneError(snapshot.SessionError)

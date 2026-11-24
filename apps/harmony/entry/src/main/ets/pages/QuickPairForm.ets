@@ -690,7 +690,7 @@ export struct QuickPairForm {
                         if (!this.refreshing && this.testingPC.length === 0) this.testComputer(computer)
                       })
                   }.width('100%').padding({ left: 10, right: 10, top: 6, bottom: 8 })
-                    .backgroundColor(this.selectedPC === computer.key || this.pressedPC === computer.key ? '#e3efff' : Color.Transparent)
+                    .backgroundColor(this.pressedPC === computer.key ? '#e3efff' : Color.Transparent)
                 }.swipeAction({ end: this.computerActions(computer) }).border({ width: { top: 1 }, color: '#dfe6f1' }).clip(true)
               }, (computer: PCGroup) => computer.key)
               ListItem() { Divider().color('#dfe6f1') }

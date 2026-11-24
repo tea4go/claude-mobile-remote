@@ -21,6 +21,7 @@ interface MessageComposerProps {
   progress?: TurnProgress | null
   turnWaiting?: boolean
   turnRunning?: boolean
+  backgroundRunning?: boolean
   cancelTarget?: string | null
   cancelEnabled?: boolean
   onCancelTurn?: (requestId: string) => void
@@ -97,6 +98,7 @@ export default function MessageComposer({
   progress,
   turnWaiting = false,
   turnRunning = false,
+  backgroundRunning = false,
   cancelTarget = null,
   cancelEnabled = false,
   onCancelTurn,
@@ -260,7 +262,7 @@ export default function MessageComposer({
       {speech.error !== null && <div role="alert">{speech.error}</div>}
       {nativeNotice !== null && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#64748b' }}>{nativeNotice}</div>}
       {((oversize && oversizeNow) || oversizeNow) && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#dc2626' }}>文本超出长度上限</div>}
-      {turnRunning && <TurnLoading progress={progress} waiting={turnWaiting} />}
+      {(turnRunning || backgroundRunning) && <TurnLoading progress={progress} waiting={turnWaiting} backgroundOnly={!turnRunning} />}
       <div style={{ position: 'relative' }}>
         {blockedFeedback && !enabled && <div className="composer-disabled-feedback" role="status">{disabledReason}</div>}
         <div style={{ ...SHELL_STYLE, ...(blockedFeedback && !enabled ? { borderColor: '#d97706', boxShadow: '0 0 0 3px rgba(217, 119, 6, 0.18)' } : {}) }}>

@@ -8,6 +8,7 @@ interface SessionStatusProps {
   sessionStatus: 'starting' | 'ready' | 'stopped' | 'failed' | null
   sessionError: ErrorInfo | null
   turnStatus: string
+  backgroundRunning?: boolean
   queueDepthHint: number
   variant?: 'full' | 'compact' | 'details'
 }
@@ -50,6 +51,7 @@ export default function SessionStatus({
   sessionStatus,
   sessionError,
   turnStatus,
+  backgroundRunning = false,
   queueDepthHint,
   variant = 'full',
 }: SessionStatusProps) {
@@ -58,11 +60,13 @@ export default function SessionStatus({
 
   if (variant === 'compact') {
     const sessionLabel = sessionStatus === null ? '' : ` · ${SESSION_LABELS[sessionStatus] ?? sessionStatus}`
-    return <span data-testid="session-status-compact" title={`${CONNECTION_LABELS[connection]}${sessionLabel} · ${TURN_LABELS[turnStatus] ?? turnStatus}`}>
+    const backgroundOnly = backgroundRunning && turnStatus !== 'running' && turnStatus !== 'waiting'
+    const turnLabel = backgroundOnly ? '正在执行子任务' : TURN_LABELS[turnStatus] ?? turnStatus
+    return <span data-testid="session-status-compact" title={`${CONNECTION_LABELS[connection]}${sessionLabel} · ${turnLabel}`}>
       <span className="session-detail-connection-line"><span>{CONNECTION_LABELS[connection]}</span>
         {sessionLabel !== '' && <span className="session-detail-secondary-status">· {SESSION_LABELS[sessionStatus!] ?? sessionStatus}</span>}
       </span>
-      <span>Turn：{TURN_LABELS[turnStatus] ?? turnStatus}</span>
+      <span>{backgroundOnly ? turnLabel : `Turn：${turnLabel}`}</span>
     </span>
   }
 

@@ -1,5 +1,5 @@
 import type {
-  TurnProgress,
+  TurnProgress, SubagentTask,
   TurnStatus,
   Attachment,
   CommandKind,
@@ -31,6 +31,7 @@ export type InputMessageStatus = 'accepted' | 'unknown' | ''
 
 export interface ClaudeFeedMessage {
   kind: 'claude'
+  model?: string
   requestId: string
   source: InputSource
   status: ClaudeMessageStatus
@@ -40,6 +41,7 @@ export interface ClaudeFeedMessage {
 
 export interface InputFeedMessage {
   kind: 'input'
+  processingStarted?: boolean
   attachments?: Array<Attachment>
   source: InputSource
   requestId: string
@@ -78,6 +80,7 @@ export interface NoticeInfo {
 }
 
 export interface HarmonySessionState {
+  subagentTasks?: SubagentTask[]
   progress?: TurnProgress
   progressRequestId?: string
   permissionMode: PermissionMode
@@ -134,4 +137,9 @@ export function sessionTurnStatusLabel(state: HarmonySessionState): string {
   if (state.pendingAction !== null || state.turnStatus === 'waiting') return '等待处理'
   if (state.turnStatus === 'failed' || state.turnStatus === 'cancelled') return '已中断'
   return state.turnStatus === 'running' ? '进行中' : '已完成'
+}
+
+export function hasRunningSubagents(state: HarmonySessionState): boolean {
+  return state.connection === ConnectionStage.READY && state.sessionStatus !== 'stopped' && state.sessionStatus !== 'failed' &&
+    state.subagentTasks?.some((task: SubagentTask) => task.status === 'running') === true
 }

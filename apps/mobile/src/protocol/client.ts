@@ -11,10 +11,11 @@ import type {
   CommandPayload,
   QuestionAnswer,
   PermissionMode,
+  ToolDetail,
   UnsupportedCode,
 } from './types'
 import { safeNetworkTarget } from './safeTarget'
-import { PREFERRED_PROTOCOL_VERSION } from './types'
+import { PREFERRED_PROTOCOL_VERSION, TOOL_DETAIL_PROTOCOL_VERSION } from './types'
 
 // 连接内部阶段；onEvent 通过 connectionStateChanged 导出给 reducer。
 type Stage = 'connecting' | 'authenticating' | 'subscribing' | 'ready'
@@ -105,6 +106,12 @@ export class ProtocolClient {
   private stage: Stage = 'connecting'
   private pendingCommandId: string | null = null
   private pendingKind: 'command' | 'create_session' | 'stop_session' | null = null
+  private pendingToolDetail: {
+    commandId: string
+    requestId: string
+    toolUseId: string
+    finish: (detail?: ToolDetail, error?: Error) => void
+  } | null = null
   private closedByUser = false
   private generation = 0
   private wireVersion: number
@@ -248,7 +255,11 @@ export class ProtocolClient {
     this.diagnosticAttempt++
     this.diagnose('started')
     let socket: SocketLike
-    try { socket = this.socketFactory(this.payload.wsUrl) } catch {
+    try {
+      const url = new URL(this.payload.wsUrl)
+      if (this.wireVersion >= TOOL_DETAIL_PROTOCOL_VERSION) url.searchParams.set('toolTitles', '1')
+      socket = this.socketFactory(url.href)
+    } catch {
       this.diagnose('constructor_error')
       this.terminate('disconnected')
       return
@@ -288,6 +299,7 @@ export class ProtocolClient {
       if (generation !== this.generation) return
       this.socket = null
       this.clearTimers()
+      this.pendingToolDetail?.finish(undefined, new Error('与电脑的连接已断开'))
       this.generation++
       if (this.closedByUser) return
       this.diagnose('socket_closed', { ...this.closeDetails(event), readyState: socket.readyState })
@@ -308,6 +320,7 @@ export class ProtocolClient {
   close(): void {
     if (this.socket !== null) this.diagnose('cancelled')
     this.clearTimers()
+    this.pendingToolDetail?.finish(undefined, new Error('与电脑的连接已断开'))
     const socket = this.socket
     this.socket = null
     this.stage = 'connecting'
@@ -327,6 +340,29 @@ export class ProtocolClient {
     if (this.stage !== 'ready' || this.socket === null || this.wireVersion < 10) return false
     this.socket.send(envelope(this.wireVersion, 'image_get', this.payload.sessionId, '', '', 0, { ref }))
     return true
+  }
+
+  getToolDetail(requestId: string, toolUseId: string, commandId: string, signal: AbortSignal): Promise<ToolDetail> {
+    const socket = this.socket
+    if (this.stage !== 'ready' || socket === null) return Promise.reject(new Error('请先连接电脑'))
+    if (this.wireVersion < TOOL_DETAIL_PROTOCOL_VERSION) return Promise.reject(new Error('电脑端版本暂不支持读取工具详情'))
+    if (signal.aborted) return Promise.reject(new Error('已退出工具详情'))
+    if (this.pendingToolDetail) return Promise.reject(new Error('正在读取另一条工具详情'))
+    return new Promise((resolve, reject) => {
+      const finish = (detail?: ToolDetail, error?: Error) => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', cancel)
+        this.pendingToolDetail = null
+        if (detail) resolve(detail)
+        else reject(error ?? new Error('电脑端没有可读取的工具详情，内容可能已过期'))
+      }
+      const cancel = () => finish(undefined, new Error('已退出工具详情'))
+      const timer = setTimeout(() => finish(undefined, new Error('读取工具详情超时')), 8000)
+      signal.addEventListener('abort', cancel, { once: true })
+      this.pendingToolDetail = { commandId, requestId, toolUseId, finish }
+      try { socket.send(envelope(this.wireVersion, 'tool_detail_get', this.payload.sessionId, commandId, requestId, 0, { toolUseId })) }
+      catch { finish(undefined, new Error('读取请求发送失败，请重试')) }
+    })
   }
 
   sendAttachments(text: string, attachments: Attachment[], commandId: string): SendResult {
@@ -413,6 +449,7 @@ export class ProtocolClient {
 
   private terminate(kind: CloseKind): void {
     this.clearTimers()
+    this.pendingToolDetail?.finish(undefined, new Error('与电脑的连接已断开'))
     if (kind === 'pairingInvalid') this.diagnose('pairing_invalid')
     if (kind === 'protocolError') this.diagnose('protocol_error')
     const socket = this.socket
@@ -461,7 +498,7 @@ export class ProtocolClient {
     }
 
     if (
-      (message.type === 'image_result' || message.type === 'pong' || message.type === 'snapshot' ||
+      (message.type === 'image_result' || message.type === 'tool_detail_result' || message.type === 'pong' || message.type === 'snapshot' ||
         message.type === 'event' ||
         message.type === 'unsupported' ||
         message.type === 'command_result' ||
@@ -474,6 +511,17 @@ export class ProtocolClient {
     }
 
     switch (message.type) {
+      case 'tool_detail_result': {
+        if (this.stage !== 'ready') { this.terminate('protocolError'); return }
+        const pending = this.pendingToolDetail
+        if (pending?.commandId !== message.commandId) return
+        if (pending.requestId !== message.requestId || pending.toolUseId !== message.payload.toolUseId) {
+          this.terminate('protocolError')
+          return
+        }
+        pending.finish(message.payload.detail)
+        return
+      }
       case 'image_result':
         if (this.stage !== 'ready') { this.terminate('protocolError'); return }
         this.emit({ kind: 'imageResult', ...message.payload })

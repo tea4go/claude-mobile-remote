@@ -1,10 +1,11 @@
 import './ActivityGroup.css'
 import SessionIcon from './SessionIcon'
-import { useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useId, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { debugLog } from '../debug/log'
 import { Tag } from 'antd-mobile'
 import BottomDrawer from './BottomDrawer'
-import type { ContentBlock } from '../protocol/types'
+import ToolDetailPage, { ToolDetailContent, type LoadToolDetail } from './ToolDetailPage'
+import type { ContentBlock, SubagentTask } from '../protocol/types'
 import {
   DRAWER_HEADER_STYLE,
   GLASS_PANEL_STYLE,
@@ -22,15 +23,15 @@ type ToolResult = Extract<ContentBlock, { kind: 'tool_result' }>
 // `result` 变体只用于重连后孤立的 tool_result（找不到对应 tool_use）。
 export type Activity =
   | { kind: 'thinking'; id: string; text: string }
-  | { kind: 'tool'; id: string; tool: ToolUse; result?: ToolResult; turnEnded?: boolean }
+  | { kind: 'tool'; id: string; tool: ToolUse; result?: ToolResult; turnEnded?: boolean; subagent?: SubagentTask; answers?: string; children?: Activity[] }
   | { kind: 'result'; id: string; toolName: string; result: ToolResult }
 
-type ActivityStatus = 'running' | 'success' | 'failed' | 'missing'
+type ActivityStatus = 'running' | 'success' | 'failed' | 'cancelled' | 'missing'
 
 // 抽屉是一个带两级视图的状态机：`view` 总是有值，因此不存在
 // 「详情已开但没有目标活动」这类无效组合；关闭后保留 `view`，
 // 退场动画期间不会闪回上一级。
-type DrawerView = { kind: 'list' } | { kind: 'detail'; activityId: string }
+type DrawerView = { kind: 'list' } | { kind: 'detail'; activity: Activity }
 
 interface DrawerState {
   open: boolean
@@ -41,6 +42,7 @@ const STATUS_LABEL: Record<ActivityStatus, string> = {
   running: '执行中',
   success: '成功',
   failed: '失败',
+  cancelled: '已取消',
   missing: '结果未收到',
 }
 
@@ -48,6 +50,7 @@ const STATUS_COLOR: Record<ActivityStatus, 'default' | 'success' | 'danger'> = {
   running: 'default',
   success: 'success',
   failed: 'danger',
+  cancelled: 'default',
   missing: 'default',
 }
 
@@ -55,6 +58,7 @@ const STATUS_DOT_COLOR: Record<ActivityStatus, string> = {
   running: '#b88020',
   success: '#00b578',
   failed: '#ff3141',
+  cancelled: '#8c9ab0',
   missing: '#b88020',
 }
 
@@ -103,16 +107,28 @@ const BODY_TEXT_STYLE: CSSProperties = {
 function statusOf(activity: Activity): ActivityStatus | null {
   if (activity.kind === 'thinking') return null
   if (activity.kind === 'result') return activity.result.isError ? 'failed' : 'success'
+  if (activity.subagent) {
+    return activity.subagent.status === 'completed' ? 'success' : activity.subagent.status
+  }
   if (activity.result === undefined) return activity.turnEnded ? 'missing' : 'running'
   return activity.result.isError ? 'failed' : 'success'
 }
 
-function titleOf(activity: Activity): string {
+function isAgent(activity: Activity): boolean {
+  return activity.kind === 'tool' && activity.tool.toolClass === 'builtin' && ['Agent', 'Task'].includes(activity.tool.toolName)
+}
+
+function titleOf(activity: Activity, revised = false): string {
   if (activity.kind === 'thinking') return '思考过程'
   if (activity.kind === 'result') {
     return activity.toolName === '' ? '工具结果' : `工具结果：${activity.toolName}`
   }
   const tool = activity.tool
+  if (revised && tool.toolClass === 'builtin') {
+    const name = isAgent(activity) ? '子代理' : tool.toolName
+    const summary = tool.titleSummary || firstLine(tool.preview || '') || activity.subagent?.summary
+    return summary ? `${name} · ${summary}` : name
+  }
   return tool.toolClass === 'mcp'
     ? `MCP：${tool.mcpServer} / ${tool.toolName}`
     : `工具：${tool.toolName}`
@@ -141,7 +157,7 @@ function Chevron({
   size = 12,
   color = '#bfbfbf',
 }: {
-  direction: 'right' | 'left'
+  direction: 'right' | 'left' | 'down'
   size?: number
   color?: string
 }) {
@@ -154,7 +170,7 @@ function Chevron({
       style={{
         flexShrink: 0,
         color,
-        transform: direction === 'left' ? 'rotate(180deg)' : undefined,
+        transform: direction === 'left' ? 'rotate(180deg)' : direction === 'down' ? 'rotate(90deg)' : undefined,
       }}
     >
       <path
@@ -228,7 +244,7 @@ function DrawerHeader({
         )}
       </span>
       {showDebug && <button type="button" aria-label="打开调试日志" className="activity-drawer-action" style={ICON_BUTTON_STYLE} onClick={() => window.dispatchEvent(new Event('mobile-open-debug'))}><SessionIcon name="debug" size={20} /></button>}
-      <button type="button" aria-label="关闭" className="activity-drawer-action" style={ICON_BUTTON_STYLE} onClick={onClose}>
+      <button type="button" aria-label="关闭" data-activity-drawer-close className="activity-drawer-action" style={ICON_BUTTON_STYLE} onClick={onClose}>
         ✕
       </button>
     </div>
@@ -244,28 +260,84 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function ActivityRow({ activity, onOpen }: { activity: Activity; onOpen: () => void }) {
+function ActivityStatusMark({ status }: { status: ActivityStatus }) {
+  if (status === 'running') {
+    return <span role="img" aria-label={STATUS_LABEL[status]} className="project-session-list__processing activity-running">
+      <SessionIcon name="processing" size={16} />
+    </span>
+  }
+  return <Tag style={{ fontSize: FONT_SIZE_COMPACT, padding: '2px 10px', borderRadius: 999 }} color={STATUS_COLOR[status]}>
+    {STATUS_LABEL[status]}
+  </Tag>
+}
+
+function ActivityRow({ activity, onOpen, revised }: { activity: Activity; onOpen: (id: string) => void; revised: boolean }) {
   const status = statusOf(activity)
-  const detail = firstLine(inputOf(activity))
-  return (
-    <button type="button" data-testid="activity-row" className="activity-row" style={ROW_STYLE} onClick={onOpen}>
+  const detail = revised && activity.kind === 'tool' && activity.tool.toolClass === 'builtin' ? '' : firstLine(inputOf(activity))
+  const button = (
+    <button type="button" data-testid="activity-row" className="activity-row" style={ROW_STYLE} onClick={() => onOpen(activity.id)}>
       <StatusDot status={status} />
-      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: FONT_SIZE_SECONDARY, color: '#333', wordBreak: 'break-word' }}>
-          {titleOf(activity)}
-        </span>
-        {detail !== '' && (
-          <span style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c', wordBreak: 'break-word' }}>{detail}</span>
-        )}
+      <span className="activity-row__label">
+        <span style={{ fontSize: FONT_SIZE_SECONDARY, color: '#333', wordBreak: 'break-word' }}>{titleOf(activity, revised)}</span>
+        {detail && <span style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c', wordBreak: 'break-word' }}>{detail}</span>}
       </span>
-      {status !== null && (
-        <Tag style={{ fontSize: FONT_SIZE_COMPACT, padding: '2px 10px', borderRadius: 999 }} color={STATUS_COLOR[status]}>
-          {STATUS_LABEL[status]}
-        </Tag>
-      )}
+      {status !== null && (revised && isAgent(activity)
+        ? <ActivityStatusMark status={status} />
+        : <Tag style={{ fontSize: FONT_SIZE_COMPACT, padding: '2px 10px', borderRadius: 999 }} color={STATUS_COLOR[status]}>{STATUS_LABEL[status]}</Tag>)}
       <Chevron direction="right" />
     </button>
   )
+  return revised ? <div className="activity-entry">{button}</div> : button
+}
+
+function detailContentProps(activity: Activity, requestId: string, load?: LoadToolDetail) {
+  const tool = activity.kind === 'tool' ? activity.tool : undefined
+  const result = activity.kind === 'thinking' ? undefined : activity.result
+  return {
+    toolName: tool?.toolName ?? (activity.kind === 'result' ? activity.toolName : undefined),
+    thinking: activity.kind === 'thinking' ? activity.text : undefined,
+    answers: activity.kind === 'tool' ? activity.answers : undefined,
+    fallback: { input: tool?.preview, output: result?.output, outputTruncated: result?.truncated },
+    requestId,
+    toolUseId: tool?.toolUseId ?? result?.toolUseId,
+    resultId: result?.id,
+    load: tool?.detailAvailable || result?.detailAvailable ? load : undefined,
+  }
+}
+
+function SubtoolDetail({ activity, requestId, load }: { activity: Activity; requestId: string; load: LoadToolDetail }) {
+  const [expanded, setExpanded] = useState(false)
+  const contentId = useId()
+  const status = statusOf(activity)
+  return <div className="subtool-detail">
+    <button className="subtool-detail__toggle" type="button" aria-expanded={expanded} aria-controls={expanded ? contentId : undefined}
+      onClick={() => setExpanded(value => !value)}>
+      <span>{titleOf(activity, true)}</span>
+      {status && <ActivityStatusMark status={status} />}
+      <Chevron direction={expanded ? 'down' : 'right'} />
+    </button>
+    {expanded && <div className="subtool-detail__body" id={contentId}>
+      <ToolDetailContent {...detailContentProps(activity, requestId, load)} />
+    </div>}
+  </div>
+}
+
+export function ActivitySummary({ activities, variant = 'inline', onOpen }: {
+  activities: Activity[]
+  variant?: 'inline' | 'card'
+  onOpen: () => void
+}) {
+  return <button
+    type="button"
+    data-testid="activity-group-summary"
+    className={`activity-summary activity-summary--${variant}`}
+    style={SUMMARY_STYLE}
+    onClick={onOpen}
+  >
+    <SessionIcon name="steps" size={18} style={{ color: '#3478f6', marginRight: 6 }} />
+    <span style={{ flex: 1, wordBreak: 'break-word' }}>{summaryOf(activities)}</span>
+    <Chevron direction="right" />
+  </button>
 }
 
 // 工具详情显示输入预览和 v4 文本结果；旧宿主没有结果时明确提示。
@@ -316,45 +388,50 @@ function ActivityDetail({ activity }: { activity: Activity }) {
 // 展开不再挤占正文空间；抽屉内点击某条活动推进二级详情视图。
 // 两级视图共用同一个 Popup：避开两层遮罩叠加，也不会在切换动画
 // 期间同时保留两份内容。
-export default function ActivityGroup({ activities, variant = 'inline' }: { activities: Activity[]; variant?: 'inline' | 'card' }) {
+export default function ActivityGroup({ activities, variant = 'inline', requestId = '', loadToolDetail, drawerOnly = false }: {
+  activities: Activity[]
+  variant?: 'inline' | 'card'
+  requestId?: string
+  loadToolDetail?: LoadToolDetail
+  drawerOnly?: boolean
+}) {
   const { enabled: debugEnabled } = useSyncExternalStore(debugLog.subscribe, debugLog.getSnapshot)
-  const [drawer, setDrawer] = useState<DrawerState>({ open: false, view: { kind: 'list' } })
-  const opened = useRef(false)
-  const close = () => setDrawer((current) => ({ ...current, open: false }))
-  const openList = () => { opened.current = true; setDrawer({ open: true, view: { kind: 'list' } }) }
+  const [drawer, setDrawer] = useState<DrawerState | null>(drawerOnly ? { open: true, view: { kind: 'list' } } : null)
+  const close = () => setDrawer(current => current && { ...current, open: false })
+  const openList = useCallback(() => setDrawer({ open: true, view: { kind: 'list' } }), [])
+  const openDetail = (activityId: string) => {
+    const activity = activities.find(item => item.id === activityId)
+    if (activity) setDrawer({ open: true, view: { kind: 'detail', activity } })
+  }
   const summary = summaryOf(activities)
-  const view = drawer.view
+  const view = drawer?.view
+  const revised = loadToolDetail !== undefined
   const detail =
-    view.kind === 'detail'
-      ? activities.find((activity) => activity.id === view.activityId)
+    view?.kind === 'detail'
+      ? activities.find(item => item.id === view.activity.id) ?? view.activity
       : undefined
+  const usePage = revised && drawer?.open === true && detail !== undefined
+  const status = detail ? statusOf(detail) : null
 
   return (
     <div
       data-testid="activity-group"
-      data-drawer={drawer.open ? view.kind : 'closed'}
-      style={{ width: '100%' }}
+      data-drawer={drawer?.open ? drawer.view.kind : 'closed'}
+      style={drawerOnly ? { display: 'contents' } : { width: '100%' }}
     >
-      <button
-        type="button"
-        data-testid="activity-group-summary"
-        className={`activity-summary activity-summary--${variant}`}
-        style={SUMMARY_STYLE}
-        onClick={openList}
-      >
-        <SessionIcon name="steps" size={18} style={{ color: "#3478f6", marginRight: 6 }} /><span style={{ flex: 1, wordBreak: 'break-word' }}>{summary}</span>
-        <Chevron direction="right" />
-      </button>
+      {!drawerOnly && <ActivitySummary activities={activities} variant={variant} onOpen={openList} />}
 
       <BottomDrawer
-        visible={drawer.open}
+        visible={drawer?.open === true}
+        covered={usePage}
         onMaskClick={close}
       >
-        {opened.current && (detail === undefined ? (
+        {drawer !== null && (revised || detail === undefined ? (
           <>
             <DrawerHeader title={summary} onClose={close} showDebug={debugEnabled} />
             <div
               data-testid="activity-list"
+              className={revised ? 'activity-list--compact' : undefined}
               style={{
                 position: 'relative',
                 display: 'flex',
@@ -367,9 +444,8 @@ export default function ActivityGroup({ activities, variant = 'inline' }: { acti
                 <ActivityRow
                   key={activity.id}
                   activity={activity}
-                  onOpen={() =>
-                    setDrawer({ open: true, view: { kind: 'detail', activityId: activity.id } })
-                  }
+                  onOpen={openDetail}
+                  revised={revised}
                 />
               ))}
             </div>
@@ -386,6 +462,21 @@ export default function ActivityGroup({ activities, variant = 'inline' }: { acti
           </>
         ))}
       </BottomDrawer>
+      {usePage && <ToolDetailPage
+        key={detail.id}
+        title={titleOf(detail, true)}
+        status={status && (isAgent(detail) ? <ActivityStatusMark status={status} /> : <Tag color={STATUS_COLOR[status]}>{STATUS_LABEL[status]}</Tag>)}
+        {...detailContentProps(detail, requestId, loadToolDetail)}
+        subtools={isAgent(detail) && detail.kind === 'tool' && loadToolDetail ? (
+          <section className="subtool-list">
+            <h2>子工具{detail.children?.length ? `（${detail.children.length}）` : ''}</h2>
+            {detail.children?.length
+              ? detail.children.map(child => <SubtoolDetail key={child.id} activity={child} requestId={requestId} load={loadToolDetail} />)
+              : <p className="tool-detail-page__note">暂未收到子工具</p>}
+          </section>
+        ) : undefined}
+        onBack={openList}
+      />}
     </div>
   )
 }

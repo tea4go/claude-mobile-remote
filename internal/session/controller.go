@@ -102,6 +102,7 @@ type Controller struct {
 	initialSnapshot    Snapshot
 	requestIDGenerator requestIDGenerator
 	config             ServiceConfig
+	toolDetails        protocol.ToolDetails
 
 	startMu      sync.Mutex
 	startCalled  bool
@@ -1181,6 +1182,7 @@ func (c *Controller) appendText(state *actorState, event workerEvent) {
 		RequestID: state.current.RequestID,
 		Source:    state.current.Input.Source,
 		Text:      event.Adapter.Text,
+		Model:     event.Adapter.Model,
 	})
 }
 
@@ -1244,15 +1246,18 @@ func (c *Controller) publishContentBlock(state *actorState, event workerEvent) {
 // clients without passing the B2 §4.2 whitelist review first.
 func newContentBlock(blockID string, block projectclaude.ContentBlock) *ContentBlock {
 	converted := &ContentBlock{
-		ID:        blockID,
-		Kind:      BlockKind(block.Kind),
-		Thinking:  block.Thinking,
-		ToolUseID: block.ToolUseID,
-		ToolClass: ToolClass(block.ToolClass),
-		MCPServer: block.MCPServer,
-		ToolName:  block.ToolName,
-		Preview:   block.Preview,
-		Output:    block.Output, Truncated: block.Truncated,
+		ID:              blockID,
+		Kind:            BlockKind(block.Kind),
+		Thinking:        block.Thinking,
+		ToolUseID:       block.ToolUseID,
+		ToolClass:       ToolClass(block.ToolClass),
+		MCPServer:       block.MCPServer,
+		ToolName:        block.ToolName,
+		Preview:         block.Preview,
+		ParentToolUseID: block.ParentToolUseID,
+		TitleSummary:    block.TitleSummary,
+		Detail:          block.Detail,
+		Output:          block.Output, Truncated: block.Truncated,
 	}
 	if block.IsError != nil {
 		// Copy the value instead of the pointer: the published event outlives the
@@ -1318,6 +1323,7 @@ func (c *Controller) failSession(state *actorState, err error) {
 }
 
 func (c *Controller) publish(state *actorState, event Event) {
+	event.Block = c.toolDetails.Record(event.RequestID, event.Block)
 	state.snapshot.Turn.Display = protocol.AppendTurnDisplay(state.snapshot.Turn.Display, event)
 	switch event.Kind {
 	case EventTurnStarted:
@@ -1353,6 +1359,10 @@ func (c *Controller) publish(state *actorState, event Event) {
 			c.removeSubscriber(state, subscriberID)
 		}
 	}
+}
+
+func (c *Controller) ToolDetail(requestID, toolUseID string) (protocol.ToolDetail, bool) {
+	return c.toolDetails.Get(requestID, toolUseID)
 }
 
 func (c *Controller) removeSubscriber(state *actorState, subscriberID uint64) {

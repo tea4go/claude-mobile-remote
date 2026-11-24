@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import useEdgeBack from './useEdgeBack'
 import './PageTransition.css'
 
 type Direction = 'forward' | 'back'
@@ -25,7 +26,7 @@ const DURATION_MS = 360
 
 export default function PageTransition({ pageKey, direction, children, onEdgeBack }: PageTransitionProps) {
   const latestPage = useRef({ key: pageKey, content: children })
-  const edgeTouch = useRef<{ x: number, y: number, cancelled: boolean } | null>(null)
+  const edgeBack = useEdgeBack(onEdgeBack)
   const [transition, setTransition] = useState<TransitionState>(() => ({
     activeKey: pageKey,
     outgoing: null,
@@ -63,33 +64,7 @@ export default function PageTransition({ pageKey, direction, children, onEdgeBac
   const animating = transition.outgoing !== null
 
   return <div className="mobile-page-stack"
-    onTouchStart={(event) => {
-      edgeTouch.current = null
-      if (onEdgeBack === undefined || event.touches.length !== 1) return
-      const touch = event.touches[0]
-      if (touch.clientX > 28 || touch.clientX < 0) return
-      const target = event.target
-      if (target instanceof Element && target.closest('input, textarea, [contenteditable="true"]')) return
-      edgeTouch.current = { x: touch.clientX, y: touch.clientY, cancelled: false }
-    }}
-    onTouchMove={(event) => {
-      const start = edgeTouch.current
-      if (start === null || event.touches.length !== 1) return
-      const touch = event.touches[0]
-      const dx = touch.clientX - start.x
-      const dy = Math.abs(touch.clientY - start.y)
-      if (dy > 16 && dy > Math.abs(dx)) start.cancelled = true
-    }}
-    onTouchEnd={(event) => {
-      const start = edgeTouch.current
-      edgeTouch.current = null
-      if (start === null || start.cancelled || event.changedTouches.length !== 1) return
-      const touch = event.changedTouches[0]
-      const dx = touch.clientX - start.x
-      const dy = Math.abs(touch.clientY - start.y)
-      if (dx >= 72 && dx > dy * 1.5) onEdgeBack?.()
-    }}
-    onTouchCancel={() => { edgeTouch.current = null }}
+    {...edgeBack}
   >
     {transition.outgoing !== null && <div
       key={`outgoing:${transition.sequence}`}

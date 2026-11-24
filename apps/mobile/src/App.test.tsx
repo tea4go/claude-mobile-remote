@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from './App'
 import { parsePairingFragment } from './protocol/pairing'
@@ -120,6 +120,124 @@ function completeHandshake(socket: FakeWebSocket, snapshotMessage: unknown = SNA
   })
   socket.serverMessage(snapshotMessage)
 }
+
+test.each(['ios', 'android'])('%s 显示等待和实际模型，子代理工具详情按需请求并可重试', async (platform) => {
+  vi.spyOn(Capacitor, 'getPlatform').mockReturnValue(platform)
+  const appListener = vi.spyOn(CapacitorApp, 'addListener').mockResolvedValue({ remove: async () => {} })
+  window.location.hash = fragmentOf(PAIRING)
+  render(<App cache={null} experience={null} socketFactory={url => new FakeWebSocket(url)} />)
+  const socket = FakeWebSocket.instances[0]!
+  expect(new URL(socket.url).searchParams.get('toolTitles')).toBe('1')
+  const version = 14
+  act(() => completeHandshake(socket, { ...SNAPSHOT, version }, version))
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '查看项目' } })
+  fireEvent.click(screen.getByRole('button', { name: '发送' }))
+  const sent = () => socket.sent.map(message => JSON.parse(message))
+  const command = sent().find(message => message.type === 'command')
+  const identity = { version, sessionId: 'session-1', requestId: 'turn-new' }
+  const deliver = (seq: number, kind: string, fields: object) => {
+    act(() => socket.serverMessage({ ...identity, type: 'event', commandId: '', seq, payload: {
+      event: { sessionId: identity.sessionId, requestId: identity.requestId, seq, kind, source: 'mobile', text: '', sessionStatus: '', turnStatus: '', error: null, ...fields },
+    } }))
+  }
+  act(() => socket.serverMessage({ ...identity, type: 'command_result', commandId: command.commandId, seq: 0,
+    payload: { accepted: true, code: '', message: '' } }))
+  expect(screen.getByText('等待处理')).toBeInTheDocument()
+  deliver(8, 'turn_started', { turnStatus: 'running', text: '查看项目' })
+  expect(screen.getByText('等待处理')).toBeInTheDocument()
+  deliver(9, 'content_block', { block: { id: 'parent', kind: 'tool_use', toolUseId: 'agent', toolClass: 'builtin', toolName: 'Agent', preview: '分析目录' } })
+  expect(screen.queryByText('等待处理')).not.toBeInTheDocument()
+  deliver(10, 'content_block', { block: { id: 'child', kind: 'tool_use', toolUseId: 'read', parentToolUseId: 'agent', toolClass: 'builtin', toolName: 'Read', titleSummary: 'example.go', detailAvailable: true } })
+  deliver(11, 'content_block', { block: { id: 'child-result', kind: 'tool_result', toolUseId: 'read', parentToolUseId: 'agent', isError: false, detailAvailable: true } })
+  deliver(12, 'text_delta', { text: '已找到文件', model: 'actual-model' })
+  expect(screen.getByText('Claude · actual-model')).toBeInTheDocument()
+  expect(sent().some(message => message.type === 'tool_detail_get')).toBe(false)
+
+  fireEvent.click(screen.getByTestId('activity-group-summary'))
+  expect(screen.getByText('子代理 · 分析目录')).toBeInTheDocument()
+  expect(screen.queryByText('Read · example.go')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /^子代理 · 分析目录/ }))
+  const dialog = screen.getByRole('dialog', { name: '子代理 · 分析目录' })
+  fireEvent.click(within(dialog).getByRole('button', { name: /Read · example.go/ }))
+  expect(within(dialog).getByRole('status')).toHaveTextContent('正在从电脑加载工具详情')
+  const first = sent().find(message => message.type === 'tool_detail_get')
+  expect(first).toMatchObject({ ...identity, payload: { toolUseId: 'read' }, seq: 0 })
+  act(() => socket.serverMessage({ ...identity, type: 'tool_detail_result', seq: 0, commandId: first.commandId, payload: { toolUseId: 'read' } }))
+  expect(await screen.findByText(/电脑端没有可读取的工具详情/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '重试' }))
+  const second = sent().filter(message => message.type === 'tool_detail_get').at(-1)
+  expect(second.commandId).not.toBe(first.commandId)
+  const output = 'first line\n    second line with original indentation'
+  act(() => socket.serverMessage({ ...identity, type: 'tool_detail_result', seq: 0, commandId: second.commandId, payload: { toolUseId: 'read', detail: { output } } }))
+  const detail = await screen.findByRole('dialog', { name: '子代理 · 分析目录' })
+  await waitFor(() => expect(detail.querySelector('pre code')?.textContent).toBe(output))
+  expect(within(detail).getByText('成功')).toHaveClass('adm-tag')
+  // Growing a long turn compacts its inline groups while the drawer is open.
+  let seq = 13
+  for (let index = 0; index < 7; index += 1) {
+    deliver(seq++, 'content_block', { block: { id: `think-${index}`, kind: 'thinking', thinking: '看到了 **代码**' } })
+    deliver(seq++, 'text_delta', { text: `片段 ${index}` })
+  }
+  deliver(seq, 'turn_completed', { turnStatus: 'completed' })
+  expect(screen.getByRole('button', { name: '展开执行过程' })).toBeInTheDocument()
+  expect(screen.getByRole('dialog', { name: '子代理 · 分析目录' })).toBe(detail)
+  const swipe = (node: Element, x: number) => {
+    fireEvent.touchStart(node, { touches: [{ clientX: x, clientY: 100 }] })
+    fireEvent.touchEnd(node, { changedTouches: [{ clientX: x + 110, clientY: 102 }] })
+  }
+  swipe(detail.querySelector('pre code')!, 18)
+  swipe(detail, 80)
+  expect(detail).toBeInTheDocument()
+  vi.stubGlobal('matchMedia', () => ({ matches: false }))
+  if (platform === 'android') {
+    const onBack = appListener.mock.calls.filter(([name]) => name === 'backButton').at(-1)?.[1]
+    expect(onBack).toBeDefined()
+    act(() => (onBack as () => void)())
+  } else swipe(detail, 12)
+  expect(detail).toHaveClass('mobile-page--exit-back')
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  expect(screen.getByRole('button', { name: /^子代理 · 分析目录/ })).not.toHaveAttribute('aria-expanded')
+})
+
+test('iOS 跨轮处理异步子代理状态，队列与当前回复继续更新', () => {
+  vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios')
+  window.location.hash = fragmentOf(PAIRING)
+  render(<App cache={null} experience={null} socketFactory={url => new FakeWebSocket(url)} />)
+  const socket = FakeWebSocket.instances[0]!
+  const version = 14
+  act(() => completeHandshake(socket, { ...SNAPSHOT, version, payload: {
+    ...SNAPSHOT.payload, snapshot: { ...SNAPSHOT.payload.snapshot, canSteerQueue: true },
+  } }, version))
+  const send = (seq: number, kind: string, requestId: string, fields: object) => {
+    act(() => socket.serverMessage({ version, sessionId: 'session-1', requestId, type: 'event', commandId: '', seq, payload: {
+      event: { sessionId: 'session-1', requestId, seq, kind, source: '', text: '', sessionStatus: '', turnStatus: '', error: null, ...fields },
+    } }))
+  }
+  const subagentTask = { requestId: 'origin', toolUseId: 'agent', status: 'running', summary: '后台检查' }
+  send(8, 'turn_started', 'origin', { source: 'terminal', text: '开始检查', turnStatus: 'running' })
+  send(9, 'content_block', 'origin', { block: { id: 'agent', kind: 'tool_use', toolUseId: 'agent', toolClass: 'builtin', toolName: 'Agent', titleSummary: '后台检查' } })
+  send(10, 'subagent_task', 'origin', { subagentTask })
+  send(11, 'turn_completed', 'origin', { turnStatus: 'completed' })
+  expect(screen.getByTestId('session-status-compact')).toHaveTextContent('正在执行子任务')
+  send(12, 'turn_started', 'next', { source: 'terminal', text: '开始下一轮', turnStatus: 'running' })
+  send(13, 'queue_changed', '', { queue: [{ requestId: 'queued', source: 'mobile', preview: '等候消息' }] })
+  send(14, 'content_block', 'origin', { block: { id: 'late', kind: 'tool_use', toolUseId: 'late', parentToolUseId: 'agent', toolClass: 'builtin', toolName: 'Read', titleSummary: 'late.go' } })
+  send(15, 'subagent_task', 'origin', { subagentTask: { ...subagentTask, status: 'completed' } })
+  send(16, 'text_delta', 'next', { source: 'terminal', text: '第二轮仍在执行' })
+  send(17, 'text_delta', 'origin', { source: 'terminal', text: '原轮次的' })
+  send(18, 'text_delta', 'origin', { source: 'terminal', text: '续答' })
+  expect(socket.closed).toBe(false)
+  const currentReply = screen.getByText('第二轮仍在执行')
+  expect(screen.getByText('原轮次的续答').compareDocumentPosition(currentReply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByRole('button', { name: '查看排队队列（1）' })).toBeInTheDocument()
+  fireEvent.click(screen.getByTestId('floating-cancel-turn'))
+  expect(socket.sent.map(value => JSON.parse(value)).at(-1)).toMatchObject({ type: 'command', payload: { kind: 'cancel_turn', requestId: 'next' } })
+  fireEvent.click(screen.getByTestId('activity-group-summary'))
+  const panel = screen.getByRole('button', { name: /^子代理 · 后台检查/ })
+  expect(panel).toHaveTextContent('成功')
+  fireEvent.click(panel)
+  expect(screen.getByText('Read · late.go')).toBeInTheDocument()
+})
 
 describe('App：无配对', () => {
   test('显示配对输入页', () => {
@@ -1176,7 +1294,7 @@ test.each(['ios', 'android'] as const)('%s 首次配对展示最近正文及平�
       },
     }
     act(() => completeHandshake(socket, snapshot, 12))
-    expect(JSON.parse(socket.sent[0]!).version).toBe(12)
+    expect(JSON.parse(socket.sent[0]!).version).toBe(14)
     expect(await screen.findByText('来自电脑的最近提问')).toBeInTheDocument()
     expect(screen.getByText('来自电脑的最近回复')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('返回'))

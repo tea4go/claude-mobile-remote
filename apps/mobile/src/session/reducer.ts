@@ -13,6 +13,7 @@ import type {
   QueuedRequest,
   ResolvedAnswer,
   SessionSnapshot,
+  SubagentTask,
   UnsupportedCode,
 } from '../protocol/types'
 
@@ -38,6 +39,7 @@ export interface ClaudeMessage {
   // 服务端不为取消单独发事件，只靠 turnStatus 区分。
   status: 'streaming' | 'done' | 'failed' | 'cancelled'
   text: string
+  model?: string
   error: ErrorInfo | null
 }
 
@@ -51,6 +53,7 @@ export interface InputMessage {
   text: string
   attachments?: Attachment[]
   status: 'accepted' | 'unknown' | null
+  processingStarted?: boolean
 }
 
 // 结构化内容块消息（B2 §4.1）：按 content_block 到达顺序追加，与 Claude
@@ -88,6 +91,7 @@ export interface Notice {
 }
 
 export interface MobileState {
+  subagentTasks?: SubagentTask[]
   canSteerQueue: boolean
  progress: TurnProgress | null
  progressRequestId: string
@@ -395,6 +399,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     snapshotStartPending: turnActive && snapshot.turn.inputText ? snapshot.turn.requestId : '',
     progress: snapshot.turn.progress ?? null,
     progressRequestId: turnActive ? snapshot.turn.requestId : '',
+    subagentTasks: snapshot.subagentTasks,
     queueDepthHint: snapshot.queueDepth,
     queuedRequests: snapshot.queuedRequests,
     // 同一 App 生命周期内重新进入 Session 时保留已经看到的消息；Snapshot
@@ -407,7 +412,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     lastNotice: null,
   }
   if (snapshot.turn.inputText && snapshot.turn.source && !next.messages.some((message) => message.kind === 'input' && message.requestId === snapshot.turn.requestId)) {
-    const input: InputMessage = { kind: 'input', source: snapshot.turn.source, requestId: snapshot.turn.requestId, text: snapshot.turn.inputText, status: 'accepted' }
+    const input: InputMessage = { kind: 'input', source: snapshot.turn.source, requestId: snapshot.turn.requestId, text: snapshot.turn.inputText, status: 'accepted', processingStarted: true }
     const replyIndex = next.messages.findIndex((message) => message.kind === 'claude' && message.requestId === snapshot.turn.requestId)
     if (replyIndex < 0) next.messages = [...next.messages, input]
     else next.messages = [...next.messages.slice(0, replyIndex), input, ...next.messages.slice(replyIndex)]
@@ -416,6 +421,9 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
   // 前配对，订阅后的 text_delta 需要归并目标（A5.1 验收回归）。
   // source 为空即首轮前尚无 Turn（A5.2），此时不创建任何消息。
   const turnSource = snapshot.turn.source
+  if (snapshot.turn.requestId && (snapshot.turn.message || snapshot.turn.display?.items.length || snapshot.turn.pendingAction || !turnActive)) {
+    next.messages = markInputProcessing(next.messages, snapshot.turn.requestId)
+  }
   if (turnSource !== '' && (snapshot.turn.message !== '' || turnActive || snapshot.turn.display !== undefined)) {
     const current = {
       kind: 'claude' as const,
@@ -428,7 +436,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     if (snapshot.turn.display !== undefined) {
       const display = snapshot.turn.display
       const replacement: Message[] = display.items.map(item => 'text' in item
-        ? { ...current, text: item.text }
+        ? { ...current, text: item.text, ...(item.model ? { model: item.model } : {}) }
         : { kind: 'block' as const, requestId: current.requestId, block: item.block })
       if (display.truncated) replacement.unshift({ ...current, text: '[较早的执行过程未同步]' })
       if (!replacement.some(message => message.kind === 'claude')) replacement.push({ ...current, text: '' })
@@ -460,6 +468,12 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
     }
   }
   return applyCanSend(next)
+}
+
+function markInputProcessing(messages: Message[], requestId: string): Message[] {
+  const index = messages.findIndex(message => message.kind === 'input' && message.requestId === requestId && message.status === 'accepted' && !message.processingStarted)
+  if (index < 0) return messages
+  return messages.map((message, i) => i === index ? { ...message, processingStarted: true } : message)
 }
 
 // turn_started 归并（A5.1 §7.2）：同一 requestId 已有 Claude 回复是重复
@@ -518,7 +532,7 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
     // 重复、倒退或缺口：状态不可信，按协议错误处理（§6.2）。
     return { ...markPendingUnknown(state), phase: 'protocolError', canSend: false }
   }
-  const snapshotStart = state.snapshotStartPending === event.requestId && event.requestId !== ''
+  const snapshotStart = event.kind !== 'subagent_task' && state.snapshotStartPending === event.requestId && event.requestId !== ''
   let next: MobileState = { ...state, seqBase: event.seq, snapshotStartPending: snapshotStart ? '' : state.snapshotStartPending }
   if (event.sessionTitle !== undefined && next.sessionTitle === null) next.sessionTitle = event.sessionTitle
   if (event.lastActivityAt !== undefined) next.lastActivityAt = event.lastActivityAt
@@ -527,7 +541,7 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
     case 'input_steered': {
       if (!next.messages.some(message => message.kind === 'input' && message.requestId === event.requestId)) {
         const input = next.deferredInputs?.find(item => item.requestId === event.requestId)
-        next.messages = [...next.messages, input ?? { kind: 'input', source: event.source as InputMessage['source'], requestId: event.requestId, text: event.text, status: null }]
+        next.messages = [...next.messages, input ? { ...input, processingStarted: true } : { kind: 'input', source: event.source as InputMessage['source'], requestId: event.requestId, text: event.text, status: null }]
       }
       next.deferredInputs = next.deferredInputs?.filter(input => input.requestId !== event.requestId)
       next = withoutQueued(next, event.requestId)
@@ -540,6 +554,21 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
     case 'turn_progress':
       if (next.progressRequestId === event.requestId && next.messages.some(m => m.kind === 'claude' && m.requestId === event.requestId && m.status === 'streaming')) next.progress = event.progress ?? null
       break
+    case 'subagent_task': {
+      const update = event.subagentTask
+      if (!update) break
+      const tasks = next.subagentTasks ?? []
+      const index = tasks.findIndex(task => task.requestId === update.requestId && task.toolUseId === update.toolUseId)
+      const previous = tasks[index]
+      if (previous && previous.status !== 'running' && update.status === 'running') break
+      const recent = [...tasks.filter((_, i) => i !== index), { ...previous, ...update }]
+      if (recent.length > 16) {
+        const terminal = recent.findIndex(task => task.status !== 'running')
+        recent.splice(terminal < 0 ? 0 : terminal, 1)
+      }
+      next.subagentTasks = recent
+      break
+    }
     case 'session_diagnostic':
       break
     // session_* 事件按协议携带非空 sessionStatus（decoder 语义校验入口）。
@@ -548,6 +577,7 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       next.sessionId = event.sessionId
       break
     case 'session_failed':
+      next.messages = markInputProcessing(next.messages, state.progressRequestId || event.requestId)
       next.progress = null
       next.progressRequestId = ''
       next.sessionStatus = event.sessionStatus as MobileState['sessionStatus']
@@ -558,6 +588,7 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       next.queueDepthHint = 0
       break
     case 'session_stopped':
+      next.messages = markInputProcessing(next.messages, state.progressRequestId || event.requestId)
       if (next.turnStatus === 'running' || next.turnStatus === 'waiting') next.turnStatus = 'cancelled'
       next.progress = null
       next.progressRequestId = ''
@@ -594,38 +625,34 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       // 文本必须和结构化 block 共用一条有序流。若上一个条目仍是同一
       // Turn 的 Claude 文本，则继续合并流式增量；若中间已经出现 tool/
       // thinking，则新建文本片段，避免把后续文本搬到所有工具之后。
-      let lastIndex = -1
-      for (let i = next.messages.length - 1; i >= 0; i -= 1) {
-        if (next.messages[i]?.kind === 'claude' && next.messages[i]?.requestId === event.requestId) {
-          lastIndex = i
-          break
-        }
-        if (next.messages[i]?.requestId === event.requestId) break
+      next.messages = markInputProcessing(next.messages, event.requestId)
+      const replyIndex = next.messages.findLastIndex(message => message.kind === 'claude' && message.requestId === event.requestId)
+      const reply = next.messages[replyIndex]
+      if (reply?.kind !== 'claude') break
+      // A continuation of an ended turn stays before newer turns. Its text
+      // must never become the current cancel target.
+      const nextTurnIndex = reply.status !== 'streaming' ? next.messages.findIndex((message, index) =>
+        index > replyIndex && (message.kind === 'input' || message.kind === 'claude') && message.requestId !== event.requestId) : -1
+      const insertAt = nextTurnIndex < 0 ? next.messages.length : nextTurnIndex
+      const preceding = next.messages[insertAt - 1]
+      const merge = preceding?.kind === 'claude' && preceding.requestId === event.requestId &&
+        (preceding.text === '' || preceding.model === event.model)
+      const textMessage: ClaudeMessage = {
+        ...reply,
+        source: event.source as ClaudeMessage['source'],
+        text: merge ? preceding.text + event.text : event.text,
+        model: event.model || (merge ? preceding.model : undefined),
       }
-      const last = lastIndex >= 0 ? next.messages[lastIndex] : undefined
-      if (last !== undefined && last.kind === 'claude' && lastIndex === next.messages.length - 1) {
-        next.messages = [
-          ...next.messages.slice(0, lastIndex),
-          { ...last, text: last.text + event.text },
-          ...next.messages.slice(lastIndex + 1),
-        ]
-      } else if (last !== undefined || next.messages.some((m) => m.kind === 'claude' && m.requestId === event.requestId)) {
-        next.messages = [
-          ...next.messages,
-          {
-            kind: 'claude',
-            requestId: event.requestId,
-            source: event.source as ClaudeMessage['source'],
-            text: event.text,
-            status: 'streaming',
-            error: null,
-          },
-        ]
-      }
+      next.messages = [
+        ...next.messages.slice(0, merge ? insertAt - 1 : insertAt),
+        textMessage,
+        ...next.messages.slice(insertAt),
+      ]
       break
     }
     case 'turn_completed':
     case 'turn_failed': {
+      next.messages = markInputProcessing(next.messages, event.requestId)
       next.turnStatus = event.kind === 'turn_failed' ? 'failed' : event.turnStatus === 'cancelled' ? 'cancelled' : 'completed'
       next.progress = null
       next.progressRequestId = ''
@@ -648,12 +675,13 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       // decoder 已保证 content_block 必携 block；此处只做类型收窄。
       if (event.block !== undefined) {
         next.messages = [
-          ...next.messages,
+          ...markInputProcessing(next.messages, event.requestId),
           { kind: 'block', requestId: event.requestId, block: event.block },
         ]
       }
       break
     case 'action_required':
+      next.messages = markInputProcessing(next.messages, event.requestId)
       next.turnStatus = 'waiting'
       next.pendingAction = event.pendingAction ?? null
       break

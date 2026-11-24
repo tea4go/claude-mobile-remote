@@ -17,6 +17,7 @@ const (
 	// EventContentBlock carries one structured Thinking / tool / tool result
 	// title (B2 §4.2).
 	EventContentBlock EventKind = "content_block"
+	EventSubagentTask EventKind = "subagent_task"
 	// EventActionRequired and EventActionResolved bracket the pending action, so
 	// a client sees the same waiting state through both the event stream and the
 	// snapshot (B2 §3.2).
@@ -56,6 +57,9 @@ func (code UnsupportedCode) IsKnown() bool {
 }
 
 type Event struct {
+	SubagentTask    *SubagentTask `json:"subagentTask,omitempty"`
+	BackgroundChild bool          `json:"-"`
+	LateTurnContent bool          `json:"-"`
 	// Images are transient display data for a v8 terminal turn, never paths.
 	Images        []Attachment `json:"images,omitempty"`
 	ImagesOmitted int          `json:"imagesOmitted,omitempty"`
@@ -70,6 +74,7 @@ type Event struct {
 	RequestID     string             `json:"requestId"`
 	Source        InputSource        `json:"source"`
 	Text          string             `json:"text"`
+	Model         string             `json:"model,omitempty"`
 	SessionStatus SessionStatus      `json:"sessionStatus"`
 	TurnStatus    TurnStatus         `json:"turnStatus"`
 	Error         *ErrorInfo         `json:"error"`

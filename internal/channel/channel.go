@@ -103,6 +103,17 @@ func (c *Channel) Snapshot(ctx context.Context, sessionID string) (protocol.Snap
 	return snapshot, nil
 }
 
+func (c *Channel) ToolDetail(sessionID, requestID, toolUseID string) (protocol.ToolDetail, bool) {
+	if c.guard(sessionID) == nil {
+		if host, ok := c.controller.(interface {
+			ToolDetail(string, string) (protocol.ToolDetail, bool)
+		}); ok {
+			return host.ToolDetail(requestID, toolUseID)
+		}
+	}
+	return protocol.ToolDetail{}, false
+}
+
 func (c *Channel) ResolveAction(
 	ctx context.Context,
 	sessionID string,

@@ -5,6 +5,7 @@ import { decodeServerMessage } from './decode'
 import type {
   Attachment,
   ImageResultPayload,
+  ToolDetail, ToolDetailGetPayload,
   DomainEvent,
   EmptyPayload,
   ErrorInfo,
@@ -16,7 +17,7 @@ import type {
   SessionSnapshot,
   UnsupportedCode,
 } from './types'
-import { PROTOCOL_VERSION, PREFERRED_PROTOCOL_VERSION } from './types'
+import { PROTOCOL_VERSION, PREFERRED_PROTOCOL_VERSION, TOOL_DETAIL_PROTOCOL_VERSION } from './types'
 
 export type ActionDecision = 'allow_once' | 'allow_session' | 'deny'
 
@@ -249,7 +250,18 @@ export function createAnswersResolution(actionId: string, answers: Array<Questio
   return resolution
 }
 
+interface PendingToolDetail {
+  requestId: string
+  toolUseId: string
+  timer: number
+  resolve: (detail: ToolDetail) => void
+  reject: (error: Error) => void
+}
+
 export class ProtocolClient {
+  private toolDetailSerial: number = 0
+  private readonly toolDetails: Map<string, PendingToolDetail> = new Map()
+
   private readonly pairing: PairingPayload
   private socket: webSocket.WebSocket | null = null
   private stage: ClientStage = 'IDLE'
@@ -365,7 +377,10 @@ export class ProtocolClient {
       this.terminate('DISCONNECTED', businessErrorToInfo(err, 'socket error'))
     })
 
-    socket.connect(this.pairing.wsUrl, (err: BusinessError, value: boolean) => {
+    const address = this.pairing.wsUrl
+    const url = this.wireVersion >= TOOL_DETAIL_PROTOCOL_VERSION && !/[?&]toolTitles=/.test(address)
+      ? address + (address.includes('?') ? '&' : '?') + 'toolTitles=1' : address
+    socket.connect(url, (err: BusinessError, value: boolean) => {
       if (generation !== this.generation || this.socket !== socket) {
         return
       }
@@ -438,6 +453,7 @@ export class ProtocolClient {
     this.generation += 1
     this.socket = null
     this.stage = 'IDLE'
+    this.clearToolDetails()
     this.pendingCommandId = null
     this.pendingKind = null
     if (socket === null) {
@@ -545,6 +561,32 @@ export class ProtocolClient {
     })
   }
 
+  getToolDetail(requestId: string, toolUseId: string): Promise<ToolDetail> {
+    if (this.stage !== 'READY' || this.wireVersion < TOOL_DETAIL_PROTOCOL_VERSION || this.socket === null) {
+      return Promise.reject(new Error('电脑未连接或不支持按需工具详情'))
+    }
+    if (this.toolDetails.size >= 16) return Promise.reject(new Error('工具详情请求过多，请稍后重试'))
+    this.toolDetailSerial += 1
+    const commandId = `detail-${this.generation}-${this.toolDetailSerial}`
+    return new Promise<ToolDetail>((resolve: (detail: ToolDetail) => void, reject: (error: Error) => void) => {
+      const timer = setTimeout(() => {
+        this.toolDetails.delete(commandId)
+        reject(new Error('读取工具详情超时，请重试'))
+      }, 8000)
+      this.toolDetails.set(commandId, { requestId, toolUseId, timer, resolve, reject })
+      const payload: ToolDetailGetPayload = { toolUseId }
+      this.sendFrame(encodeEnvelope(this.wireVersion, 'tool_detail_get', this.pairing.sessionId, commandId, requestId, 0, payload as Object))
+    })
+  }
+
+  private clearToolDetails(): void {
+    this.toolDetails.forEach((pending: PendingToolDetail) => {
+      clearTimeout(pending.timer)
+      pending.reject(new Error('连接已断开，请重连后重试'))
+    })
+    this.toolDetails.clear()
+  }
+
   getImage(ref: string): boolean {
     if (this.stage !== 'READY' || this.wireVersion < 10 || this.socket === null || ref.length === 0 || ref.length > 128) return false
     const payload: ImageGetPayload = { ref }
@@ -576,6 +618,7 @@ export class ProtocolClient {
       ? makeError(error?.code ?? 'socket_closed', this.pairingDisconnectMessage(error))
       : error
     this.stage = 'IDLE'
+    this.clearToolDetails()
     const pendingCommandId = this.pendingCommandId
     this.pendingCommandId = null
     this.pendingKind = null
@@ -629,7 +672,7 @@ export class ProtocolClient {
     }
 
     if (
-      (message.type === 'image_result' || message.type === 'pong' || message.type === 'snapshot' ||
+      (message.type === 'tool_detail_result' || message.type === 'image_result' || message.type === 'pong' || message.type === 'snapshot' ||
         message.type === 'event' ||
         message.type === 'unsupported' ||
         message.type === 'command_result' ||
@@ -642,6 +685,19 @@ export class ProtocolClient {
     }
 
     switch (message.type) {
+      case 'tool_detail_result': {
+        const pending = this.toolDetails.get(message.commandId)
+        if (this.stage !== 'READY' || pending === undefined) return
+        if (pending.requestId !== message.requestId || pending.toolUseId !== message.payload.toolUseId) {
+          this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'tool detail does not match request'))
+          return
+        }
+        clearTimeout(pending.timer)
+        this.toolDetails.delete(message.commandId)
+        if (message.payload.detail === undefined) pending.reject(new Error('电脑端没有可读取的工具详情，结果可能已过期'))
+        else pending.resolve(message.payload.detail)
+        return
+      }
       case 'image_result':
         if (this.stage !== 'READY') { this.terminate('PROTOCOL_ERROR', makeError('protocol_error', 'unexpected image result')); return }
         this.observer?.onImageResult?.(message.payload)

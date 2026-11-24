@@ -1,3 +1,5 @@
+import { copyVisibleText } from '../native/clipboard'
+import { pageSlide } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
 import { MarkdownText } from './MarkdownText'
 import { FeedDataSource, feedRenderKey, projectFeed, type FeedRow, type ActivityFeedGroup } from '../ui/feedDataSource'
@@ -7,13 +9,18 @@ import { inputDisplayText } from '../session/inputDisplay'
 import type {
   Attachment,
   ContentBlock,
-  ResolvedAnswer,
+  ResolvedAnswer, SubagentTask, ToolDetail, ToolResultContentBlock,
 } from '../protocol/types'
 import type { FeedMessage, BlockFeedMessage } from '../session/model'
 
 function blockTitle(block: ContentBlock, requestId: string, tools: Map<string, string>): string {
   if (block.kind === 'thinking') return '思考过程'
-  if (block.kind === 'tool_use') return block.toolClass === 'mcp' ? `MCP：${block.mcpServer} / ${block.toolName}` : `工具：${block.toolName}`
+  if (block.kind === 'tool_use') {
+    if (block.toolClass === 'mcp') return `MCP：${block.mcpServer} / ${block.toolName}`
+    const name = block.toolName === 'Agent' || block.toolName === 'Task' ? '子代理' : block.toolName
+    const summary = block.titleSummary ?? block.preview ?? ''
+    return summary.length > 0 ? `${name} · ${summary.split('\n')[0]}` : name
+  }
   const toolName = toolNameForResult(tools, requestId, block.toolUseId)
   return toolName.length > 0 ? `工具结果 · ${toolName}` : '工具结果'
 }
@@ -30,26 +37,10 @@ function stepSummary(group: ActivityFeedGroup): string {
   return `查看 ${steps.length} 个步骤${count > 0 ? `，运行 ${count} 个工具` : ''}`
 }
 
-function blockBody(block: ContentBlock): string {
-  if (block.kind === 'thinking') {
-    return block.thinking.length > 0 ? block.thinking : 'thinking'
-  }
-  if (block.kind === 'tool_use') {
-    if (block.preview !== undefined && block.preview.length > 0) {
-      return `${block.toolName} · ${block.preview}`
-    }
-    return block.toolName
-  }
-  return (block.output ?? (block.isError ? '工具执行返回错误' : '工具执行已完成')) + (block.truncated ? '\n[结果已截断]' : '')
-}
-
-function inputStatusLabel(status: 'accepted' | 'unknown' | ''): string {
-  if (status === 'accepted') {
-    return ' · 已接收'
-  }
-  if (status === 'unknown') {
-    return ' · 结果未知（连接已断开）'
-  }
+function inputStatusLabel(message: FeedMessage, connected: boolean): string {
+  if (message.kind !== 'input') return ''
+  if (message.status === 'unknown') return '结果未知（连接已断开）'
+  if (connected && message.status === 'accepted' && message.processingStarted !== true) return '等待处理'
   return ''
 }
 
@@ -69,6 +60,7 @@ export struct MessageList {
   @State private atTop: boolean = true
   @State private atEnd: boolean = true
   @Prop debugEnabled: boolean = false
+  @Prop connected: boolean = true
   onDebugOpen: () => void = () => {}
   private readonly source: FeedDataSource = new FeedDataSource()
   @Link selectedActivity: ActivityFeedGroup | null
@@ -171,8 +163,9 @@ export struct MessageList {
                 }.padding({ left: 12, right: 12, top: 8, bottom: 8 })
                   .width(this.inputBubbleWidth(inputDisplayText(message.text), (message.attachments?.length ?? 0) > 0))
                   .constraintSize({ maxWidth: '100%' }).backgroundColor($r('app.color.primary_fill')).borderRadius(16)
-                Text(`${message.source === 'terminal' ? '电脑端' : '手机端'}${inputStatusLabel(message.status)}`)
-                  .fontSize(12).fontColor($r('app.color.text_secondary')).width('100%').textAlign(TextAlign.End)
+                if (inputStatusLabel(message, this.connected).length > 0) {
+                  Text(inputStatusLabel(message, this.connected)).fontSize(12).fontColor($r('app.color.text_secondary')).width('100%').textAlign(TextAlign.End)
+                }
               }.width('80%').alignItems(HorizontalAlign.End)
             }.width('100%')
           } else if (message.kind === 'answer') {
@@ -216,7 +209,7 @@ export struct MessageList {
             Text('步骤').fontSize(13)
           } else if (message.text.trim().length > 0 || message.status === 'streaming' || message.status === 'failed' || message.status === 'cancelled') {
             Column({ space: 8 }) {
-              Row({ space: 6 }) { Image($r('app.media.claude_mark')).width(18).height(18); Text('Claude').fontSize(12).fontColor($r('app.color.text_secondary')) }.width('100%')
+              Row({ space: 6 }) { Image($r('app.media.claude_mark')).width(18).height(18); Text(message.model ? 'Claude · ' + message.model : 'Claude').fontSize(12).fontColor($r('app.color.text_secondary')) }.width('100%')
 
               if (message.text.trim().length > 0) { Column() { MarkdownText({ text: message.text, scrollController: this.scroller }) }.padding(14).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16) }
 
@@ -266,74 +259,275 @@ export struct MessageList {
   }
 }
 
+export type ToolDetailLoader = (requestId: string, toolUseId: string) => Promise<ToolDetail>
+
+@Component
+struct ToolDetailContent {
+  @Prop @Watch('syncDetail') item: BlockFeedMessage
+  @Prop @Watch('syncDetail') result: ToolResultContentBlock | null = null
+  @Prop answers: string = ''
+  @Prop hideEmpty: boolean = false
+  load: ToolDetailLoader = (_requestId: string, _toolUseId: string) => Promise.reject(new Error('请先连接电脑'))
+  @State private detail: ToolDetail | null = null
+  @State private loading: boolean = false
+  @State private error: string = ''
+  private generation: number = 0
+  private detailKey: string = ''
+
+  aboutToAppear(): void { this.syncDetail() }
+  aboutToDisappear(): void { this.generation += 1 }
+
+  private syncDetail(): void {
+    const block = this.item.block
+    const key = block.kind === 'thinking' ? block.id : JSON.stringify([this.item.requestId, block.toolUseId,
+      block.detailAvailable, this.result?.id, this.result?.detailAvailable])
+    if (key !== this.detailKey) {
+      this.detailKey = key
+      this.readDetail()
+    }
+  }
+
+  private readDetail(): void {
+    const generation = ++this.generation
+    const block = this.item.block
+    this.detail = null
+    this.error = ''
+    this.loading = false
+    if (block.kind === 'thinking' || (block.detailAvailable !== true && this.result?.detailAvailable !== true)) return
+    this.loading = true
+    this.load(this.item.requestId, block.toolUseId).then((detail: ToolDetail) => {
+      if (generation !== this.generation) return
+      this.loading = false
+      this.detail = detail
+    }).catch((error: Error) => {
+      if (generation !== this.generation) return
+      this.loading = false
+      this.error = error.message
+    })
+  }
+
+  private shell(): boolean { return this.item.block.kind === 'tool_use' && this.item.block.toolName === 'Bash' }
+  private input(): string {
+    return this.detail?.input ?? (this.item.block.kind === 'tool_use' ? this.item.block.preview ?? '' : '')
+  }
+  private output(): string {
+    return this.detail?.output ?? this.result?.output ?? (this.item.block.kind === 'tool_result' ? this.item.block.output ?? '' : '')
+  }
+
+  @Builder
+  private code(label: string, text: string, copy: boolean, truncated: boolean): void {
+    Row() {
+      Text(label).fontSize(13).fontColor($r('app.color.text_secondary')).layoutWeight(1)
+      if (copy) {
+        Button(label === '命令' ? '复制命令' : '复制输出', { type: ButtonType.Normal }).height(36)
+          .backgroundColor(Color.Transparent).fontColor($r('app.color.primary')).onClick(() => { void copyVisibleText(text) })
+      }
+    }.width('100%')
+    Scroll() {
+      Text(text).fontSize(14).fontFamily('monospace').copyOption(CopyOptions.LocalDevice)
+    }.scrollable(ScrollDirection.Horizontal).width('100%').align(Alignment.TopStart)
+      .padding(10).backgroundColor($r('app.color.surface_subtle')).borderRadius(8)
+    if (truncated) Text('内容过长，已截断，请在电脑端查看完整内容').fontSize(12).fontColor($r('app.color.text_secondary'))
+  }
+
+  build() {
+    Column({ space: 8 }) {
+      if (this.item.block.kind === 'thinking') {
+        MarkdownText({ text: this.item.block.thinking })
+      } else if (this.loading) {
+        Row({ space: 8 }) { LoadingProgress().width(20).height(20); Text('正在从电脑加载工具详情') }.height(52)
+      } else if (this.error.length > 0) {
+        Text(this.error).fontSize(14)
+        Button('重试').onClick(() => this.readDetail())
+      } else {
+        if (this.input().length > 0) this.code(this.shell() ? '命令' : '输入', this.input(), this.shell() && !this.detail?.inputTruncated, this.detail?.inputTruncated === true)
+        if (this.answers.length > 0) this.code('已提交的答案', this.answers, false, false)
+        if (this.output().length > 0 && this.output().trim() !== this.answers.trim()) this.code('结果', this.output(), this.shell(), this.detail?.outputTruncated === true || this.result?.truncated === true)
+        else if (this.answers.length === 0) {
+          if (this.result !== null || this.item.block.kind === 'tool_result') Text('工具已返回，结果没有可显示的文本。').fontSize(13)
+          else if (this.input().length === 0 && !this.hideEmpty) Text('暂无可显示的工具详情').fontSize(13)
+        }
+      }
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+}
+
 @Component
 export struct ActivityOverlay {
   @Link selectedActivity: ActivityFeedGroup | null
   @Link selectedStep: number
   @Prop messages: Array<FeedMessage> = []
+  @Prop tasks: Array<SubagentTask> = []
   @Prop debugEnabled: boolean = false
   @Prop pageHeight: number = 720
+  @State private expandedTool: string = ''
+  load: ToolDetailLoader = (_requestId: string, _toolUseId: string) => Promise.reject(new Error('请先连接电脑'))
   onDebugOpen: () => void = () => {}
+
+  private task(item: BlockFeedMessage): SubagentTask | undefined {
+    const block = item.block
+    return block.kind !== 'thinking' ? this.tasks.find((task: SubagentTask) =>
+      task.requestId === item.requestId && task.toolUseId === block.toolUseId) : undefined
+  }
+
+  private title(item: BlockFeedMessage): string {
+    if (item.block.kind === 'tool_use' && !item.block.titleSummary && !item.block.preview) {
+      const summary = this.task(item)?.summary
+      if (summary) return `子代理 · ${summary}`
+    }
+    return blockTitle(item.block, item.requestId, toolNamesByTurn(this.messages))
+  }
+
+  private status(item: BlockFeedMessage): string {
+    const task = this.task(item)
+    if (task !== undefined) {
+      if (task.status === 'completed') return '成功'
+      if (task.status === 'failed') return '失败'
+      if (task.status === 'cancelled') return '已取消'
+      return '执行中'
+    }
+    if (item.block.kind === 'thinking') return ''
+    const result = this.result(item)
+    if (result !== null) return result.isError ? '失败' : '成功'
+    const parent = item.block.parentToolUseId
+    const owner = parent === undefined ? undefined : this.tasks.find((candidate: SubagentTask) =>
+      candidate.requestId === item.requestId && candidate.toolUseId === parent)
+    if (owner !== undefined) return owner.status === 'running' ? '执行中' : '结果未收到'
+    return toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) ?? '执行中'
+  }
+
+  private result(item: BlockFeedMessage): ToolResultContentBlock | null {
+    const block = item.block
+    if (block.kind === 'thinking') return null
+    const result = this.messages.find((entry: FeedMessage) =>
+      entry.kind === 'block' && entry.requestId === item.requestId && entry.block.kind === 'tool_result' &&
+      entry.block.toolUseId === block.toolUseId)
+    return result?.kind === 'block' && result.block.kind === 'tool_result' ? result.block : null
+  }
+
+  private answers(item: BlockFeedMessage): string {
+    if (item.block.kind !== 'tool_use' || item.block.toolClass !== 'builtin' || item.block.toolName !== 'AskUserQuestion') return ''
+    const tools = new Set<string>()
+    let result = ''
+    for (const entry of this.messages) {
+      if (entry.requestId !== item.requestId) continue
+      if (entry.kind === 'block' && entry.block.kind === 'tool_use' && entry.block.toolName === 'AskUserQuestion') tools.add(entry.block.toolUseId)
+      if (entry.kind === 'answer') {
+        if (result.length > 0) return ''
+        result = entry.answers.map((answer: ResolvedAnswer) => answer.question + '\n' + answer.values.join('、')).join('\n\n')
+      }
+    }
+    return tools.size === 1 ? result : ''
+  }
+
+  private children(item: BlockFeedMessage): BlockFeedMessage[] {
+    const block = item.block
+    if (block.kind !== 'tool_use') return []
+    const candidates: BlockFeedMessage[] = []
+    for (const message of this.messages) {
+      if (message.kind === 'block' && message.requestId === item.requestId && message.block.kind !== 'thinking' &&
+        message.block.parentToolUseId === block.toolUseId) candidates.push(message)
+    }
+    const group: ActivityFeedGroup = { kind: 'activity', requestId: item.requestId, blocks: candidates }
+    return visibleSteps(group)
+  }
+
+  private isAgent(item: BlockFeedMessage): boolean {
+    return item.block.kind === 'tool_use' && (item.block.toolName === 'Agent' || item.block.toolName === 'Task')
+  }
+
+  @Builder
+  private mark(item: BlockFeedMessage): void {
+    if (this.status(item) === '执行中') LoadingProgress().width(18).height(18).accessibilityText('执行中')
+    else if (this.status(item).length > 0) {
+      Text(this.status(item)).fontSize(12).fontColor(Color.White)
+        .backgroundColor(this.status(item) === '成功' ? $r('app.color.badge_success') : $r('app.color.badge_warning'))
+        .borderRadius(12).padding({ left: 8, right: 8, top: 2, bottom: 2 })
+    }
+  }
+
+  @Builder
+  private detailPage(item: BlockFeedMessage): void {
+    Column() {
+      Row({ space: 8 }) {
+        Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(22).height(22) }
+          .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('返回步骤')
+          .onClick(() => { this.selectedStep = -1; this.expandedTool = '' })
+        Text(this.title(item)).fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        this.mark(item)
+      }.width('100%').padding({ right: 14 })
+      Scroll() {
+        Column({ space: 10 }) {
+          if (this.isAgent(item)) {
+            Text('子工具').fontSize(15).fontWeight(FontWeight.Medium)
+            if (this.children(item).length === 0) Text('暂未收到子工具').fontSize(13)
+            ForEach(this.children(item), (child: BlockFeedMessage) => {
+              Column() {
+                Button({ type: ButtonType.Normal }) {
+                  Row({ space: 8 }) {
+                    Text(this.title(child)).fontSize(14).layoutWeight(1).textAlign(TextAlign.Start)
+                    this.mark(child)
+                    Text(this.expandedTool === child.block.id ? '⌄' : '›')
+                  }.width('100%')
+                }.width('100%').constraintSize({ minHeight: 44 }).backgroundColor(Color.Transparent)
+                  .onClick(() => { this.expandedTool = this.expandedTool === child.block.id ? '' : child.block.id })
+                if (this.expandedTool === child.block.id) {
+                  ToolDetailContent({ item: child, result: this.result(child), answers: this.answers(child), load: this.load })
+                }
+              }.width('100%').padding(8).backgroundColor($r('app.color.surface')).borderRadius(10)
+            }, (child: BlockFeedMessage) => child.block.id)
+          }
+          ToolDetailContent({ item, result: this.result(item), answers: this.answers(item), hideEmpty: this.isAgent(item), load: this.load })
+        }.width('100%').padding(14).alignItems(HorizontalAlign.Start)
+      }.layoutWeight(1).width('100%').align(Alignment.TopStart)
+    }.width('100%').height('100%').backgroundColor($r('app.color.surface'))
+      .transition(pageSlide())
+      .gesture(PanGesture({ direction: PanDirection.Right, distance: 32 })
+        .onActionStart((event: GestureEvent) => {
+          if ((event.fingerList[0]?.localX ?? 100) - event.offsetX <= 22) { this.selectedStep = -1; this.expandedTool = '' }
+        }))
+  }
+
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-    if (this.selectedActivity !== null) {
-      Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })
-      Column() {
-        Blank().width(36).height(5).backgroundColor($r('app.color.border')).borderRadius(3).margin({ top: 10, bottom: 10 })
-        Row({ space: 8 }) {
-          if (this.selectedStep >= 0) {
-            Button({ type: ButtonType.Normal }) { Image($r('app.media.nav_back')).width(22).height(22) }
-              .width(36).height(44).padding(0).backgroundColor(Color.Transparent).onClick(() => { this.selectedStep = -1 })
-          }
-          Text(this.selectedStep >= 0 ? blockTitle(visibleSteps(this.selectedActivity as ActivityFeedGroup)[this.selectedStep].block, (this.selectedActivity as ActivityFeedGroup).requestId, toolNamesByTurn(this.messages)) : stepSummary(this.selectedActivity as ActivityFeedGroup))
-            .fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (this.debugEnabled) { Button('调试', { type: ButtonType.Normal }).height(44).fontColor($r('app.color.primary')).backgroundColor(Color.Transparent).onClick(() => this.onDebugOpen()) }
-          Button({ type: ButtonType.Normal }) { Image($r('app.media.drawer_close')).width(18).height(18) }
-            .width(44).height(44).padding(0).backgroundColor($r('app.color.surface_subtle')).border({ width: 1, color: $r('app.color.border') }).borderRadius(22).onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })
-        }.width('100%').padding({ left: 20, right: 20, bottom: 14 })
-        Blank().height(1).width('100%').backgroundColor($r('app.color.border'))
-        Scroll() {
+      if (this.selectedActivity !== null) {
+        if (this.selectedStep >= 0 && this.selectedStep < visibleSteps(this.selectedActivity as ActivityFeedGroup).length) {
+          this.detailPage(visibleSteps(this.selectedActivity as ActivityFeedGroup)[this.selectedStep])
+        } else {
+          Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })
           Column() {
-            ForEach(visibleSteps(this.selectedActivity as ActivityFeedGroup), (item: BlockFeedMessage, itemIndex: number) => {
-              if (this.selectedStep < 0) {
-                Row({ space: 10 }) {
-                  Column() {
-                    Blank().width(8).height(8).borderRadius(4).backgroundColor(item.block.kind === 'thinking' ? $r('app.color.primary_fill') : (toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) === '已完成' ? $r('app.color.badge_success') : $r('app.color.badge_warning')))
-                    if (itemIndex < visibleSteps(this.selectedActivity as ActivityFeedGroup).length - 1) { Blank().width(1).layoutWeight(1).backgroundColor($r('app.color.border')) }
-                  }.width(10).height('100%').padding({ top: 6 })
-                  Column({ space: 4 }) {
-                    Row({ space: 8 }) {
-                      Text(blockTitle(item.block, item.requestId, toolNamesByTurn(this.messages))).fontSize(15).layoutWeight(1).maxLines(1)
-                      if (item.block.kind === 'tool_use') {
-                        Text(toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) === '已完成' ? '成功' : (toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) ?? '执行中'))
-                          .fontSize(12).fontColor(Color.White).backgroundColor(toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) === '已完成' ? $r('app.color.badge_success') : $r('app.color.badge_warning')).borderRadius(12).padding({ left: 8, right: 8, top: 2, bottom: 2 })
-                      }
-                      Text('›').fontSize(22).fontColor($r('app.color.text_secondary'))
+            Blank().width(36).height(5).backgroundColor($r('app.color.border')).borderRadius(3).margin({ top: 10, bottom: 10 })
+            Row({ space: 8 }) {
+              Text(stepSummary(this.selectedActivity as ActivityFeedGroup)).fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1)
+              if (this.debugEnabled) { Button('调试').height(44).onClick(() => this.onDebugOpen()) }
+              Button({ type: ButtonType.Normal }) { Image($r('app.media.drawer_close')).width(18).height(18) }
+                .width(44).height(44).backgroundColor($r('app.color.surface_subtle')).accessibilityText('关闭步骤')
+                .onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })
+            }.width('100%').padding({ left: 20, right: 20, bottom: 14 })
+            Scroll() {
+              Column() {
+                ForEach(visibleSteps(this.selectedActivity as ActivityFeedGroup), (item: BlockFeedMessage, index: number) => {
+                  Button({ type: ButtonType.Normal }) {
+                    Row({ space: 10 }) {
+                      Stack() {
+                        if (index < visibleSteps(this.selectedActivity as ActivityFeedGroup).length - 1) {
+                          Column().width(1).height(44).backgroundColor($r('app.color.border')).translate({ y: 22 })
+                        }
+                        Column().width(8).height(8).borderRadius(4).backgroundColor($r('app.color.primary_fill'))
+                      }.width(10).height(44)
+                      Text(this.title(item)).fontSize(15).layoutWeight(1).maxLines(2).textAlign(TextAlign.Start)
+                      this.mark(item)
+                      Text('›').fontSize(20).fontColor($r('app.color.text_secondary'))
                     }.width('100%')
-                    if (item.block.kind === 'tool_use' && (item.block.preview ?? '').length > 0) {
-                      Text(item.block.preview ?? '').fontSize(13).fontColor($r('app.color.text_secondary')).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-                    }
-                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                }.width('100%').height(itemIndex === visibleSteps(this.selectedActivity as ActivityFeedGroup).length - 1 ? 74 : 100).padding({ left: 20, right: 20, top: 18 }).alignItems(VerticalAlign.Top).onClick(() => { this.selectedStep = itemIndex })
-              } else if (this.selectedStep === itemIndex) {
-                Column({ space: 18 }) {
-                  Text(item.block.kind === 'thinking' ? '内容' : item.block.kind === 'tool_use' ? '输入' : '结果').fontSize(13).fontColor($r('app.color.text_secondary')).width('100%')
-                  Text(blockBody(item.block)).fontSize(15).fontColor($r('app.color.text')).copyOption(CopyOptions.LocalDevice).width('100%')
-                  if (item.block.kind === 'tool_use') {
-                    ForEach((this.selectedActivity as ActivityFeedGroup).blocks, (result: BlockFeedMessage) => {
-                      if (result.block.kind === 'tool_result' && item.block.kind === 'tool_use' && result.block.toolUseId === item.block.toolUseId) {
-                        Text('结果').fontSize(13).fontColor($r('app.color.text_secondary')).width('100%')
-                        Text(blockBody(result.block)).fontSize(15).fontColor($r('app.color.text')).copyOption(CopyOptions.LocalDevice).width('100%')
-                      }
-                    }, (result: BlockFeedMessage) => result.block.id)
-                  }
-                }.width('100%').padding({ left: 24, right: 24, top: 18, bottom: 24 }).alignItems(HorizontalAlign.Start)
-              }
-            }, (item: BlockFeedMessage, itemIndex: number) => `${itemIndex}-${item.block.id}`)
-          }.width('100%').alignItems(HorizontalAlign.Start)
-        }.width('100%').constraintSize({ maxHeight: this.pageHeight * 0.72 }).align(Alignment.TopStart)
-      }.padding({ bottom: 16 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius({ topLeft: 24, topRight: 24 })
-    }
+                  }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: 16, right: 16 })
+                    .backgroundColor(Color.Transparent).onClick(() => { this.selectedStep = index; this.expandedTool = '' })
+                }, (item: BlockFeedMessage) => item.block.id)
+              }.width('100%')
+            }.width('100%').constraintSize({ maxHeight: this.pageHeight * 0.72 }).align(Alignment.TopStart)
+          }.padding({ bottom: 16 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius({ topLeft: 24, topRight: 24 })
+        }
+      }
     }.width('100%').height('100%')
   }
 }

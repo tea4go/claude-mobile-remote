@@ -47,9 +47,9 @@ function displayMessage(message: FeedMessage): FeedMessage | null {
           attachments.push(saved)
         }
       })
-      return { kind: 'input', requestId: message.requestId, source: message.source, text: message.text, attachments, status: message.status === 'unknown' ? 'unknown' : 'accepted' }
+      return { kind: 'input', requestId: message.requestId, source: message.source, text: message.text, attachments, processingStarted: true, status: message.status === 'unknown' ? 'unknown' : 'accepted' }
     }
-    return { kind: 'claude', requestId: message.requestId, source: message.source, text: message.text,
+    return { kind: 'claude', requestId: message.requestId, source: message.source, text: message.text, model: validText(message.model, 128) ? message.model : undefined,
       status: message.status === 'failed' || message.status === 'cancelled' ? message.status : 'done', error: null }
   }
   if (message.kind === 'block' || message.kind === 'answer') {
@@ -57,10 +57,14 @@ function displayMessage(message: FeedMessage): FeedMessage | null {
       const event = message.kind === 'block'
         ? `"kind":"content_block","turnStatus":"","block":${JSON.stringify(message.block)}`
         : `"kind":"action_resolved","turnStatus":"running","answers":${JSON.stringify(message.answers)}`
-      const wire = `{"version":4,"type":"event","sessionId":"cache","requestId":${JSON.stringify(message.requestId)},"commandId":"","seq":1,"payload":{"event":{"seq":1,"sessionId":"cache","requestId":${JSON.stringify(message.requestId)},"source":"mobile","text":"","sessionStatus":"","error":null,${event}}}}`
+      const wire = `{"version":14,"type":"event","sessionId":"cache","requestId":${JSON.stringify(message.requestId)},"commandId":"","seq":1,"payload":{"event":{"seq":1,"sessionId":"cache","requestId":${JSON.stringify(message.requestId)},"source":"mobile","text":"","sessionStatus":"","error":null,${event}}}}`
       const decoded = decodeServerMessage(wire)
       if (decoded.type !== 'event') return null
-      if (decoded.payload.event.block !== undefined) return { kind: 'block', requestId: message.requestId, block: decoded.payload.event.block }
+      const block = decoded.payload.event.block
+      if (block !== undefined) {
+        if (block.kind === 'tool_result') { block.output = undefined; block.truncated = undefined }
+        return { kind: 'block', requestId: message.requestId, block }
+      }
       if (decoded.payload.event.answers !== undefined) return { kind: 'answer', requestId: message.requestId, answers: decoded.payload.event.answers }
     } catch (_) { return null }
   }

@@ -3,15 +3,20 @@ import SessionIcon from './SessionIcon'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Tag } from 'antd-mobile'
 import MessageMarkdown from './MessageMarkdown'
-import ActivityGroup, { type Activity } from './ActivityGroup'
+import ActivityGroup, { ActivitySummary, type Activity } from './ActivityGroup'
+import type { LoadToolDetail } from './ToolDetailPage'
 import { inputDisplayText } from '../session/inputDisplay'
 import SelectableMessage from './SelectableMessage'
 import { FONT_SIZE_COMPACT } from './ui'
-import type { Message } from '../session/reducer'
+import type { BlockMessage, Message } from '../session/reducer'
+import type { SubagentTask } from '../protocol/types'
 
 interface MessageFeedProps {
   messages: Message[]
+  subagentTasks?: SubagentTask[]
   scrollContainerRef?: RefObject<HTMLDivElement | null>
+  loadToolDetail?: LoadToolDetail
+  connected?: boolean
 }
 
 // tool_result 关联工具名（B2 §6）：向前找同一 toolUseId 的 tool_use。
@@ -32,6 +37,7 @@ function resolveToolName(messages: Message[], index: number, toolUseId: string):
 type DisplayItem =
   | { kind: 'message'; message: Exclude<Message, { kind: 'block' }> }
   | { kind: 'activities'; requestId: string; activities: Activity[] }
+type ActivityItem = Extract<DisplayItem, { kind: 'activities' }>
 
 // turn_started 会先追加一条空文本的 Claude 占位消息，随后的文本事件因为中间夹了
 // 内容块而另起一条（reducer）。占位消息没有任何可展示内容，渲染出来只是一个孤立的
@@ -46,15 +52,60 @@ function hasVisibleContent(message: Exclude<Message, { kind: 'block' }>): boolea
   return message.status === 'failed' && message.error !== null
 }
 
-function buildDisplayItems(messages: Message[]): DisplayItem[] {
+const toolKey = (requestId: string, toolUseId: string) => JSON.stringify([requestId, toolUseId])
+
+function addSubagentSnapshot(messages: Message[], tasks: SubagentTask[]): Message[] {
+  if (tasks.length === 0) return messages
+  const observed = new Set(messages.flatMap(message => message.kind === 'block' && message.block.kind !== 'thinking'
+    ? [toolKey(message.requestId, message.block.kind + ':' + message.block.toolUseId)] : []))
+  const roots: BlockMessage[] = []
+  const calls = new Map<string, BlockMessage[]>()
+  const results: BlockMessage[] = []
+  for (const task of tasks) {
+    const { requestId, toolUseId } = task
+    if (!observed.has(toolKey(requestId, 'tool_use:' + toolUseId))) {
+      roots.push({ kind: 'block', requestId, block: {
+        id: toolUseId, kind: 'tool_use', toolUseId, toolClass: 'builtin', toolName: 'Agent', mcpServer: '',
+      } })
+    }
+    for (const block of task.blocks ?? []) {
+      if (!observed.has(toolKey(requestId, block.kind + ':' + block.toolUseId))) {
+        const message = { kind: 'block' as const, requestId, block }
+        if (block.kind === 'tool_result') results.push(message)
+        else {
+          const key = toolKey(requestId, toolUseId)
+          const group = calls.get(key)
+          if (group) group.push(message)
+          else calls.set(key, [message])
+        }
+      }
+    }
+  }
+  return [...roots, ...messages].flatMap(message => {
+    if (message.kind !== 'block' || message.block.kind !== 'tool_use') return [message]
+    return [message, ...(calls.get(toolKey(message.requestId, message.block.toolUseId)) ?? [])]
+  }).concat(results)
+}
+
+function buildDisplayItems(messages: Message[], subagentTasks: SubagentTask[], revised: boolean): DisplayItem[] {
+  messages = addSubagentSnapshot(messages, subagentTasks)
+  const tasks = new Map(subagentTasks.map(task => [toolKey(task.requestId, task.toolUseId), task]))
   const items: DisplayItem[] = []
   const pendingTools = new Map<string, Extract<Activity, { kind: 'tool' }>>()
+  const parentPanels = new Map<string, Extract<Activity, { kind: 'tool' }>>()
+  const askTools = new Map<string, Extract<Activity, { kind: 'tool' }>[]>()
   const completedTurns = new Set(messages.filter((message) => message.kind === 'claude' && message.status !== 'streaming').map((message) => message.requestId))
 
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index]
     if (message === undefined) continue
     if (message.kind !== 'block') {
+      if (revised && message.kind === 'answer') {
+        const pendingQuestions = askTools.get(message.requestId)?.filter(tool => !tool.answers && !tool.result)
+        if (pendingQuestions?.length === 1) {
+          pendingQuestions[0].answers = message.answers.map(answer => `${answer.question}\n${answer.values.join('、')}`).join('\n\n')
+        }
+      }
       if (hasVisibleContent(message)) items.push({ kind: 'message', message })
       continue
     }
@@ -67,34 +118,43 @@ function buildDisplayItems(messages: Message[]): DisplayItem[] {
       })
       continue
     }
+    const key = toolKey(message.requestId, block.toolUseId)
+    const parentKey = block.parentToolUseId ? toolKey(message.requestId, block.parentToolUseId) : ''
+    const parent = (revised ? parentPanels.get(parentKey) : undefined) ?? pendingTools.get(parentKey)
     if (block.kind === 'tool_use') {
+      const existing = pendingTools.get(key)
+      if (revised && existing) {
+        existing.tool = block
+        continue
+      }
       const activity: Extract<Activity, { kind: 'tool' }> = {
         kind: 'tool',
-        id: block.id,
+        id: revised ? key : block.id,
         tool: block,
-        turnEnded: completedTurns.has(message.requestId),
+        subagent: tasks.get(key),
+        turnEnded: parent?.subagent ? parent.subagent.status !== 'running' : completedTurns.has(message.requestId),
       }
-      pendingTools.set(JSON.stringify([message.requestId, block.toolUseId]), activity)
-      items.push({ kind: 'activities', requestId: message.requestId, activities: [activity] })
+      pendingTools.set(key, activity)
+      if (revised && block.toolClass === 'builtin' && block.toolName === 'AskUserQuestion') {
+        const awaiting = askTools.get(message.requestId)
+        if (awaiting) awaiting.push(activity)
+        else askTools.set(message.requestId, [activity])
+      }
+      if (parent) {
+        parentPanels.set(key, parent)
+        const children = parent.children ??= []
+        children.push(activity)
+      } else items.push({ kind: 'activities', requestId: message.requestId, activities: [activity] })
       continue
     }
-    const pending = pendingTools.get(JSON.stringify([message.requestId, block.toolUseId]))
+    const pending = pendingTools.get(key)
     if (pending !== undefined) {
       pending.result = block
       continue
     }
-    items.push({
-      kind: 'activities',
-      requestId: message.requestId,
-      activities: [
-        {
-          kind: 'result',
-          id: block.id,
-          toolName: resolveToolName(messages, index, block.toolUseId),
-          result: block,
-        },
-      ],
-    })
+    const activity: Activity = { kind: 'result', id: revised ? 'result:' + key : block.id, toolName: resolveToolName(messages, index, block.toolUseId), result: block }
+    if (parent) (parent.children ??= []).push(activity)
+    else items.push({ kind: 'activities', requestId: message.requestId, activities: [activity] })
   }
 
   // 结果已经吸收到对应工具项；只有文本与输入消息会打断连续活动分组，
@@ -113,11 +173,18 @@ function buildDisplayItems(messages: Message[]): DisplayItem[] {
 
 // 易失消息流（D32）：本连接期内手机输入、来源标记、Claude 流式文本与失败反馈。
 // 用户输入和 Claude 文本均使用受限 Markdown 渲染。
-export default function MessageFeed({ messages, scrollContainerRef }: MessageFeedProps) {
+function ClaudeTitle({ model }: { model?: string }) {
+  return <div style={{ fontSize: FONT_SIZE_COMPACT, color: model ? '#68748a' : '#8c8c8c', overflowWrap: 'anywhere' }}>
+    <span className="claude-avatar"><SessionIcon name="logo" size={20} /></span>Claude{model && ` · ${model}`}
+  </div>
+}
+
+export default function MessageFeed({ messages, subagentTasks = [], scrollContainerRef, loadToolDetail, connected = true }: MessageFeedProps) {
   const feedRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
   const [expandedTurns, setExpandedTurns] = useState<Set<string>>(() => new Set())
+  const [drawer, setDrawer] = useState<{ key: number; item: ActivityItem } | null>(null)
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef?.current
@@ -137,7 +204,15 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
     }
   }, [messages])
 
-  const displayItems = buildDisplayItems(messages)
+  const displayItems = buildDisplayItems(messages, subagentTasks, loadToolDetail !== undefined)
+  const drawerItem = drawer && (displayItems.find((item): item is ActivityItem =>
+    item.kind === 'activities' && item.requestId === drawer.item.requestId &&
+    item.activities.some(activity => drawer.item.activities.some(previous => previous.id === activity.id))
+  ) ?? drawer.item)
+  const steps = (item: ActivityItem, variant: 'inline' | 'card') => loadToolDetail
+    ? <ActivitySummary activities={item.activities} variant={variant}
+        onOpen={() => setDrawer(current => ({ key: (current?.key ?? 0) + 1, item }))} />
+    : <ActivityGroup activities={item.activities} requestId={item.requestId} variant={variant} />
   // Long turns keep the final reply visible while the execution history stays
   // unmounted until explicitly opened. Its original item order is preserved.
   const longTurns = new Map<string, { first: number; last: number; final: number }>()
@@ -149,7 +224,9 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
     if (!group) longTurns.set(id, { first: i, last: i, final: item.kind === 'message' ? i : -1 })
     else { group.last = i; if (item.kind === 'message') group.final = i }
   }
+  const runningSubagentTurns = new Set(subagentTasks.filter(task => task.status === 'running').map(task => task.requestId))
   for (const [id, group] of longTurns) {
+    if (runningSubagentTurns.has(id)) { longTurns.delete(id); continue }
     const slice = displayItems.slice(group.first, group.last + 1)
     if (slice.filter(item => item.kind === 'activities').length < 8 || slice.some(item => (item.kind === 'activities' ? item.requestId : item.message.requestId) !== id) || group.final !== group.last) longTurns.delete(id)
   }
@@ -176,14 +253,14 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
         }
         if (group && index === group.first && expandedTurns.has(id!)) {
           // The toggle precedes the first item without changing its position.
-          return <div key={`expanded-${id}`}><button type="button" onClick={() => setExpandedTurns(current => { const next = new Set(current); next.delete(id!); return next })}>收起执行过程</button>{item.kind === 'activities' ? <ActivityGroup activities={item.activities} variant="card" /> : item.message.kind === 'claude' && <SelectableMessage><MessageMarkdown text={item.message.text} /></SelectableMessage>}</div>
+          return <div key={`expanded-${id}`}><button type="button" onClick={() => setExpandedTurns(current => { const next = new Set(current); next.delete(id!); return next })}>收起执行过程</button>{item.kind === 'activities' ? steps(item, 'card') : item.message.kind === 'claude' && <><ClaudeTitle model={item.message.model} /><SelectableMessage><MessageMarkdown text={item.message.text} /></SelectableMessage></>}</div>
         }
         if (item.kind === 'activities') {
           // 结构化活动是行式摘要（参考图），占满行宽而不是气泡宽度。
           const previous = displayItems[index - 1]
           return (
-            <div key={`activities-${index}`} style={{ alignSelf: 'stretch' }}>
-              <ActivityGroup activities={item.activities} variant={previous?.kind === 'message' && previous.message.kind === 'claude' ? 'inline' : 'card'} />
+            <div key={`activities-${item.requestId}-${item.activities[0]?.id}`} style={{ alignSelf: 'stretch' }}>
+              {steps(item, previous?.kind === 'message' && previous.message.kind === 'claude' ? 'inline' : 'card')}
             </div>
           )
         }
@@ -198,6 +275,10 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
               : message.status === 'unknown'
                 ? ' · 结果未知（连接已断开）'
                 : ''
+          const tip = loadToolDetail
+            ? message.status === 'unknown' ? '结果未知（连接已断开）'
+              : connected && message.status === 'accepted' && !message.processingStarted ? '等待处理' : ''
+            : sourceLabel + statusLabel
           return (
             <div key={index} style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
               <SelectableMessage selectionTone="inverse" style={{ background: '#3478f6', color: '#fff', borderRadius: 20, padding: '12px 16px' }}>
@@ -207,10 +288,7 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
                   <span style={{ fontSize: FONT_SIZE_COMPACT }}>{attachment.name}</span>
                 </div>)}
               </SelectableMessage>
-              <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888', textAlign: 'right' }}>
-                {sourceLabel}
-                {statusLabel}
-              </div>
+              {tip && <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#888', textAlign: 'right' }}>{tip}</div>}
             </div>
           )
         }
@@ -233,7 +311,7 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
         // Claude正文使用浅灰气泡，保留全宽Markdown和横向滚动空间。
         return (
           <div key={`message-${index}`} style={{ alignSelf: 'stretch' }}>
-            <div style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c' }}><span className="claude-avatar"><SessionIcon name="logo" size={20} /></span>Claude</div>
+            <ClaudeTitle model={message.model} />
             {message.text !== '' && (
               <SelectableMessage style={{ marginTop: 4, background: '#fff', border: '1px solid #e0e7f1', color: '#34435b', borderRadius: 20, padding: '14px 16px', wordBreak: 'break-word' }}>
                 <MessageMarkdown text={message.text} />
@@ -247,6 +325,8 @@ export default function MessageFeed({ messages, scrollContainerRef }: MessageFee
           </div>
         )
       })}
+      {drawer && drawerItem && <ActivityGroup key={drawer.key} drawerOnly
+        activities={drawerItem.activities} requestId={drawerItem.requestId} loadToolDetail={loadToolDetail} />}
       <div ref={bottomRef} />
     </div>
   )

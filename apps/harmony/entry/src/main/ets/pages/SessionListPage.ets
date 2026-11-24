@@ -293,7 +293,6 @@ export struct SessionListPage {
                   }.padding({ left: 16, right: 16, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16)
                 } else if (row.kind === 'project' && row.pc !== undefined && row.project !== undefined) {
                   Column() {
-                    if (row.showDivider) { Divider().color('#dfe6f1') }
                     Row({ space: 8 }) {
                       Column({ space: 4 }) {
                         Row({ space: 6 }) { Image(this.collapsed.indexOf((row.project as ProjectGroup).key) >= 0 ? $r('app.media.directory_collapse') : $r('app.media.directory_expand')).width(16).height(16); Text((row.project as ProjectGroup).title).fontSize(15).fontWeight(FontWeight.Medium).layoutWeight(1).maxLines(1) }.width('100%')

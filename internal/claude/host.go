@@ -393,7 +393,7 @@ func (h *Host) RunTurn(ctx context.Context, prompt string, emit func(Event)) err
 			switch item.kind {
 			case EventText:
 				emittedText = true
-				emit(Event{Kind: EventText, SessionID: h.sessionID, Text: item.text})
+				emit(Event{Kind: EventText, SessionID: h.sessionID, Text: item.text, Model: item.model})
 			case EventContentBlock:
 				emit(Event{Kind: EventContentBlock, SessionID: h.sessionID, Block: item.block})
 			case EventUnsupported:

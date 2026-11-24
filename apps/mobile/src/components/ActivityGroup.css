@@ -10,3 +10,26 @@
 
 .activity-summary--card { background: white !important; border: 1px solid #e0e7f1 !important; border-radius: 16px; padding: 14px !important; color: #34435b !important; }
 .activity-summary--inline { min-height: 44px; }
+
+.activity-row__label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.activity-entry { position: relative; border-bottom: 1px solid #edf1f7; }
+.activity-entry:last-child { border-bottom: 0; }
+.activity-list--compact .activity-row {
+  min-height: 44px;
+  min-width: 0;
+  padding: 6px 4px !important;
+  align-items: center !important;
+}
+.activity-list--compact .activity-row::after { display: none; }
+.activity-list--compact .activity-row > span:first-child { position: relative; z-index: 1; margin-top: 0; }
+.activity-entry:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 22px;
+  bottom: -22px;
+  width: 1px;
+  background: #dce5f0;
+  pointer-events: none;
+}
+.activity-running { flex: none; color: #3478f6; }

@@ -32,7 +32,7 @@ import {
   PAIRING_PAYLOAD_VERSION,
   type PairingPayload,
 } from './protocol/pairing'
-import { LATEST_INPUT_PROTOCOL_VERSION, type PermissionMode } from './protocol/types'
+import { SUBAGENT_PROTOCOL_VERSION, type PermissionMode } from './protocol/types'
 import { createAppStore } from './session/appStore'
 import { createInitialState, type MobileState } from './session/reducer'
 import { SessionRuntimeManager } from './session/runtime'
@@ -87,7 +87,7 @@ function preventPairingPageZoom(node: HTMLDivElement | null) {
 function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = defaultSocketFactory, native = null, experience = nativeExperience }: AppProps = {}) {
   const pairingHome = ['ios', 'android'].includes(Capacitor.getPlatform())
   const isNativeMobile = ['ios', 'android'].includes(Capacitor.getPlatform())
-  const preferredVersion = isNativeMobile ? LATEST_INPUT_PROTOCOL_VERSION : undefined
+  const preferredVersion = isNativeMobile ? SUBAGENT_PROTOCOL_VERSION : undefined
   const [buildInfo, setBuildInfo] = useState<{ version: string; build: string; time: string } | null>(null)
   useEffect(() => {
     if (!isNativeMobile) return
@@ -348,7 +348,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       })()
     }
     client.connect()
-  }, [appStore, runtime, native, now, socketFactory, cancelPairing, showToast, pairingHome])
+  }, [appStore, runtime, native, now, socketFactory, cancelPairing, showToast, pairingHome, preferredVersion])
 
   useEffect(() => {
     runtime.setManagementCallbacks((payload, sourceId) => {
@@ -417,7 +417,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       if (cache !== null) await Promise.all([...restored.available.map((item) => item.metadata), ...restored.needsPairing].map(async (record) => {
         try {
           const { data } = await cache.readSessionCache({ sessionId: record.sessionId })
-          const cached = decodeSessionCache(data, record.sessionId, now())
+          const cached = decodeSessionCache(data, record.sessionId, now(), isNativeMobile)
           if (active && cached) appStore.getState().restoreCachedSession(record.sessionId, cached)
         } catch { if (active) setCacheMessage('本地消息缓存暂不可用，仍可连接 PC') }
       }))
@@ -438,11 +438,11 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       if (active) setRestoring(false)
     })
     return () => { active = false }
-  }, [appStore, runtime, native, cache, now])
+  }, [appStore, runtime, native, cache, now, isNativeMobile])
 
   useEffect(() => {
     if (cache === null || native === null || restoring) return
-    const writer = new SessionCacheWriter(appStore, cache, now, () => setCacheMessage('本地消息缓存暂不可用，仍可连接 PC'))
+    const writer = new SessionCacheWriter(appStore, cache, now, () => setCacheMessage('本地消息缓存暂不可用，仍可连接 PC'), isNativeMobile)
     cacheWriter.current = writer
     const flush = () => { if (document.visibilityState !== 'visible') void writer.flush() }
     document.addEventListener('visibilitychange', flush)
@@ -453,7 +453,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       writer.dispose()
       if (cacheWriter.current === writer) cacheWriter.current = null
     }
-  }, [appStore, cache, native, now, restoring])
+  }, [appStore, cache, native, now, restoring, isNativeMobile])
 
   useEffect(() => {
     if (native === null) return
@@ -645,12 +645,20 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   const targetPCId = projectPairing.current?.pcId
   const pairingPCName = targetPCId ? groupPCs(sessions).find(pc => pc.sessions.some(session => session.pcId === targetPCId))?.label : undefined
   const homeButton = pairingHome ? <HomeButton onClick={goHome} /> : undefined
+  const loadToolDetail = useCallback((requestId: string, toolUseId: string, signal: AbortSignal) => {
+    if (currentSessionId === null) return Promise.reject(new Error('请先连接电脑'))
+    return runtime.getToolDetail(currentSessionId, requestId, toolUseId, signal)
+  }, [currentSessionId, runtime])
 
   useEffect(() => {
     if (Capacitor.getPlatform() !== 'android') return
     let disposed = false
     const listener = CapacitorApp.addListener('backButton', () => {
       if (disposed) return
+      const activityBack = document.querySelector<HTMLButtonElement>(
+        '.tool-detail-page__back, .mobile-drawer--entered:not([inert]) [data-activity-drawer-close]',
+      )
+      if (activityBack) { activityBack.click(); return }
       // Do not navigate behind a modal or treat an approval dismissal as cancellation.
       if (document.querySelector('.mobile-drawer--entered, .debug-overlay, .adm-popup, [role="dialog"]')) return
       if (editingPC) { setEditingPC(null); return }
@@ -673,6 +681,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         experience={experience}
         record={currentRecord}
         state={currentState}
+        loadToolDetail={isNativeMobile ? loadToolDetail : undefined}
         turnStatus={turnStatus}
         pairingInvalid={pairingInvalidBySession[currentSessionId] ?? false}
         canRetryPairing={currentRecord.pairToken !== '' && Date.parse(currentRecord.expiresAt) > now()}
@@ -725,7 +734,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         </div>
 
         {projectPairingCwd && !['ios', 'android'].includes(Capacitor.getPlatform()) && <p>请扫描目标电脑和目录下新会话的配对码：{projectPairingCwd}</p>}
-        <PairingForm revisedHome={isNativeMobile} onDismissPCFeedback={() => setPCFeedback(null)} compactPaths={pairingHome} pcFeedback={<PCConnectionFeedback feedback={pcFeedback} autoOpen={!isNativeMobile}/>} pcList={<PCList claimInitialRefresh={pairingHome ? claimInitialPCRefresh : undefined} allowInitialRefresh={!pairingFromList} selectedPC={selectedPC} revisedHome={isNativeMobile} pairingHome={pairingHome} refreshOnEntry={isNativeMobile} onFeedback={setPCFeedback} sessions={sessions} disabled={!profilesReady || pairingProgress !== null || pairingSaving} onTest={testPC} onEdit={key => { setPairingDirection('back'); setEditingPC(key) }} onSelect={pc => { setListDirection(pairingHome && !pairingFromList ? 'forward' : 'back'); setPairingFromList(false); cancelPairing(); selectedChanged.current = true; setSelectedPC(pc); projectPairing.current = null; setProjectPairingCwd(null); setPairingTarget(null); appStore.getState().setAdding(false); appStore.getState().setPairingError(null) }} onRemove={async pc => {
+        <PairingForm revisedHome={isNativeMobile} onDismissPCFeedback={() => setPCFeedback(null)} compactPaths={pairingHome} pcFeedback={<PCConnectionFeedback feedback={pcFeedback} autoOpen={!isNativeMobile}/>} pcList={<PCList claimInitialRefresh={pairingHome ? claimInitialPCRefresh : undefined} allowInitialRefresh={!pairingFromList} pressOnly={isNativeMobile} selectedPC={selectedPC} revisedHome={isNativeMobile} pairingHome={pairingHome} refreshOnEntry={isNativeMobile} onFeedback={setPCFeedback} sessions={sessions} disabled={!profilesReady || pairingProgress !== null || pairingSaving} onTest={testPC} onEdit={key => { setPairingDirection('back'); setEditingPC(key) }} onSelect={pc => { setListDirection(pairingHome && !pairingFromList ? 'forward' : 'back'); setPairingFromList(false); cancelPairing(); selectedChanged.current = true; setSelectedPC(pc); projectPairing.current = null; setProjectPairingCwd(null); setPairingTarget(null); appStore.getState().setAdding(false); appStore.getState().setPairingError(null) }} onRemove={async pc => {
           for (const record of pc.sessions) { if (!await removePairing(record.sessionId)) return }
           const next = { ...pcProfiles }; delete next[pc.key]
           try { await writePCProfiles(next); setPCProfiles(next) } catch { showToast('电脑配置清理失败') }
@@ -768,7 +777,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
     </div>
   } else {
     pageContent = (
-    <div className={`session-list-page${isNativeMobile ? " session-list-page--fixed-footer" : ""}${isNativeMobile ? " session-list-page--directory-dividers" : ""}`}>
+    <div className={`session-list-page${isNativeMobile ? " session-list-page--fixed-footer" : ""}`}>
       <div className="mobile-safe-area-header">
         <NavBar className={pairingHome ? "mobile-home-nav" : undefined} back={pairingHome ? "" : null} backIcon={pairingHome ? <LeftOutline aria-label="返回" fontSize={24} /> : undefined} onBack={pairingHome ? goHome : undefined} right={homeButton ?? <button className="mobile-settings-button" onClick={() => { setSettingsDirection('forward'); setSettingsPage('settings') }}><SessionIcon name="settings" size={16} style={{ marginRight: 5 }} />设置</button>}>{appDisplayName}</NavBar>
       </div>

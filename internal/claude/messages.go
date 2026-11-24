@@ -27,6 +27,7 @@ type parsedItem struct {
 	text  string
 	block *ContentBlock
 	code  UnsupportedCode
+	model string
 }
 
 type parsedMessage struct {
@@ -68,8 +69,8 @@ func (m *blockMapper) parse(message claudecode.Message) parsedMessage {
 		sessionID, _ := msg.Data["session_id"].(string)
 		return parsedMessage{sessionID: sessionID, source: SessionIDFromInit}
 	case *claudecode.AssistantMessage:
-		if msg.ParentToolUseID != nil {
-			return parsedMessage{}
+		if parent := msg.GetParentToolUseID(); parent != "" {
+			return m.parseChildTools(parent, msg.Content, nil)
 		}
 		if msg.HasError() {
 			return parsedMessage{assistantErr: &assistantErrorFact{
@@ -80,19 +81,32 @@ func (m *blockMapper) parse(message claudecode.Message) parsedMessage {
 		parsed := parsedMessage{}
 		for _, block := range msg.Content {
 			if item, ok := m.mapBlock(block); ok {
+				if item.kind == EventText && protocol.ValidReplyModel(msg.Model) {
+					item.model = msg.Model
+				}
 				parsed.items = append(parsed.items, item)
 			}
 		}
 		return parsed
 	case *claudecode.UserMessage:
-		if msg.ParentToolUseID != nil {
-			return parsedMessage{}
-		}
 		// UserMessage 的 Content 可能是纯文本（回显的 prompt），也可能是块
 		// 数组。只有其中的 tool_result 对手机有意义，其余块全部忽略。
 		blocks, ok := msg.Content.([]claudecode.ContentBlock)
 		if !ok {
 			return parsedMessage{}
+		}
+		var metadata map[string]any
+		for _, block := range blocks {
+			if _, ok := block.(*claudecode.ToolResultBlock); ok {
+				if metadata != nil {
+					metadata = nil
+					break
+				}
+				metadata = msg.GetToolUseResult()
+			}
+		}
+		if parent := msg.GetParentToolUseID(); parent != "" {
+			return m.parseChildTools(parent, blocks, metadata)
 		}
 		parsed := parsedMessage{}
 		for _, block := range blocks {
@@ -100,7 +114,7 @@ func (m *blockMapper) parse(message claudecode.Message) parsedMessage {
 			if !isResult {
 				continue
 			}
-			parsed.items = append(parsed.items, m.mapToolResult(result))
+			parsed.items = append(parsed.items, m.mapToolResult(result, metadata))
 		}
 		return parsed
 	case *claudecode.ResultMessage:
@@ -116,6 +130,27 @@ func (m *blockMapper) parse(message claudecode.Message) parsedMessage {
 	default:
 		return parsedMessage{}
 	}
+}
+
+func (m *blockMapper) parseChildTools(parent string, blocks []claudecode.ContentBlock, metadata map[string]any) parsedMessage {
+	var parsed parsedMessage
+	if !protocol.ValidToolDetailID(parent) {
+		return parsed
+	}
+	for _, block := range blocks {
+		var item parsedItem
+		switch tool := block.(type) {
+		case *claudecode.ToolUseBlock:
+			item = m.mapToolUse(tool)
+		case *claudecode.ToolResultBlock:
+			item = m.mapToolResult(tool, metadata)
+		}
+		if item.block != nil && protocol.ValidToolDetailID(item.block.ToolUseID) && item.block.ToolUseID != parent {
+			item.block.ParentToolUseID = parent
+			parsed.items = append(parsed.items, item)
+		}
+	}
+	return parsed
 }
 
 // mapBlock 映射单个内容块。第二个返回值为 false 表示该块不产生任何条目。
@@ -139,7 +174,7 @@ func (m *blockMapper) mapBlock(block claudecode.ContentBlock) (parsedItem, bool)
 	case *claudecode.ToolResultBlock:
 		// SDK 目前只在 UserMessage 中投递 tool_result，这里按同一规则映射，
 		// 避免投递位置变化时把正常结果误报为未知块。
-		return m.mapToolResult(typed), true
+		return m.mapToolResult(typed, nil), true
 	default:
 		return unsupportedItem(UnsupportedUnknownBlock), true
 	}
@@ -156,13 +191,26 @@ func (m *blockMapper) mapToolUse(block *claudecode.ToolUseBlock) parsedItem {
 		return unsupportedItem(UnsupportedUnknownBlock)
 	}
 	m.toolNames[block.ToolUseID] = block.Name
+	detail := protocol.ToolCallDetail(block.Name, block.Input)
+	var availableDetail *protocol.ToolDetail
+	if detail.Valid() {
+		availableDetail = &detail
+	}
+	preview := previewForTool(block.Name, block.Input)
+	if block.Name == "Agent" || block.Name == "Task" {
+		if description, _ := block.Input["description"].(string); description != "" {
+			preview = protocol.TruncatePreview(description, DefaultToolPreviewMaxRunes)
+		}
+	}
 	return parsedItem{kind: EventContentBlock, block: &ContentBlock{
-		Kind:      BlockToolUse,
-		ToolUseID: block.ToolUseID,
-		ToolClass: class,
-		MCPServer: server,
-		ToolName:  name,
-		Preview:   previewForTool(block.Name, block.Input),
+		Kind:         BlockToolUse,
+		ToolUseID:    block.ToolUseID,
+		ToolClass:    class,
+		MCPServer:    server,
+		ToolName:     name,
+		Preview:      preview,
+		TitleSummary: protocol.ToolTitleSummary(block.Name, block.Input),
+		Detail:       availableDetail,
 	}}
 }
 
@@ -175,7 +223,7 @@ func previewForTool(toolName string, input map[string]any) string {
 }
 
 // mapToolResult 下发关联 ID、成败状态和有界纯文本结果（v4）。
-func (m *blockMapper) mapToolResult(block *claudecode.ToolResultBlock) parsedItem {
+func (m *blockMapper) mapToolResult(block *claudecode.ToolResultBlock, metadata map[string]any) parsedItem {
 	if block.ToolUseID == "" {
 		return unsupportedItem(UnsupportedUnknownBlock)
 	}
@@ -187,12 +235,17 @@ func (m *blockMapper) mapToolResult(block *claudecode.ToolResultBlock) parsedIte
 	if isError && m.toolNames[block.ToolUseID] == askUserQuestionToolName {
 		isError = false
 	}
-	output, truncated := protocol.ToolOutput(block.Content)
+	output, truncated, detail := protocol.ToolResultWithMetadata(m.toolNames[block.ToolUseID], block.Content, metadata)
+	var availableDetail *protocol.ToolDetail
+	if detail.Valid() {
+		availableDetail = &detail
+	}
 	return parsedItem{kind: EventContentBlock, block: &ContentBlock{
 		Output: output, Truncated: truncated,
 		Kind:      BlockToolResult,
 		ToolUseID: block.ToolUseID,
 		IsError:   &isError,
+		Detail:    availableDetail,
 	}}
 }
 

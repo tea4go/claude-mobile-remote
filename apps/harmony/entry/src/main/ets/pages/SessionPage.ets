@@ -7,13 +7,13 @@ import { nativeLifecycle } from '../native/lifecycle'
 import { messageSelection } from '../ui/messageSelection'
 import { type ComposerDraft, emptyDraft } from '../session/attachments'
 import type {
-  Question,
+  Question, ToolDetail,
   ProgressPhase,
   PermissionMode,
   QuestionAnswer,
 } from '../protocol/types'
 import type { HarmonySessionState } from '../session/model'
-import { ConnectionStage } from '../session/model'
+import { ConnectionStage, hasRunningSubagents } from '../session/model'
 import { MessageComposer } from '../components/MessageComposer'
 import { MessageList, ActivityOverlay } from '../components/MessageList'
 import { PendingSummary } from '../components/PendingSummary'
@@ -113,6 +113,7 @@ export struct SessionPage {
   onReconnect: () => void = () => {}
   onDisconnect: () => void = () => {}
   onSend: () => void = () => {}
+  loadToolDetail: (requestId: string, toolUseId: string) => Promise<ToolDetail> = (_requestId: string, _toolUseId: string) => Promise.reject(new Error('请先连接电脑'))
   onPermissionMode: (mode: PermissionMode) => void = () => {}
   onAllowOnce: () => void = () => {}
   onAllowSession: () => void = () => {}
@@ -293,10 +294,13 @@ export struct SessionPage {
             }.width('100%')
           }.width('100%').height(44).padding({ left: 12, right: 12 }).backgroundColor('#F1F6FF').borderRadius(12).onClick(() => { this.sheet = 'action' })
         }
-        MessageList({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: this.state.messages, scroller: this.scroller, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen,
+        MessageList({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: this.state.messages, connected: this.state.connection === ConnectionStage.READY, scroller: this.scroller, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen,
           onAtBottom: (value: boolean) => { this.atBottom = value }, onPreviewImage: (value: string) => { this.previewImage = value } })
           .layoutWeight(1).width('100%')
         Column({ space: 4 }) {
+          if (hasRunningSubagents(this.state) && !this.hasCancelTarget()) {
+            Row({ space: 8 }) { LoadingProgress().width(18).height(18); Text('正在执行子任务').fontSize(13).fontColor(SECONDARY) }.width('100%')
+          }
           if (this.state.progress !== undefined) {
             Row({ space: 6 }) {
               LoadingProgress().width(14).height(14).color(PRIMARY)
@@ -321,7 +325,7 @@ export struct SessionPage {
           .onAreaChange((_previous: Area, current: Area) => this.onDebugActionsTop(Number(current.globalPosition.y)))
       }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
       if (this.selectedActivity !== null) {
-        ActivityOverlay({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: this.state.messages, pageHeight: this.pageHeight, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen })
+        ActivityOverlay({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: this.state.messages, tasks: this.state.subagentTasks ?? [], load: this.loadToolDetail, pageHeight: this.pageHeight, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen })
       }
       if (this.sheet.length > 0) {
         Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { if (this.sheet !== 'action') this.closeSheet() }).transition(pageFade())

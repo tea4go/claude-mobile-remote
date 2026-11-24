@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -51,6 +52,7 @@ type connection struct {
 
 	state               connectionState
 	version             int
+	toolTitles          bool
 	sessionID           string
 	lease               *pairing.Lease
 	subscriptionChannel *channel.Channel
@@ -167,6 +169,20 @@ func (c *connection) readLoop() {
 				return
 			}
 		case stateSubscribed:
+			if envelope.Type == TypeToolDetailGet && envelope.SessionID == c.sessionID {
+				var payload ToolDetailRequestPayload
+				if DecodePayload(envelope, &payload) != nil {
+					return
+				}
+				result := ToolDetailResultPayload{ToolUseID: payload.ToolUseID}
+				if detail, ok := c.subscriptionChannel.ToolDetail(c.sessionID, envelope.RequestID, payload.ToolUseID); ok && detail.Valid() {
+					result.Detail = &detail
+				}
+				if c.enqueue(TypeToolDetailResult, envelope.CommandID, envelope.RequestID, 0, result) != nil {
+					return
+				}
+				continue
+			}
 			if envelope.Type == TypePing && envelope.SessionID == c.sessionID {
 				c.server.recordConnectionEvent(c.sessionID, "ping_received")
 				if c.enqueue(TypePong, "", "", 0, struct{}{}) != nil {
@@ -501,11 +517,36 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 		return false
 	}
 	snapshot := subscription.Snapshot
+	if c.version < subagentVersion {
+		snapshot.SubagentTasks = nil
+	} else {
+		snapshot.SubagentTasks = slices.Clone(snapshot.SubagentTasks)
+		for i := range snapshot.SubagentTasks {
+			task := &snapshot.SubagentTasks[i]
+			task.Blocks = slices.Clone(task.Blocks)
+			for j := range task.Blocks {
+				task.Blocks[j] = *c.toolBlockForVersion(&task.Blocks[j])
+			}
+		}
+	}
 	if c.version < 11 && snapshot.Turn.Historical {
 		snapshot.Turn = protocol.TurnSnapshot{Status: protocol.TurnIdle}
 	}
 	if c.version < 9 {
 		snapshot.Turn.Display = nil
+	} else if display := snapshot.Turn.Display; display != nil {
+		projected := &protocol.TurnDisplay{Items: make([]protocol.TurnDisplayItem, 0, len(display.Items)), Truncated: display.Truncated}
+		for _, item := range display.Items {
+			if item.Block != nil && item.Block.ParentToolUseID != "" && c.version < toolDetailVersion {
+				continue
+			}
+			if c.version < toolDetailVersion {
+				item.Model = ""
+			}
+			item.Block = c.toolBlockForVersion(item.Block)
+			projected.Items = append(projected.Items, item)
+		}
+		snapshot.Turn.Display = projected
 	}
 	snapshot.CanSteerQueue = c.version >= 8 && sessionChannel.CanSteerQueue()
 	if c.version < 7 || (c.version < 11 && snapshot.Turn.Status != protocol.TurnRunning && snapshot.Turn.Status != protocol.TurnWaiting) {
@@ -642,6 +683,13 @@ func (c *connection) outboundEvent(event protocol.Event) (Envelope, error) {
 		}
 		event = protocol.Event{Kind: protocol.EventUnsupported, Seq: event.Seq, RequestID: event.RequestID, Code: protocol.UnsupportedUnknownSubtype}
 	}
+	if (c.version < subagentVersion && (event.Kind == protocol.EventSubagentTask || event.BackgroundChild || event.LateTurnContent)) ||
+		(c.version < toolDetailVersion && event.Block != nil && event.Block.ParentToolUseID != "") {
+		if err := validateEvent(event); err != nil {
+			return Envelope{}, err
+		}
+		event = protocol.Event{Kind: protocol.EventUnsupported, Seq: event.Seq, RequestID: event.RequestID, Code: protocol.UnsupportedUnknownSubtype}
+	}
 	if event.Kind == protocol.EventUnsupported {
 		if !event.Code.IsKnown() {
 			return Envelope{}, ErrInvalidMessage
@@ -653,13 +701,9 @@ func (c *connection) outboundEvent(event protocol.Event) (Envelope, error) {
 	if err := validateEvent(event); err != nil {
 		return Envelope{}, err
 	}
-	if c.version < 4 {
-		if event.Block != nil {
-			copy := *event.Block
-			copy.Output = ""
-			copy.Truncated = false
-			event.Block = &copy
-		}
+	event.Block = c.toolBlockForVersion(event.Block)
+	if c.version < toolDetailVersion {
+		event.Model = ""
 	}
 	if c.version == Version {
 		event.SessionTitle = ""
@@ -668,6 +712,26 @@ func (c *connection) outboundEvent(event protocol.Event) (Envelope, error) {
 	envelope, err := NewEnvelope(TypeEvent, c.sessionID, "", event.RequestID, event.Seq, EventPayload{Event: event})
 	envelope.Version = c.version
 	return envelope, err
+}
+
+func (c *connection) toolBlockForVersion(block *protocol.ContentBlock) *protocol.ContentBlock {
+	version := c.version
+	if block == nil {
+		return nil
+	}
+	copy := *block
+	if version < toolDetailVersion || !c.toolTitles {
+		copy.TitleSummary = ""
+	}
+	if version < 4 || version >= toolDetailVersion {
+		copy.Output = ""
+		copy.Truncated = false
+	}
+	if version < toolDetailVersion {
+		copy.DetailAvailable = false
+		copy.ParentToolUseID = ""
+	}
+	return &copy
 }
 
 func (c *connection) enqueue(messageType MessageType, commandID, requestID string, seq uint64, payload any) error {
@@ -680,7 +744,7 @@ func (c *connection) enqueue(messageType MessageType, commandID, requestID strin
 	if err != nil {
 		return err
 	}
-	if messageType == TypeSnapshot || messageType == TypeImageResult {
+	if messageType == TypeSnapshot || messageType == TypeImageResult || messageType == TypeToolDetailResult {
 		return c.outbox.EnqueueSnapshot(data)
 	}
 	if messageType == TypePong {
