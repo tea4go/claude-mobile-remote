@@ -96,3 +96,6 @@ apps/mobile/ios/App/Push.local.xcconfig
 # Android vendor push client configuration (private local values)
 apps/mobile/android/app/push.local.properties
 apps/mobile/android/app/agconnect-services.json
+
+# Local project and test documentation
+/docs/
