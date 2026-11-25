@@ -1,23 +1,22 @@
-import type { PCGroup, ProjectGroup } from '../session/projectGroups'
+import { computerAddress, pcConnectionStatus, type PCConnectionStatus, type PCGroup, type PCProbeResult, type PCProfile, type ProjectGroup } from '../session/projectGroups'
 import type { SessionRecord } from '../session/records'
 
 export interface ProjectListRow {
   kind: 'pc' | 'project' | 'session'
   key: string
   pc?: PCGroup
-  connecting?: boolean
+  pcStatus?: PCConnectionStatus
   showDivider?: boolean
   project?: ProjectGroup
   session?: SessionRecord
 }
-export function projectListRows(groups: Array<PCGroup>, selectedPC: string, collapsed: Array<string>, pending: Array<string> = []): Array<ProjectListRow> {
+export function projectListRows(groups: Array<PCGroup>, selectedPC: string, collapsed: Array<string>, pendingPCs: string[] = [], profiles: PCProfile[] = [], probes: PCProbeResult[] = []): Array<ProjectListRow> {
   const rows: Array<ProjectListRow> = []
   const closed: Set<string> = new Set(collapsed)
-  const pendingIds: Set<string> = new Set(pending)
   for (const pc of groups) {
     if (selectedPC !== 'all' && selectedPC !== pc.key) continue
-    const connecting = pc.sessions.some((session: SessionRecord) => pendingIds.has(session.sessionId))
-    rows.push({ kind: 'pc', key: (connecting ? 'refreshing-pc:' : 'pc:') + pc.key, pc, connecting })
+    const status = pcConnectionStatus(pc, computerAddress(pc, profiles), probes, pendingPCs)
+    rows.push({ kind: 'pc', key: 'pc:' + pc.key, pc, pcStatus: status })
     pc.projects.forEach((project: ProjectGroup, index: number) => {
       rows.push({ kind: 'project', key: 'project:' + project.key, pc, project, showDivider: index > 0 })
       if (!closed.has(project.key)) {

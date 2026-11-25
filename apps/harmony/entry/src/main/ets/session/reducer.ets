@@ -626,19 +626,42 @@ function matchesToolBlock(message: FeedMessage, requestId: string, expected: Con
   return message.block.kind === expected.kind && message.block.toolUseId === expected.toolUseId
 }
 
-function mergeSubagentBlocks(messages: FeedMessage[], task: SubagentTask): FeedMessage[] {
-  const blocks = task.blocks?.slice() ?? []
-  const root: ToolUseContentBlock = { id: task.toolUseId, kind: 'tool_use', toolUseId: task.toolUseId,
-    toolClass: 'builtin', toolName: 'Agent', mcpServer: '' }
-  blocks.unshift(root)
-  let next = messages
-  for (const block of blocks) {
-    if (block.kind === 'thinking') continue
-    if (next.some((message: FeedMessage) => matchesToolBlock(message, task.requestId, block))) continue
-    if (next === messages) next = messages.slice()
-    next.push(createBlockMessage(task.requestId, block))
-  }
-  return next
+const EARLIER_STEPS_NOTICE: string = '[较早的执行过程未同步]'
+
+function isTurnOutput(message: FeedMessage, requestId: string): boolean {
+  return (message.kind === 'claude' || message.kind === 'block') && message.requestId === requestId
+}
+
+function repairInputOrder(messages: FeedMessage[]): FeedMessage[] {
+  const inputs = new Map<string, number>()
+  messages.forEach((message: FeedMessage, index: number) => {
+    if (message.kind === 'input' && message.requestId.length > 0) inputs.set(message.requestId, index)
+  })
+  const delayed = new Map<number, FeedMessage[]>()
+  const repaired: FeedMessage[] = []
+  messages.forEach((message: FeedMessage, index: number) => {
+    if (message.kind === 'claude' || message.kind === 'block') {
+      const input = inputs.get(message.requestId)
+      if (input !== undefined && input > index) {
+        const output = delayed.get(input) ?? []
+        output.push(message)
+        delayed.set(input, output)
+        return
+      }
+    }
+    repaired.push(message, ...(delayed.get(index) ?? []))
+  })
+  return repaired
+}
+
+function turnOutputEnd(messages: FeedMessage[], requestId: string): number {
+  const start = messages.findIndex((message: FeedMessage) => message.kind === 'claude' && message.requestId === requestId)
+  if (start < 0) return messages.length
+  const following = messages.findIndex((message: FeedMessage, index: number) => index > start && message.requestId !== requestId &&
+    (message.kind === 'claude' || (message.kind === 'input' && message.requestId.length > 0 &&
+      ((message.status === 'accepted' && message.processingStarted !== true) ||
+        messages.some((reply: FeedMessage) => reply.kind === 'claude' && reply.requestId === message.requestId)))))
+  return following < 0 ? messages.length : following
 }
 
 function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): HarmonySessionState {
@@ -663,7 +686,7 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   next.queuedRequests = cloneQueuedRequests(snapshot.queuedRequests)
   next.pendingAction = clonePendingAction(snapshot.turn.pendingAction)
   next.pendingCommand = null
-  next.messages = next.messages.map((message: FeedMessage): FeedMessage => {
+  next.messages = repairInputOrder(next.messages).map((message: FeedMessage): FeedMessage => {
     if (message.kind === 'claude' && message.status === 'streaming') message.status = 'done'
     return message
   })
@@ -677,7 +700,7 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
     for (let index = 0; index < next.messages.length; index += 1) {
       const message = next.messages[index]
       if (message.requestId === snapshot.turn.requestId && message.kind === 'input') hasInput = true
-      if (message.requestId === snapshot.turn.requestId && message.kind === 'claude' && replyIndex < 0) replyIndex = index
+      if (replyIndex < 0 && isTurnOutput(message, snapshot.turn.requestId)) replyIndex = index
     }
     if (!hasInput) {
       const input: InputFeedMessage = { kind: 'input', source: snapshot.turn.source, requestId: snapshot.turn.requestId, text: snapshot.turn.inputText, status: '' }
@@ -691,7 +714,6 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
     const display = snapshot.turn.display
     if (display !== undefined) {
       const replacement: Array<FeedMessage> = []
-      if (display.truncated) replacement.push(createClaudeMessage(current.requestId, current.source, '[较早的执行过程未同步]', status, current.error))
       display.items.forEach((item) => {
         if (item.text !== undefined) replacement.push(createClaudeMessage(current.requestId, current.source, item.text, status, current.error, item.model))
         else if (item.block !== undefined) {
@@ -699,15 +721,24 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
           replacement.push(block)
         }
       })
-      if (!replacement.some((message: FeedMessage) => message.kind === 'claude')) replacement.push(createClaudeMessage(current.requestId, current.source, '', status, current.error))
+      const displayedText = display.items.map(item => item.text ?? '').join('')
+      const prefix = display.truncated && current.text.endsWith(displayedText) ? current.text.slice(0, current.text.length - displayedText.length) : ''
+      if (prefix.length > 0) replacement.unshift(createClaudeMessage(current.requestId, current.source, prefix, status, current.error))
+      if (displayedText.length === 0 && prefix.length === 0) {
+        if (current.text.length > 0) replacement.unshift(current)
+        else replacement.push(current)
+      }
+      if (display.truncated) replacement.unshift(createClaudeMessage(current.requestId, current.source, EARLIER_STEPS_NOTICE, status, current.error))
       let position = -1
       const kept: Array<FeedMessage> = []
       next.messages.forEach((message: FeedMessage) => {
-        if ((message.kind === 'claude' || message.kind === 'block') && message.requestId === current.requestId) {
+        if (isTurnOutput(message, current.requestId)) {
           if (position < 0) position = kept.length
         } else kept.push(message)
       })
-      if (position < 0) position = kept.length
+      const inputIndex = kept.findIndex((message: FeedMessage) => message.kind === 'input' && message.requestId === current.requestId)
+      if (position < 0) position = inputIndex < 0 ? kept.length : inputIndex + 1
+      else position = Math.max(position, inputIndex + 1)
       kept.splice(position, 0, ...replacement)
       next.messages = kept
     } else {
@@ -728,7 +759,6 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
     }
   }
 
-  for (const task of snapshot.subagentTasks ?? []) next.messages = mergeSubagentBlocks(next.messages, task)
   return applyCapabilityFlags(next)
 }
 
@@ -792,7 +822,6 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
         recent.splice(terminal < 0 ? 0 : terminal, 1)
       }
       next.subagentTasks = recent
-      next.messages = mergeSubagentBlocks(next.messages, task)
       break
     }
     case 'queue_changed':
@@ -857,11 +886,9 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       const index = findLastClaudeIndex(next.messages, event.requestId)
       if (index < 0) break
       const reply = next.messages[index] as ClaudeFeedMessage
-      const nextTurn = reply.status === 'streaming' ? -1 : next.messages.findIndex((message: FeedMessage, i: number) =>
-        i > index && (message.kind === 'input' || message.kind === 'claude') && message.requestId !== event.requestId)
-      const insertAt = nextTurn < 0 ? next.messages.length : nextTurn
+      const insertAt = next.progressRequestId === event.requestId ? next.messages.length : turnOutputEnd(next.messages, event.requestId)
       const previous = next.messages[insertAt - 1]
-      const merge = previous?.kind === 'claude' && previous.requestId === event.requestId &&
+      const merge = previous?.kind === 'claude' && previous.requestId === event.requestId && previous.text !== EARLIER_STEPS_NOTICE &&
         (previous.text === '' || previous.model === event.model)
       const text = merge ? (previous as ClaudeFeedMessage).text + event.text : event.text
       const model = event.model ?? (merge ? (previous as ClaudeFeedMessage).model : undefined)
@@ -897,7 +924,10 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
         const block = event.block
         const dupe = next.messages.findIndex((message: FeedMessage) => matchesToolBlock(message, event.requestId, block))
         const entry = createBlockMessage(event.requestId, block)
-        if (dupe < 0) next.messages.push(entry)
+        if (dupe < 0) {
+          const position = next.progressRequestId === event.requestId ? next.messages.length : turnOutputEnd(next.messages, event.requestId)
+          next.messages.splice(position, 0, entry)
+        }
         else {
           const old = next.messages[dupe] as BlockFeedMessage
           entry.block.id = old.block.id

@@ -1,4 +1,21 @@
 import type { SessionRecord } from '../session/store'
+import type { SessionListItem } from './ProjectSessionList'
+
+export type PCProbeResults = Record<string, { ip: string; ok: boolean }>
+
+export function pcIP(pc: PCGroup): string {
+  for (const record of pc.sessions) { try { return new URL(record.wsUrl).hostname } catch { /* expired */ } }
+  return ''
+}
+
+export function pcConnectionStatus(pc: PCGroup<SessionListItem>, probes: PCProbeResults): 'connected' | 'connecting' | 'disconnected' {
+  const probe = probes[pc.key]
+  if (probe && probe.ip === pcIP(pc)) return probe.ok ? 'connected' : 'disconnected'
+  const validSessions = pc.sessions.filter(session => session.status !== 'needsPairing')
+  if (validSessions.some(session => session.runtimeState?.connection === 'connected')) return 'connected'
+  if (validSessions.some(session => ['connecting', 'authenticating', 'subscribing'].includes(session.runtimeState?.connection ?? ''))) return 'connecting'
+  return 'disconnected'
+}
 
 export interface PCGroup<T extends SessionRecord = SessionRecord> {
   key: string

@@ -1,7 +1,7 @@
 import { BuildFooter } from '../components/BuildFooter'
 import { SettingsButton } from '../components/SettingsButton'
 import { nativeLifecycle } from '../native/lifecycle'
-import type { PCGroup, PCProfile } from '../session/projectGroups'
+import type { PCGroup, PCProfile, PCProbeResult } from '../session/projectGroups'
 import { QuickPairForm } from './QuickPairForm'
 import type { ErrorInfo } from '../protocol/types'
 import { ConnectionStage } from '../session/model'
@@ -37,6 +37,8 @@ export struct PairingPage {
   @Prop profiles: Array<PCProfile> = []
   onSaveComputer: (profile: PCProfile) => void = () => {}
   onRemoveComputer: (key: string) => void = () => {}
+  @Link pcProbes: PCProbeResult[]
+  @Link pendingPCs: string[]
   @Prop computers: Array<PCGroup> = []
   @Prop selectedPC: string = 'all'
   onSelectPC: (key: string) => void = () => {}
@@ -81,7 +83,7 @@ export struct PairingPage {
         Column({ space: 8 }) {
           if (!this.editOpen) Text('连接 Claude 会话').fontSize(26).fontWeight(FontWeight.Bold).width('100%')
             .onClick(() => this.getUIContext().getFocusController().clearFocus())
-          QuickPairForm({ editOpen: $editOpen, editTesting: $editingTest, pairingError: this.lastError === null ? '' : buildPairingHint(this.connection, this.lastError), addressHistory: this.addressHistory, onHistoryChange: this.onHistoryChange, profiles: this.profiles, onSaveComputer: this.onSaveComputer, onRemoveComputer: this.onRemoveComputer, computers: this.computers, selectedPC: this.selectedPC, onSelectPC: this.onSelectPC, projectCwd: this.projectCwd, projectPC: this.projectPC, claimInitialRefresh: this.claimInitialRefresh, onHome: this.onHome, disabled: !this.nativeReady || this.scanning || this.connecting() || this.saving,
+          QuickPairForm({ pcProbes: $pcProbes, pendingPCs: $pendingPCs, editOpen: $editOpen, editTesting: $editingTest, pairingError: this.lastError === null ? '' : buildPairingHint(this.connection, this.lastError), addressHistory: this.addressHistory, onHistoryChange: this.onHistoryChange, profiles: this.profiles, onSaveComputer: this.onSaveComputer, onRemoveComputer: this.onRemoveComputer, computers: this.computers, selectedPC: this.selectedPC, onSelectPC: this.onSelectPC, projectCwd: this.projectCwd, projectPC: this.projectPC, claimInitialRefresh: this.claimInitialRefresh, onHome: this.onHome, disabled: !this.nativeReady || this.scanning || this.connecting() || this.saving,
             onPair: (text: string) => { this.onPairingInputChange(text); this.onConnect() }, onScan: () => this.onScan(), onDebugActionsTop: this.onDebugActionsTop })
         }.padding({ left: this.editOpen ? 0 : 20, right: this.editOpen ? 0 : 20,
           top: this.editOpen ? 0 : 6, bottom: this.editOpen ? 0 : 1 }).width('100%').layoutWeight(1).alignItems(HorizontalAlign.Start)

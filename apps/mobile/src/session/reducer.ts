@@ -364,22 +364,52 @@ function markPendingUnknown(state: MobileState): MobileState {
   }
 }
 
+const EARLIER_STEPS_NOTICE = '[较早的执行过程未同步]'
+
+function isTurnOutput(message: Message, requestId: string): boolean {
+  return (message.kind === 'claude' || message.kind === 'block') && message.requestId === requestId
+}
+
+function repairInputOrder(messages: Message[]): Message[] {
+  const inputs = new Map<string, number>()
+  messages.forEach((message, index) => {
+    if (message.kind === 'input' && message.requestId) inputs.set(message.requestId, index)
+  })
+  const delayed = new Map<number, Message[]>()
+  return messages.flatMap((message, index) => {
+    if (message.kind === 'claude' || message.kind === 'block') {
+      const input = inputs.get(message.requestId)
+      if (input !== undefined && input > index) {
+        const output = delayed.get(input) ?? []
+        output.push(message)
+        delayed.set(input, output)
+        return []
+      }
+    }
+    return [message, ...(delayed.get(index) ?? [])]
+  })
+}
+
+// Late output stays in the turn that owns it, before the next foreground turn.
+function turnOutputEnd(messages: Message[], requestId: string): number {
+  const start = messages.findIndex(message => message.kind === 'claude' && message.requestId === requestId)
+  if (start < 0) return messages.length
+  const following = messages.findIndex((message, index) => index > start && message.requestId !== requestId &&
+    (message.kind === 'claude' || (message.kind === 'input' && message.requestId !== null &&
+      ((message.status === 'accepted' && !message.processingStarted) ||
+        messages.some(reply => reply.kind === 'claude' && reply.requestId === message.requestId)))))
+  return following < 0 ? messages.length : following
+}
+
 function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileState {
-  let messages = state.sessionId === snapshot.sessionId ? state.messages : []
+  let messages = state.sessionId === snapshot.sessionId ? repairInputOrder(state.messages) : []
   const turnActive = snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting'
-  if (!turnActive) {
-    const terminalStatus: ClaudeMessage['status'] =
-      snapshot.turn.status === 'failed'
-        ? 'failed'
-        : snapshot.turn.status === 'cancelled'
-          ? 'cancelled'
-          : 'done'
-    messages = messages.map((message) => {
-      if (message.kind !== 'claude' || message.status !== 'streaming') return message
-      if (snapshot.turn.requestId !== '' && message.requestId !== snapshot.turn.requestId) return message
-      return { ...message, status: terminalStatus, error: snapshot.turn.error }
-    })
-  }
+  const terminalStatus: ClaudeMessage['status'] = snapshot.turn.status === 'failed' ? 'failed' : snapshot.turn.status === 'cancelled' ? 'cancelled' : 'done'
+  messages = messages.map(message => {
+    if (message.kind !== 'claude' || message.status !== 'streaming') return message
+    if (message.requestId !== snapshot.turn.requestId) return { ...message, status: 'done' }
+    return turnActive ? message : { ...message, status: terminalStatus, error: snapshot.turn.error }
+  })
   const next: MobileState = {
     ...state,
     cachedAt: null,
@@ -413,7 +443,7 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
   }
   if (snapshot.turn.inputText && snapshot.turn.source && !next.messages.some((message) => message.kind === 'input' && message.requestId === snapshot.turn.requestId)) {
     const input: InputMessage = { kind: 'input', source: snapshot.turn.source, requestId: snapshot.turn.requestId, text: snapshot.turn.inputText, status: 'accepted', processingStarted: true }
-    const replyIndex = next.messages.findIndex((message) => message.kind === 'claude' && message.requestId === snapshot.turn.requestId)
+    const replyIndex = next.messages.findIndex(message => isTurnOutput(message, snapshot.turn.requestId))
     if (replyIndex < 0) next.messages = [...next.messages, input]
     else next.messages = [...next.messages.slice(0, replyIndex), input, ...next.messages.slice(replyIndex)]
   }
@@ -438,11 +468,21 @@ function applySnapshot(state: MobileState, snapshot: SessionSnapshot): MobileSta
       const replacement: Message[] = display.items.map(item => 'text' in item
         ? { ...current, text: item.text, ...(item.model ? { model: item.model } : {}) }
         : { kind: 'block' as const, requestId: current.requestId, block: item.block })
-      if (display.truncated) replacement.unshift({ ...current, text: '[较早的执行过程未同步]' })
-      if (!replacement.some(message => message.kind === 'claude')) replacement.push({ ...current, text: '' })
-      const first = next.messages.findIndex(message => (message.kind === 'claude' || message.kind === 'block') && message.requestId === current.requestId)
-      const kept = next.messages.filter(message => !((message.kind === 'claude' || message.kind === 'block') && message.requestId === current.requestId))
-      const position = first < 0 ? kept.length : next.messages.slice(0, first).filter(message => !((message.kind === 'claude' || message.kind === 'block') && message.requestId === current.requestId)).length
+      const displayedText = display.items.map(item => 'text' in item ? item.text : '').join('')
+      // Older hosts could evict the start of the reply while retaining the aggregate text.
+      const prefix = display.truncated && current.text.endsWith(displayedText)
+        ? current.text.slice(0, current.text.length - displayedText.length)
+        : ''
+      if (prefix) replacement.unshift({ ...current, text: prefix })
+      if (!displayedText && !prefix) {
+        if (current.text) replacement.unshift(current)
+        else replacement.push(current)
+      }
+      if (display.truncated) replacement.unshift({ ...current, text: EARLIER_STEPS_NOTICE })
+      const first = next.messages.findIndex(message => isTurnOutput(message, current.requestId))
+      const kept = next.messages.filter(message => !isTurnOutput(message, current.requestId))
+      const inputIndex = kept.findIndex(message => message.kind === 'input' && message.requestId === current.requestId)
+      const position = first < 0 ? (inputIndex < 0 ? kept.length : inputIndex + 1) : Math.max(first, inputIndex + 1)
       next.messages = [...kept.slice(0, position), ...replacement, ...kept.slice(position)]
       return applyCanSend(next)
     }
@@ -631,11 +671,9 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
       if (reply?.kind !== 'claude') break
       // A continuation of an ended turn stays before newer turns. Its text
       // must never become the current cancel target.
-      const nextTurnIndex = reply.status !== 'streaming' ? next.messages.findIndex((message, index) =>
-        index > replyIndex && (message.kind === 'input' || message.kind === 'claude') && message.requestId !== event.requestId) : -1
-      const insertAt = nextTurnIndex < 0 ? next.messages.length : nextTurnIndex
+      const insertAt = next.progressRequestId === event.requestId ? next.messages.length : turnOutputEnd(next.messages, event.requestId)
       const preceding = next.messages[insertAt - 1]
-      const merge = preceding?.kind === 'claude' && preceding.requestId === event.requestId &&
+      const merge = preceding?.kind === 'claude' && preceding.requestId === event.requestId && preceding.text !== EARLIER_STEPS_NOTICE &&
         (preceding.text === '' || preceding.model === event.model)
       const textMessage: ClaudeMessage = {
         ...reply,
@@ -674,10 +712,9 @@ function applyEvent(state: MobileState, event: DomainEvent): MobileState {
     case 'content_block':
       // decoder 已保证 content_block 必携 block；此处只做类型收窄。
       if (event.block !== undefined) {
-        next.messages = [
-          ...markInputProcessing(next.messages, event.requestId),
-          { kind: 'block', requestId: event.requestId, block: event.block },
-        ]
+        const messages = markInputProcessing(next.messages, event.requestId)
+        const position = next.progressRequestId === event.requestId ? messages.length : turnOutputEnd(messages, event.requestId)
+        next.messages = [...messages.slice(0, position), { kind: 'block', requestId: event.requestId, block: event.block }, ...messages.slice(position)]
       }
       break
     case 'action_required':

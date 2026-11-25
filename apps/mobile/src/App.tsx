@@ -20,7 +20,7 @@ import ProjectSessionList, { type SessionListItem } from './components/ProjectSe
 import { PCList, PCEditor, PCConnectionFeedback, type PCFeedback, type TestPC } from './components/PCManagement'
 import { readPCProfiles, writePCProfiles, replacePCIP, type PCProfiles } from './native/pcProfiles'
 import { testPCConnection } from './session/pcConnectionTest'
-import { groupPCs } from './components/pcGroups'
+import { type PCProbeResults, groupPCs } from './components/pcGroups'
 import { LeftOutline, RightOutline } from 'antd-mobile-icons'
 import PageTransition from './components/PageTransition'
 import { PAGE_BACKGROUND } from './components/ui'
@@ -110,6 +110,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
   const [pcProfiles, setPCProfiles] = useState<PCProfiles>({})
   const [profilesReady, setProfilesReady] = useState(false)
   const [editingPC, setEditingPC] = useState<string | null>(null)
+  const [pcProbeResults, setPCProbeResults] = useState<PCProbeResults>({})
   const [pcFeedback, setPCFeedback] = useState<PCFeedback | null>(null)
   const profilesRef = useRef(pcProfiles)
   profilesRef.current = pcProfiles
@@ -734,8 +735,13 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
         </div>
 
         {projectPairingCwd && !['ios', 'android'].includes(Capacitor.getPlatform()) && <p>请扫描目标电脑和目录下新会话的配对码：{projectPairingCwd}</p>}
-        <PairingForm revisedHome={isNativeMobile} onDismissPCFeedback={() => setPCFeedback(null)} compactPaths={pairingHome} pcFeedback={<PCConnectionFeedback feedback={pcFeedback} autoOpen={!isNativeMobile}/>} pcList={<PCList claimInitialRefresh={pairingHome ? claimInitialPCRefresh : undefined} allowInitialRefresh={!pairingFromList} pressOnly={isNativeMobile} selectedPC={selectedPC} revisedHome={isNativeMobile} pairingHome={pairingHome} refreshOnEntry={isNativeMobile} onFeedback={setPCFeedback} sessions={sessions} disabled={!profilesReady || pairingProgress !== null || pairingSaving} onTest={testPC} onEdit={key => { setPairingDirection('back'); setEditingPC(key) }} onSelect={pc => { setListDirection(pairingHome && !pairingFromList ? 'forward' : 'back'); setPairingFromList(false); cancelPairing(); selectedChanged.current = true; setSelectedPC(pc); projectPairing.current = null; setProjectPairingCwd(null); setPairingTarget(null); appStore.getState().setAdding(false); appStore.getState().setPairingError(null) }} onRemove={async pc => {
+        <PairingForm revisedHome={isNativeMobile} onDismissPCFeedback={() => setPCFeedback(null)} compactPaths={pairingHome} pcFeedback={<PCConnectionFeedback feedback={pcFeedback} autoOpen={!isNativeMobile}/>} pcList={<PCList probeResults={pcProbeResults} onProbeResultsChange={setPCProbeResults} claimInitialRefresh={pairingHome ? claimInitialPCRefresh : undefined} allowInitialRefresh={!pairingFromList} pressOnly={isNativeMobile} selectedPC={selectedPC} revisedHome={isNativeMobile} pairingHome={pairingHome} refreshOnEntry={isNativeMobile} onFeedback={setPCFeedback} sessions={sessions} disabled={!profilesReady || pairingProgress !== null || pairingSaving} onTest={testPC} onEdit={key => { setPairingDirection('back'); setEditingPC(key) }} onSelect={pc => { setListDirection(pairingHome && !pairingFromList ? 'forward' : 'back'); setPairingFromList(false); cancelPairing(); selectedChanged.current = true; setSelectedPC(pc); projectPairing.current = null; setProjectPairingCwd(null); setPairingTarget(null); appStore.getState().setAdding(false); appStore.getState().setPairingError(null) }} onRemove={async pc => {
           for (const record of pc.sessions) { if (!await removePairing(record.sessionId)) return }
+          setPCProbeResults(current => {
+            const next = { ...current }
+            delete next[pc.key]
+            return next
+          })
           const next = { ...pcProfiles }; delete next[pc.key]
           try { await writePCProfiles(next); setPCProfiles(next) } catch { showToast('电脑配置清理失败') }
         }}/>} projectCwd={projectPairingCwd} projectPC={pairingHome ? pairingPCName : undefined} onDismissError={() => appStore.getState().setPairingError(null)} iosDesign={isNativeMobile} target={pairingTarget} initialError={pairingError} progress={pairingProgress} saving={pairingSaving} onCancel={cancelPairing} onSubmit={submitJson} onScan={native === null ? undefined : () => {
@@ -786,6 +792,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       {pairingError !== null && <div role="alert" style={{ padding: 12, color: '#b00' }}>{pairingError}</div>}
       <ProjectSessionList
         sessions={sessions}
+        pcProbeResults={pcProbeResults}
         compactPCHeader={isNativeMobile}
         revisedLayout={pairingHome}
         hideHeadingArrow={isNativeMobile}

@@ -7,7 +7,7 @@ import { APP_BUILD_LABEL } from '../common/BuildInfo'
 import { pageSlide } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
 import { defaultSessionName, type SessionRecord } from '../session/records'
-import { groupSessions, maskPairToken, type PCGroup, type ProjectGroup, type PCProfile } from '../session/projectGroups'
+import { computerAddress, groupSessions, maskPairToken, type PCGroup, type PCProbeResult, type ProjectGroup, type PCProfile } from '../session/projectGroups'
 import { ProjectListDataSource, projectListRows, type ProjectListRow } from '../ui/projectListDataSource'
 
 function titleOf(record: SessionRecord): string {
@@ -39,7 +39,8 @@ export struct SessionListPage {
   onScrollOffset: (value: number) => void = () => {}
   onRefresh: () => void = () => {}
   @State private refreshing: boolean = false
-  @Prop @Watch('updateRows') pendingRefreshSessions: Array<string> = []
+  @Prop @Watch('updateRows') pcProbes: PCProbeResult[] = []
+  @Prop @Watch('updateRows') pendingPCs: string[] = []
   @Prop @Watch('updateGroups') profiles: Array<PCProfile> = []
   @Prop @Watch('updateGroups') sessions: Array<SessionRecord> = []
   @Prop @Watch('updateGroups') selectedPC: string = 'all'
@@ -58,11 +59,9 @@ export struct SessionListPage {
     this.updateRows()
   }
 
-  private computerAddress(computer: PCGroup): string {
-    return this.profiles.find((item: PCProfile) => item.key === computer.key)?.ip ??
-      (/^wss?:\/\/(\[[^\]]+\]|[^/:]+)/.exec(computer.sessions[0].wsUrl)?.[1] ?? '')
+  private updateRows(): void {
+    this.listSource.replace(projectListRows(this.groups, this.selectedPC, this.collapsed, this.pendingPCs, this.profiles, this.pcProbes))
   }
-  private updateRows(): void { this.listSource.replace(projectListRows(this.groups, this.selectedPC, this.collapsed, this.pendingRefreshSessions)) }
   aboutToAppear(): void { this.settings = this.initialSettings; this.updateGroups(); nativeLifecycle.detailBack = this.backHandler }
   private readonly backHandler: () => boolean = () => {
     if (this.filterOpen) { this.filterOpen = false; return true }
@@ -176,8 +175,12 @@ export struct SessionListPage {
           Text(session.preview ?? '暂无会话内容').fontSize(13).fontColor(SECONDARY).maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           if (session.runtimeStatus && session.runtimeStatus !== '空闲' && session.status !== 'needsPairing') {
-            Image(this.turnIcon(session.runtimeStatus)).width(16).height(16)
-              .accessibilityText(session.status === 'connected' ? session.runtimeStatus : `上次同步：${session.runtimeStatus}`)
+            if (session.runtimeStatus === '进行中' && session.status === 'connected') {
+              LoadingProgress().width(20).height(20).color(PRIMARY).accessibilityText('进行中')
+            } else {
+              Image(this.turnIcon(session.runtimeStatus)).width(16).height(16)
+                .accessibilityText(session.status === 'connected' ? session.runtimeStatus : `上次同步：${session.runtimeStatus}`)
+            }
           }
         }.width('100%').padding({ top: 5 })
       }.width('100%').padding({ left: 16, right: 12, top: 12, bottom: 14 }).alignItems(HorizontalAlign.Start)
@@ -304,14 +307,14 @@ export struct SessionListPage {
                         .fontSize(12).fontColor(SECONDARY).width('100%').maxLines(1)
                     }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                     Column({ space: 4 }) {
-                      Text(this.computerAddress(row.pc)).fontSize(12).fontColor(SECONDARY).maxLines(1)
+                      Text(computerAddress(row.pc, this.profiles)).fontSize(12).fontColor(SECONDARY).maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: 120 })
                       Row({ space: 4 }) {
-                        Circle().width(5).height(5).fill(row.connecting ? '#c88a27' : row.pc.connected > 0 ? $r('app.color.badge_success_text') : SECONDARY)
-                        Text(row.connecting ? '连接中' : row.pc.connected > 0 ? '已连接' : '暂未连接').fontSize(11)
-                          .fontColor(row.connecting ? $r('app.color.warning') : row.pc.connected > 0 ? $r('app.color.badge_success_text') : SECONDARY)
+                        Circle().width(5).height(5).fill(row.pcStatus === 'connecting' ? '#c88a27' : row.pcStatus === 'connected' ? $r('app.color.badge_success_text') : SECONDARY)
+                        Text(row.pcStatus === 'connecting' ? '连接中' : row.pcStatus === 'connected' ? '已连接' : '暂未连接').fontSize(11)
+                          .fontColor(row.pcStatus === 'connecting' ? $r('app.color.warning') : row.pcStatus === 'connected' ? $r('app.color.badge_success_text') : SECONDARY)
                       }.padding({ left: 8, right: 8, top: 3, bottom: 3 })
-                        .backgroundColor(row.connecting ? $r('app.color.surface_warning') : row.pc.connected > 0 ? $r('app.color.badge_success_surface') : $r('app.color.surface_subtle'))
+                        .backgroundColor(row.pcStatus === 'connecting' ? $r('app.color.surface_warning') : row.pcStatus === 'connected' ? $r('app.color.badge_success_surface') : $r('app.color.surface_subtle'))
                         .borderRadius(12)
                     }.alignItems(HorizontalAlign.End)
                   }.padding({ left: 16, right: 16, top: 8, bottom: 8 }).width('100%').backgroundColor($r('app.color.surface')).borderRadius(16)
@@ -346,7 +349,7 @@ export struct SessionListPage {
                 .swipeAction({ end: this.sessionActions(row.session) })
                 .border({ width: 1, color: $r('app.color.border') }).borderRadius(16).clip(true)
             }
-          }, (row: ProjectListRow) => row.session === undefined ? row.key :
+          }, (row: ProjectListRow) => row.session === undefined ? (row.kind === 'pc' ? JSON.stringify([row.key, row.pcStatus, row.pc?.label, row.pc ? computerAddress(row.pc, this.profiles) : '']) : row.key) :
             JSON.stringify([row.key, row.session.status, row.session.runtimeStatus]))
         }.layoutWeight(1).width('100%').padding({ left: 16, right: 16 }).cachedCount(3).transition(pageSlide(true))
           .onAppear(() => { this.listOffset = this.scrollOffset; this.scroller.scrollTo({ xOffset: 0, yOffset: this.scrollOffset }) })

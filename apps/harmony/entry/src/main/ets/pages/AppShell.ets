@@ -51,7 +51,7 @@ import { DemoPage } from './DemoPage'
 import { DebugPanel } from '../components/DebugPanel'
 import { debugLog } from '../debug/log'
 import { SessionPage } from './SessionPage'
-import { groupSessions, sessionPCKey, sessionPreview, replaceComputerHost, validComputerIP, type PCProfile, type PCGroup, type ProjectGroup } from '../session/projectGroups'
+import { groupSessions, sessionPCKey, sessionPreview, replaceComputerHost, validComputerIP, type PCProfile, type PCProbeResult, type PCGroup, type ProjectGroup } from '../session/projectGroups'
 import { projectMatches, createdPairingAddress } from '../session/projectPairing'
 import { commitPairingRecords } from '../session/pairingCommit'
 
@@ -173,6 +173,8 @@ export struct AppShell {
   @State private debugOpen: boolean = false
   @State private debugEnabled: boolean = false
   @State private addressHistory: Array<string> = []
+  @State private pcProbes: PCProbeResult[] = []
+  @State private pendingPCs: string[] = []
   @State private pcProfiles: Array<PCProfile> = []
   @State private selectedPC: string = 'all'
   private preferencesReady: boolean = false
@@ -198,7 +200,6 @@ export struct AppShell {
 
   @State private sessionState: HarmonySessionState = createInitialHarmonySessionState()
   @State private sessions: Array<SessionRecord> = []
-  @State private pendingRefreshSessions: Array<string> = []
   @State private view: AppView = 'pairing'
   @State private pairingBehindSettings: boolean = false
   @State private currentSessionId: string = ''
@@ -480,22 +481,14 @@ export struct AppShell {
     const now = Date.now()
     const records = this.sessions.filter((record: SessionRecord) =>
       record.pairToken.length > 0 && Date.parse(record.expiresAt) > now)
-    this.pendingRefreshSessions = records.map((record: SessionRecord) => record.sessionId)
     for (const record of records) {
       const id = record.sessionId
       const store = this.stores.get(id)
       const connection = store?.getState().connection
       if (store === undefined) this.connectSession(pairingPayloadFromRecord(record))
       else if (connection === ConnectionStage.DISCONNECTED || connection === ConnectionStage.PAIRING_INVALID) {
-        if (!store.reconnect()) this.finishSessionRefresh(id)
-      } else if (connection === ConnectionStage.READY) store.checkConnection(() => this.finishSessionRefresh(id))
-      else if (connection === ConnectionStage.PROTOCOL_ERROR) this.finishSessionRefresh(id)
-    }
-  }
-
-  private finishSessionRefresh(id: string): void {
-    if (this.pendingRefreshSessions.includes(id)) {
-      this.pendingRefreshSessions = this.pendingRefreshSessions.filter((pending: string) => pending !== id)
+        store.reconnect()
+      } else if (connection === ConnectionStage.READY) store.checkConnection()
     }
   }
 
@@ -625,11 +618,6 @@ export struct AppShell {
   private handleStoreState(sessionId: string, nextState: HarmonySessionState): void {
     const previousState = this.states.get(sessionId) ?? createInitialHarmonySessionState()
     this.states.set(sessionId, nextState)
-    if (previousState.connection !== nextState.connection &&
-      (nextState.connection === ConnectionStage.READY || nextState.connection === ConnectionStage.PAIRING_INVALID ||
-        nextState.connection === ConnectionStage.DISCONNECTED || nextState.connection === ConnectionStage.PROTOCOL_ERROR)) {
-      this.finishSessionRefresh(sessionId)
-    }
     const queueCommand = previousState.pendingCommand?.kind === 'cancel_queued' || previousState.pendingCommand?.kind === 'steer_queued' || (previousState.pendingCommand?.kind === 'resolve_action' && previousState.pendingAction?.kind === 'ask_user_question')
     if (sessionId === this.currentSessionId && this.view === 'detail' && queueCommand && nextState.pendingCommand === null && nextState.lastError !== null) {
       promptAction.showToast({ message: previousState.pendingCommand?.kind === 'resolve_action' ? '操作未成功，请在电脑端取消提问或更新电脑端' : nextState.lastError.message })
@@ -908,7 +896,6 @@ export struct AppShell {
       this.states.delete(sessionId)
       this.managementPendingSessions.delete(sessionId)
     }
-    this.finishSessionRefresh(sessionId)
     this.sessions = removeSessionRecord(this.sessions, sessionId)
     void this.push?.syncSessions(this.sessions).catch(() => { this.pushStatus = '后台推送登记失败，稍后重试' })
     this.reconcileSelectedPC()
@@ -1139,7 +1126,9 @@ export struct AppShell {
   @Builder
   private buildPairingView(): void {
     PairingPage({
-      computers: groupSessions(listSessionRecords(this.sessions)),
+      computers: groupSessions(this.sortedSessions()),
+      pcProbes: $pcProbes,
+      pendingPCs: $pendingPCs,
       claimInitialRefresh: () => {
         if (this.pairingFromList || this.initialPCRefresh) return false
         this.initialPCRefresh = true
@@ -1160,6 +1149,7 @@ export struct AppShell {
       onRemoveComputer: (key: string) => {
         this.sessions.filter((record: SessionRecord) => sessionPCKey(record) === key)
           .forEach((record: SessionRecord) => this.handleRemoveSession(record.sessionId))
+        this.pcProbes = this.pcProbes.filter((item: PCProbeResult) => item.key !== key)
         this.pcProfiles = this.pcProfiles.filter((item: PCProfile) => item.key !== key)
         this.saveDisplayPreferences()
       },
@@ -1209,7 +1199,8 @@ export struct AppShell {
   private buildListView(): void {
     SessionListPage({
       onRefresh: () => this.refreshSessions(),
-      pendingRefreshSessions: this.pendingRefreshSessions,
+      pcProbes: this.pcProbes,
+      pendingPCs: this.pendingPCs,
       onHome: () => this.openPairingPage(false),
       onCreateDirectory: (pc: PCGroup, project: ProjectGroup) => this.createInDirectory(pc, project),
       projectCreating: this.projectCreating,

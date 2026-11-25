@@ -45,6 +45,19 @@ export function sessionPreview(text: string): string {
 }
 
 export interface PCProfile { key: string; name: string; ip: string }
+export interface PCProbeResult { key: string; host: string; reachable: boolean }
+export type PCConnectionStatus = 'connected' | 'connecting' | 'disconnected'
+
+export function computerAddress(computer: PCGroup, profiles: PCProfile[]): string {
+  return profiles.find((profile: PCProfile) => profile.key === computer.key)?.ip ??
+    (/^wss?:\/\/(\[[^\]]+\]|[^/:]+)/.exec(computer.sessions[0].wsUrl)?.[1] ?? '')
+}
+
+export function pcConnectionStatus(computer: PCGroup, host: string, probes: PCProbeResult[], pending: string[]): PCConnectionStatus {
+  if (pending.includes(computer.key)) return 'connecting'
+  const probe = probes.find((item: PCProbeResult) => item.key === computer.key && item.host === host)
+  return (probe?.reachable ?? (computer.connected > 0)) ? 'connected' : 'disconnected'
+}
 
 export function replaceComputerHost(wsUrl: string, ip: string): string {
   return wsUrl.replace(/^(wss?:\/\/)(\[[^\]]+\]|[^/:?#]+)/, (_match: string, scheme: string) => scheme + ip)

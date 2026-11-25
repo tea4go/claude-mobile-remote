@@ -1168,6 +1168,39 @@ test('v9 运行中快照之后继续合并增量', () => {
   expect(state.messages.find(m => m.kind === 'claude')).toMatchObject({ text: 'beforeafter' })
 })
 
+test.each(['', '扫码前尾段'])('中途配对保留旧快照正文（有序尾段：%s）并接收后续正文', tail => {
+  const turn: SessionSnapshot['turn'] = { ...snapshot().turn, requestId: 'running', source: 'terminal', status: 'running',
+    inputText: '当前问题', message: '扫码前正文' + tail,
+    display: { truncated: true, items: [{ block: { id: 'step', kind: 'thinking', thinking: 'task' } }, ...(tail ? [{ text: tail }] : [])] } }
+  let state = reducer(createInitialState(), snapshotReceived(snapshot({ turn })))
+  state = reducer(state, eventReceived(event('text_delta', 11, { requestId: 'running', text: '扫码后正文' })))
+  expect(state.messages.map(item => item.kind === 'block' ? item.block.id : item.kind === 'answer' ? '' : item.text)).toEqual([
+    '当前问题', '[较早的执行过程未同步]', '扫码前正文', 'step', tail + '扫码后正文',
+  ])
+})
+
+test('重连把当前回复放在缓存提问后，晚到的前轮步骤不会进入当前轮或推进队列', () => {
+  const completed: SessionSnapshot['turn'] = { ...snapshot().turn, requestId: 'earlier', source: 'terminal', status: 'completed', inputText: 'first', message: 'first answer' }
+  const cached = stateWithSnapshot({ turn: completed })
+  cached.messages = [...cached.messages,
+    { kind: 'claude', requestId: 'active', source: 'terminal', text: 'cached reply', status: 'done', error: null },
+    { kind: 'input', requestId: 'active', source: 'terminal', text: 'second', status: 'accepted' },
+  ]
+  const turn: SessionSnapshot['turn'] = { ...completed, requestId: 'active', status: 'running', inputText: 'second',
+    message: 'actual reply', display: { truncated: false, items: [{ text: 'actual reply' }] } }
+  const queuedRequests = [{ requestId: 'queued', source: 'mobile' as const, preview: 'queued' }]
+  const action = snapshotReceived(snapshot({ turn, queueDepth: 1, queuedRequests }))
+  let state = reducer(reducer(cached, action), action)
+  state = reducer(state, eventReceived(event('content_block', 11, { requestId: 'earlier', block: { id: 'late', kind: 'thinking', thinking: 'previous round' } })))
+  state = reducer(state, eventReceived(event('text_delta', 12, { requestId: 'earlier', text: 'late reply' })))
+  expect(state.messages.map(item => [item.requestId, item.kind])).toEqual([
+    ['earlier', 'input'], ['earlier', 'claude'], ['earlier', 'block'], ['earlier', 'claude'], ['active', 'input'], ['active', 'claude'],
+  ])
+  expect(state.messages.at(-1)).toMatchObject({ text: 'actual reply', status: 'streaming' })
+  expect(state.progressRequestId).toBe('active')
+  expect(state.queuedRequests).toEqual(queuedRequests)
+})
+
 test('queued text enters the transcript when its ordinary turn starts', () => {
   let state = stateWithSnapshot({ seq: 7 })
   state = reducer(state, eventReceived(event('turn_started', 8, { requestId: 'running' })))

@@ -58,15 +58,26 @@ function addSubagentSnapshot(messages: Message[], tasks: SubagentTask[]): Messag
   if (tasks.length === 0) return messages
   const observed = new Set(messages.flatMap(message => message.kind === 'block' && message.block.kind !== 'thinking'
     ? [toolKey(message.requestId, message.block.kind + ':' + message.block.toolUseId)] : []))
-  const roots: BlockMessage[] = []
+  const roots = new Map<number, BlockMessage[]>()
+  const turnEnds = new Map<string, number>()
+  messages.forEach((message, index) => {
+    if (message.requestId && (message.kind === 'input' || message.kind === 'claude' ||
+      (message.kind === 'block' && (message.block.kind === 'thinking' ||
+        (message.block.kind === 'tool_use' && !message.block.parentToolUseId))))) {
+      turnEnds.set(message.requestId, index + 1)
+    }
+  })
   const calls = new Map<string, BlockMessage[]>()
   const results: BlockMessage[] = []
   for (const task of tasks) {
     const { requestId, toolUseId } = task
     if (!observed.has(toolKey(requestId, 'tool_use:' + toolUseId))) {
-      roots.push({ kind: 'block', requestId, block: {
+      const position = turnEnds.get(requestId) ?? messages.length
+      const group = roots.get(position) ?? []
+      group.push({ kind: 'block', requestId, block: {
         id: toolUseId, kind: 'tool_use', toolUseId, toolClass: 'builtin', toolName: 'Agent', mcpServer: '',
       } })
+      roots.set(position, group)
     }
     for (const block of task.blocks ?? []) {
       if (!observed.has(toolKey(requestId, block.kind + ':' + block.toolUseId))) {
@@ -81,7 +92,9 @@ function addSubagentSnapshot(messages: Message[], tasks: SubagentTask[]): Messag
       }
     }
   }
-  return [...roots, ...messages].flatMap(message => {
+  const ordered = messages.flatMap((message, index) => [...(roots.get(index) ?? []), message])
+  ordered.push(...(roots.get(messages.length) ?? []))
+  return ordered.flatMap(message => {
     if (message.kind !== 'block' || message.block.kind !== 'tool_use') return [message]
     return [message, ...(calls.get(toolKey(message.requestId, message.block.toolUseId)) ?? [])]
   }).concat(results)

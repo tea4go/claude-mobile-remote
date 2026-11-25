@@ -12,14 +12,16 @@
 .activity-summary--inline { min-height: 44px; }
 
 .activity-row__label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.activity-entry { position: relative; border-bottom: 1px solid #edf1f7; }
-.activity-entry:last-child { border-bottom: 0; }
+.activity-entry { position: relative; }
 .activity-list--compact .activity-row {
   min-height: 44px;
   min-width: 0;
   padding: 6px 4px !important;
   align-items: center !important;
+  border-radius: 8px;
 }
+.activity-list--compact .activity-row:active { background: #edf3ff !important; }
+.activity-list--compact .activity-row__label > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .activity-list--compact .activity-row::after { display: none; }
 .activity-list--compact .activity-row > span:first-child { position: relative; z-index: 1; margin-top: 0; }
 .activity-entry:not(:last-child)::before {

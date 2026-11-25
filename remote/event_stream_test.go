@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/tea4go/claude-mobile-remote/protocol"
@@ -198,6 +199,48 @@ func TestReconnectSnapshotKeepsOrderedTurnDisplay(t *testing.T) {
 	}
 	if event := <-events; event.Seq != snapshot.Seq+1 {
 		t.Fatalf("sequence %d after snapshot %d", event.Seq, snapshot.Seq)
+	}
+}
+
+func TestPairingDuringLongTurnKeepsReplyWhenStepsOverflow(t *testing.T) {
+	stream, err := NewEventStream(protocol.Snapshot{SessionID: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	publish := func(event protocol.Event) {
+		t.Helper()
+		event.RequestID, event.Source = "active", protocol.InputTerminal
+		if err := stream.Publish(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish(protocol.Event{Kind: protocol.EventTurnStarted, TurnStatus: protocol.TurnRunning, Text: "question"})
+	publish(protocol.Event{Kind: protocol.EventTextDelta, Text: "earlier reply", Model: "example"})
+	for i := range protocol.MaxTurnDisplayItems {
+		publish(protocol.Event{Kind: protocol.EventContentBlock, Block: &protocol.ContentBlock{ID: strconv.Itoa(i), Kind: protocol.BlockThinking, Thinking: "step"}})
+	}
+	publish(protocol.Event{Kind: protocol.EventTextDelta, Text: "later reply", Model: "example"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	snapshot, events, err := stream.Subscribe(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	display := snapshot.Turn.Display
+	if snapshot.Turn.Status != protocol.TurnRunning || snapshot.Turn.InputText != "question" || display == nil || !display.Truncated {
+		t.Fatalf("expected a running snapshot with truncated steps: %+v", snapshot.Turn)
+	}
+	items := display.Items
+	if len(items) != protocol.MaxTurnDisplayItems || items[0].Text != "earlier reply" || items[0].Model != "example" || items[len(items)-1].Text != "later reply" {
+		t.Fatal("trimming steps lost or reordered the reply")
+	}
+	if items[1].Block.ID != "2" || items[len(items)-2].Block.ID != strconv.Itoa(protocol.MaxTurnDisplayItems-1) {
+		t.Fatal("remaining steps lost their order")
+	}
+	publish(protocol.Event{Kind: protocol.EventTextDelta, Text: " continues"})
+	if event := <-events; event.Seq != snapshot.Seq+1 || event.Text != " continues" {
+		t.Fatalf("first live event after pairing: %+v", event)
 	}
 }
 

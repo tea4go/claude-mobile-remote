@@ -443,6 +443,38 @@ test('后台任务快照接续旧轮次，在详情折叠子工具并接受状�
   expect(screen.getByText('下一轮正文')).toBeInTheDocument()
 })
 
+test('快照子代理跟随其原轮次，观察到真实步骤后改用实际位置', () => {
+  const task = { requestId: 'req-1', toolUseId: 'agent', status: 'running' as const }
+  const first = input({ text: '问题一' })
+  const reply = claude({ text: '原轮正文', status: 'done' })
+  const second = input({ requestId: 'later', text: '问题二' })
+  const root = block({ id: 'root', kind: 'tool_use', toolUseId: 'agent', toolClass: 'builtin', toolName: 'Agent', mcpServer: '' })
+  const load = vi.fn()
+  const { rerender } = render(<MessageFeed messages={[first, reply, second]} subagentTasks={[task]} loadToolDetail={load} />)
+  const precedes = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+  expect(precedes(screen.getByText('原轮正文'), screen.getByTestId('activity-group-summary'))).toBe(true)
+  expect(precedes(screen.getByTestId('activity-group-summary'), screen.getByText('问题二'))).toBe(true)
+  rerender(<MessageFeed messages={[first, root, reply, second]} subagentTasks={[task]} loadToolDetail={load} />)
+  expect(precedes(screen.getByTestId('activity-group-summary'), screen.getByText('原轮正文'))).toBe(true)
+  rerender(<MessageFeed messages={[second]} subagentTasks={[task]} loadToolDetail={load} />)
+  expect(precedes(screen.getByText('问题二'), screen.getByTestId('activity-group-summary'))).toBe(true)
+})
+
+test('子代理结果显示在折叠子工具上方', async () => {
+  const load = vi.fn().mockResolvedValue({ output: '代理结果' })
+  render(<MessageFeed loadToolDetail={load} messages={[
+    block({ id: 'root', kind: 'tool_use', toolUseId: 'agent', toolClass: 'builtin', toolName: 'Agent', mcpServer: '', detailAvailable: true }),
+    block({ id: 'child', kind: 'tool_use', toolUseId: 'read', parentToolUseId: 'agent', toolClass: 'builtin', toolName: 'Read', mcpServer: '' }),
+  ]} />)
+  fireEvent.click(screen.getByTestId('activity-group-summary'))
+  fireEvent.click(screen.getByRole('button', { name: /^子代理/ }))
+  const dialog = within(screen.getByRole('dialog', { name: '子代理' }))
+  const result = await dialog.findByText('代理结果')
+  const child = dialog.getByRole('button', { name: /^Read/ })
+  expect(result.compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(child).toHaveAttribute('aria-expanded', 'false')
+})
+
 test('iOS 思考详情使用消息 Markdown，并保留没有正文的工具结果提示', async () => {
   const load = vi.fn().mockResolvedValue({ input: 'color\n• Blue' })
   render(<MessageFeed loadToolDetail={load} messages={[

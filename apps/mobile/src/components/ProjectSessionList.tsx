@@ -7,7 +7,7 @@ import { DeleteOutline, EditSOutline, MoreOutline } from 'antd-mobile-icons'
 import { defaultSessionName, type SessionRecord } from '../session/store'
 import type { MobileState } from '../session/reducer'
 import { projectGroups } from './projectGroups'
-import { groupPCs } from './pcGroups'
+import { groupPCs, pcConnectionStatus, pcIP, type PCProbeResults } from './pcGroups'
 import { formatActivityTime } from './activityTime'
 import './ProjectSessionList.css'
 
@@ -18,6 +18,7 @@ export interface SessionListItem extends SessionRecord {
 
 interface Props {
   sessions: SessionListItem[]
+  pcProbeResults?: PCProbeResults
   compactPCHeader?: boolean
   revisedLayout?: boolean
   hideHeadingArrow?: boolean
@@ -107,7 +108,7 @@ function activityTime(session: SessionListItem): string {
   return formatActivityTime(value)
 }
 
-export default function ProjectSessionList({ sessions, compactPCHeader, revisedLayout, hideHeadingArrow, recentlyViewedId, selectedPC = null, managementBusy = {}, managementFeedback = {}, onCreate, onPairProject, onError, onAdd, onOpen, onRemove, onRename }: Props) {
+export default function ProjectSessionList({ sessions, pcProbeResults = {}, compactPCHeader, revisedLayout, hideHeadingArrow, recentlyViewedId, selectedPC = null, managementBusy = {}, managementFeedback = {}, onCreate, onPairProject, onError, onAdd, onOpen, onRemove, onRename }: Props) {
   // Keep the initial display order while the list is visible; add newly paired sessions at the end.
   const [initialOrder] = useState(() => revisedLayout
     ? groupPCs(sessions).flatMap(pc => projectGroups(pc.sessions).flatMap(group => group.ids))
@@ -115,6 +116,7 @@ export default function ProjectSessionList({ sessions, compactPCHeader, revisedL
   const order = [...initialOrder, ...sessions.map((session) => session.sessionId).filter((id) => !initialOrder.includes(id))]
   const ordered = [...sessions].sort((a, b) => order.indexOf(a.sessionId) - order.indexOf(b.sessionId))
   const pcs = groupPCs(ordered)
+  const homePCs = new Map(groupPCs(sessions).map(pc => [pc.key, pc]))
   const visible = selectedPC === null ? pcs : pcs.filter((pc) => pc.key === selectedPC)
   const count = visible.reduce((sum, pc) => sum + pc.sessions.length, 0)
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -170,12 +172,10 @@ export default function ProjectSessionList({ sessions, compactPCHeader, revisedL
       const byId = new Map(pc.sessions.map((session) => [session.sessionId, session]))
       // Preserve the order established above instead of re-sorting on each streamed event.
       const projects = projectGroups(pc.sessions.map((session) => ({ ...session, runtimeState: session.runtimeState ? { ...session.runtimeState, lastActivityAt: null, createdAt: null } : undefined })))
-      const connected = pc.sessions.filter((session) => session.status !== 'needsPairing' && session.runtimeState?.connection === 'connected').length
-      const connecting = pc.sessions.some((session) => session.status !== 'needsPairing' &&
-        ['connecting', 'authenticating', 'subscribing'].includes(session.runtimeState?.connection ?? ''))
       const token = pc.sessions[0]?.pairToken
       const tokenLabel = token ? revisedLayout ? maskPairingToken(token) : '••••' + (token.length > 8 ? token.slice(-4) : '') : '需重新配对'
-      const pcStatus = connected > 0 ? 'connected' : connecting ? 'connecting' : 'disconnected'
+      const homePC = homePCs.get(pc.key) ?? pc
+      const pcStatus = pcConnectionStatus(homePC, pcProbeResults)
       return <section key={pc.key} className="project-session-list__pc">
         <div className="project-session-list__pc-card" aria-label={`当前电脑 ${pc.label}`}>
           <span className="project-session-list__pc-icon"><SessionIcon name="pc" size={36} /></span>
@@ -184,8 +184,8 @@ export default function ProjectSessionList({ sessions, compactPCHeader, revisedL
             <small>Token：{tokenLabel}</small>
           </span>
           <span className="project-session-list__pc-status">
-            <small>{(() => { try { return new URL(pc.sessions[0]!.wsUrl).hostname } catch { return '' } })()}</small>
-            <span className={`project-session-list__pc-tag project-session-list__pc-tag--${pcStatus}`}>{connected > 0 ? '已连接' : connecting ? '连接中' : '暂未连接'}</span>
+            <small>{pcIP(homePC)}</small>
+            <span className={`project-session-list__pc-tag project-session-list__pc-tag--${pcStatus}`}>{pcStatus === 'connected' ? '已连接' : pcStatus === 'connecting' ? '连接中' : '暂未连接'}</span>
           </span>
         </div>
         {projects.map((group) => {

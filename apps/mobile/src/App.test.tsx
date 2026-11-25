@@ -170,7 +170,7 @@ test.each(['ios', 'android'])('%s 显示等待和实际模型，子代理工具�
   const output = 'first line\n    second line with original indentation'
   act(() => socket.serverMessage({ ...identity, type: 'tool_detail_result', seq: 0, commandId: second.commandId, payload: { toolUseId: 'read', detail: { output } } }))
   const detail = await screen.findByRole('dialog', { name: '子代理 · 分析目录' })
-  await waitFor(() => expect(detail.querySelector('pre code')?.textContent).toBe(output))
+  await waitFor(() => expect(detail.querySelector('.subtool-detail__body pre code')?.textContent).toBe(output))
   expect(within(detail).getByText('成功')).toHaveClass('adm-tag')
   // Growing a long turn compacts its inline groups while the drawer is open.
   let seq = 13
@@ -185,7 +185,7 @@ test.each(['ios', 'android'])('%s 显示等待和实际模型，子代理工具�
     fireEvent.touchStart(node, { touches: [{ clientX: x, clientY: 100 }] })
     fireEvent.touchEnd(node, { changedTouches: [{ clientX: x + 110, clientY: 102 }] })
   }
-  swipe(detail.querySelector('pre code')!, 18)
+  swipe(detail.querySelector('.subtool-detail__body pre code')!, 18)
   swipe(detail, 80)
   expect(detail).toBeInTheDocument()
   vi.stubGlobal('matchMedia', () => ({ matches: false }))

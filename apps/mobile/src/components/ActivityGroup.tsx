@@ -278,8 +278,8 @@ function ActivityRow({ activity, onOpen, revised }: { activity: Activity; onOpen
     <button type="button" data-testid="activity-row" className="activity-row" style={ROW_STYLE} onClick={() => onOpen(activity.id)}>
       <StatusDot status={status} />
       <span className="activity-row__label">
-        <span style={{ fontSize: FONT_SIZE_SECONDARY, color: '#333', wordBreak: 'break-word' }}>{titleOf(activity, revised)}</span>
-        {detail && <span style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c', wordBreak: 'break-word' }}>{detail}</span>}
+        <span style={{ fontSize: FONT_SIZE_SECONDARY, color: '#333', wordBreak: 'break-word' }}>{titleOf(activity, revised)}{revised && detail && ` · ${detail}`}</span>
+        {!revised && detail && <span style={{ fontSize: FONT_SIZE_COMPACT, color: '#8c8c8c', wordBreak: 'break-word' }}>{detail}</span>}
       </span>
       {status !== null && (revised && isAgent(activity)
         ? <ActivityStatusMark status={status} />

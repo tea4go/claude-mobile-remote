@@ -3,7 +3,7 @@ import { DirectoryTags } from '../components/DirectoryTags'
 import { PairingInputDialog } from '../components/PairingInputDialog'
 import { PAGE_BACKGROUND } from '../ui/styles'
 import { pageSlide } from '../ui/transitions'
-import { validComputerIP, type PCGroup, type PCProfile } from '../session/projectGroups'
+import { computerAddress, pcConnectionStatus, validComputerIP, type PCGroup, type PCProfile, type PCProbeResult } from '../session/projectGroups'
 import { nativeLifecycle } from '../native/lifecycle'
 import { webSocket } from '@kit.NetworkKit'
 import { RectShape } from '@kit.ArkUI'
@@ -99,8 +99,7 @@ export struct QuickPairForm {
   @State private editIP: string = ''
 
   private computerHost(computer: PCGroup): string {
-    return this.profiles.find((profile: PCProfile) => profile.key === computer.key)?.ip ??
-      (/^wss?:\/\/(\[[^\]]+\]|[^/:]+)/.exec(computer.sessions[0].wsUrl)?.[1] ?? '')
+    return computerAddress(computer, this.profiles)
   }
 
   private computerName(computer: PCGroup): string {
@@ -128,9 +127,8 @@ export struct QuickPairForm {
   @State error: string = ''
   @State private pressedPC: string = ''
   @State private refreshing: boolean = false
-  @State private pendingPCs: Array<string> = []
-  @State private reachablePCs: Array<string> = []
-  @State private unreachablePCs: Array<string> = []
+  @Link pendingPCs: string[]
+  @Link pcProbes: PCProbeResult[]
   private refreshQueue: Array<PCGroup> = []
 
 
@@ -157,10 +155,8 @@ export struct QuickPairForm {
   }
 
   private computerStatusColor(computer: PCGroup): string {
-    if (this.pendingPCs.includes(computer.key)) return '#e6a23c'
-    if (this.reachablePCs.includes(computer.key)) return '#31a577'
-    if (this.unreachablePCs.includes(computer.key)) return '#d7353e'
-    return computer.connected > 0 ? '#31a577' : '#d7353e'
+    const status = pcConnectionStatus(computer, this.computerHost(computer), this.pcProbes, this.pendingPCs)
+    return status === 'connected' ? '#31a577' : status === 'connecting' ? '#e6a23c' : '#d7353e'
   }
 
   private finishPCRefresh(key: string): void {
@@ -213,10 +209,8 @@ export struct QuickPairForm {
     const finish = (result: string, reachable: boolean = false): void => {
       if (this.probe !== socket) return
       this.cancelProbe()
-      this.reachablePCs = this.reachablePCs.filter((key: string) => key !== computer.key)
-      this.unreachablePCs = this.unreachablePCs.filter((key: string) => key !== computer.key)
-      if (reachable) this.reachablePCs = this.reachablePCs.concat([computer.key])
-      else this.unreachablePCs = this.unreachablePCs.concat([computer.key])
+      const probe: PCProbeResult = { key: computer.key, host, reachable }
+      this.pcProbes = this.pcProbes.filter((item: PCProbeResult) => item.key !== computer.key).concat([probe])
       if (silent) { this.finishPCRefresh(computer.key); return }
       this.testedHost = host
       this.testedName = this.computerName(computer)

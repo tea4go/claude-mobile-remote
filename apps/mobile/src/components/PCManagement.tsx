@@ -4,17 +4,13 @@ import { Button, Dialog, Input, NavBar, Popup, SwipeAction } from 'antd-mobile'
 import SessionIcon from './SessionIcon'
 import { DeleteOutline, MoreOutline, RedoOutline } from 'antd-mobile-icons'
 import { copyText } from '../native/clipboard'
-import { groupPCs, type PCGroup } from './pcGroups'
+import { groupPCs, pcConnectionStatus, pcIP, type PCGroup, type PCProbeResults } from './pcGroups'
 import type { SessionListItem } from './ProjectSessionList'
 import { replacePCIP, type PCProfile } from '../native/pcProfiles'
 import type { PCConnectionResult } from '../session/pcConnectionTest'
 import { projectDirectoryName, projectGroups } from './projectGroups'
 
 export type TestPC = (pc: PCGroup<SessionListItem>, ip: string, signal: AbortSignal) => Promise<PCConnectionResult[]>
-export function pcIP(pc: PCGroup): string {
-  for (const record of pc.sessions) { try { return new URL(record.wsUrl).hostname } catch { /* expired */ } }
-  return ''
-}
 function Results({ results, ip }: { results: PCConnectionResult[]; ip?: string }) {
   const [copyFeedback, setCopyFeedback] = useState('')
   return <div className="pc-test-results" aria-live="polite">{results.map((result, index) => <div key={index} role={result.ok ? 'status' : 'alert'} className={`pairing-notice pairing-notice--${result.ok ? 'success' : 'error'}`}><strong>{result.message}</strong>{ip && <div>IP：{ip} <button type="button" aria-label="复制 IP" className="pc-copy-ip" onClick={() => { void copyText(ip).then(() => setCopyFeedback('已复制')).catch(() => setCopyFeedback('复制失败')) }}><span aria-hidden="true">⧉</span></button>{copyFeedback && <span role="status">{copyFeedback}</span>}</div>}{result.port && <div>端口：{result.port}</div>}</div>)}</div>
@@ -92,12 +88,13 @@ function DirectoryTags({ paths }: { paths: string[] }) {
   </span>
 }
 
-export function PCList({ claimInitialRefresh, allowInitialRefresh = true, revisedHome, pairingHome, pressOnly = false, selectedPC, sessions, disabled, refreshOnEntry, onSelect, onEdit, onRemove, onTest, onFeedback }: { claimInitialRefresh?: () => boolean; allowInitialRefresh?: boolean; revisedHome?: boolean; pairingHome?: boolean; pressOnly?: boolean; selectedPC?: string | null; sessions: SessionListItem[]; disabled?: boolean; refreshOnEntry?: boolean; onSelect: (key: string | null) => void; onEdit: (key: string) => void; onRemove: (pc: PCGroup<SessionListItem>) => Promise<void>; onTest: TestPC; onFeedback?: (feedback: PCFeedback | null) => void }) {
+export function PCList({ claimInitialRefresh, allowInitialRefresh = true, revisedHome, pairingHome, pressOnly = false, selectedPC, sessions, disabled, refreshOnEntry, onSelect, onEdit, onRemove, onTest, onFeedback, probeResults, onProbeResultsChange }: { claimInitialRefresh?: () => boolean; allowInitialRefresh?: boolean; revisedHome?: boolean; pairingHome?: boolean; pressOnly?: boolean; selectedPC?: string | null; sessions: SessionListItem[]; disabled?: boolean; refreshOnEntry?: boolean; onSelect: (key: string | null) => void; onEdit: (key: string) => void; onRemove: (pc: PCGroup<SessionListItem>) => Promise<void>; onTest: TestPC; onFeedback?: (feedback: PCFeedback | null) => void; probeResults?: PCProbeResults; onProbeResultsChange?: React.Dispatch<React.SetStateAction<PCProbeResults>> }) {
   const [collapsed, setCollapsed] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [feedback, setFeedback] = useState<PCFeedback | null>(null)
-  const [testStates, setTestStates] = useState<Record<string, { ip: string; ok: boolean }>>({})
+  const [localProbeResults, setLocalProbeResults] = useState<PCProbeResults>({})
+  const setProbeResults = onProbeResultsChange ?? setLocalProbeResults
   function publishFeedback(value: PCFeedback | null) { setFeedback(value); onFeedback?.(value) }
   const controller = useRef<AbortController | null>(null)
   const list = useRef<HTMLDivElement>(null)
@@ -120,13 +117,13 @@ export function PCList({ claimInitialRefresh, allowInitialRefresh = true, revise
         const ip = pcIP(pc)
         const results = await test(pc, ip, current.signal).catch(() => [])
         if (!current.signal.aborted) {
-          setTestStates(previous => ({ ...previous, [pc.key]: { ip, ok: results.length > 0 && results.every(result => result.ok) } }))
+          setProbeResults(previous => ({ ...previous, [pc.key]: { ip, ok: results.length > 0 && results.every(result => result.ok) } }))
         }
       }))
     } finally {
       if (!current.signal.aborted) setRefreshing(false)
     }
-  }, [])
+  }, [setProbeResults])
   useEffect(() => {
     if (!refreshOnEntry || disabled || refreshedOnEntry.current || list.current?.closest('[inert]')) return
     if (claimInitialRefresh) {
@@ -152,9 +149,9 @@ export function PCList({ claimInitialRefresh, allowInitialRefresh = true, revise
       </button>}
     </div>}
     {!collapsed && pcs.map(pc => {
-      const tested = testStates[pc.key]?.ip === pcIP(pc) ? testStates[pc.key] : undefined
-      const connected = tested ? tested.ok : pc.sessions.some(s => s.status !== 'needsPairing' && s.runtimeState?.connection === 'connected')
-      const pending = !tested && pc.sessions.some(s => ['connecting', 'authenticating', 'subscribing'].includes(s.runtimeState?.connection ?? ''))
+      const status = pcConnectionStatus(pc, probeResults ?? localProbeResults)
+      const connected = status === 'connected'
+      const pending = status === 'connecting'
       const projects = pairingHome
         ? projectGroups(pc.sessions).flatMap(group => group.cwd ? [group.cwd] : [])
         : [...new Set(pc.sessions.map(s => s.runtimeState?.projectCwd).filter((cwd): cwd is string => Boolean(cwd)))]
@@ -171,9 +168,9 @@ export function PCList({ claimInitialRefresh, allowInitialRefresh = true, revise
           const fallback: PCConnectionResult[] = [{ sessionId: '', ok: false, port: '', token: '', message: '测试未完成，请重试' }]
           try {
             const results = await onTest(pc, pcIP(pc), current.signal)
-            if (!current.signal.aborted) { const final = results.length ? results : fallback; setTestStates(previous => ({ ...previous, [pc.key]: { ip: pcIP(pc), ok: final.every(result => result.ok) } })); publishFeedback({ pcName: pc.label, ip: pcIP(pc), testing: false, results: final }) }
+            if (!current.signal.aborted) { const final = results.length ? results : fallback; setProbeResults(previous => ({ ...previous, [pc.key]: { ip: pcIP(pc), ok: final.every(result => result.ok) } })); publishFeedback({ pcName: pc.label, ip: pcIP(pc), testing: false, results: final }) }
           } catch {
-            if (!current.signal.aborted) { setTestStates(previous => ({ ...previous, [pc.key]: { ip: pcIP(pc), ok: false } })); publishFeedback({ pcName: pc.label, ip: pcIP(pc), testing: false, results: fallback }) }
+            if (!current.signal.aborted) { setProbeResults(previous => ({ ...previous, [pc.key]: { ip: pcIP(pc), ok: false } })); publishFeedback({ pcName: pc.label, ip: pcIP(pc), testing: false, results: fallback }) }
           } finally { if (!current.signal.aborted) setTesting(null) }
         }}>{testing === pc.key ? <span className="pc-testing"/> : <SessionIcon name={pairingHome ? "testConnectButton" : "testConnect"} size={pairingHome ? 22 : 40}/>}</button>
       </div></SwipeAction>

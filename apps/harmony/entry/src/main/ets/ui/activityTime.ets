@@ -14,3 +14,16 @@ export function formatActivityTime(value: string, now: Date = new Date()): strin
   if (daysAgo > 1 && daysAgo <= daysSinceMonday) return `星期${'日一二三四五六'.charAt(date.getDay())}`
   return monthDay
 }
+
+export function formatTurnElapsed(now: number, startedAt: number): string {
+  const total = Math.max(0, Math.floor((now - startedAt) / 1000))
+  if (total < 60) return `${total}s`
+  const parts: string[] = []
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor(total / 60) % 60
+  const seconds = total % 60
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0) parts.push(`${minutes}min`)
+  if (seconds > 0) parts.push(`${seconds}s`)
+  return parts.join(' ')
+}

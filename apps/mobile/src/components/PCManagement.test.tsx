@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { expect, test, vi } from 'vitest'
 import { PCEditor, PCList, PCConnectionFeedback, type PCFeedback } from './PCManagement'
 import PairingForm from './PairingForm'
+import ProjectSessionList from './ProjectSessionList'
+import type { PCProbeResults } from './pcGroups'
 import { createInitialState } from '../session/reducer'
 const session = { sessionId: 'a', pcId: 'pc', pcName: 'Mac', wsUrl: 'ws://10.0.0.1:8765/ws', pairToken: 'fixture', expiresAt: '2099-01-01T00:00:00Z', name: 'a', lastConnectedAt: null, status: 'connected' as const, runtimeState: { ...createInitialState(), connection: 'disconnected' as const } }
 test('PC 目录只展示末级名称，兼容 Windows、UNC、末尾分隔符和 Unix 路径', () => {
@@ -65,6 +67,29 @@ test('PC 项点击切换、测试不切换，实时状态跟随会话', async ()
   expect(select).toHaveBeenCalledWith('pc:pc')
   view.rerender(<PCList {...props} sessions={[{ ...session, runtimeState: { ...session.runtimeState, connection: 'connected' } }]}/> )
   expect(screen.getByText('可用')).toBeInTheDocument()
+})
+
+test('会话列表使用配对首页的 PC 探测结果，地址变更后回到实时连接状态', async () => {
+  const probe = vi.fn(async () => [{ sessionId: '', ok: true, port: '7330', token: '', message: 'PC 服务连接成功' }])
+  function Pages() {
+    const [results, setResults] = useState<PCProbeResults>({})
+    const [host, setHost] = useState('10.0.0.1')
+    const [showList, setShowList] = useState(false)
+    const sessions = [{ ...session, wsUrl: `ws://${host}:8765/ws` }]
+    return <>
+      {showList ? <ProjectSessionList sessions={sessions} pcProbeResults={results} onOpen={vi.fn()} onRemove={vi.fn()} onRename={vi.fn()} />
+        : <PCList sessions={sessions} probeResults={results} onProbeResultsChange={setResults} onSelect={() => setShowList(true)}
+          onEdit={vi.fn()} onRemove={vi.fn()} onTest={probe} onFeedback={vi.fn()} />}
+      <button onClick={() => setHost('10.0.0.2')}>更改地址</button>
+    </>
+  }
+  render(<Pages />)
+  fireEvent.click(screen.getByRole('button', { name: '测试连接 Mac' }))
+  await waitFor(() => expect(screen.getByText('可用')).toBeInTheDocument())
+  fireEvent.click(screen.getByText('Mac'))
+  expect(within(screen.getByLabelText('当前电脑 Mac')).getByText('已连接')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '更改地址' }))
+  expect(within(screen.getByLabelText('当前电脑 Mac')).getByText('暂未连接')).toBeInTheDocument()
 })
 test('编辑必填、检测输入 IP、修改后清空结果、确认才保存', async () => {
   const save = vi.fn(async () => {}), probe = vi.fn(async (_pc: unknown, _ip: string, _signal: AbortSignal) => [{ sessionId: 'a', ok: true, port: '8765', token: '••••', message: '认证成功' }])

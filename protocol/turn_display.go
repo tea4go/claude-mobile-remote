@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"slices"
 	"unicode/utf8"
 )
 
@@ -19,7 +20,7 @@ type TurnDisplayItem struct {
 const MaxTurnDisplayItems = 512
 const MaxTurnDisplayBytes = 512 * 1024
 
-// AppendTurnDisplay keeps the most recent valid display items within the wire budget.
+// AppendTurnDisplay preserves reply text before spending the display budget on steps.
 func AppendTurnDisplay(display *TurnDisplay, event Event) *TurnDisplay {
 	if event.Kind == EventTurnStarted {
 		return &TurnDisplay{Items: []TurnDisplayItem{}}
@@ -47,23 +48,23 @@ func AppendTurnDisplay(display *TurnDisplay, event Event) *TurnDisplay {
 			break
 		}
 		display.Truncated = true
+		if index := slices.IndexFunc(display.Items, func(item TurnDisplayItem) bool { return item.Block != nil }); index >= 0 {
+			display.Items = slices.Delete(display.Items, index, index+1)
+			continue
+		}
 		if len(display.Items) > 1 {
-			display.Items = display.Items[1:]
+			display.Items = slices.Delete(display.Items, 0, 1)
 			continue
 		}
 		if len(display.Items) == 0 {
 			break
 		}
 		item := &display.Items[0]
-		if item.Block != nil {
-			display.Items = display.Items[:0]
-			break
-		}
 		if len(item.Text) == 0 {
 			display.Items = display.Items[:0]
 			break
 		}
-		cut := len(item.Text) / 2
+		cut := max(1, len(item.Text)/2)
 		for cut < len(item.Text) && !utf8.RuneStart(item.Text[cut]) {
 			cut++
 		}

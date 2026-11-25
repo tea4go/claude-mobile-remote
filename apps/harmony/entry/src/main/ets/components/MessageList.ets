@@ -1,6 +1,7 @@
 import { copyVisibleText } from '../native/clipboard'
 import { pageSlide } from '../ui/transitions'
 import { nativeLifecycle } from '../native/lifecycle'
+import { PRIMARY } from '../ui/styles'
 import { MarkdownText } from './MarkdownText'
 import { FeedDataSource, feedRenderKey, projectFeed, type FeedRow, type ActivityFeedGroup } from '../ui/feedDataSource'
 import { toolNamesByTurn, toolNameForResult, toolStatusesByTurn } from '../session/stepIndex'
@@ -393,7 +394,8 @@ export struct ActivityOverlay {
     const owner = parent === undefined ? undefined : this.tasks.find((candidate: SubagentTask) =>
       candidate.requestId === item.requestId && candidate.toolUseId === parent)
     if (owner !== undefined) return owner.status === 'running' ? '执行中' : '结果未收到'
-    return toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId])) ?? '执行中'
+    const status = toolStatusesByTurn(this.messages).get(JSON.stringify([item.requestId, item.block.toolUseId]))
+    return status === undefined || status === '进行中' ? '执行中' : status
   }
 
   private result(item: BlockFeedMessage): ToolResultContentBlock | null {
@@ -436,9 +438,18 @@ export struct ActivityOverlay {
     return item.block.kind === 'tool_use' && (item.block.toolName === 'Agent' || item.block.toolName === 'Task')
   }
 
+  private stepDotColor(item: BlockFeedMessage): string {
+    const status = this.status(item)
+    if (status === '执行中' || status === '结果未收到') return '#b88020'
+    if (status === '成功') return '#00b578'
+    if (status === '失败') return '#ff3141'
+    if (status === '已取消' || status === '已中断') return '#8c9ab0'
+    return '#3478f6'
+  }
+
   @Builder
   private mark(item: BlockFeedMessage): void {
-    if (this.status(item) === '执行中') LoadingProgress().width(18).height(18).accessibilityText('执行中')
+    if (this.status(item) === '执行中') LoadingProgress().width(18).height(18).color(PRIMARY).accessibilityText('执行中')
     else if (this.status(item).length > 0) {
       Text(this.status(item)).fontSize(12).fontColor(Color.White)
         .backgroundColor(this.status(item) === '成功' ? $r('app.color.badge_success') : $r('app.color.badge_warning'))
@@ -459,26 +470,33 @@ export struct ActivityOverlay {
       }.width('100%').padding({ right: 14 })
       Scroll() {
         Column({ space: 10 }) {
+          ToolDetailContent({ item, result: this.result(item), answers: this.answers(item), hideEmpty: this.isAgent(item), load: this.load })
           if (this.isAgent(item)) {
-            Text('子工具').fontSize(15).fontWeight(FontWeight.Medium)
+            Text(this.children(item).length > 0 ? `子工具（${this.children(item).length}）` : '子工具')
+              .fontSize(15).fontWeight(FontWeight.Medium)
             if (this.children(item).length === 0) Text('暂未收到子工具').fontSize(13)
             ForEach(this.children(item), (child: BlockFeedMessage) => {
               Column() {
                 Button({ type: ButtonType.Normal }) {
                   Row({ space: 8 }) {
                     Text(this.title(child)).fontSize(14).layoutWeight(1).textAlign(TextAlign.Start)
+                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                     this.mark(child)
-                    Text(this.expandedTool === child.block.id ? '⌄' : '›')
+                    Text(this.expandedTool === child.block.id ? '⌄' : '›').fontSize(16).fontColor($r('app.color.text_secondary'))
                   }.width('100%')
-                }.width('100%').constraintSize({ minHeight: 44 }).backgroundColor(Color.Transparent)
+                }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: 10, right: 10 })
+                  .backgroundColor(Color.Transparent)
+                  .accessibilityDescription(this.expandedTool === child.block.id ? '已展开' : '已收起')
                   .onClick(() => { this.expandedTool = this.expandedTool === child.block.id ? '' : child.block.id })
                 if (this.expandedTool === child.block.id) {
-                  ToolDetailContent({ item: child, result: this.result(child), answers: this.answers(child), load: this.load })
+                  Column() {
+                    ToolDetailContent({ item: child, result: this.result(child), answers: this.answers(child), load: this.load })
+                  }.width('100%').padding({ left: 10, right: 10, bottom: 10 })
                 }
-              }.width('100%').padding(8).backgroundColor($r('app.color.surface')).borderRadius(10)
+              }.width('100%').backgroundColor($r('app.color.surface'))
+                .border({ width: 1, color: '#dce5f2', radius: 10 }).clip(true)
             }, (child: BlockFeedMessage) => child.block.id)
           }
-          ToolDetailContent({ item, result: this.result(item), answers: this.answers(item), hideEmpty: this.isAgent(item), load: this.load })
         }.width('100%').padding(14).alignItems(HorizontalAlign.Start)
       }.layoutWeight(1).width('100%').align(Alignment.TopStart)
     }.width('100%').height('100%').backgroundColor($r('app.color.surface'))
@@ -502,9 +520,11 @@ export struct ActivityOverlay {
               Text(stepSummary(this.selectedActivity as ActivityFeedGroup)).fontSize(18).fontWeight(FontWeight.Medium).layoutWeight(1)
               if (this.debugEnabled) { Button('调试').height(44).onClick(() => this.onDebugOpen()) }
               Button({ type: ButtonType.Normal }) { Image($r('app.media.drawer_close')).width(18).height(18) }
-                .width(44).height(44).backgroundColor($r('app.color.surface_subtle')).accessibilityText('关闭步骤')
+                .width(40).height(40).padding(0).border({ width: 1, color: '#e9eef5', radius: 20 })
+                .backgroundColor('#f8fafc').accessibilityText('关闭步骤')
                 .onClick(() => { this.selectedActivity = null; this.selectedStep = -1 })
             }.width('100%').padding({ left: 20, right: 20, bottom: 14 })
+            Divider().strokeWidth(1).color('#edf0f5')
             Scroll() {
               Column() {
                 ForEach(visibleSteps(this.selectedActivity as ActivityFeedGroup), (item: BlockFeedMessage, index: number) => {
@@ -514,12 +534,13 @@ export struct ActivityOverlay {
                         if (index < visibleSteps(this.selectedActivity as ActivityFeedGroup).length - 1) {
                           Column().width(1).height(44).backgroundColor($r('app.color.border')).translate({ y: 22 })
                         }
-                        Column().width(8).height(8).borderRadius(4).backgroundColor($r('app.color.primary_fill'))
+                        Column().width(8).height(8).borderRadius(4).backgroundColor(this.stepDotColor(item))
                       }.width(10).height(44)
-                      Text(this.title(item)).fontSize(15).layoutWeight(1).maxLines(2).textAlign(TextAlign.Start)
+                      Text(this.title(item)).fontSize(15).layoutWeight(1).maxLines(1).textAlign(TextAlign.Start)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
                       this.mark(item)
-                      Text('›').fontSize(20).fontColor($r('app.color.text_secondary'))
-                    }.width('100%')
+                      Text('›').fontSize(18).fontColor($r('app.color.text_secondary'))
+                    }.width('100%').alignItems(VerticalAlign.Center)
                   }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: 16, right: 16 })
                     .backgroundColor(Color.Transparent).onClick(() => { this.selectedStep = index; this.expandedTool = '' })
                 }, (item: BlockFeedMessage) => item.block.id)

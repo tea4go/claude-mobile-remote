@@ -20,6 +20,8 @@ import { PendingSummary } from '../components/PendingSummary'
 import { QueuedSummary } from '../components/QueuedSummary'
 import { type ActivityFeedGroup } from '../ui/feedDataSource'
 import { StatusBar } from '../components/StatusBar'
+import { projectSubagentBlocks } from '../session/stepIndex'
+import { formatTurnElapsed } from '../ui/activityTime'
 
 function progressLabel(phase: ProgressPhase): string {
   switch (phase) {
@@ -294,7 +296,7 @@ export struct SessionPage {
             }.width('100%')
           }.width('100%').height(44).padding({ left: 12, right: 12 }).backgroundColor('#F1F6FF').borderRadius(12).onClick(() => { this.sheet = 'action' })
         }
-        MessageList({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: this.state.messages, connected: this.state.connection === ConnectionStage.READY, scroller: this.scroller, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen,
+        MessageList({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: projectSubagentBlocks(this.state.messages, this.state.subagentTasks ?? []), connected: this.state.connection === ConnectionStage.READY, scroller: this.scroller, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen,
           onAtBottom: (value: boolean) => { this.atBottom = value }, onPreviewImage: (value: string) => { this.previewImage = value } })
           .layoutWeight(1).width('100%')
         Column({ space: 4 }) {
@@ -304,7 +306,7 @@ export struct SessionPage {
           if (this.state.progress !== undefined) {
             Row({ space: 6 }) {
               LoadingProgress().width(14).height(14).color(PRIMARY)
-              Text(`${progressLabel(this.state.progress.phase)}${this.state.progress.toolName ? ' · ' + this.state.progress.toolName : ''} · ${Math.max(0, Math.floor((this.now - this.state.progress.startedAt) / 1000))}秒${this.state.progress.tokensKnown ? ' · ' + (this.state.progress.tokensEstimated ? '约' : '') + this.state.progress.outputTokens + ' tokens' : ''}`)
+              Text(`${progressLabel(this.state.progress.phase)}${this.state.progress.toolName ? ' · ' + this.state.progress.toolName : ''}（${formatTurnElapsed(this.now, this.state.progress.startedAt)}${this.state.progress.tokensKnown || this.state.progress.outputTokens > 0 ? ' · ↓ ' + (this.state.progress.tokensEstimated ? '约 ' : '') + this.state.progress.outputTokens + ' tokens' : ''}）`)
                 .fontSize(12).fontColor(SECONDARY).layoutWeight(1)
             }.width('100%').padding({ left: 8, right: 8 })
           }
@@ -325,7 +327,7 @@ export struct SessionPage {
           .onAreaChange((_previous: Area, current: Area) => this.onDebugActionsTop(Number(current.globalPosition.y)))
       }.width('100%').height('100%').backgroundColor(PAGE_BACKGROUND)
       if (this.selectedActivity !== null) {
-        ActivityOverlay({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: this.state.messages, tasks: this.state.subagentTasks ?? [], load: this.loadToolDetail, pageHeight: this.pageHeight, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen })
+        ActivityOverlay({ selectedActivity: $selectedActivity, selectedStep: $selectedStep, messages: projectSubagentBlocks(this.state.messages, this.state.subagentTasks ?? []), tasks: this.state.subagentTasks ?? [], load: this.loadToolDetail, pageHeight: this.pageHeight, debugEnabled: this.debugEnabled, onDebugOpen: this.onDebugOpen })
       }
       if (this.sheet.length > 0) {
         Column().width('100%').height('100%').backgroundColor('#66000000').onClick(() => { if (this.sheet !== 'action') this.closeSheet() }).transition(pageFade())

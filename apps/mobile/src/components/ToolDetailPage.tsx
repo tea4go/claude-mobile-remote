@@ -116,8 +116,8 @@ export default function ToolDetailPage({ title, status, onBack, subtools, ...con
         {status && <span className="tool-detail-page__status">{status}</span>}
       </header>
       <div className={subtools === undefined ? 'tool-detail-page__body tool-detail-page__body--standalone' : 'tool-detail-page__body'}>
-        {subtools}
         <ToolDetailContent {...content} hideEmpty={subtools !== undefined} />
+        {subtools}
       </div>
     </section>,
     document.body,

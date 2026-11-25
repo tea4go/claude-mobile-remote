@@ -854,10 +854,12 @@ test('virtual list projection filters PCs and collapses only its exact project',
   assert.equal(projectListRows(groups, 'all', []).filter(row => row.kind === 'session').length, 3)
   assert.deepEqual(projectListRows(groups, 'all', []).filter(row => row.kind === 'project')
     .map(row => [row.pc.key, row.showDivider]), [['one', false], ['one', true], ['two', false]])
-  const refreshing = projectListRows(groups, 'all', [], ['b']).filter(row => row.kind === 'pc')
-  assert.deepEqual(refreshing.map(row => [row.key, row.connecting]), [
-    ['refreshing-pc:one', true], ['pc:two', false],
-  ])
+  const probes = [{ key: 'one', host: 'example', reachable: false }]
+  const state = (pending = [], profiles = []) => projectListRows(groups, 'all', [], pending, profiles, probes)
+    .filter(row => row.kind === 'pc').map(row => [row.key, row.pcStatus])
+  assert.deepEqual(state(['one']), [['pc:one', 'connecting'], ['pc:two', 'connected']])
+  assert.deepEqual(state(), [['pc:one', 'disconnected'], ['pc:two', 'connected']])
+  assert.deepEqual(state([], [{ key: 'one', ip: 'new-address' }]), [['pc:one', 'connected'], ['pc:two', 'connected']])
 })
 
 test('pairing commit restores previous records after failure or invalidation', async () => {
@@ -1028,8 +1030,43 @@ test('v14 keeps five subagents and their children across a foreground start and 
   const recovered = decodeServerMessage(JSON.stringify(envelope('snapshot', { connectionStatus: 'connected', snapshot: recovery }, 14))).payload.snapshot
   const restored = reducer.reduceHarmonySessionState(createInitialHarmonySessionState(), reducer.snapshotReceived(recovered))
   assert.equal(session.hasRunningSubagents(restored), true)
-  assert.equal(restored.messages.filter(message => message.kind === 'block').length, 2)
-  assert.equal(load('ui/feedDataSource').projectFeed(restored.messages)[0].blocks.length, 1)
+  const { projectSubagentBlocks } = load('session/stepIndex')
+  const projected = projectSubagentBlocks(restored.messages, restored.subagentTasks)
+  assert.equal(restored.messages.filter(message => message.kind === 'block').length, 0)
+  assert.equal(projected.filter(message => message.kind === 'block').length, 2)
+  assert.equal(load('ui/feedDataSource').projectFeed(projected)[0].blocks.length, 1)
+})
+
+test('restores a long turn with legacy truncated display and keeps earlier background steps in their turn', () => {
+  const cached = createInitialHarmonySessionState()
+  cached.sessionId = 'session-1'
+  cached.messages = [
+    { kind: 'input', requestId: 'first', source: 'terminal', text: 'first question', status: '' },
+    { kind: 'claude', requestId: 'first', source: 'terminal', text: 'first reply', status: 'done', error: null },
+    { kind: 'claude', requestId: 'active', source: 'terminal', text: 'cached reply', status: 'done', error: null },
+    { kind: 'input', requestId: 'active', source: 'terminal', text: 'second question', status: '' },
+  ]
+  const value = snapshot().payload.snapshot
+  value.turn = { ...value.turn, status: 'running', source: 'terminal', requestId: 'active', inputText: 'second question',
+    message: 'active reply', display: { truncated: true, items: [] } }
+  value.subagentTasks = [{ requestId: 'first', toolUseId: 'agent', status: 'running' }]
+  value.queuedRequests = [{ requestId: 'queued', source: 'mobile', preview: 'waiting' }]
+  value.queueDepth = 1
+  const { projectSubagentBlocks } = load('session/stepIndex')
+  const apply = (state, action) => reducer.reduceHarmonySessionState(state, action)
+  let state = apply(cached, reducer.snapshotReceived(value))
+  state = apply(state, reducer.snapshotReceived(value))
+  state = apply(state, reducer.eventReceived(event('text_delta', value.seq + 1, { requestId: 'first', text: ' continued' })))
+  assert.deepEqual(projectSubagentBlocks(state.messages, state.subagentTasks).map(message => message.kind === 'block' ? message.block.id : message.text),
+    ['first question', 'first reply continued', 'agent', 'second question', '[较早的执行过程未同步]', 'active reply'])
+  assert.equal(state.progressRequestId, 'active')
+  assert.equal(state.queuedRequests[0].requestId, 'queued')
+})
+
+test('turn elapsed format matches mobile across minute and hour boundaries', () => {
+  const { formatTurnElapsed } = load('ui/activityTime')
+  assert.deepEqual([-1, 0, 59, 60, 125, 3600, 3661].map(seconds => formatTurnElapsed(seconds * 1000, 0)),
+    ['0s', '0s', '59s', '1min', '2min 5s', '1h', '1h 1min 1s'])
 })
 
 test('v14 tool detail request matches the session and stays independent of queue commands', async () => {
