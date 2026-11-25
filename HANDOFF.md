@@ -1,5 +1,28 @@
 # HANDOFF.md — Claude Mobile Remote 交接文档
 
+- 当前执行（2026-11-25，ccBuddy HarmonyOS 正式版发包手册）：沿用 MyPhoneCSR 发布签名，规范版本确认、构建前更新列表、Release APP 验签与归档。通过条件为核对签名入口、版本字段及产物路径。工作区审查后随发包文档提交。
+  - 结果：已编写 `docs/harmony-release.md`，核对现有签名命令、版本配置及产物路径，并检查命令语法。此次未触发打包或上传。工作区提交前复跑 HarmonyOS 回归，106 项测试和 22 个文件的逻辑检查通过。
+
+- 当前执行（2026-11-25，ccBuddy 三端签名测试发包手册）：复用现有 macOS 签名入口，规范统一版本确认、更新列表及 iOS、HarmonyOS、Android 顺序。通过条件为核对命令、版本来源、签名配对和产物路径，并提交手册。
+  - 结果：手册为 `docs/mobile-test-release.md`，已核对三端脚本参数、版本字段、MyPhone 发布材料及产物路径。此次仅编写手册，未触发打包或上传。
+
+- 当前执行（2026-11-25，ccBuddy HarmonyOS 隐私入口真机验收）：以 1.0.0（1000015）源码构建 Debug HAP，在隔离工程预置已公开的旧版隐私声明链接，使用该设备既有调试签名，通过 USB 覆盖安装并启动，保留设备数据。
+  - 结果：SDK 6.1.1 / API 24 Debug 构建、华为 HAP 验签、调试 Profile 比对、ZIP 完整性、版本和测试元数据核验均通过。HDC 覆盖安装及 EntryAbility 启动成功，未卸载或清空数据。测试 HAP 为 `.local-tools/harmony-debug-purax/ccBuddy-1.0.0-b1000015-privacy-debug-signed.hap`。待用户验证「设置 → 关于 → 隐私政策」能打开预置旧版协议。正式包继续从后台读取关联的协议。
+
+- 当前执行（2026-11-25，ccBuddy HarmonyOS 隐私政策及正式发布）：设置页提供常驻入口，通过 AppGallery Kit 查询当前关联的隐私声明 HTTPS 链接并打开，失败时提示用户。验收为回归检查、1.0.0（1000015）Release 构建、MyPhoneCSR 发布证书和配套应用市场 Profile 验签；关联后的真机验证待完成。
+  - 结果：设置 → 关于 → 隐私政策入口已完成。106 项测试、22 文件逻辑检查、SDK 6.1.1 / API 24 Release 编译和华为 APP 验签通过；核对了包名、版本、APP/HAP 完整性、配套 AppGallery 发布 Profile 和 MyPhoneCSR 发布叶证书。归档为 `.local-tools/releases/20261125-harmony-v1.0.0/ccBuddy-1.0.0-b1000015-release-signed.app`。构建号仅在隔离工程设置；后台关联、隐私标签修正、上传及真机打开待验证。详见 `docs/testing/2026-11-25-harmony-1.0.0-b1000015-release-build.md`。
+
+- 当前执行（2026-11-24，ccBuddy HarmonyOS 1.0.0 正式发布重打包）：用户确认用 MyPhoneCSR 新发布证书构建正式 APP，版本 1.0.0、构建号 1000014。基于当前工作区在隔离工程构建，验收为官方验签、Profile、版本及完整性核验。后台隐私标签更正与提交由用户处理。
+  - 结果：106 项测试、22 文件逻辑检查及 API 24 Release 构建通过。首次密码框未收到输入，重试签名成功。归档 APP 经华为工具验签，包名、版本、内嵌 Profile、发布叶证书及 APP/HAP 完整性均匹配。交付 `.local-tools/releases/20261124-harmony-v1.0.0/ccBuddy-1.0.0-b1000014-release-signed.app`。后台接收和真机安装待验证。详见 `docs/testing/2026-11-24-harmony-1.0.0-b1000014-release-build.md`。
+
+- 当前执行（2026-11-24，ccBuddy 发布 Profile 归档）：按用户要求将邀请测试使用的发布 Profile 移出 Downloads，与 MyPhoneCSR 发布证书放在同一私有目录。通过条件为内容一致、权限 0600、原路径移除。
+  - 结果：已移至 `~/.config/claude-mobile-remote/harmony-signing/myphone-release/ccBuddy-ReleaseRelease.p7b`，与原文件字节一致，权限 0600，Downloads 原路径已移除。
+
+- 当前执行（2026-11-24，ccBuddy HarmonyOS 1.1.1 后台上传包）：用户要求使用 MyPhoneCSR 构建并自行上传。现有 ccBuddy Release Profile 绑定旧证书，缺匹配 MyPhoneCSR.cer 的 app_gallery Profile。本轮先在隔离工程构建并核验 1.1.1（1000013）未签名 Release APP，取得 Profile 和本机解锁条件后完成正式签名与验签。
+  - 结果：HarmonyOS SDK 6.1.1/API 24 Release 编译通过，核对 APP 与内嵌 HAP 完整性、包名、版本和 Release 模式。未签名产物为 `.local-tools/releases/20261124-harmony-v1.1.1/ccBuddy-1.1.1-b1000013-unsigned.app`，待 ccBuddy 对应 MyPhoneCSR.cer 的应用市场发布 Profile 和本机私钥库解锁。版本号仅在隔离构建目录中设置。
+  - 用户提供 `ccBuddy-ReleaseRelease.p7b`，官方 Profile 验签通过，类型为 release/app_gallery，包名和 App ID 匹配，内嵌叶证书与 MyPhoneCSR.cer 证书链中的发布证书一致。继续进行本机解锁、Release APP 签名和验签。
+  - 签名完成：本机解锁 MyPhoneKey.p12 后重新构建 Release APP，通过华为工具验签，并核对归档包内嵌 Profile、发布叶证书、包名、版本与 APP/HAP 完整性。交付 `.local-tools/releases/20261124-harmony-v1.1.1/ccBuddy-1.1.1-b1000013-invite-test-signed.app`，由用户在后台上传至邀请测试。后台接收与真机安装待验证。详见 `docs/testing/2026-11-24-harmony-invite-test-b1000013-result.md`。
+
 - 当前执行（2026-11-24，ccBuddy iOS TestFlight）：用户要求在 HarmonyOS 调试证书切换前先上传 iOS 测试包。基于当前工作区及既有 App Store 签名，沿用 1.1.1 并按上次本地上传记录递增至构建 17。通过条件为移动端回归、生产构建及资源同步、Release 归档与 IPA 校验、Apple 确认接收。
   - 结果：51 个移动端测试文件共 713 项通过，Lint 有警告，生产构建及 iOS 资源同步通过。Release 归档与 App Store IPA 导出成功，版本 1.1.1（17）、分发描述文件、严格签名、APNs production、包内 Web 资源及 ZIP 完整性均已核验。IPA 位于 `.local-tools/releases/20261124-ios-b17/export/App.ipa`。
   - 上传：Apple 于 19:41 确认接收并开始处理。测试群组、可安装状态及真机验收待核实。Apple 提醒 2027 年 4 月起上传需使用 iOS 27 SDK 或更高版本。详见 `docs/testing/2026-11-24-ios-testflight-b17-result.md`。

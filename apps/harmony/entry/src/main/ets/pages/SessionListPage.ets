@@ -1,3 +1,4 @@
+import { privacyManager } from '@kit.AppGalleryKit'
 import { formatActivityTime } from '../ui/activityTime'
 import { HomeButton } from '../components/HomeButton'
 import { PAGE_BACKGROUND, PRIMARY, SECONDARY } from '../ui/styles'
@@ -187,6 +188,21 @@ export struct SessionListPage {
       .onClick(() => this.onOpen(session.sessionId))
       .backgroundColor(this.recentlyViewedId === session.sessionId ? $r('app.color.surface_selected') : $r('app.color.surface'))
   }
+  private async openPrivacyPolicy(): Promise<void> {
+    try {
+      const context = nativeLifecycle.context
+      const privacyLinks = privacyManager.getAppPrivacyMgmtInfo().privacyInfo
+      const policy = privacyLinks.find((link: privacyManager.AppPrivacyLink) =>
+        link.type === privacyManager.AppPrivacyLinkType.PRIVACY_STATEMENT_LINK && link.url.startsWith('https://'))
+      if (context && policy) {
+        await context.startAbility({ action: 'ohos.want.action.viewData', uri: policy.url })
+        return
+      }
+    } catch {
+      // The hosting service can be unavailable for builds installed outside AppGallery.
+    }
+    this.getUIContext().getPromptAction().showToast({ message: '暂时无法打开隐私政策，请稍后重试' })
+  }
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
     Column() {
@@ -256,6 +272,14 @@ export struct SessionListPage {
             Column({ space: 4 }) {
               Text('关于').fontSize(15).fontWeight(FontWeight.Medium).width('100%')
               Text(APP_BUILD_LABEL).fontSize(12).fontColor(SECONDARY).width('100%')
+              Divider().color($r('app.color.border'))
+              Button({ type: ButtonType.Normal }) {
+                Row() {
+                  Text('隐私政策').fontSize(16).layoutWeight(1)
+                  Text('›').fontSize(24).fontColor(SECONDARY)
+                }.width('100%')
+              }.width('100%').height(44).padding(0).backgroundColor(Color.Transparent)
+                .accessibilityText('隐私政策').onClick(() => { void this.openPrivacyPolicy() })
             }.padding({ left: 12, right: 12, top: 8, bottom: 8 }).width('100%')
               .backgroundColor($r('app.color.surface')).borderRadius(16)
           }.padding({ left: 16, right: 16, top: 12, bottom: 24 }).width('100%').alignItems(HorizontalAlign.Start)
