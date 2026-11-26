@@ -32,7 +32,7 @@ import {
   PAIRING_PAYLOAD_VERSION,
   type PairingPayload,
 } from './protocol/pairing'
-import { SUBAGENT_PROTOCOL_VERSION, type PermissionMode } from './protocol/types'
+import { MESSAGE_TIME_PROTOCOL_VERSION, type PermissionMode } from './protocol/types'
 import { createAppStore } from './session/appStore'
 import { createInitialState, type MobileState } from './session/reducer'
 import { SessionRuntimeManager } from './session/runtime'
@@ -87,7 +87,7 @@ function preventPairingPageZoom(node: HTMLDivElement | null) {
 function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = defaultSocketFactory, native = null, experience = nativeExperience }: AppProps = {}) {
   const pairingHome = ['ios', 'android'].includes(Capacitor.getPlatform())
   const isNativeMobile = ['ios', 'android'].includes(Capacitor.getPlatform())
-  const preferredVersion = isNativeMobile ? SUBAGENT_PROTOCOL_VERSION : undefined
+  const preferredVersion = isNativeMobile ? MESSAGE_TIME_PROTOCOL_VERSION : undefined
   const [buildInfo, setBuildInfo] = useState<{ version: string; build: string; time: string } | null>(null)
   useEffect(() => {
     if (!isNativeMobile) return
@@ -418,7 +418,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
       if (cache !== null) await Promise.all([...restored.available.map((item) => item.metadata), ...restored.needsPairing].map(async (record) => {
         try {
           const { data } = await cache.readSessionCache({ sessionId: record.sessionId })
-          const cached = decodeSessionCache(data, record.sessionId, now(), isNativeMobile)
+          const cached = decodeSessionCache(data, record.sessionId, now())
           if (active && cached) appStore.getState().restoreCachedSession(record.sessionId, cached)
         } catch { if (active) setCacheMessage('本地消息缓存暂不可用，仍可连接 PC') }
       }))
@@ -443,7 +443,7 @@ function App({ cache = nativeSessionCache, now = defaultNow, socketFactory = def
 
   useEffect(() => {
     if (cache === null || native === null || restoring) return
-    const writer = new SessionCacheWriter(appStore, cache, now, () => setCacheMessage('本地消息缓存暂不可用，仍可连接 PC'), isNativeMobile)
+    const writer = new SessionCacheWriter(appStore, cache, now, () => setCacheMessage('本地消息缓存暂不可用，仍可连接 PC'))
     cacheWriter.current = writer
     const flush = () => { if (document.visibilityState !== 'visible') void writer.flush() }
     document.addEventListener('visibilitychange', flush)

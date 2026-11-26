@@ -43,8 +43,11 @@ export function projectFeed(messages: Array<FeedMessage>): Array<FeedRow> {
     if (message.kind === 'block' && message.block.kind === 'tool_use') parents.add(JSON.stringify([message.requestId, message.block.toolUseId]))
   }
   for (const message of messages) {
-    if (message.kind === 'block' && message.block.kind !== 'thinking' && message.block.parentToolUseId !== undefined &&
-      parents.has(JSON.stringify([message.requestId, message.block.parentToolUseId]))) continue
+    if (message.kind === 'block' && message.block.kind !== 'thinking') {
+      const block = message.block
+      if (block.parentToolUseId !== undefined && parents.has(JSON.stringify([message.requestId, block.parentToolUseId]))) continue
+      if (block.kind === 'tool_result' && parents.has(JSON.stringify([message.requestId, block.toolUseId]))) continue
+    }
     const previous = rows.length > 0 ? rows[rows.length - 1] : undefined
     if (message.kind === 'block') {
       if (previous !== undefined && previous.kind === 'activity' && previous.requestId === message.requestId) previous.blocks.push(message)

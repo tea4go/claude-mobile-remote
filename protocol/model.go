@@ -192,6 +192,8 @@ type TurnSnapshot struct {
 	Historical    bool           `json:"-"`
 	Display       *TurnDisplay   `json:"display,omitempty"`
 	InputText     string         `json:"inputText,omitempty"`
+	InputAt       string         `json:"inputAt,omitempty"`
+	ReplyAt       string         `json:"replyAt,omitempty"`
 	Progress      *TurnProgress  `json:"progress,omitempty"`
 	Status        TurnStatus     `json:"status"`
 	RequestID     string         `json:"requestId"`

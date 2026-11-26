@@ -391,6 +391,52 @@ func TestWebSocketV2V3DisplayMetadataIsolation(t *testing.T) {
 	}
 }
 
+func TestWebSocketMessageTimesAreScopedToV15(t *testing.T) {
+	fixture := newServerFixture(t, nil)
+	const inputAt = "2026-11-26T06:01:00Z"
+	const replyAt = "2026-11-26T06:02:00Z"
+	fixture.controller.snapshot.Turn = protocol.TurnSnapshot{
+		Status: protocol.TurnCompleted, RequestID: "r", Source: protocol.InputTerminal,
+		InputText: "question", Message: "reply", InputAt: inputAt, ReplyAt: replyAt,
+		Display: &protocol.TurnDisplay{Items: []protocol.TurnDisplayItem{{Text: "reply", MessageAt: replyAt}}},
+	}
+	connections := make(map[int]*websocket.Conn)
+	for _, version := range []int{14, messageTimeVersion} {
+		connection := fixture.dial(t)
+		connections[version] = connection
+		writeVersionedTestEnvelope(t, connection, version, TypeHello, "session-1", HelloPayload{PairToken: fixture.token})
+		if got := readTestEnvelope(t, connection); got.Type != TypeHelloAck {
+			t.Fatalf("hello = %v", got)
+		}
+		writeVersionedTestEnvelope(t, connection, version, TypeSubscribe, "session-1", struct{}{})
+		if got := readTestEnvelope(t, connection); got.Type != TypeSubscribed {
+			t.Fatalf("subscribe = %v", got)
+		}
+		wire := readTestEnvelope(t, connection)
+		var snapshot SnapshotPayload
+		if err := DecodePayload(wire, &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		got := snapshot.Snapshot.Turn
+		if version == messageTimeVersion {
+			if got.InputAt != inputAt || got.ReplyAt != replyAt || got.Display.Items[0].MessageAt != replyAt {
+				t.Fatalf("v15 times were lost: %s", wire.Payload)
+			}
+		} else if got.InputAt != "" || got.ReplyAt != "" || got.Display.Items[0].MessageAt != "" {
+			t.Fatalf("v14 received message times: %s", wire.Payload)
+		}
+	}
+	fixture.controller.emit(protocol.Event{Seq: fixture.controller.snapshot.Seq + 1, SessionID: "session-1",
+		RequestID: "r", Kind: protocol.EventTextDelta, Source: protocol.InputTerminal, Text: " continued", MessageAt: replyAt})
+	for _, version := range []int{14, messageTimeVersion} {
+		wire := readTestEnvelope(t, connections[version])
+		var event EventPayload
+		if wire.Type != TypeEvent || DecodePayload(wire, &event) != nil || (event.Event.MessageAt == replyAt) != (version == messageTimeVersion) {
+			t.Fatalf("v%d event = %s", version, wire.Payload)
+		}
+	}
+}
+
 func TestWebSocketAuthenticateSubscribeSnapshot(t *testing.T) {
 	fixture := newServerFixture(t, nil)
 	connection := fixture.dial(t)

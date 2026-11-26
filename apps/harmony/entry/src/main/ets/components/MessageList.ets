@@ -334,7 +334,11 @@ struct ToolDetailContent {
   build() {
     Column({ space: 8 }) {
       if (this.item.block.kind === 'thinking') {
-        MarkdownText({ text: this.item.block.thinking })
+        if (this.item.block.thinking.length > 0) {
+          MarkdownText({ text: this.item.block.thinking })
+        } else {
+          Text('此思考步骤的正文未缓存').fontSize(14).fontColor($r('app.color.text_secondary'))
+        }
       } else if (this.loading) {
         Row({ space: 8 }) { LoadingProgress().width(20).height(20); Text('正在从电脑加载工具详情') }.height(52)
       } else if (this.error.length > 0) {
@@ -367,8 +371,14 @@ export struct ActivityOverlay {
 
   private task(item: BlockFeedMessage): SubagentTask | undefined {
     const block = item.block
-    return block.kind !== 'thinking' ? this.tasks.find((task: SubagentTask) =>
-      task.requestId === item.requestId && task.toolUseId === block.toolUseId) : undefined
+    if (block.kind === 'thinking') return undefined
+    const task = this.tasks.find((candidate: SubagentTask) =>
+      candidate.requestId === item.requestId && candidate.toolUseId === block.toolUseId)
+    if (task !== undefined) return task
+    if (item.cachedAgentStatus !== undefined) {
+      return { requestId: item.requestId, toolUseId: block.toolUseId, status: item.cachedAgentStatus }
+    }
+    return undefined
   }
 
   private title(item: BlockFeedMessage): string {

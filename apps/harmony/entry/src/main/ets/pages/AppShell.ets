@@ -622,7 +622,8 @@ export struct AppShell {
     if (sessionId === this.currentSessionId && this.view === 'detail' && queueCommand && nextState.pendingCommand === null && nextState.lastError !== null) {
       promptAction.showToast({ message: previousState.pendingCommand?.kind === 'resolve_action' ? '操作未成功，请在电脑端取消提问或更新电脑端' : nextState.lastError.message })
     }
-    if (nextState.messages !== previousState.messages || nextState.projectCwd !== previousState.projectCwd || nextState.sessionTitle !== previousState.sessionTitle) this.scheduleCache(sessionId)
+    if (nextState.messages !== previousState.messages || nextState.subagentTasks !== previousState.subagentTasks ||
+      nextState.projectCwd !== previousState.projectCwd || nextState.sessionTitle !== previousState.sessionTitle) this.scheduleCache(sessionId)
     if (nextState.connection === ConnectionStage.READY && previousState.connection !== ConnectionStage.READY) this.notifications?.seed(sessionId, nextState.seqBase)
     const previousRecord = this.sessions.find((record: SessionRecord) => record.sessionId === sessionId)
     const runtimeStatus = sessionTurnStatusLabel(nextState) || previousRecord?.runtimeStatus || ''

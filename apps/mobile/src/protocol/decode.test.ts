@@ -38,6 +38,18 @@ function snapshotPayload() {
   }
 }
 
+test('v15 decodes PC message times in snapshots, and v14 rejects the extension', () => {
+  const payload = snapshotPayload()
+  const timestamp = '2026-11-26T06:01:02.123456789Z'
+  const turn = { ...payload.snapshot.turn, requestId: 'r', status: 'completed', inputText: 'question', message: 'reply',
+    inputAt: timestamp, replyAt: timestamp, display: { truncated: false, items: [{ text: 'reply', messageAt: timestamp }] } }
+  const frame = baseEnvelope({ version: 15, type: 'snapshot', seq: payload.snapshot.seq, payload: { ...payload, snapshot: { ...payload.snapshot, turn } } })
+  const decoded = decodeServerMessage(JSON.stringify(frame))
+  expect(decoded).toMatchObject({ payload: { snapshot: { turn: { inputAt: timestamp, replyAt: timestamp,
+    display: { items: [{ messageAt: timestamp }] } } } } })
+  expect(() => decodeServerMessage(JSON.stringify({ ...frame, version: 14 }))).toThrow(/message timestamp/)
+})
+
 // B2 §4.2：tool_approval 形态的 pendingAction；preview 可缺省。
 function approvalAction(overrides: Record<string, unknown> = {}) {
   return {
@@ -325,8 +337,8 @@ describe('decodeServerMessage：非法 JSON 与基础结构', () => {
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 
-  test('version = 15（未来版本）拒绝', () => {
-    const envelope = baseEnvelope({ version: 15 })
+  test('version = 16（未来版本）拒绝', () => {
+    const envelope = baseEnvelope({ version: 16 })
     expect(() => decodeServerMessage(JSON.stringify(envelope))).toThrow()
   })
 

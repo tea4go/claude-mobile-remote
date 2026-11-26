@@ -5,9 +5,58 @@ import (
 	"errors"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/tea4go/claude-mobile-remote/protocol"
 )
+
+func TestObservedMessageTimesSurviveHostRefresh(t *testing.T) {
+	ctx := context.Background()
+	stream, err := NewEventStream(protocol.Snapshot{SessionID: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	_, events, err := stream.Subscribe(ctx, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const inputAt = "2026-11-26T06:01:00Z"
+	const firstAt = "2026-11-26T06:02:00.123Z"
+	const finalAt = "2026-11-26T06:04:00Z"
+	for _, event := range []protocol.Event{
+		{Kind: protocol.EventTurnStarted, RequestID: "r", Text: "question", Source: protocol.InputTerminal, TurnStatus: protocol.TurnRunning, MessageAt: inputAt},
+		{Kind: protocol.EventTextDelta, RequestID: "r", Text: "first", Model: "m", MessageAt: firstAt},
+		{Kind: protocol.EventTextDelta, RequestID: "r", Text: " part", Model: "m"},
+		{Kind: protocol.EventTextDelta, RequestID: "r", Text: "final", Model: "next", MessageAt: finalAt},
+	} {
+		if err := stream.Publish(event); err != nil {
+			t.Fatal(err)
+		}
+		published := <-events
+		if _, err := time.Parse(time.RFC3339Nano, published.MessageAt); err != nil {
+			t.Fatalf("published message time = %q: %v", published.MessageAt, err)
+		}
+		if event.MessageAt != "" && event.MessageAt != published.MessageAt {
+			t.Fatalf("explicit host timestamp lost: %+v", published)
+		}
+	}
+	if err := stream.UpdateSnapshot(protocol.Snapshot{
+		SessionID: "s", Turn: protocol.TurnSnapshot{RequestID: "r", Source: protocol.InputTerminal, Status: protocol.TurnCompleted},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := stream.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := snapshot.Turn
+	if turn.InputAt != inputAt || turn.ReplyAt != firstAt || len(turn.Display.Items) != 2 ||
+		turn.Display.Items[0].Text != "first part" || turn.Display.Items[0].MessageAt != firstAt ||
+		turn.Display.Items[1].MessageAt != finalAt {
+		t.Fatalf("unexpected turn and message times: %+v, %+v", turn, turn.Display)
+	}
+}
 
 func TestPublishQueueKeepsSnapshotAndEventAtSameSequence(t *testing.T) {
 	stream, err := NewEventStream(protocol.Snapshot{SessionID: "s"})

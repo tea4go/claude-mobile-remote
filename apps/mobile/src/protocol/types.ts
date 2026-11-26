@@ -6,6 +6,7 @@ export const PREFERRED_PROTOCOL_VERSION = 10
 export const LATEST_INPUT_PROTOCOL_VERSION = 12
 export const TOOL_DETAIL_PROTOCOL_VERSION = 13
 export const SUBAGENT_PROTOCOL_VERSION = 14
+export const MESSAGE_TIME_PROTOCOL_VERSION = 15
 
 export const MAX_TEXT_BYTES = 1024 * 1024
 
@@ -222,10 +223,12 @@ export interface SessionDiagnostic {
  code: 'api_retry' | 'query_failed' | 'receive_failed' | 'response_incomplete' | 'assistant_error' | 'result_error' | 'turn_failed' | 'tool_failed'
  httpStatus?: number; attempt?: number; maxAttempts?: number; retryDelayMs?: number
 }
-export interface TurnDisplay { items: Array<{ text: string; model?: string } | { block: ContentBlock }>; truncated: boolean }
+export interface TurnDisplay { items: Array<{ text: string; model?: string; messageAt?: string } | { block: ContentBlock }>; truncated: boolean }
 export interface TurnSnapshot {
   display?: TurnDisplay
   inputText?: string
+  inputAt?: string
+  replyAt?: string
  progress?: TurnProgress
   status: TurnStatus
   requestId: string
@@ -266,6 +269,7 @@ export interface SessionSnapshot {
 // 领域事件：按 kind 部分携带字段，其余枚举在线上为空字符串（Go 零值
 // 序列化）。kind 语义校验由 decoder 的 validateEventSemantics 负责。
 export interface DomainEvent {
+  messageAt?: string
   subagentTask?: SubagentTask
   model?: string
   images?: Attachment[]

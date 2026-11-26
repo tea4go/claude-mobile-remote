@@ -156,7 +156,7 @@ public class SessionExperiencePlugin: CAPPlugin, CAPBridgedPlugin {
             let url = try self.cacheURL(call)
             guard let text = call.getString("data"), let data = text.data(using: .utf8), data.count <= self.cacheLimit,
                   let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  envelope["sessionId"] as? String == call.getString("sessionId"), envelope["version"] as? Int == 1 else {
+                  envelope["sessionId"] as? String == call.getString("sessionId"), envelope["version"] as? Int == 2 else {
                 throw NSError(domain: "cache", code: 2)
             }
             try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])

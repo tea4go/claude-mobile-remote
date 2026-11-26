@@ -13,6 +13,7 @@ import {
   MAX_TEXT_BYTES,
   PROTOCOL_VERSION,
   PREFERRED_PROTOCOL_VERSION,
+  MESSAGE_TIME_PROTOCOL_VERSION,
   QUESTION_INPUT_TYPE_VALUES,
   SERVER_MESSAGE_TYPE_VALUES,
   SESSION_STATUS_VALUES,
@@ -89,10 +90,12 @@ interface SessionSnapshotCandidate {
 }
 
 interface TurnDisplayCandidate { items?: Array<Object>; truncated?: boolean }
-interface TurnDisplayItemCandidate { text?: string; model?: string; block?: Object | null }
+interface TurnDisplayItemCandidate { text?: string; model?: string; block?: Object | null; messageAt?: string }
 interface TurnSnapshotCandidate {
   display?: Object | null
   inputText?: string
+  inputAt?: string
+  replyAt?: string
   progress?: Object | null
   status?: string
   requestId?: string
@@ -114,6 +117,7 @@ interface EventPayloadCandidate {
 interface ImageCandidate { name?: string; mediaType?: string; data?: string }
 
 interface EventCandidate {
+  messageAt?: string
   model?: string
   subagentTask?: Object
   images?: Array<Object>
@@ -253,10 +257,11 @@ const SESSION_SNAPSHOT_KEYS: Array<string> = [
   'queuedRequests',
   'projectCwd', 'sessionTitle', 'createdAt', 'lastActivityAt',
 ]
-const TURN_SNAPSHOT_KEYS: Array<string> = ['inputText', 'progress', 'status', 'requestId', 'source', 'message', 'error', 'pendingAction', 'display']
+const TURN_SNAPSHOT_KEYS: Array<string> = ['inputText', 'inputAt', 'replyAt', 'progress', 'status', 'requestId', 'source', 'message', 'error', 'pendingAction', 'display']
 const ERROR_INFO_KEYS: Array<string> = ['code', 'message']
 const EVENT_PAYLOAD_KEYS: Array<string> = ['event']
 const EVENT_KEYS: Array<string> = [
+  'messageAt',
   'model', 'subagentTask',
   'images', 'imagesOmitted', 'queue',
   'progress', 'diagnostic',
@@ -869,13 +874,16 @@ function decodeTurnSnapshot(value: Object | null, version: number): TurnSnapshot
     error: decodeErrorInfo(candidate.error !== undefined ? candidate.error : null, 'error'),
     pendingAction,
   }
+  snapshot.inputAt = messageTimestamp(candidate.inputAt, version, requestId.length > 0)
+  snapshot.replyAt = messageTimestamp(candidate.replyAt, version, requestId.length > 0)
   if (candidate.display !== undefined) {
     if (version < 9 || requestId.length === 0 || utf8ByteLength(JSON.stringify(candidate.display)) > 512 * 1024) fail('invalid turn display')
     const display = requireAllowedObject(candidate.display, 'turn display', ['items', 'truncated']) as TurnDisplayCandidate
     if (!Array.isArray(display.items) || display.items.length > 512 || typeof display.truncated !== 'boolean') fail('invalid turn display')
     const items: Array<TurnDisplayItem> = display.items.map((value: Object): TurnDisplayItem => {
-      const item = requireAllowedObject(value, 'turn display item', ['text', 'block', 'model']) as TurnDisplayItemCandidate
-      if (typeof item.text === 'string' && item.text.length > 0 && item.block === undefined) return { text: item.text, model: replyModel(item.model, version) }
+      const item = requireAllowedObject(value, 'turn display item', ['text', 'block', 'model', 'messageAt']) as TurnDisplayItemCandidate
+      const messageAt = messageTimestamp(item.messageAt, version, item.block === undefined)
+      if (typeof item.text === 'string' && item.text.length > 0 && item.block === undefined) return { text: item.text, model: replyModel(item.model, version), messageAt }
       if (item.text === undefined && item.model === undefined && item.block !== undefined) return { block: decodeContentBlock(item.block, version) }
       return fail('invalid turn display item')
     })
@@ -903,6 +911,17 @@ function displayField(value: string | undefined, field: string, version: number)
   if (field === 'projectCwd' && value.length > 4096) fail('project cwd is too long')
   if (field === 'sessionTitle' && Array.from(value).length > 80) fail('session title is too long')
   if (field.endsWith('At') && (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value) || Number.isNaN(Date.parse(value)))) fail(`invalid ${field} timestamp`)
+  return value
+}
+
+export function isMessageTimestamp(value: string | undefined): boolean {
+  return typeof value === 'string' && value.length <= 30 &&
+    /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value) && Number.isFinite(Date.parse(value))
+}
+
+function messageTimestamp(value: string | undefined, version: number, allowed: boolean): string | undefined {
+  if (value === undefined) return undefined
+  if (!allowed || version < MESSAGE_TIME_PROTOCOL_VERSION || !isMessageTimestamp(value)) fail('invalid message timestamp')
   return value
 }
 
@@ -1086,6 +1105,8 @@ function decodeEventPayload(value: Object | null, version: number): EventPayload
     if (version < 5 || event.kind !== 'turn_progress') fail('unexpected progress')
     event.progress = decodeProgress(eventCandidate.progress ?? null)
   }
+  event.messageAt = messageTimestamp(eventCandidate.messageAt, version, event.kind === 'turn_started' ||
+    event.kind === 'input_steered' || event.kind === 'text_delta' || (event.kind === 'action_resolved' && (event.answers?.length ?? 0) > 0))
   if (eventCandidate.diagnostic !== undefined || event.kind === 'session_diagnostic') {
     if (version < 5 || event.kind !== 'session_diagnostic') fail('unexpected diagnostic')
     event.diagnostic = decodeDiagnostic(eventCandidate.diagnostic ?? null)

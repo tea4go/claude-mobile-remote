@@ -37,6 +37,7 @@ import {
   PROTOCOL_VERSION,
   TOOL_DETAIL_PROTOCOL_VERSION,
   SUBAGENT_PROTOCOL_VERSION,
+  MESSAGE_TIME_PROTOCOL_VERSION,
   SERVER_TO_CLIENT_TYPES,
 } from './types'
 
@@ -499,6 +500,17 @@ function displayField(value: Record<string, unknown>, key: string, version: numb
   return raw
 }
 
+export function isMessageTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 30 &&
+    /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value) && Number.isFinite(Date.parse(value))
+}
+
+function messageTimestamp(value: unknown, version: number, allowed: boolean): string | undefined {
+  if (value === undefined) return undefined
+  if (!allowed || version < MESSAGE_TIME_PROTOCOL_VERSION || !isMessageTimestamp(value)) fail('invalid message timestamp')
+  return value
+}
+
 function decodeProgress(value: unknown): TurnProgress {
  if (!isObject(value)) fail('invalid progress')
  const phase = requireNonEmptyEnum<TurnProgress['phase']>(value, 'phase', new Set(['waiting','working','thinking','writing','tool','subtask','compacting','requesting','retrying','waiting_followup','tool_result','subtask_result']))
@@ -577,14 +589,19 @@ function decodeSessionSnapshot(value: unknown, version: number): SessionSnapshot
   }
   // queueDepth 与列表长度恒等（B2 §4.3）：不一致说明快照自相矛盾。
   const rawTurn = requireObject(value, 'turn')
+  for (const key of ['inputAt', 'replyAt'] as const) {
+    const timestamp = messageTimestamp(rawTurn[key], version, snapshot.turn.requestId !== '')
+    if (timestamp !== undefined) snapshot.turn[key] = timestamp
+  }
   if (rawTurn.display !== undefined) {
     const display = rawTurn.display
     if (version < 9 || !snapshot.turn.requestId || !isObject(display) || !Array.isArray(display.items) || display.items.length > 512 || typeof display.truncated !== 'boolean' || new TextEncoder().encode(JSON.stringify(display)).length > 512 * 1024) fail('invalid turn display')
     rejectUnknownKeys(display, new Set(['items', 'truncated']), 'turn display')
     const items = display.items.map((item: unknown) => {
       if (!isObject(item)) return fail('invalid turn display item')
-      rejectUnknownKeys(item, new Set(['text', 'block', 'model']), 'turn display item')
-      if (typeof item.text === 'string' && item.text !== '' && item.block === undefined) return { text: item.text, ...decodeModel(item, version) }
+      rejectUnknownKeys(item, new Set(['text', 'block', 'model', 'messageAt']), 'turn display item')
+      const messageAt = messageTimestamp(item.messageAt, version, item.block === undefined)
+      if (typeof item.text === 'string' && item.text !== '' && item.block === undefined) return { text: item.text, ...decodeModel(item, version), ...(messageAt ? { messageAt } : {}) }
       if (item.text === undefined && item.model === undefined && item.block !== undefined) return { block: decodeContentBlock(item.block, version) }
       return fail('invalid turn display item')
     })
@@ -701,6 +718,9 @@ function decodeEventPayload(value: unknown, version: number): EventPayload {
     const answers = decodeResolvedAnswers(rawAnswers)
     if (answers.length > 0) domainEvent.answers = answers
   }
+  const messageAt = messageTimestamp(event.messageAt, version,
+    kind === 'turn_started' || kind === 'input_steered' || kind === 'text_delta' || (kind === 'action_resolved' && !!domainEvent.answers?.length))
+  if (messageAt !== undefined) domainEvent.messageAt = messageAt
   if (kind === 'permission_mode_changed') {
     const rawMode = requireNonEmptyString(event, 'permissionMode')
     if (!PERMISSION_MODES.has(rawMode)) fail('invalid permission mode event')
@@ -833,7 +853,7 @@ export function decodeServerMessage(text: string): ServerMessage {
   if (typeof version !== 'number' || !Number.isSafeInteger(version)) {
     fail('field version must be an integer')
   }
-  if (version < PROTOCOL_VERSION || version > SUBAGENT_PROTOCOL_VERSION) fail('unsupported protocol version')
+  if (version < PROTOCOL_VERSION || version > MESSAGE_TIME_PROTOCOL_VERSION) fail('unsupported protocol version')
 
   const type = requireString(parsed, 'type') as MessageType
   if (!SERVER_TO_CLIENT_TYPES.has(type)) {

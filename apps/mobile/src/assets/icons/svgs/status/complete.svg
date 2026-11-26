@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 14 14" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <title>已完成</title>
     <g id="新增需求10月" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
-        <g id="已完成" stroke="#208C3D" stroke-width="1.2">
-            <circle id="椭圆形" cx="7" cy="7" r="6.4"></circle>
-            <g id="编组" transform="translate(3.3374, 4.8755)" stroke-linecap="round">
-                <path d="M0,1.62329102 L2.21923917,3.86076661 C2.41372684,4.05680018 2.73030684,4.05805338 2.92634041,3.86356571 C2.92643989,3.86346701 2.92653933,3.86336827 2.92663873,3.86326949 L6.81347656,0 L6.81347656,0" id="路径-2"></path>
-            </g>
+        <g id="已完成" stroke-width="1.2">
+            <circle id="椭圆形" stroke="#22AD47" fill="#22AD47" cx="8" cy="8" r="7.4"></circle>
+            <path d="M3.81417411,7.42717634 L6.40079736,10.0349562 C6.59528502,10.2309898 6.91186503,10.232243 7.1078986,10.0377553 C7.10799808,10.0376566 7.10809752,10.0375578 7.10819692,10.0374591 L11.6010045,5.57198661 L11.6010045,5.57198661" id="路径-2" stroke="#FFFFFF" stroke-linecap="round"></path>
         </g>
     </g>
 </svg>

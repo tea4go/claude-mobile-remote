@@ -104,6 +104,12 @@ func (s *EventStream) UpdateSnapshot(snapshot protocol.Snapshot) error {
 			if snapshot.Turn.InputText == "" {
 				snapshot.Turn.InputText = s.snapshot.Turn.InputText
 			}
+			if snapshot.Turn.InputAt == "" {
+				snapshot.Turn.InputAt = s.snapshot.Turn.InputAt
+			}
+			if snapshot.Turn.ReplyAt == "" {
+				snapshot.Turn.ReplyAt = s.snapshot.Turn.ReplyAt
+			}
 			snapshot.Turn.Message = s.snapshot.Turn.Message
 			snapshot.Turn.Display = protocol.CloneTurnDisplay(s.snapshot.Turn.Display)
 			if snapshot.Turn.Status == protocol.TurnRunning || snapshot.Turn.Status == protocol.TurnWaiting {
@@ -141,6 +147,8 @@ func (s *EventStream) Publish(event protocol.Event) error {
 	if event.SessionID != s.snapshot.SessionID {
 		return protocol.ErrSessionMismatch
 	}
+	now := time.Now().UTC()
+	event.StampMessageTime(now)
 	event.Block = s.toolDetails.Record(event.RequestID, event.Block)
 	if event.Kind == protocol.EventTurnProgress && (event.RequestID != s.snapshot.Turn.RequestID || (s.snapshot.Turn.Status != protocol.TurnRunning && s.snapshot.Turn.Status != protocol.TurnWaiting)) {
 		return nil
@@ -153,7 +161,7 @@ func (s *EventStream) Publish(event protocol.Event) error {
 		}
 		fallthrough
 	case protocol.EventTurnCompleted, protocol.EventTurnFailed, protocol.EventActionRequired, protocol.EventSessionFailed, protocol.EventSessionStopped:
-		s.snapshot.LastActivityAt = time.Now().UTC().Format(time.RFC3339Nano)
+		s.snapshot.LastActivityAt = now.Format(time.RFC3339Nano)
 		event.LastActivityAt = s.snapshot.LastActivityAt
 	}
 	s.applySubagent(event)
@@ -162,7 +170,7 @@ func (s *EventStream) Publish(event protocol.Event) error {
 		(event.Kind == protocol.EventTextDelta || event.Kind == protocol.EventContentBlock)
 	if event.Kind != protocol.EventSubagentTask && !event.BackgroundChild && !event.LateTurnContent {
 		s.snapshot = applyEvent(s.snapshot, event)
-		s.snapshot.Turn.Display = protocol.AppendTurnDisplay(s.snapshot.Turn.Display, event)
+		s.snapshot.Turn.AppendDisplay(event)
 	}
 	s.snapshot.Seq++
 	event.Seq = s.snapshot.Seq

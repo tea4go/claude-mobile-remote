@@ -1294,7 +1294,7 @@ test.each(['ios', 'android'] as const)('%s 首次配对展示最近正文及平�
       },
     }
     act(() => completeHandshake(socket, snapshot, 12))
-    expect(JSON.parse(socket.sent[0]!).version).toBe(14)
+    expect(JSON.parse(socket.sent[0]!).version).toBe(15)
     expect(await screen.findByText('来自电脑的最近提问')).toBeInTheDocument()
     expect(screen.getByText('来自电脑的最近回复')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('返回'))

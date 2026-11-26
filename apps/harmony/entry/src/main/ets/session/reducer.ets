@@ -291,6 +291,7 @@ function cloneFeedMessage(message: FeedMessage): FeedMessage {
       status: message.status,
       attachments: message.attachments,
       processingStarted: message.processingStarted,
+      messageAt: message.messageAt,
     }
     return next
   }
@@ -303,6 +304,7 @@ function cloneFeedMessage(message: FeedMessage): FeedMessage {
       text: message.text,
       error: cloneErrorInfo(message.error),
       model: message.model,
+      messageAt: message.messageAt,
     }
     return next
   }
@@ -311,6 +313,7 @@ function cloneFeedMessage(message: FeedMessage): FeedMessage {
       kind: 'block',
       requestId: message.requestId,
       block: cloneContentBlock(message.block),
+      cachedAgentStatus: message.cachedAgentStatus,
     }
     return next
   }
@@ -318,6 +321,7 @@ function cloneFeedMessage(message: FeedMessage): FeedMessage {
     kind: 'answer',
     requestId: message.requestId,
     answers: cloneResolvedAnswers(message.answers),
+    messageAt: message.messageAt,
   }
   return answer
 }
@@ -522,6 +526,7 @@ function createClaudeMessage(
   status: 'streaming' | 'done' | 'failed' | 'cancelled',
   error: ErrorInfo | null,
   model?: string,
+  messageAt?: string,
 ): ClaudeFeedMessage {
   return {
     kind: 'claude',
@@ -531,6 +536,7 @@ function createClaudeMessage(
     status,
     error: cloneErrorInfo(error),
     model,
+    messageAt,
   }
 }
 
@@ -542,11 +548,12 @@ function createBlockMessage(requestId: string, block: ContentBlock): BlockFeedMe
   }
 }
 
-function createAnswerMessage(requestId: string, answers: Array<ResolvedAnswer>): AnswerFeedMessage {
+function createAnswerMessage(requestId: string, answers: Array<ResolvedAnswer>, messageAt?: string): AnswerFeedMessage {
   return {
     kind: 'answer',
     requestId,
     answers: cloneResolvedAnswers(answers),
+    messageAt,
   }
 }
 
@@ -603,6 +610,7 @@ function mergeTurnStarted(state: HarmonySessionState, event: DomainEvent): Harmo
     if (existing.source !== event.source || (existing.text !== event.text && existing.attachments === undefined)) {
       return null
     }
+    existing.messageAt = event.messageAt ?? existing.messageAt
   } else {
     const input: InputFeedMessage = next.deferredInputs?.find((item: InputFeedMessage) => item.requestId === event.requestId) ?? {
       kind: 'input',
@@ -612,7 +620,11 @@ function mergeTurnStarted(state: HarmonySessionState, event: DomainEvent): Harmo
       attachments: event.images,
       status: '',
     }
-    next.messages.push(input)
+    const visible: InputFeedMessage = {
+      kind: 'input', requestId: input.requestId, source: input.source, text: input.text, status: input.status,
+      attachments: input.attachments, processingStarted: input.processingStarted, messageAt: event.messageAt,
+    }
+    next.messages.push(visible)
   }
 
   next.deferredInputs = next.deferredInputs?.filter((item: InputFeedMessage) => item.requestId !== event.requestId)
@@ -632,7 +644,47 @@ function isTurnOutput(message: FeedMessage, requestId: string): boolean {
   return (message.kind === 'claude' || message.kind === 'block') && message.requestId === requestId
 }
 
-function repairInputOrder(messages: FeedMessage[]): FeedMessage[] {
+function displayAnchor(message: FeedMessage): string {
+  if (message.kind === 'block') {
+    const block = message.block
+    return JSON.stringify([block.kind, block.kind === 'thinking' ? block.id : block.toolUseId])
+  }
+  return message.kind === 'claude' && message.text.length > 0 && message.text !== EARLIER_STEPS_NOTICE
+    ? JSON.stringify(['text', message.text]) : ''
+}
+
+function keepObservedSteps(prior: FeedMessage[], replacement: FeedMessage[], requestId: string): FeedMessage[] {
+  const anchors = new Map<string, number>()
+  replacement.forEach((message: FeedMessage, index: number) => {
+    const key = displayAnchor(message)
+    if (key.length > 0) anchors.set(key, anchors.has(key) ? -1 : index)
+  })
+  const inserts = new Map<number, BlockFeedMessage[]>()
+  const seen = new Set<string>()
+  let pending: BlockFeedMessage[] = []
+  let last = -1
+  for (const message of prior) {
+    if (!isTurnOutput(message, requestId)) continue
+    const key = displayAnchor(message)
+    const position = anchors.get(key)
+    if (position === undefined && message.kind === 'block' && !seen.has(key)) {
+      pending.push(message)
+      seen.add(key)
+    } else if (position !== undefined && position > last) {
+      if (pending.length > 0) inserts.set(position, pending)
+      pending = []
+      last = position
+    }
+  }
+  if (pending.length > 0 && last >= 0) inserts.set(last + 1, pending)
+  if (inserts.size === 0) return replacement
+  const result: FeedMessage[] = []
+  replacement.forEach((message: FeedMessage, index: number) => result.push(...(inserts.get(index) ?? []), message))
+  result.push(...(inserts.get(replacement.length) ?? []))
+  return result
+}
+
+export function repairInputOrder(messages: FeedMessage[]): FeedMessage[] {
   const inputs = new Map<string, number>()
   messages.forEach((message: FeedMessage, index: number) => {
     if (message.kind === 'input' && message.requestId.length > 0) inputs.set(message.requestId, index)
@@ -640,7 +692,7 @@ function repairInputOrder(messages: FeedMessage[]): FeedMessage[] {
   const delayed = new Map<number, FeedMessage[]>()
   const repaired: FeedMessage[] = []
   messages.forEach((message: FeedMessage, index: number) => {
-    if (message.kind === 'claude' || message.kind === 'block') {
+    if (message.kind !== 'input') {
       const input = inputs.get(message.requestId)
       if (input !== undefined && input > index) {
         const output = delayed.get(input) ?? []
@@ -655,7 +707,7 @@ function repairInputOrder(messages: FeedMessage[]): FeedMessage[] {
 }
 
 function turnOutputEnd(messages: FeedMessage[], requestId: string): number {
-  const start = messages.findIndex((message: FeedMessage) => message.kind === 'claude' && message.requestId === requestId)
+  const start = messages.findIndex((message: FeedMessage) => message.requestId === requestId && (message.kind === 'input' || isTurnOutput(message, requestId)))
   if (start < 0) return messages.length
   const following = messages.findIndex((message: FeedMessage, index: number) => index > start && message.requestId !== requestId &&
     (message.kind === 'claude' || (message.kind === 'input' && message.requestId.length > 0 &&
@@ -668,7 +720,6 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   const next = cloneState(state)
   next.progress = snapshot.turn.progress
   next.subagentTasks = snapshot.subagentTasks
-  next.progressRequestId = snapshot.turn.requestId
   next.permissionMode = snapshot.permissionMode ?? 'default'
   next.connection = ConnectionStage.READY
   next.sessionId = snapshot.sessionId
@@ -694,6 +745,12 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
   next.lastNotice = null
 
   const turnActive = snapshot.turn.status === 'running' || snapshot.turn.status === 'waiting'
+  next.progressRequestId = turnActive ? snapshot.turn.requestId : undefined
+  if (snapshot.turn.inputAt !== undefined) {
+    next.messages.forEach((message: FeedMessage) => {
+      if (message.kind === 'input' && message.requestId === snapshot.turn.requestId) message.messageAt = snapshot.turn.inputAt
+    })
+  }
   if (snapshot.turn.inputText !== undefined && snapshot.turn.source !== '') {
     let hasInput = false
     let replyIndex = -1
@@ -703,19 +760,29 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
       if (replyIndex < 0 && isTurnOutput(message, snapshot.turn.requestId)) replyIndex = index
     }
     if (!hasInput) {
-      const input: InputFeedMessage = { kind: 'input', source: snapshot.turn.source, requestId: snapshot.turn.requestId, text: snapshot.turn.inputText, status: '' }
+      const input: InputFeedMessage = { kind: 'input', source: snapshot.turn.source, requestId: snapshot.turn.requestId, text: snapshot.turn.inputText,
+        status: '', messageAt: snapshot.turn.inputAt }
       if (replyIndex < 0) next.messages.push(input)
       else next.messages.splice(replyIndex, 0, input)
     }
   }
   if (snapshot.turn.source !== '' && (snapshot.turn.message.length > 0 || turnActive || snapshot.turn.display !== undefined)) {
     const status = snapshot.turn.status === 'failed' ? 'failed' : snapshot.turn.status === 'cancelled' ? 'cancelled' : turnActive ? 'streaming' : 'done'
-    const current = createClaudeMessage(snapshot.turn.requestId, snapshot.turn.source, snapshot.turn.message, status, snapshot.turn.error)
+    const cachedTimes = new Map<string, string>()
+    let replyAt = snapshot.turn.replyAt
+    for (const message of next.messages) {
+      if (message.kind === 'claude' && message.requestId === snapshot.turn.requestId && message.messageAt !== undefined) {
+        cachedTimes.set(message.text, message.messageAt)
+        replyAt = replyAt ?? message.messageAt
+      }
+    }
+    const current = createClaudeMessage(snapshot.turn.requestId, snapshot.turn.source, snapshot.turn.message, status, snapshot.turn.error, undefined, replyAt)
     const display = snapshot.turn.display
     if (display !== undefined) {
       const replacement: Array<FeedMessage> = []
       display.items.forEach((item) => {
-        if (item.text !== undefined) replacement.push(createClaudeMessage(current.requestId, current.source, item.text, status, current.error, item.model))
+        if (item.text !== undefined) replacement.push(createClaudeMessage(current.requestId, current.source, item.text, status, current.error,
+          item.model, item.messageAt ?? cachedTimes.get(item.text)))
         else if (item.block !== undefined) {
           const block: BlockFeedMessage = { kind: 'block', requestId: current.requestId, block: item.block }
           replacement.push(block)
@@ -723,7 +790,7 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
       })
       const displayedText = display.items.map(item => item.text ?? '').join('')
       const prefix = display.truncated && current.text.endsWith(displayedText) ? current.text.slice(0, current.text.length - displayedText.length) : ''
-      if (prefix.length > 0) replacement.unshift(createClaudeMessage(current.requestId, current.source, prefix, status, current.error))
+      if (prefix.length > 0) replacement.unshift(createClaudeMessage(current.requestId, current.source, prefix, status, current.error, undefined, replyAt))
       if (displayedText.length === 0 && prefix.length === 0) {
         if (current.text.length > 0) replacement.unshift(current)
         else replacement.push(current)
@@ -739,13 +806,20 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
       const inputIndex = kept.findIndex((message: FeedMessage) => message.kind === 'input' && message.requestId === current.requestId)
       if (position < 0) position = inputIndex < 0 ? kept.length : inputIndex + 1
       else position = Math.max(position, inputIndex + 1)
-      kept.splice(position, 0, ...replacement)
+      const output = display.truncated ? keepObservedSteps(next.messages, replacement, current.requestId) : replacement
+      kept.splice(position, 0, ...output)
       next.messages = kept
     } else {
       const existing = next.messages.filter((message: FeedMessage) => message.kind === 'claude' && message.requestId === current.requestId)
       const observed = existing.map((message: FeedMessage) => message.kind === 'claude' ? message.text : '').join('')
       if (existing.length > 0 && current.text !== '' && observed === current.text) {
-        existing.forEach((message: FeedMessage) => { if (message.kind === 'claude') { message.status = current.status; message.error = current.error } })
+        existing.forEach((message: FeedMessage, index: number) => {
+          if (message.kind === 'claude') {
+            message.status = current.status
+            message.error = current.error
+            if (index === 0) message.messageAt = message.messageAt ?? replyAt
+          }
+        })
       } else if (existing.length > 0) {
         let replaced = false
         next.messages = next.messages.filter((message: FeedMessage) => {
@@ -755,7 +829,7 @@ function applySnapshot(state: HarmonySessionState, snapshot: SessionSnapshot): H
           if (current.text === '') current.text = message.text
           return true
         }).map((message: FeedMessage): FeedMessage => message === existing[0] ? current : message)
-      } else next.messages.push(current)
+      } else next.messages.splice(turnOutputEnd(next.messages, current.requestId), 0, current)
     }
   }
 
@@ -790,18 +864,26 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       const processed: InputFeedMessage = {
         kind: 'input', requestId: original.requestId, source: original.source, text: original.text, status: original.status,
         attachments: original.attachments, processingStarted: true,
+        messageAt: original.messageAt,
       }
       next.messages = replaceMessage(next.messages, input, processed)
     }
   }
-  if (['turn_completed','turn_failed','session_failed','session_stopped'].indexOf(event.kind) >= 0) next.progress = undefined
+  if (['turn_completed','turn_failed','session_failed','session_stopped'].indexOf(event.kind) >= 0) {
+    next.progress = undefined
+    next.progressRequestId = undefined
+  }
   switch (event.kind) {
     case 'input_steered': {
       if (event.source === '') break
       if (!next.messages.some((message: FeedMessage) => message.kind === 'input' && message.requestId === event.requestId)) {
         const input: InputFeedMessage = next.deferredInputs?.find((item: InputFeedMessage) => item.requestId === event.requestId) ??
           { kind: 'input', source: event.source, requestId: event.requestId, text: event.text, status: '' }
-        next.messages.push(input)
+        const visible: InputFeedMessage = {
+          kind: 'input', requestId: input.requestId, source: input.source, text: input.text, status: input.status,
+          attachments: input.attachments, processingStarted: true, messageAt: event.messageAt,
+        }
+        next.messages.push(visible)
       }
       next.deferredInputs = next.deferredInputs?.filter((item: InputFeedMessage) => item.requestId !== event.requestId)
       next = withoutQueued(next, event.requestId)
@@ -866,6 +948,7 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
           if (message.kind === 'input' && message.requestId === event.requestId) {
             if (event.images !== undefined) message.attachments = event.images
             if (event.imagesOmitted !== undefined) message.text += `\n[${event.imagesOmitted} 张图片未能同步]`
+            message.messageAt = event.messageAt ?? message.messageAt
           }
         })
         next = withoutQueued(next, event.requestId)
@@ -892,7 +975,8 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
         (previous.text === '' || previous.model === event.model)
       const text = merge ? (previous as ClaudeFeedMessage).text + event.text : event.text
       const model = event.model ?? (merge ? (previous as ClaudeFeedMessage).model : undefined)
-      const chunk = createClaudeMessage(reply.requestId, reply.source, text, reply.status, reply.error, model)
+      const messageAt = (merge ? (previous as ClaudeFeedMessage).messageAt : undefined) ?? event.messageAt
+      const chunk = createClaudeMessage(reply.requestId, reply.source, text, reply.status, reply.error, model, messageAt)
       next.messages = next.messages.slice()
       next.messages.splice(merge ? insertAt - 1 : insertAt, merge ? 1 : 0, chunk)
       break
@@ -910,7 +994,7 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
           } else if (event.turnStatus === 'cancelled') {
             status = 'cancelled'
           }
-          updated.push(createClaudeMessage(message.requestId, message.source, message.text, status, event.error, message.model))
+          updated.push(createClaudeMessage(message.requestId, message.source, message.text, status, event.error, message.model, message.messageAt))
         } else {
           updated.push(cloneFeedMessage(message))
         }
@@ -943,7 +1027,7 @@ function applyEvent(state: HarmonySessionState, event: DomainEvent): HarmonySess
       next.turnStatus = 'running'
       next.pendingAction = null
       if (event.answers !== undefined && event.answers.length > 0) {
-        next.messages.push(createAnswerMessage(event.requestId, event.answers))
+        next.messages.push(createAnswerMessage(event.requestId, event.answers, event.messageAt))
       }
       break
   }

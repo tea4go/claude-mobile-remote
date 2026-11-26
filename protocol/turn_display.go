@@ -12,13 +12,27 @@ type TurnDisplay struct {
 	Truncated bool              `json:"truncated"`
 }
 type TurnDisplayItem struct {
-	Text  string        `json:"text,omitempty"`
-	Model string        `json:"model,omitempty"`
-	Block *ContentBlock `json:"block,omitempty"`
+	Text      string        `json:"text,omitempty"`
+	Model     string        `json:"model,omitempty"`
+	MessageAt string        `json:"messageAt,omitempty"`
+	Block     *ContentBlock `json:"block,omitempty"`
 }
 
 const MaxTurnDisplayItems = 512
 const MaxTurnDisplayBytes = 512 * 1024
+
+func (turn *TurnSnapshot) AppendDisplay(event Event) {
+	switch event.Kind {
+	case EventTurnStarted:
+		turn.InputAt = event.MessageAt
+		turn.ReplyAt = ""
+	case EventTextDelta:
+		if event.Text != "" && turn.ReplyAt == "" {
+			turn.ReplyAt = event.MessageAt
+		}
+	}
+	turn.Display = AppendTurnDisplay(turn.Display, event)
+}
 
 // AppendTurnDisplay preserves reply text before spending the display budget on steps.
 func AppendTurnDisplay(display *TurnDisplay, event Event) *TurnDisplay {
@@ -35,8 +49,11 @@ func AppendTurnDisplay(display *TurnDisplay, event Event) *TurnDisplay {
 		n := len(display.Items)
 		if n > 0 && display.Items[n-1].Block == nil && display.Items[n-1].Model == event.Model {
 			display.Items[n-1].Text += event.Text
+			if display.Items[n-1].MessageAt == "" {
+				display.Items[n-1].MessageAt = event.MessageAt
+			}
 		} else {
-			display.Items = append(display.Items, TurnDisplayItem{Text: event.Text, Model: event.Model})
+			display.Items = append(display.Items, TurnDisplayItem{Text: event.Text, Model: event.Model, MessageAt: event.MessageAt})
 		}
 	} else if event.Block != nil {
 		b := *event.Block

@@ -9,6 +9,7 @@ import { inputDisplayText } from '../session/inputDisplay'
 import SelectableMessage from './SelectableMessage'
 import { FONT_SIZE_COMPACT } from './ui'
 import type { BlockMessage, Message } from '../session/reducer'
+import { projectSubagentBlocks, toolKey } from '../session/stepIndex'
 import type { SubagentTask } from '../protocol/types'
 
 interface MessageFeedProps {
@@ -52,60 +53,15 @@ function hasVisibleContent(message: Exclude<Message, { kind: 'block' }>): boolea
   return message.status === 'failed' && message.error !== null
 }
 
-const toolKey = (requestId: string, toolUseId: string) => JSON.stringify([requestId, toolUseId])
-
-function addSubagentSnapshot(messages: Message[], tasks: SubagentTask[]): Message[] {
-  if (tasks.length === 0) return messages
-  const observed = new Set(messages.flatMap(message => message.kind === 'block' && message.block.kind !== 'thinking'
-    ? [toolKey(message.requestId, message.block.kind + ':' + message.block.toolUseId)] : []))
-  const roots = new Map<number, BlockMessage[]>()
-  const turnEnds = new Map<string, number>()
-  messages.forEach((message, index) => {
-    if (message.requestId && (message.kind === 'input' || message.kind === 'claude' ||
-      (message.kind === 'block' && (message.block.kind === 'thinking' ||
-        (message.block.kind === 'tool_use' && !message.block.parentToolUseId))))) {
-      turnEnds.set(message.requestId, index + 1)
-    }
-  })
-  const calls = new Map<string, BlockMessage[]>()
-  const results: BlockMessage[] = []
-  for (const task of tasks) {
-    const { requestId, toolUseId } = task
-    if (!observed.has(toolKey(requestId, 'tool_use:' + toolUseId))) {
-      const position = turnEnds.get(requestId) ?? messages.length
-      const group = roots.get(position) ?? []
-      group.push({ kind: 'block', requestId, block: {
-        id: toolUseId, kind: 'tool_use', toolUseId, toolClass: 'builtin', toolName: 'Agent', mcpServer: '',
-      } })
-      roots.set(position, group)
-    }
-    for (const block of task.blocks ?? []) {
-      if (!observed.has(toolKey(requestId, block.kind + ':' + block.toolUseId))) {
-        const message = { kind: 'block' as const, requestId, block }
-        if (block.kind === 'tool_result') results.push(message)
-        else {
-          const key = toolKey(requestId, toolUseId)
-          const group = calls.get(key)
-          if (group) group.push(message)
-          else calls.set(key, [message])
-        }
-      }
-    }
-  }
-  const ordered = messages.flatMap((message, index) => [...(roots.get(index) ?? []), message])
-  ordered.push(...(roots.get(messages.length) ?? []))
-  return ordered.flatMap(message => {
-    if (message.kind !== 'block' || message.block.kind !== 'tool_use') return [message]
-    return [message, ...(calls.get(toolKey(message.requestId, message.block.toolUseId)) ?? [])]
-  }).concat(results)
-}
-
 function buildDisplayItems(messages: Message[], subagentTasks: SubagentTask[], revised: boolean): DisplayItem[] {
-  messages = addSubagentSnapshot(messages, subagentTasks)
+  messages = projectSubagentBlocks(messages, subagentTasks)
   const tasks = new Map(subagentTasks.map(task => [toolKey(task.requestId, task.toolUseId), task]))
   const items: DisplayItem[] = []
   const pendingTools = new Map<string, Extract<Activity, { kind: 'tool' }>>()
   const parentPanels = new Map<string, Extract<Activity, { kind: 'tool' }>>()
+  const calls = new Set(messages.flatMap(message => message.kind === 'block' && message.block.kind === 'tool_use'
+    ? [toolKey(message.requestId, message.block.toolUseId)] : []))
+  const earlyResults = new Map<string, Extract<BlockMessage['block'], { kind: 'tool_result' }>>()
   const askTools = new Map<string, Extract<Activity, { kind: 'tool' }>[]>()
   const completedTurns = new Set(messages.filter((message) => message.kind === 'claude' && message.status !== 'streaming').map((message) => message.requestId))
 
@@ -144,7 +100,10 @@ function buildDisplayItems(messages: Message[], subagentTasks: SubagentTask[], r
         kind: 'tool',
         id: revised ? key : block.id,
         tool: block,
-        subagent: tasks.get(key),
+        result: earlyResults.get(key),
+        subagent: tasks.get(key) ?? (message.cachedAgentStatus ? {
+          requestId: message.requestId, toolUseId: block.toolUseId, status: message.cachedAgentStatus,
+        } : undefined),
         turnEnded: parent?.subagent ? parent.subagent.status !== 'running' : completedTurns.has(message.requestId),
       }
       pendingTools.set(key, activity)
@@ -163,6 +122,10 @@ function buildDisplayItems(messages: Message[], subagentTasks: SubagentTask[], r
     const pending = pendingTools.get(key)
     if (pending !== undefined) {
       pending.result = block
+      continue
+    }
+    if (revised && calls.has(key)) {
+      earlyResults.set(key, block)
       continue
     }
     const activity: Activity = { kind: 'result', id: revised ? 'result:' + key : block.id, toolName: resolveToolName(messages, index, block.toolUseId), result: block }

@@ -1,5 +1,7 @@
 package protocol
 
+import "time"
+
 type EventKind string
 
 const (
@@ -74,6 +76,7 @@ type Event struct {
 	RequestID     string             `json:"requestId"`
 	Source        InputSource        `json:"source"`
 	Text          string             `json:"text"`
+	MessageAt     string             `json:"messageAt,omitempty"`
 	Model         string             `json:"model,omitempty"`
 	SessionStatus SessionStatus      `json:"sessionStatus"`
 	TurnStatus    TurnStatus         `json:"turnStatus"`
@@ -88,4 +91,22 @@ type Event struct {
 	// v3-only display metadata, absent from v2 wire events.
 	SessionTitle   string `json:"sessionTitle,omitempty"`
 	LastActivityAt string `json:"lastActivityAt,omitempty"`
+}
+
+// CarriesMessageTime reports which events produce a visible conversation message.
+func (e Event) CarriesMessageTime() bool {
+	switch e.Kind {
+	case EventTurnStarted, EventInputSteered, EventTextDelta:
+		return true
+	case EventActionResolved:
+		return len(e.Answers) > 0
+	default:
+		return false
+	}
+}
+
+func (e *Event) StampMessageTime(now time.Time) {
+	if e.MessageAt == "" && e.CarriesMessageTime() {
+		e.MessageAt = now.UTC().Format(time.RFC3339Nano)
+	}
 }

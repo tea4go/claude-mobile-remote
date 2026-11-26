@@ -1323,8 +1323,10 @@ func (c *Controller) failSession(state *actorState, err error) {
 }
 
 func (c *Controller) publish(state *actorState, event Event) {
+	now := time.Now().UTC()
+	event.StampMessageTime(now)
 	event.Block = c.toolDetails.Record(event.RequestID, event.Block)
-	state.snapshot.Turn.Display = protocol.AppendTurnDisplay(state.snapshot.Turn.Display, event)
+	state.snapshot.Turn.AppendDisplay(event)
 	switch event.Kind {
 	case EventTurnStarted:
 		if state.snapshot.SessionTitle == "" {
@@ -1333,7 +1335,7 @@ func (c *Controller) publish(state *actorState, event Event) {
 		}
 		fallthrough
 	case EventTurnCompleted, EventTurnFailed, EventActionRequired, EventSessionFailed, EventSessionStopped:
-		state.snapshot.LastActivityAt = time.Now().UTC().Format(time.RFC3339Nano)
+		state.snapshot.LastActivityAt = now.Format(time.RFC3339Nano)
 		event.LastActivityAt = state.snapshot.LastActivityAt
 	}
 	state.snapshot.Seq++

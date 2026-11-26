@@ -460,6 +460,35 @@ test('快照子代理跟随其原轮次，观察到真实步骤后改用实际�
   expect(precedes(screen.getByText('问题二'), screen.getByTestId('activity-group-summary'))).toBe(true)
 })
 
+test('离线缓存的子工具和父工具结果只出现在原轮次的子代理入口中', () => {
+  const parentResult = block({ id: 'parent-result', kind: 'tool_result', toolUseId: 'agent', isError: false })
+  const children = Array.from({ length: 100 }, (_, index) => block({
+    id: 'child-' + index, kind: 'tool_use', toolUseId: 'read-' + index, parentToolUseId: 'agent',
+    toolClass: 'builtin', toolName: 'Read', mcpServer: '',
+  }))
+  const originalText = '缓存中的原轮正文'
+  const nextQuestion = '下一轮提问'
+  const body = claude({ text: originalText, status: 'done' })
+  const later = input({ requestId: 'later', text: nextQuestion })
+  const load = vi.fn()
+  const { rerender } = render(<MessageFeed messages={[parentResult, ...children, body, later]}
+    connected={false} loadToolDetail={load} />)
+  const summary = screen.getByTestId('activity-group-summary')
+  expect(summary).toHaveTextContent('查看 1 个步骤')
+  expect(screen.getByText(originalText).compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(summary.compareDocumentPosition(screen.getByText(nextQuestion)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  fireEvent.click(summary)
+  fireEvent.click(screen.getByRole('button', { name: /^子代理/ }))
+  expect(within(screen.getByRole('dialog', { name: '子代理' })).getAllByRole('button', { name: /^Read/ })).toHaveLength(100)
+
+  const parent = block({ id: 'actual-parent', kind: 'tool_use', toolUseId: 'agent', toolClass: 'builtin',
+    toolName: 'Agent', mcpServer: '' })
+  rerender(<MessageFeed messages={[parentResult, ...children, parent, body, later]} loadToolDetail={load} />)
+  const actualSummary = screen.getByTestId('activity-group-summary')
+  expect(actualSummary).toHaveTextContent('查看 1 个步骤')
+  expect(actualSummary.compareDocumentPosition(screen.getByText(originalText)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
 test('子代理结果显示在折叠子工具上方', async () => {
   const load = vi.fn().mockResolvedValue({ output: '代理结果' })
   render(<MessageFeed loadToolDetail={load} messages={[

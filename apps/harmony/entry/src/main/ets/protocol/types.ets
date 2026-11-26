@@ -1,6 +1,7 @@
 export const PROTOCOL_VERSION = 2
 export const TOOL_DETAIL_PROTOCOL_VERSION = 13
-export const PREFERRED_PROTOCOL_VERSION = 14
+export const MESSAGE_TIME_PROTOCOL_VERSION = 15
+export const PREFERRED_PROTOCOL_VERSION = MESSAGE_TIME_PROTOCOL_VERSION
 export const PAIRING_PAYLOAD_VERSION = 1
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
 export const MAX_TEXT_BYTES = 1024 * 1024
@@ -253,11 +254,13 @@ export interface SessionDiagnostic {
  code: 'api_retry' | 'query_failed' | 'receive_failed' | 'response_incomplete' | 'assistant_error' | 'result_error' | 'turn_failed' | 'tool_failed'
  httpStatus?: number; attempt?: number; maxAttempts?: number; retryDelayMs?: number
 }
-export interface TurnDisplayItem { text?: string; model?: string; block?: ContentBlock }
+export interface TurnDisplayItem { text?: string; model?: string; block?: ContentBlock; messageAt?: string }
 export interface TurnDisplay { items: Array<TurnDisplayItem>; truncated: boolean }
 export interface TurnSnapshot {
   display?: TurnDisplay
   inputText?: string
+  inputAt?: string
+  replyAt?: string
   progress?: TurnProgress
   status: TurnStatus
   requestId: string
@@ -285,6 +288,7 @@ export interface SessionSnapshot {
 }
 
 export interface DomainEvent {
+  messageAt?: string
   model?: string
   subagentTask?: SubagentTask
   images?: Array<Attachment>

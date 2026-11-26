@@ -532,6 +532,10 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 	if c.version < 11 && snapshot.Turn.Historical {
 		snapshot.Turn = protocol.TurnSnapshot{Status: protocol.TurnIdle}
 	}
+	if c.version < messageTimeVersion {
+		snapshot.Turn.InputAt = ""
+		snapshot.Turn.ReplyAt = ""
+	}
 	if c.version < 9 {
 		snapshot.Turn.Display = nil
 	} else if display := snapshot.Turn.Display; display != nil {
@@ -542,6 +546,9 @@ func (c *connection) handleSubscribe(envelope Envelope) bool {
 			}
 			if c.version < toolDetailVersion {
 				item.Model = ""
+			}
+			if c.version < messageTimeVersion {
+				item.MessageAt = ""
 			}
 			item.Block = c.toolBlockForVersion(item.Block)
 			projected.Items = append(projected.Items, item)
@@ -704,6 +711,9 @@ func (c *connection) outboundEvent(event protocol.Event) (Envelope, error) {
 	event.Block = c.toolBlockForVersion(event.Block)
 	if c.version < toolDetailVersion {
 		event.Model = ""
+	}
+	if c.version < messageTimeVersion {
+		event.MessageAt = ""
 	}
 	if c.version == Version {
 		event.SessionTitle = ""

@@ -1,5 +1,6 @@
 import type {
   TurnProgress, SubagentTask,
+  SubagentStatus,
   TurnStatus,
   Attachment,
   CommandKind,
@@ -30,6 +31,7 @@ export type ClaudeMessageStatus = 'streaming' | 'done' | 'failed' | 'cancelled'
 export type InputMessageStatus = 'accepted' | 'unknown' | ''
 
 export interface ClaudeFeedMessage {
+  messageAt?: string
   kind: 'claude'
   model?: string
   requestId: string
@@ -40,6 +42,7 @@ export interface ClaudeFeedMessage {
 }
 
 export interface InputFeedMessage {
+  messageAt?: string
   kind: 'input'
   processingStarted?: boolean
   attachments?: Array<Attachment>
@@ -53,9 +56,11 @@ export interface BlockFeedMessage {
   kind: 'block'
   requestId: string
   block: ContentBlock
+  cachedAgentStatus?: SubagentStatus
 }
 
 export interface AnswerFeedMessage {
+  messageAt?: string
   kind: 'answer'
   requestId: string
   answers: Array<ResolvedAnswer>

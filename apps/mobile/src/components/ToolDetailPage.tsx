@@ -68,7 +68,8 @@ export function ToolDetailContent({ toolName, thinking, answers, fallback, reque
     </div>
   ) : (
     <>
-      {thinking !== undefined ? <DetailText text={thinking} markdown /> : <>
+      {thinking !== undefined ? (thinking ? <DetailText text={thinking} markdown /> :
+        <p className="tool-detail-page__note">此思考步骤的正文未缓存</p>) : <>
         {detail.input && <section>
           <div className="tool-detail-page__section-header"><h2>{shell ? '命令' : '输入'}</h2>
             {shell && !detail.inputTruncated && canFetch && <CopyTextButton text={detail.input} label="复制命令" />}</div>

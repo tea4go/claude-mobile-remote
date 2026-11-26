@@ -273,7 +273,7 @@ public class SessionExperiencePlugin extends Plugin {
             String sessionId = call.getString("sessionId"), data = call.getString("data");
             if (data == null || data.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > SessionDisplayCache.FILE_LIMIT) throw new IllegalArgumentException();
             JSONObject envelope = new JSONObject(data);
-            if (!sessionId.equals(envelope.optString("sessionId")) || envelope.optInt("version") != 1) throw new IllegalArgumentException();
+            if (!sessionId.equals(envelope.optString("sessionId")) || envelope.optInt("version") != 2) throw new IllegalArgumentException();
             cache.write(sessionId, data, System.currentTimeMillis()); return new JSObject();
         });
     }

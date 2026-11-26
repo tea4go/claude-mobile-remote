@@ -15,7 +15,8 @@ import (
 
 // Version remains the v2 default for callers constructing legacy envelopes.
 const Version = 2
-const LatestVersion = 14
+const LatestVersion = 15
+const messageTimeVersion = 15
 const subagentVersion = 14
 const toolDetailVersion = 13
 
@@ -400,6 +401,12 @@ func validateDisplayTitle(value string) bool {
 }
 
 func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
+	if snapshot.Turn.InputAt != "" || snapshot.Turn.ReplyAt != "" {
+		if version < messageTimeVersion || snapshot.Turn.RequestID == "" ||
+			!validateDisplayTime(snapshot.Turn.InputAt) || !validateDisplayTime(snapshot.Turn.ReplyAt) {
+			return protocolError(CodeInvalidMessage, "invalid turn message time")
+		}
+	}
 	if len(snapshot.SubagentTasks) != 0 {
 		if version < subagentVersion || len(snapshot.SubagentTasks) > protocol.MaxSubagentTasks {
 			return protocolError(CodeInvalidMessage, "invalid subagent snapshot")
@@ -433,6 +440,9 @@ func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
 			return protocolError(CodeInvalidMessage, "invalid turn display")
 		}
 		for _, item := range display.Items {
+			if item.MessageAt != "" && (version < messageTimeVersion || item.Block != nil || !validateDisplayTime(item.MessageAt)) {
+				return protocolError(CodeInvalidMessage, "invalid turn display message time")
+			}
 			if !validReplyModel(version, item.Model) || !validToolBlockVersion(version, item.Block) || (item.Block != nil && item.Model != "") {
 				return protocolError(CodeInvalidMessage, "invalid turn display metadata")
 			}
@@ -470,6 +480,9 @@ func validateSnapshotDisplay(version int, snapshot protocol.Snapshot) error {
 }
 
 func validateEventDisplay(version int, event protocol.Event) error {
+	if event.MessageAt != "" && (version < messageTimeVersion || !event.CarriesMessageTime() || !validateDisplayTime(event.MessageAt)) {
+		return protocolError(CodeInvalidMessage, "invalid event message time")
+	}
 	if version < subagentVersion && event.Kind == protocol.EventSubagentTask {
 		return protocolError(CodeInvalidMessage, "subagent task requires v14")
 	}

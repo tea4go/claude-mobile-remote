@@ -203,10 +203,10 @@ test('cache pruning matches the latest UTF-8 suffix without repeatedly serializi
   const encoded = encodeCache('多字节会话', state, 100)
   const value = JSON.parse(encoded)
   assert.ok(Buffer.byteLength(encoded) <= CACHE_BYTES)
-  assert.equal(value.messages.at(-1).requestId, 'r199')
-  assert.ok(value.messages.length > 0 && value.messages.length < 200)
-  const missing = 200 - value.messages.length - 1
-  value.messages.unshift(state.messages[missing])
+  assert.equal(value.timeline.at(-1).requestId, 'r199')
+  assert.ok(value.timeline.length > 0 && value.timeline.length < 200)
+  const missing = 200 - value.timeline.length - 1
+  value.timeline.unshift(state.messages[missing])
   assert.ok(Buffer.byteLength(JSON.stringify(value)) > CACHE_BYTES, 'must keep the largest newest suffix that fits')
   assert.equal(state.messages.length, 200, 'must not mutate the live feed')
 })
@@ -250,10 +250,12 @@ test('v11 restores a completed input and reply once, including after reconnect',
   wire.payload.snapshot.turn.status = 'idle'
   assert.throws(() => decodeServerMessage(JSON.stringify(wire)), /invalid current input/)
 })
-test('client negotiates v14 through v13 and older hosts without command replay', () => {
+test('client negotiates v15 through v14 and v13 and older hosts without command replay', () => {
   const client = new (load('protocol/client').ProtocolClient)(pairing)
   client.connect(); sockets.at(-1).emit('open', {})
-  assert.equal(sockets.at(-1).frames[0].version, 14)
+  assert.equal(sockets.at(-1).frames[0].version, 15)
+  sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 14 }, 14))
+  sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 14)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 13 }, 13))
   sockets.at(-1).emit('open', {}); assert.equal(sockets.at(-1).frames[0].version, 13)
   sockets.at(-1).wire(envelope('error', { code: 'unsupported_version', message: 'version', expectedVersion: 12 }, 12))
@@ -352,7 +354,7 @@ test('cache rejects wrong Session, corrupt, future, expired and invalid nested m
   assert.equal(decodeCache('broken', 's', 101), null)
   assert.equal(decodeCache(encoded, 's', 99), null)
   assert.equal(decodeCache(encoded, 's', 101 + CACHE_AGE), null)
-  const value = JSON.parse(encoded); value.messages = [{ kind: 'input', requestId: 'r', text: 1 }]
+  const value = JSON.parse(encoded); value.timeline = [{ kind: 'input', requestId: 'r', text: 1 }]
   assert.equal(decodeCache(JSON.stringify(value), 's', 101).messages.length, 0)
 })
 test('cache keeps latest 200 and respects UTF-8 byte budget', () => {
@@ -362,6 +364,89 @@ test('cache keeps latest 200 and respects UTF-8 byte budget', () => {
   assert.ok(Buffer.byteLength(encoded) <= CACHE_BYTES)
   const value = decodeCache(encoded, 's', 101)
   assert.ok(value.messages.length <= 200); assert.equal(value.messages.at(-1).requestId, 'r219')
+})
+test('offline restore corrects the matching question, reply and steps in an older cache', () => {
+  const state = createInitialHarmonySessionState()
+  const question = { kind: 'input', requestId: 'r', source: 'terminal', status: 'accepted', text: 'question' }
+  const unrelated = { ...question, requestId: 'old', text: 'earlier question' }
+  const reply = { kind: 'claude', requestId: 'r', source: 'terminal', status: 'done', text: 'reply', error: null }
+  const step = { kind: 'block', requestId: 'r', block: { id: 'step', kind: 'thinking', thinking: 'planning' } }
+  const cache = { version: 1, sessionId: 's', savedAt: 100, messages: [reply, step, unrelated, question] }
+  const restored = decodeCache(JSON.stringify(cache), 's', 101)
+  assert.equal(restored.connection, 'DISCONNECTED')
+  assert.deepEqual(restored.messages.map(item => item.kind === 'block' ? item.block.id : item.text),
+    ['earlier question', 'question', 'reply', 'step'])
+  state.messages = cache.messages
+  assert.deepEqual(decodeCache(encodeCache('s', state, 101), 's', 102).messages, restored.messages)
+})
+
+test('step data uses a separate budget, with MCP identity, original anchors and message times', () => {
+  const state = createInitialHarmonySessionState()
+  const inputAt = '2026-11-26T06:01:00.123Z', replyAt = '2026-11-26T06:02:00Z'
+  const reply = { kind: 'claude', requestId: 'r', source: 'terminal', status: 'done', text: 'before', messageAt: replyAt, error: null }
+  state.messages = [
+    { kind: 'input', requestId: 'r', source: 'terminal', status: 'accepted', text: 'question', messageAt: inputAt }, reply,
+    { kind: 'block', requestId: 'r', block: { id: 'thinking', kind: 'thinking', thinking: 'THINKING'.repeat(100000) } },
+    { ...reply, text: 'between' },
+    { kind: 'block', requestId: 'r', block: { id: 'agent', kind: 'tool_use', toolUseId: 'agent', toolClass: 'builtin', toolName: 'Agent', mcpServer: '' } },
+    ...Array.from({ length: 220 }, (_, index) => ({ kind: 'block', requestId: 'r', block: { id: 's' + index,
+      kind: 'tool_use', toolUseId: 'c' + index, toolClass: 'mcp', mcpServer: 'local', toolName: 'search',
+      parentToolUseId: 'agent', preview: 'PRIVATE_ARGUMENTS', detailAvailable: true } })),
+    { ...reply, text: 'after' },
+    { kind: 'block', requestId: 'r', block: { id: 'result', kind: 'tool_result', toolUseId: 'agent', isError: false, output: 'PRIVATE_RESULT' } },
+  ]
+  state.subagentTasks = [{ requestId: 'r', toolUseId: 'agent', status: 'completed', summary: 'PRIVATE_SUBAGENT' }]
+  const encoded = encodeCache('s', state, 100)
+  assert.doesNotMatch(encoded, /THINKING|PRIVATE_ARGUMENTS|PRIVATE_RESULT|PRIVATE_SUBAGENT/)
+  const cache = JSON.parse(encoded)
+  assert.deepEqual(cache.timeline.map(item => item.kind), ['input', 'claude', 'steps', 'claude', 'steps', 'claude'])
+  assert.equal(cache.steps[0].items.length, 200)
+  const restored = decodeCache(encoded, 's', 101)
+  assert.equal(restored.messages[0].messageAt, inputAt)
+  assert.equal(restored.messages[1].messageAt, replyAt)
+  assert.equal(restored.messages[2].block.thinking, '')
+  assert.equal(restored.messages[4].block.toolUseId, 'agent')
+  assert.equal(restored.messages[4].cachedAgentStatus, 'completed')
+  assert.equal(restored.messages[5].block.mcpServer, 'local')
+  assert.equal(restored.messages[5].block.parentToolUseId, 'agent')
+  assert.equal(restored.messages.at(-1).text, 'after')
+})
+
+test('v15 message times survive disk and a later truncated v14 snapshot keeps observed step positions', () => {
+  const inputAt = '2026-11-26T06:01:02.123456789Z'
+  const firstAt = '2026-11-26T06:02:00Z'
+  const finalAt = '2026-11-26T06:03:00Z'
+  const { store, socket } = readyStore(15)
+  socket.wire(eventWire(event('turn_started', 1, { text: 'question', turnStatus: 'running', messageAt: inputAt }), 15))
+  socket.wire(eventWire(event('text_delta', 2, { text: 'first', messageAt: firstAt }), 15))
+  socket.wire(eventWire(event('content_block', 3, { block: { kind: 'thinking', id: 'step', thinking: 'body' } }), 15))
+  socket.wire(eventWire(event('text_delta', 4, { text: 'final', messageAt: finalAt }), 15))
+  const persisted = decodeCache(encodeCache(pairing.sessionId, store.getState(), 100), pairing.sessionId, 101)
+  assert.deepEqual(persisted.messages.filter(item => item.kind === 'claude').map(item => item.messageAt), [firstAt, finalAt])
+  const value = snapshot().payload.snapshot
+  value.queuedRequests = []
+  value.turn = { ...value.turn, status: 'running', source: 'mobile', requestId: 'r1', inputText: 'question', message: 'firstfinal',
+    display: { truncated: true, items: [{ text: 'first' }, { text: 'final' }] } }
+  const recovered = reducer.reduceHarmonySessionState(persisted, reducer.snapshotReceived(value))
+  assert.deepEqual(recovered.messages.map(item => item.kind === 'block' ? item.block.id : item.text),
+    ['question', '[较早的执行过程未同步]', 'first', 'step', 'final'])
+  assert.equal(recovered.messages[0].messageAt, inputAt)
+  assert.equal(recovered.messages.at(-1).messageAt, finalAt)
+})
+
+test('a legacy snapshot fills an unanswered turn before the next cached turn', () => {
+  const state = createInitialHarmonySessionState()
+  state.messages = [
+    { kind: 'input', requestId: 'old', source: 'terminal', status: 'accepted', text: 'original question' },
+    { kind: 'input', requestId: 'next', source: 'terminal', status: 'accepted', text: 'next question' },
+    { kind: 'claude', requestId: 'next', source: 'terminal', status: 'done', text: 'next reply', error: null },
+  ]
+  const value = snapshot().payload.snapshot
+  value.turn = { ...value.turn, requestId: 'old', source: 'terminal', status: 'completed', message: 'original reply' }
+  value.queuedRequests = []
+  const cached = decodeCache(encodeCache(value.sessionId, state, 100), value.sessionId, 101)
+  const recovered = reducer.reduceHarmonySessionState(cached, reducer.snapshotReceived(value))
+  assert.deepEqual(recovered.messages.map(item => item.text), ['original question', 'original reply', 'next question', 'next reply'])
 })
 test('reconnect preserves cached prior turns and snapshot replaces current request', () => {
   let state = createInitialHarmonySessionState(); state.sessionId = pairing.sessionId
@@ -835,6 +920,27 @@ test('activity groups keep contiguous steps isolated by turn', () => {
   assert.equal(rows[0].blocks.length, 2)
 })
 
+test('offline child tools and parent results stay in their original turn even if the parent was evicted', () => {
+  const { projectSubagentBlocks } = load('session/stepIndex')
+  const { projectFeed } = load('ui/feedDataSource')
+  const parent = { kind: 'block', requestId: 'r', block: { kind: 'tool_use', id: 'actual', toolUseId: 'agent', toolName: 'Agent' } }
+  const result = { kind: 'block', requestId: 'r', block: { kind: 'tool_result', id: 'res', toolUseId: 'agent', isError: false } }
+  const children = Array.from({ length: 100 }, (_, index) => ({ kind: 'block', requestId: 'r', block: {
+    kind: 'tool_use', id: 's' + index, toolUseId: 'read' + index, toolName: 'Read', parentToolUseId: 'agent',
+  } }))
+  const reply = { kind: 'claude', requestId: 'r', text: 'original body', source: 'terminal', status: 'done', error: null }
+  const later = { kind: 'input', requestId: 'another', text: 'next question', source: 'terminal', status: '' }
+  const withoutParent = projectSubagentBlocks([result, ...children, reply, later], [])
+  const rows = projectFeed(withoutParent)
+  assert.deepEqual(rows.map(row => row.kind), ['claude', 'activity', 'input'])
+  assert.equal(rows[1].blocks.length, 1)
+  assert.equal(rows[1].blocks[0].block.toolUseId, 'agent')
+  assert.equal(withoutParent.filter(item => item.block?.parentToolUseId === 'agent').length, 100)
+  const restored = projectFeed(projectSubagentBlocks([result, ...children, parent, reply, later], []))
+  assert.deepEqual(restored.map(row => row.kind), ['activity', 'claude', 'input'])
+  assert.deepEqual(restored[0].blocks, [parent])
+})
+
 test('unfinished tool status is scoped to turn and never fakes completion', () => {
   const { toolStatusesByTurn } = load('session/stepIndex')
   const key = (requestId, toolUseId) => JSON.stringify([requestId, toolUseId])
@@ -1061,6 +1167,20 @@ test('restores a long turn with legacy truncated display and keeps earlier backg
     ['first question', 'first reply continued', 'agent', 'second question', '[较早的执行过程未同步]', 'active reply'])
   assert.equal(state.progressRequestId, 'active')
   assert.equal(state.queuedRequests[0].requestId, 'queued')
+})
+
+test('late background text keeps its position when the next command is accepted before it starts', () => {
+  const { store, socket } = readyStore(14)
+  socket.wire(eventWire(event('turn_started', 1, { text: 'previous question', turnStatus: 'running' }), 14))
+  socket.wire(eventWire(event('text_delta', 2, { text: 'previous reply' }), 14))
+  socket.wire(eventWire(event('turn_completed', 3, { turnStatus: 'completed' }), 14))
+
+  store.sendText('next question')
+  const command = socket.frames.at(-1)
+  socket.wire({ ...envelope('command_result', { accepted: true, code: '', message: '' }, 14), commandId: command.commandId, requestId: 'next' })
+  socket.wire(eventWire(event('text_delta', 4, { text: ' continued' }), 14))
+  assert.deepEqual(store.getState().messages.map(item => item.text), ['previous question', 'previous reply continued', 'next question'])
+  assert.equal(store.getState().turnStatus, 'completed')
 })
 
 test('turn elapsed format matches mobile across minute and hour boundaries', () => {
