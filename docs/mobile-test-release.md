@@ -4,11 +4,11 @@
 
 ## 1. 确认版本和生成更新列表
 
-1. 先请发包人输入或确认显示版本号，格式为 `X.Y.Z`。从 iOS App 的 Release `MARKETING_VERSION` 提取默认值，目前为 `1.1.1`。三端使用同一个确认值。
-2. 分别确认三端的构建号。显示版本相同也要为新构建分配新构建号。
-   - iOS 构建号从 App Store Connect 和最近的本地发包记录核对。脚本接受 1–9999。
+1. 使用发包人指定的显示版本号，格式为 `X.Y.Z`；未指定时请发包人输入或确认。三端使用同一个确认值。
+2. 分别按本地已核实的发包和装机记录递增三端构建号。显示版本相同也要为新构建分配新构建号。用户已指定显示版本时，发包前无需登录开发者后台核对版本或构建号；本地记录不足以确定已用最高构建号时，请发包人提供。
+   - iOS 构建号按最近已核实的本地发包记录递增。脚本接受 1–9999。
    - HarmonyOS 构建号按同一包名下本地正式包、邀请测试包和装机记录中已核实的最高 `versionCode` 递增。本地记录不足时，请发包人提供已用最高构建号。无需登录或查看 HarmonyOS 开发者后台。
-   - Android 构建号根据对应后台和最近的本地发包记录递增 `versionCode`。
+   - Android 构建号按最近已核实的本地发包记录递增 `versionCode`。
 3. 选定三端本次共同使用的源码快照，包含发包人确认纳入的本地变更。查上次发给同一测试渠道的源码基线，基线因平台而异时分别核对。在编译前把差异整理成 `更新列表.md`，放到本轮归档目录，并发给发包人。每项写清适用平台、用户可感知的变化和测试操作或预期结果。记录显示版本、各端构建号及对比基线。基线找不到时明确标注，按实际可核对的变更生成列表。
 4. 在不含签名私钥的独立构建副本中准备版本参数和工具链。保留工作区现有改动，先检查 Xcode 登录、HarmonyOS 工具链和 MyPhoneCSR 签名材料、Android SDK Build Tools 36.0.0 和已有签名配置是否可用。复用已安装的工具和依赖。
 
@@ -41,10 +41,13 @@ bash scripts/macos/5_ios_testflight.sh upload --output "$RUN_DIR/ios"
 
 `HARMONY_SIGNING_CONFIG` 指向仓库外的 MyPhone 发布签名配置。若本机尚未保存此配置，按 [HarmonyOS AppTest 配置格式](harmony-preview-apptest.md#构建) 准备，`storeFile`、`certpath`、`profile` 使用上述材料，`keyAlias` 使用 MyPhone 私钥库的实际别名，密码字段指向本机私有文件。签名配置及材料限制为 0600，密码与密钥留在本机。
 
+本机 HarmonyOS 6.1.1（API 24）工具链位于 `/Volumes/T7/code/tools/harmony/command-line-tools`。先确认 T7 已挂载、该路径可访问；脚本会核验 SDK 版本。工具链路径不同的机器可按实际位置调整 `HARMONY_TOOLS_HOME`，不要仅因构建副本下默认路径不存在就判断工具链未安装。
+
 本机默认配置的 `storePasswordFile` 和 `keyPasswordFile` 指向现有私有密码文件，脚本自动读取。需要切换发布身份时可用 `HARMONY_SIGNING_CONFIG` 覆盖配置路径。
 
 ```bash
-bash scripts/macos/5_harmony_apptest.sh --config "${HARMONY_SIGNING_CONFIG:-$HOME/.config/claude-mobile-remote/harmony-signing/myphone-release/signing.json}"
+HARMONY_TOOLS_HOME=/Volumes/T7/code/tools/harmony/command-line-tools \
+  bash scripts/macos/5_harmony_apptest.sh --config "${HARMONY_SIGNING_CONFIG:-$HOME/.config/claude-mobile-remote/harmony-signing/myphone-release/signing.json}"
 ```
 
 脚本输出 `.local-tools/harmony-apptest/signed/ClaudeMobileRemote-signed.app`。核对 APP 中内嵌 HAP 的包名、显示版本、构建号和 Release 模式，核对 APP 验签结果、内嵌 Profile 及发布证书。将本轮产物复制到归档目录，命名为 `ccBuddy-<版本>-b<构建号>-harmony-invite-test-signed.app`。
